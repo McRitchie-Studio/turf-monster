@@ -95,14 +95,30 @@
   <%= render "shared/impersonation_banner" if !is_preview && impersonating? %>
   <div class="nav-row flex items-center min-w-0">
     <%# Left side: logo + nav %>
+    <%# min-w-0 FOUR TIMES, on every flex item between the row and the wordmark.
+        A flex item's default min-width is auto, which floors it at its own
+        min-content — so ONE of these left out puts the floor back and the
+        wordmark spills across the gutter again. The chain is: row item
+        (.flex-1) to its inner flex to the logo link to the h1. Leaving the
+        chain out while capping the column alone was measured on the engine's
+        identical header: from 344px up the caps alone contain the title,
+        because `truncate` carries overflow: hidden whose automatic minimum size
+        is zero and substitutes for min-w-0 while there is room. The chain only
+        becomes load-bearing at the narrow end, which is exactly where a spec
+        written for one width never looks. %>
     <div class="flex-1 min-w-0 px-4">
       <div class="flex items-center gap-6 min-w-0">
-        <%= link_to root_path, class: "nav-logo-link inline-flex items-center gap-3 group" do %>
+        <%= link_to root_path, class: "nav-logo-link inline-flex items-center gap-3 group min-w-0" do %>
           <%# No w-*/h-* utility here: .nav-shell .nav-logo sizes it off --nav-p.
               transition-transform, NOT transition-all — the hover lift still
               eases, while width/height follow the finger with no clock. %>
           <img src="/icon-192.png" alt="Turf Monster" width="48" height="48" class="nav-logo rounded-full shadow-lg <%= "group-hover:scale-105 transition-transform duration-300" unless is_preview %>">
-          <h1 class="nav-title font-extrabold text-heading tracking-tight"><span class="dm-salmon">Turf</span><span class="dm-yellow text-primary">Monster</span></h1>
+          <%# truncate on the SPANS, not on the h1. .nav-title is itself a flex
+              container — a column below 768px, a baseline row above — so the
+              box that has to be clipped is each word's own. `truncate` on the
+              h1 clips the flex CONTAINER and leaves the spans drawing outside
+              it, which is the bug rather than the fix. %>
+          <h1 class="nav-title font-extrabold text-heading tracking-tight min-w-0"><span class="dm-salmon truncate">Turf</span><span class="dm-yellow text-primary truncate">Monster</span></h1>
         <% end %>
         <nav class="dm-teal hidden md:flex items-center gap-4 min-w-0">
           <%= link_to "Contests", contests_path, class: "text-secondary hover:text-primary text-sm font-medium transition" %>

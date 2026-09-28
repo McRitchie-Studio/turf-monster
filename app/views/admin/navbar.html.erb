@@ -4,7 +4,12 @@
   /* Preview container base */
   .navbar-preview {
     overflow: hidden;
-    border: 2px solid var(--color-border-strong);
+    /* The frame is the simulated phone's BEZEL, not part of its screen. The
+       slider and the label both count the border box, while a percentage inside
+       the preview resolves against the CONTENT box — so every width expression
+       below adds the frame back. Named rather than spelled 4px twice. */
+    --preview-frame: 2px;
+    border: var(--preview-frame) solid var(--color-border-strong);
     border-radius: 0.5rem;
     pointer-events: none;
     /* --nav-p is a registered <number>, so the Scrolled toggle can TRANSITION
@@ -19,7 +24,14 @@
   .navbar-preview.is-mobile .hidden.md\:block { display: none !important; }
   .navbar-preview.is-mobile .flex.md\:hidden { display: flex !important; }
   .navbar-preview.is-mobile .user-nav-col { padding-left: 0 !important; padding-right: 1rem !important; }
-  .navbar-preview.is-mobile .nav-title { flex-direction: column !important; gap: 0 !important; line-height: 1.15 !important; }
+  <%# align-items rides along with flex-direction, and leaving it out made this
+      preview draw a header no phone draws. A column container aligns on the
+      horizontal axis, so the shipped mobile band resets the base baseline to
+      stretch to give the wordmark's spans a box narrower than their own text to
+      truncate against. Without it here the preview shows the words at full
+      max-content width, spilling over the user column, which is the defect the
+      shipped rule fixes. %>
+  .navbar-preview.is-mobile .nav-title { flex-direction: column !important; gap: 0 !important; line-height: 1.15 !important; align-items: stretch !important; }
   .navbar-preview.is-mobile .nav-title span:first-child { margin-bottom: -4px !important; }
   .navbar-preview.is-mobile .nav-logo-link { gap: 0.5rem !important; }
 
@@ -41,18 +53,56 @@
     --nav-title-lead-size: calc(1.5rem - 0.35rem * var(--nav-p));
   }
 
+  /* THE USER-COLUMN WIDTH STEPS, re-keyed on the wrapper for the same reason the
+     --nav-p sizes above are: the shipped rules live in media queries, and a media
+     query cannot fire for a CONTAINER at a fixed viewport width.
+
+     PERCENT HERE, vw THERE, AND THEY ARE THE SAME NUMBER. application.css caps
+     the two phone bands at clamp(floor, 100vw minus what the left column needs,
+     ceiling). A literal 100vw inside a 390px preview box on a 1400px monitor
+     resolves to 1400px, which would draw a header no phone has — so the
+     measurement is taken against the CONTAINING BLOCK, which in this preview is
+     the navbar row, i.e. the simulated device width. Both numbers inside the
+     clamp are read straight out of the shipped rule
+     (var(--user-nav-floor), var(--nav-left-need)), so the floor is declared
+     exactly once in this app and this block cannot drift from it.
+
+     BOTH PHONE BANDS RESTATE --nav-left-need, and the tiny one is the reason
+     this sentence exists. A reviewer opens this page on a DESKTOP, where the
+     shipped `@media (min-width: 400px)` query fires for real and sets the need
+     to its 400px-band value on every preview on the page — so a tiny preview
+     that merely inherited the property drew its column with the WRONG band's
+     number. Measured: 190px against the 212px a real 390px phone gets, an 18px
+     lie, with every other expression here already correct. Each band restates
+     its own need for the same reason it restates its own ceiling.
+
+     The `+ 2 * var(--preview-frame)` adds the preview's own border back. The
+     slider and the label count the border box; a percentage resolves against
+     the content box, so without it every column here is 4px narrow — and the
+     desktop band's `0.48 * var(--preview-frame)` is 24% of the same 4px.
+
+     THE DESKTOP STEP NOW SAYS WHAT SHIPS TOO. It read a flat 20rem while the
+     shipped band is clamp(16rem, 24vw, 20rem) — so the Tablet preview at 1032px
+     drew a 320px column where production draws 256px, a 64px lie in the
+     reviewer's own instrument.
+
+     REMOVED, 2026-09-28: three `.username-cap` rules, at 5/6/7rem. No element in
+     this app has ever carried that class — components/_user_nav caps the name
+     with `max-w-[4.5rem] min-[400px]:max-w-[6rem] md:max-w-[7rem]` and fades the
+     clipped edge through navUsernameFade's mask. The rules were dead the day they
+     were written, they disagreed with the live 4.5rem at the tiny band, and they
+     read to the next person sizing this header like a cap already in force.
+     studio-engine dropped its own three the same way in 0.77.1. */
+
   /* Tiny (< 400px) */
   .navbar-preview.bp-tiny .nav-logo-link { gap: 0.25rem !important; }
-  .navbar-preview.bp-tiny .user-nav-col { width: 14rem !important; }
-  .navbar-preview.bp-tiny .username-cap { max-width: 5rem !important; }
+  .navbar-preview.bp-tiny .user-nav-col { --nav-left-need: 11.125rem; width: clamp(var(--user-nav-floor), calc(100% + 2 * var(--preview-frame) - var(--nav-left-need)), 14rem) !important; }
 
   /* Small (400–767px) */
-  .navbar-preview.bp-small .user-nav-col { width: 15rem !important; }
-  .navbar-preview.bp-small .username-cap { max-width: 6rem !important; }
+  .navbar-preview.bp-small .user-nav-col { --nav-left-need: 12.25rem; width: clamp(var(--user-nav-floor), calc(100% + 2 * var(--preview-frame) - var(--nav-left-need)), 15rem) !important; }
 
   /* Desktop (768px+) */
-  .navbar-preview.is-desktop .user-nav-col { width: 20rem !important; }
-  .navbar-preview.is-desktop .username-cap { max-width: 7rem !important; }
+  .navbar-preview.is-desktop .user-nav-col { width: clamp(16rem, calc(24% + 0.48 * var(--preview-frame)), 20rem) !important; }
 
   /* Scrolled state. The size half of this used to be TWELVE !important rules
      restating every collapsed value; the toggle now just sets --nav-p: 1 on

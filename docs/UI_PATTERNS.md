@@ -326,36 +326,45 @@ The header carries `x-data="navCollapse()"` (factory in `shared/_alpine_factorie
 - `preview` — drops `x-data`/`navCollapse()` and sticky positioning. It KEEPS `nav-shell` (the `--nav-p` `calc()`s have to resolve); `/admin/navbar` drives `--nav-p` from its own Scrolled toggle instead.
 
 ### Responsive breakpoints
-`@layer utilities` in `app/assets/tailwind/application.css` (migrated out of an inline `<style>` block 2026-05-24), three tiers. Mobile title stacks "Turf"/"Totals" vertically via `flex-direction: column` with `-4px` bottom margin on "Turf" to tighten spacing. "Totals" renders larger than "Turf" on mobile.
+`@layer utilities` in `app/assets/tailwind/application.css` (migrated out of an inline `<style>` block 2026-05-24), three tiers. Mobile title stacks "Turf"/"Monster" vertically via `flex-direction: column` with `-4px` bottom margin on "Turf" to tighten spacing. "Monster" renders larger than "Turf" on mobile.
+
+**The mobile stack also resets `align-items`**, and that line is what makes the wordmark truncate instead of spill. Turning `.nav-title` into a column puts its cross axis *horizontal*, so `align-items` is now what decides each word's **width**; the base rule says `baseline`, which in a column container falls back to flex-start and lets every span size to its own max-content. With the width caps and the whole `min-w-0` chain in place but this one declaration missing, the `<h1>` shrank to 46px at 320px and reported itself contained while the span reading "Monster" stayed 88px wide and painted 26px past the left column, over the seeds bar. `align-items: stretch` gives each span a box narrower than its own text for `truncate` to clip against.
 
 Each band overrides the `--nav-*` custom properties on `.nav-shell`, so a band is *the two endpoints of its collapse*, not two separate rule sets. Endpoints are unchanged from the pre-2026-08-27 build; only the path between them is.
 
 | Range | `--nav-ramp` | `.user-nav-col` | `.nav-logo` | `.nav-title` | `.nav-title span:last-child` |
 |---|---|---|---|---|---|
-| **< 400px** | 120px | 14rem | 3rem → 2.5rem | 1.1rem → 0.9rem | 1.3rem → 1rem |
-| **400–767px** | 120px | 15rem | 3rem → 2.5rem | 1.25rem → 1rem | 1.5rem → 1.15rem |
+| **< 400px** | 120px | clamp(11.875rem, 100vw - 11.125rem, 14rem) | 3rem → 2.5rem | 1.1rem → 0.9rem | 1.3rem → 1rem |
+| **400–767px** | 120px | clamp(11.875rem, 100vw - 12.25rem, 15rem) | 3rem → 2.5rem | 1.25rem → 1rem | 1.5rem → 1.15rem |
 | **768px+** | 144px | clamp(16rem, 24vw, 20rem) | 3rem → 2rem | 1.875rem → 1.25rem | — (tracks `.nav-title`) |
+
+**The two phone rows are a cap, not a constant, and that is the whole of `turf-header-fits-phone`.** They used to read a flat `14rem`/`15rem` on a `flex-shrink-0` column — 224px, 57% of a 390px screen — so the left column got what was left and the wordmark drew across the gutter onto the seeds bar. Read the clamp inside out:
+
+- **`11.875rem` (190px) floor** — what this column's own contents need: the seeds bar's `min-w-[8rem]` less the row's `-6px` pull, plus the `gap-2`, the avatar's `ml-3` badge inset, the 32px avatar and the column's `pr-4`. `width: min-content` on the column measures exactly 190px. Below it the seeds bar slides under the avatar, and the column's own `scrollWidth` keeps reporting a contented fit down to 122px — so that measurement cannot be used to find it.
+- **`100vw` minus `--nav-left-need`** — what has to be LEFT for the column beside it, rather than a share of the screen. `--nav-left-need` is `11.125rem` (178px) below 400px and `12.25rem` (196px) above: 32px of padding, the 48px logo, the logo-link gap, the measured wordmark, and 6px of slack. The slack is load-bearing — tuned to the bare 172.05px the wordmark ellipsed at 390px, because `scrollWidth` and `clientWidth` both round to 88 while the renderer clips 88.05 against 88.00.
+- **`14rem`/`15rem` ceiling** — the old constants, still reached from 430px up. iPhone Pro Max width is unchanged by the fix.
+
+Measured containment (`/contests`, signed in, `$1504` balance), title right edge against its own column's right edge: **before** +60.0 / +36.0 / +20.0 / −10.0 / +1.6 / −16.4px at 320/344/360/390/412/430; **after** a uniform 16px of clearance at all six. `documentElement` reported an untroubled 320/320, 344/344, 360/360 and 412/412 throughout the broken state — a box overflowing its *sibling* never reaches the document, which is why `e2e/header_phone_width.spec.js` asserts per column.
 
 Row padding is `1.5rem → 0.5rem` in every band (`--nav-pad`, was `py-6`/`py-2`); balance is `1.25rem → 1.125rem` (`.nav-balance`, was `text-xl`/`text-lg`) and username `1.125rem → 1rem` (`.nav-username`, was `text-lg`/`text-base`). Both left Alpine's per-scroll reactive path when they moved onto `--nav-p`.
 
 ### Left side
-Logo (`.nav-logo`) + "Turf Totals" brand title (`.nav-title` with two `<span>`s), desktop nav links (`hidden md:flex`: Contests, NFL Totals, Rules, Reserves, geo badge — `_navbar.html.erb:63-69`).
+Logo (`.nav-logo`) + "Turf Monster" brand title (`.nav-title` with two `<span>`s, each carrying `truncate`; `min-w-0` runs the whole chain from the row's `flex-1` item through its inner flex and the `.nav-logo-link` to the `<h1>`, because a flex item's default `min-width: auto` floors it at its own min-content and one missing link puts the spill back), desktop nav links (`hidden md:flex`: Contests, Rules, the geo badge and the wallet signal). NFL Totals and Reserves left this row — `navbar_brand_test` pins their removal and the footer's replacement links.
 
 ### Mobile sub-navbar
-`flex md:hidden` compact row below main nav with `bg-surface-alt border-t border-subtle`. Contains: Contests, NFL Totals, Rules, Reserves, geo badge (`_navbar.html.erb:130-135`). Gear sidebar trigger + theme toggle morph pushed right via `ml-auto`.
+`flex md:hidden` compact row below main nav with `bg-surface-alt border-t border-subtle`. Contains: Contests, Rules, the geo badge and the wallet signal. Gear sidebar trigger + theme toggle morph pushed right via `ml-auto`. It is the only place a phone gets the gear and the theme toggle, since both are `hidden md:flex` in the user column — so `e2e/header_phone_width.spec.js` asserts this row survives every phone width, because containing the header by hiding navigation is a regression wearing a fix's clothes.
 
 ### Environment banner
-Owned by **studio-engine** (>= 0.30), not by this app: the markup lives in the gem at `app/views/studio/banners/_environment.html.erb`. Turf renders it from `app/views/layouts/_navbar.html.erb:45`, **inside** the sticky `<header>` (opened at `_navbar.html.erb:34`, closed at `:141`) — so it stays pinned with the navbar instead of scrolling away. Turf passes two locals and nothing else:
+Owned by **studio-engine** (>= 0.30), not by this app: the markup lives in the gem at `app/views/studio/banners/_environment.html.erb`. Turf renders it from `layouts/_navbar` into a `studio-bar-stack` div that is a **sibling above** the sticky `<header>`, not a child of it — the header carries a z-index and is therefore a stacking context, which clamped the banner's own z-index inside it and let a modal backdrop dim DEV MODE on QA. Outside the header the engine's `body.modal-open .studio-bar-stack` rule can lift the bars over a modal; the accepted cost is that they scroll away with the page instead of staying pinned. (The impersonation bar stayed inside the header for the opposite reason — it is an escape hatch and must always be on screen. See the partial's own note.) The whole stack is skipped in a preview render, so `preview:` is no longer forwarded and Turf passes one local:
 
 ```erb
 <%= render "studio/banners/environment",
-           preview: is_preview,
            devnet: Solana::Config.devnet? %>
 ```
 
 The partial decides for itself whether to appear, what to say, and whether the local inbox is linkable:
 
-- **When it shows** — `!preview && Studio.show_environment_banner?` (gem `_environment.html.erb:29`). That is true in every environment except real production; a QA app runs Rails in production mode, so `QA_ENV` re-opens it there (gem `lib/studio/environment_banner.rb:30-34`). It is **not** conditional on `Solana::Config.devnet?`. `preview: true` — the admin navbar-review page — suppresses it so a preview copy can't duplicate live chrome.
+- **When it shows** — `!preview && Studio.show_environment_banner?` (gem `_environment.html.erb:29`). That is true in every environment except real production; a QA app runs Rails in production mode, so `QA_ENV` re-opens it there (gem `lib/studio/environment_banner.rb:30-34`). It is **not** conditional on `Solana::Config.devnet?`. The admin navbar-review page never reaches that branch: its preview render skips the whole bar stack, so a preview copy cannot duplicate live chrome.
 - **What `devnet:` actually drives** — never visibility. It renders a `DEVNET` chip beside the buttons when `devnet && !qa`, and instead appends `Devnet` to the message when `devnet && qa` (gem `_environment.html.erb:21-22`).
 - **Message** — `Studio.environment_banner_message`. Off QA it is **derived**, not a literal: `"#{rails_env.to_s.capitalize} Environment"`, which yields `"Development Environment"` in development (gem `environment_banner.rb:42`). On QA it is the fixed pair `"QA Environment · Non-production"`. Extra segments join with ` · ` (gem `environment_banner.rb:38-46`).
 - **Colors** — `tone: :environment` in the shared `studio/banners/_app_banner`: a `linear-gradient(90deg, #9d174d 0%, #f72585 100%)` strip with `#ffffff` text and a `0 2px 8px rgba(0,0,0,0.25)` shadow (gem `_app_banner.html.erb:8-12`). Pink/magenta, applied as inline styles — not a Tailwind color utility.
@@ -376,7 +385,7 @@ Beside the geo badge in **both** navbar rows (desktop nav and mobile sub-navbar)
 - **Avatar**: `_avatar.html.erb` partial (size "nav" = `w-8 h-8`), outside the two-row block. Links to `/account`.
 - Balance shows whole dollars only (no cents) — JS hydrate (`refreshSession`/`refreshBalance`) uses `Math.floor`, ERB uses `.to_i`. The pill is **USDC + USDT combined** (`display_balance`); per-currency readouts live on `/account`'s `data-wallet-tile` tiles. The link hides while the cache is cold ("loading"); when the combined balance is $0 with free-entry tokens present the slot swaps the amount for a "✨ Free Entry" label (see § Entry Tokens (Web2 flow)).
 - Username and balance link to `/account` and `/wallet` respectively. Both use `transition-all duration-300` for smooth scroll-responsive font-size changes.
-- **Username overflow fade**: `.username-cap` class sets responsive `max-width` (5rem tiny, 6rem small, 7rem desktop). When text overflows, Alpine applies a CSS `mask-image` gradient to fade the trailing edge. Overflow is recalculated when the navbar review page's username input changes.
+- **Username overflow fade**: the cap is Tailwind utilities on the button itself — `max-w-[4.5rem] min-[400px]:max-w-[6rem] md:max-w-[7rem]` on `.nav-username` — and `navUsernameFade()` (`shared/_alpine_factories`) applies a CSS `mask-image` gradient to fade the trailing edge when the text overflows, re-measuring through a `ResizeObserver` so the mask follows the balance hydrate, the Free Entry face swap and a resize across the squeeze band. There is no `.username-cap` class: three rules under that name sat in the navbar-review page describing a 5/6/7rem cap that no element ever carried, and they were removed in `turf-header-fits-phone` (studio-engine dropped its own three in 0.77.1).
 - User nav column has `pl-0 pr-4 md:px-4` — no left padding on mobile.
 
 ### Right side — logged out
@@ -943,7 +952,7 @@ Reusable CSS classes in `app/assets/tailwind/application.css` that show colored 
 | `.dm-teal` | Paleturquoise | `rgba(175, 238, 238, 0.75)` |
 
 **Current assignments** (navbar only):
-- `_navbar.html.erb`: "Turf"=`dm-salmon`, "Totals"=`dm-yellow`, desktop nav=`dm-teal`, user-nav-col=`dm-purple`, mobile sub-nav=`dm-coral`, balance=`dm-blue`
+- `_navbar.html.erb`: "Turf"=`dm-salmon`, "Monster"=`dm-yellow`, desktop nav=`dm-teal`, user-nav-col=`dm-purple`, mobile sub-nav=`dm-coral`, balance=`dm-blue`
 - `_user_nav.html.erb`: gear+morph=`dm-teal`, username=`dm-coral`, seeds bar container=`dm-orange`, avatar link=`dm-green`
 - `_navbar_seeds_bar.html.erb`: seeds bar wrapper=`dm-orange`
 
@@ -991,7 +1000,7 @@ Admin page for visually comparing the navbar at all key breakpoints without resi
 - Reset button to snap to device width
 - **Scrolled toggle**: sets `--nav-p: 0|1` inline on the `.navbar-preview` wrapper (plus `is-scrolled-preview` for the shadow, which a preview header cannot get from `.is-scrolled` — it has no `x-data`, so no `scrolled`). Because `--nav-p` is a registered `<number>`, the wrapper simply **transitions it** (`transition: width 0.15s ease, --nav-p 0.3s ease`) — one interpolating property in place of the five per-element `font-size`/`width`/`padding` transitions and the twelve `!important` rules that used to restate every collapsed value. The preview now exercises the shipped `calc()`s instead of a parallel copy of them.
 
-**Username override**: Text input at the top of the page temporarily overrides the displayed username in all previews (not persisted). Uses `data-username-display` attribute on the username link for targeting. On change, recalculates the overflow fade mask (`overflows` flag) so the gradient fade activates/deactivates at the correct `.username-cap` max-width per breakpoint.
+**Username override**: Text input at the top of the page temporarily overrides the displayed username in all previews (not persisted). Uses `data-username-display` attribute on the username link for targeting. On change, recalculates the overflow fade mask (`overflows` flag) so the gradient fade activates/deactivates against the button's own `max-w-*` cap. Note that the preview cannot re-key that cap per band the way it re-keys the column widths — the caps are Tailwind responsive *utilities* keyed on the real viewport, so every preview shows the `md:` cap.
 
 **Sections**: Logged-In View + Pre-Login View, each with all three breakpoints. Deduplicated via loop over `[{ title:, show_logged_in: }]`.
 
@@ -1086,4 +1095,4 @@ The 5-section seeds progress bar (`components/_seeds_bar.html.erb`) was refactor
 
 **Why**: per-segment classes meant 5 separate width transitions chained together — each segment's animation curve restarted at the segment boundary, producing a visible staircase. The continuous form interpolates all 5 segment widths from a single transition driven by one variable; per-section shimmer overlays positioned in bar coordinates (`left: -(i-1)*100%, width: 500%`) keep the wave continuous across segments. The result: one ease curve over the whole bar, not 5 chained ones. CSS-only — no JS animation loop.
 
-<!-- citation-guard: unswept (21 citations) — most name studio-engine partials BY LINE, the form the wallet documents replaced with `gem: path#symbol`; the rest are unverified -->
+<!-- citation-guard: unswept (16 citations) — most name studio-engine partials BY LINE, the form the wallet documents replaced with `gem: path#symbol`; the rest are unverified. 21 to 16 in turf-header-fits-phone: five citations into `layouts/_navbar.html.erb` went with the sentences around them, and ALL FIVE were already landing on unrelated prose in the committed file (`git show HEAD:app/views/layouts/_navbar.html.erb | sed -n '34p;45p;63,69p;130,135p;141p'` prints the collapse note, the bar-stack note, the impersonation-bar note, the balance-slot note and a balance assignment) — so those numbers were not merely unswept, they were false -->
