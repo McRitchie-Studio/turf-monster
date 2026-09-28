@@ -82,9 +82,16 @@ class NavbarPhoneWidthTest < ActiveSupport::TestCase
                     "the inner flex that holds the logo link is a flex item too"
     # Written as a `class:` option on link_to, not a literal attribute.
     assert_match(/class: "nav-logo-link inline-flex items-center gap-3 group min-w-0"/, src,
-                 "the logo link floors the whole chain if it is left out")
+                 "the logo link is a flex item too and belongs in the chain")
+
+    # THE ONE THAT ACTUALLY BINDS. Removed one at a time and measured at all six
+    # widths, only this one changes a pixel: without it both words return to
+    # 88px at 320px and paint to x=156, 26px past a column ending at 130. The
+    # other three measured identical with and without, so this file does not
+    # claim they are load-bearing — it claims the chain is complete.
     assert_match(/<h1 class="nav-title[^"]*\bmin-w-0\b/, src,
-                 "the wordmark's own box has to be allowed below its text")
+                 "the wordmark's own box has to be allowed below its text — this is the " \
+                 "link in the chain whose removal is measurable")
   end
 
   # ── B. the spans truncate, not the h1 ───────────────────────────────────

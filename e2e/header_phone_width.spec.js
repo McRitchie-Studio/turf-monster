@@ -197,12 +197,17 @@ test("the app name stays inside its own column on every phone", async ({ page })
   await page.setViewportSize(PHONE);
   await loginAdmin(page);
 
-  // EVERY WIDTH, NOT JUST 390. On the engine's identical header the same
-  // assertion written against one width went green under an ablation that kept
-  // the width caps and removed the whole min-w-0 chain: from 344px up the caps
-  // alone contain the title, because `truncate` carries overflow: hidden whose
-  // automatic minimum size is zero and substitutes for min-w-0 while there is
-  // room. The chain only becomes load-bearing at the narrow end.
+  // EVERY WIDTH, NOT JUST 390, and that is measured rather than cautious. Each
+  // piece of the fix was removed on its own against this loop:
+  //
+  //   align-items: stretch   RED at 320/344/360 only
+  //   truncate on a span     RED at 320 only
+  //   the h1's min-w-0       RED at 320 only
+  //   the base band's cap    this assertion stayed GREEN — the cap buys how
+  //                          much of the name a reader gets, not containment,
+  //                          and the monotonicity test below is what caught it
+  //
+  // Written against 390px alone, three of those four would have shipped.
   for (const width of WIDTHS) {
     await openHeaderAt(page, width);
     const g = await readHeaderGeometry(page);

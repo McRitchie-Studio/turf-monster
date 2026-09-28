@@ -95,17 +95,27 @@
   <%= render "shared/impersonation_banner" if !is_preview && impersonating? %>
   <div class="nav-row flex items-center min-w-0">
     <%# Left side: logo + nav %>
-    <%# min-w-0 FOUR TIMES, on every flex item between the row and the wordmark.
-        A flex item's default min-width is auto, which floors it at its own
-        min-content — so ONE of these left out puts the floor back and the
-        wordmark spills across the gutter again. The chain is: row item
-        (.flex-1) to its inner flex to the logo link to the h1. Leaving the
-        chain out while capping the column alone was measured on the engine's
-        identical header: from 344px up the caps alone contain the title,
-        because `truncate` carries overflow: hidden whose automatic minimum size
-        is zero and substitutes for min-w-0 while there is room. The chain only
-        becomes load-bearing at the narrow end, which is exactly where a spec
-        written for one width never looks. %>
+    <%# min-w-0 FOUR TIMES, on every flex item between the row and the wordmark:
+        row item (.flex-1) to its inner flex to the logo link to the h1. A flex
+        item's default min-width is auto, which floors it at its own min-content.
+
+        ONE OF THE FOUR IS LOAD-BEARING, and it is worth saying which rather
+        than repeating the rule. Removed one at a time on this app's own header
+        and measured at 320/344/360/390/412/430 with the caps in place:
+
+          h1          REMOVING IT SPILLS. At 320px both words go back to 88px
+                      and paint to x=156, 26px past a column ending at 130.
+          logo link   no measurable change. Its min-content floor is 92.05px
+                      against the 98px the column gives it at 320px.
+          inner flex  no measurable change at any of the six.
+          row item    no measurable change at any of the six.
+
+        So the other three are defence in depth, not the mechanism, and their
+        margin is an accident of how long this app's wordmark happens to be —
+        5.95px at the narrowest supported width. They stay because the chain is
+        what makes the header independent of which word is longest, and because
+        studio-engine's copy of this header carries the same four. Do not repeat
+        the claim that removing any one of them spills; three of them do not. %>
     <div class="flex-1 min-w-0 px-4">
       <div class="flex items-center gap-6 min-w-0">
         <%= link_to root_path, class: "nav-logo-link inline-flex items-center gap-3 group min-w-0" do %>
