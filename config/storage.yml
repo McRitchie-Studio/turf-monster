@@ -6,51 +6,76 @@ local:
   service: Disk
   root: <%= Rails.root.join("storage") %>
 
-amazon:
-  service: S3
-  access_key_id: <%= ENV["AWS_ACCESS_KEY_ID"] %>
-  secret_access_key: <%= ENV["AWS_SECRET_ACCESS_KEY"] %>
-  region: us-east-2
-  # QA apps boot RAILS_ENV=production and load this service; QA_ENV (read via
-  # Studio.qa_environment?, the same signal Studio::S3 keys on) is the one
-  # thing separating them. Unset or unrecognised resolves PRODUCTION.
-  bucket: <%= Studio.qa_environment? ? "turf-monster-dev" : "turf-monster-production" %>
-
-amazon_dev:
-  service: S3
-  access_key_id: <%= ENV["AWS_ACCESS_KEY_ID"] %>
-  secret_access_key: <%= ENV["AWS_SECRET_ACCESS_KEY"] %>
-  region: us-east-2
-  bucket: turf-monster-dev
-
-# Public-read S3 services for og:image (link-preview) assets ONLY.
+# THE FOUR REMOTE SERVICES, AND THE MOVE TO CLOUDFLARE R2.
 #
-# The `amazon`/`amazon_dev` services above are private: their `.url` is a
-# signed, time-expiring URL. og:image URLs are cached by Apple/iMessage/
-# Twitter/Slack unfurlers, so a signed URL breaks the preview the moment the
-# signature expires. These `public: true` services return PERMANENT, absolute
-# object URLs (https://<bucket>.s3.us-east-2.amazonaws.com/<key>) instead, so
-# attach og images here (see OgImageAttachable). All four turf-monster buckets
-# are already public-read at the bucket policy level (see docs/UI_PATTERNS.md
-# "Public S3 and OG Assets").
+# amazon / amazon_dev are private: `.url` is a signed, expiring URL.
+# amazon_public / amazon_public_dev are public: `.url` is a PERMANENT absolute
+# URL, for og:image (link-preview) assets ONLY. Unfurlers (Apple/iMessage,
+# Twitter, Slack) cache the og:image URL, so a signed URL breaks the preview the
+# moment the signature expires; attach og images to these (see
+# OgImageAttachable, which picks the per-env NAME because has_one_attached's
+# `service:` is a literal resolved at class load). All turf-monster buckets are
+# public-read at the S3 bucket-policy level (docs/UI_PATTERNS.md "Public S3 and
+# OG Assets"), so on S3 `public: false` is not a privacy control.
 #
-# Same prod/dev bucket split as amazon/amazon_dev; the per-env service NAME is
-# chosen in OgImageAttachable::PUBLIC_OG_SERVICE (has_one_attached's `service:`
-# is a literal resolved at class load, so the env switch has to live there).
-amazon_public:
-  service: S3
-  access_key_id: <%= ENV["AWS_ACCESS_KEY_ID"] %>
-  secret_access_key: <%= ENV["AWS_SECRET_ACCESS_KEY"] %>
-  region: us-east-2
-  # Same QA_ENV split as `amazon`: QA runs Rails.env.production, so
-  # OgImageAttachable resolves THIS service there too.
-  bucket: <%= Studio.qa_environment? ? "turf-monster-dev" : "turf-monster-production" %>
-  public: true
-
-amazon_public_dev:
-  service: S3
-  access_key_id: <%= ENV["AWS_ACCESS_KEY_ID"] %>
-  secret_access_key: <%= ENV["AWS_SECRET_ACCESS_KEY"] %>
-  region: us-east-2
-  bucket: turf-monster-dev
-  public: true
+# BUCKETS. QA apps boot RAILS_ENV=production and load `amazon`/`amazon_public`;
+# QA_ENV (read via Studio.qa_environment?, the same signal Studio::S3 keys on) is
+# the one thing separating them. Unset or unrecognised resolves PRODUCTION. The
+# _dev services always use turf-monster-dev. R2 uses the same bucket names.
+#
+# STAGES. Every blob row records one of these four NAMES, so each keeps its name
+# through the whole move and ACTIVE_STORAGE_BACKEND decides what it resolves to
+# (stages and rationale: lib/storage_backend.rb):
+#   s3            the S3 service, exactly as before (the default)
+#   mirror_to_r2  S3 primary, every write mirrored to R2
+#   mirror_to_s3  R2 primary, every write mirrored back to S3
+#   r2            R2 alone
+# Each name's two halves are spelled <name>_s3 and <name>_r2 below.
+#
+# WHY ONE MIRROR JOB SERVES ALL FOUR. Rails' ActiveStorage::MirrorJob mirrors
+# through ActiveStorage::Blob.service, the DEFAULT service, whatever service the
+# blob names. That is correct here only because a public service and its private
+# twin share one bucket on each store (amazon_public with amazon, and
+# amazon_public_dev with amazon_dev), so the default service's mirror copies the
+# og-image key between the right two buckets. Give a public service a bucket of
+# its own and its mirror stages silently stop mirroring;
+# test/lib/storage_backend_test.rb holds the pairing.
+#
+# THE PUBLIC R2 HALF is service R2Public (lib/active_storage/service/
+# r2_public_service.rb): S3Service's public URL is built from the API endpoint,
+# which R2 never serves anonymously, so it answers "<R2_PUBLIC_URL>/<key>".
+<%
+  stage = StorageBackend.active_storage_stage
+  main_bucket = Studio.qa_environment? ? "turf-monster-dev" : "turf-monster-production"
+  services = { "amazon" => [main_bucket, false], "amazon_dev" => ["turf-monster-dev", false],
+               "amazon_public" => [main_bucket, true], "amazon_public_dev" => ["turf-monster-dev", true] }
+  s3 = ->(bucket, is_public) {
+    { "service" => "S3", "access_key_id" => ENV["AWS_ACCESS_KEY_ID"], "secret_access_key" => ENV["AWS_SECRET_ACCESS_KEY"],
+      "region" => "us-east-2", "bucket" => bucket, "public" => is_public }
+  }
+  # Checksums only when_required: Active Storage sends Content-MD5, aws-sdk-s3
+  # >= 1.178 adds a CRC32 by default, and R2 refuses a request carrying both
+  # ("You can only specify one non-default checksum at a time", 2026-09-28).
+  r2 = ->(bucket, is_public) {
+    config = { "service" => is_public ? "R2Public" : "S3", "endpoint" => StorageBackend.require!(ENV, "R2_ENDPOINT"),
+               "access_key_id" => StorageBackend.require!(ENV, "R2_ACCESS_KEY_ID"),
+               "secret_access_key" => StorageBackend.require!(ENV, "R2_SECRET_ACCESS_KEY"),
+               "region" => "auto", "bucket" => bucket,
+               "request_checksum_calculation" => "when_required", "response_checksum_validation" => "when_required" }
+    config["public_url"] = StorageBackend.require!(ENV, "R2_PUBLIC_URL") if is_public
+    config
+  }
+  remote = {}
+  services.each do |name, (bucket, is_public)|
+    remote["#{name}_s3"] = s3.(bucket, is_public)
+    remote["#{name}_r2"] = r2.(bucket, is_public) unless stage == "s3"
+    remote[name] =
+      case stage
+      when "s3" then s3.(bucket, is_public)
+      when "r2" then r2.(bucket, is_public)
+      when "mirror_to_r2" then { "service" => "Mirror", "primary" => "#{name}_s3", "mirrors" => ["#{name}_r2"] }
+      else { "service" => "Mirror", "primary" => "#{name}_r2", "mirrors" => ["#{name}_s3"] }
+      end
+  end
+%>
+<%= remote.to_yaml.delete_prefix("---\n") %>
