@@ -37,6 +37,20 @@ class Nflverse::SeedPlayersTest < ActiveSupport::TestCase
     Nflverse::SeedPlayers.new(upload_headshots: false)
   end
 
+  # Headshots cache through Studio::S3, which on R2 signs with its own keys and
+  # on AWS with the SDK's default chain. The guard must accept either and refuse
+  # neither-present, or the seeder breaks the day the AWS keys are unset.
+  test "headshot caching needs storage credentials: R2 keys or an AWS key, not neither" do
+    original = Studio.s3_access_key_id
+    Studio.s3_access_key_id = nil
+    refute Nflverse::SeedPlayers.storage_credentials?({})
+    assert Nflverse::SeedPlayers.storage_credentials?({ "AWS_ACCESS_KEY_ID" => "AKIA" })
+    Studio.s3_access_key_id = "r2-sentinel-id"
+    assert Nflverse::SeedPlayers.storage_credentials?({})
+  ensure
+    Studio.s3_access_key_id = original
+  end
+
   test "creates a Person and an Athlete from one row" do
     athlete = nil
     assert_difference ["Person.count", "Athlete.count"], 1 do
