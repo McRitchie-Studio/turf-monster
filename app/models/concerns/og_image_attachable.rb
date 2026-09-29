@@ -17,8 +17,9 @@
 #
 #   test         -> :test               (Disk, tmp/storage — no network/creds)
 #   production    -> :amazon_public       (turf-monster-production, public-read)
-#   development   -> :amazon_public_dev   (turf-monster-dev) when AWS creds are
-#                    present, else :local (Disk) for a keyless local checkout
+#   development   -> :amazon_public_dev   (turf-monster-dev) when a remote store
+#                    is configured (StorageBackend.remote_in_development?: AWS
+#                    keys on the S3 stage, R2 keys on any other), else :local
 module OgImageAttachable
   # Bare value module (just the constant below) — no `included do`, so it needs
   # no ActiveSupport::Concern. Models read OgImageAttachable::PUBLIC_OG_SERVICE.
@@ -28,9 +29,17 @@ module OgImageAttachable
       :test
     elsif Rails.env.production?
       :amazon_public
-    elsif ENV["AWS_ACCESS_KEY_ID"].present?
+    elsif StorageBackend.remote_in_development?
       :amazon_public_dev
     else
       :local
     end
+
+  # Whether a blob's service answers a permanent public URL. A MirrorService
+  # (the two middle stages of the R2 move, lib/storage_backend.rb) never sets
+  # public? itself but delegates `url` to its primary, so ask the primary; asking
+  # the mirror would quietly demote every og:image to the proxy path mid-move.
+  def self.public_service?(service)
+    (service.respond_to?(:primary) ? service.primary : service).public?
+  end
 end

@@ -13,7 +13,10 @@ Rails.application.config.after_initialize do
   %i[amazon_public amazon_public_dev].each do |name|
     begin
       service = ActiveStorage::Blob.services.fetch(name)
-      service.upload_options.delete(:acl) if service.respond_to?(:upload_options)
+      # On a mirror stage of the R2 move (lib/storage_backend.rb) the name is a
+      # MirrorService over halves the registry never hands out: strip each half.
+      halves = service.respond_to?(:primary) ? [ service.primary, *service.mirrors ] : [ service ]
+      halves.each { |half| half.upload_options.delete(:acl) if half.respond_to?(:upload_options) }
     rescue => e
       # This is a structural workaround for an Active Storage internal; if that
       # internal drifts, fail LOUD in dev/test/CI so we catch it at boot — not
