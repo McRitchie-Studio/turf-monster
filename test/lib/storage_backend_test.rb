@@ -116,6 +116,21 @@ class StorageBackendTest < ActiveSupport::TestCase
     end
   end
 
+  # The ACL-disabled S3 buckets refuse public-read (config/initializers/
+  # active_storage_public_services.rb); a mirror stage builds fresh halves.
+  test "the ACL strip reaches every half of a mirrored public service" do
+    registry = with_env(R2_ENV.merge("ACTIVE_STORAGE_BACKEND" => "mirror_to_r2")) { ActiveStorage::Service::Registry.new(parse) }
+    ActiveStorage::Blob.stub(:services, registry) do
+      Rails.application.config.stub(:after_initialize, ->(&hook) { hook.call }) do
+        load Rails.root.join("config/initializers/active_storage_public_services.rb").to_s
+      end
+    end
+    %i[amazon_public amazon_public_dev].each do |name|
+      service = registry.fetch(name)
+      [ service.primary, *service.mirrors ].each { |half| assert_nil half.upload_options[:acl], name }
+    end
+  end
+
   test "a non-S3 stage without R2 credentials or a public domain fails at parse, not at first upload" do
     %w[R2_ENDPOINT R2_ACCESS_KEY_ID R2_PUBLIC_URL].each do |missing|
       with_env(R2_ENV.merge("ACTIVE_STORAGE_BACKEND" => "mirror_to_r2", missing => nil)) do
