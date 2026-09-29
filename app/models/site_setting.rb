@@ -32,7 +32,7 @@ class SiteSetting < ApplicationRecord
         title:          s.default_og_title.presence,
         description:    s.default_og_description.presence,
         image_attached: img.attached?,
-        image_url:      (img.attached? && img.blob.service.public? ? img.url : nil)
+        image_url:      (img.attached? && OgImageAttachable.public_service?(img.blob.service) ? img.url : nil)
       }
     end
   end

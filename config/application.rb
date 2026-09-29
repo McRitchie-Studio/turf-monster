@@ -6,6 +6,10 @@ require "rails/all"
 # you've limited to :test, :development, or :production.
 Bundler.require(*Rails.groups)
 
+# The S3 → Cloudflare R2 switch. Required here, before config/environments/*.rb
+# and config/storage.yml read it, which is why Zeitwerk ignores the file.
+require_relative "../lib/storage_backend"
+
 module TurfMonster
   class Application < Rails::Application
     # Configuration defaults. Upgraded from the originally generated 7.2 to 8.1.
@@ -19,7 +23,7 @@ module TurfMonster
     # Please, add to the `ignore` list any other `lib` subdirectories that do
     # not contain `.rb` files, or that should not be reloaded or eager loaded.
     # Common ones are `templates`, `generators`, or `middleware`, for example.
-    config.autoload_lib(ignore: %w[assets tasks])
+    config.autoload_lib(ignore: %w[active_storage assets tasks storage_backend.rb])
 
     # Use Sidekiq for background jobs
     config.active_job.queue_adapter = :sidekiq

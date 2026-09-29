@@ -78,7 +78,7 @@ module OgHelper
   # tests), so build an absolute URL from a host-relative blob path instead — no
   # Current dependency, still ends with the filename.
   def absolute_og_url(attachment)
-    if attachment.blob.service.public?
+    if OgImageAttachable.public_service?(attachment.blob.service)
       attachment.url
     else
       "#{request.base_url}#{rails_blob_path(attachment)}"
