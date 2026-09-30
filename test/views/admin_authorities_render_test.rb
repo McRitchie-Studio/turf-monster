@@ -258,10 +258,22 @@ class AdminAuthoritiesRenderTest < ActionDispatch::IntegrationTest
     assert_match(/matches the derived PDA/, response.body)
   end
 
+  # The href half of this used to compare the link against
+  # `Solana::Config.squads_app_url` — a TAUTOLOGY, true of whatever that method
+  # returns, including the multisig address that 404s (link-squads-from-admin).
+  # It now names the two facts app.squads.so actually requires: the VAULT PDA,
+  # and the `/home` suffix. The copy half is unchanged and still correct — the
+  # cluster travels in the address, not the host, because `devnet.squads.so` is
+  # decommissioned.
   test "the Squads link says which cluster it serves and why the host is not cluster-flavoured" do
     render_page
 
-    assert_select "a[href=?]", Solana::Config.squads_app_url
+    href = css_select("a[href^='https://app.squads.so']").first&.[]("href")
+    assert href, "the page offers no Squads link — the assertions below would pass vacuously"
+    assert_equal "https://app.squads.so/squads/#{Solana::Config.squads_vault_pda}/home", href
+    assert_not_includes href, Solana::Config.squads_multisig,
+      "app.squads.so 404s on a multisig address — it resolves a Squad by vault PDA"
+
     assert_match(/devnet\.squads\.so<\/code> is decommissioned/, response.body)
     assert_match(/the cluster is\s+carried by the ADDRESS/i, response.body)
   end

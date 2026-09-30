@@ -729,6 +729,25 @@ The link is `Solana::Config.squads_app_url`, which is cluster-keyed:
 switch to — `app.squads.so` serves both and the cluster is carried by the ADDRESS
 in the URL.
 
+**It keys on the VAULT PDA plus `/home`, not the multisig** — and it got that
+wrong until `link-squads-from-admin`. Measured in a browser 2026-09-29 on the
+mainnet Squad, both directions:
+
+```text
+404  https://app.squads.so/squads/4H3fP3otjMtupk1DQDjKXYY1dWjT6LNM4H4ZWZ1XcKSX
+OK   https://app.squads.so/squads/Bk9sS7iiSRL18vuo2KVzkeGw7EekKqxMCjrdoyGGdJm/home
+```
+
+So the address that resolves is `squads_vault_pda` — the same value the program
+holds as `vault_state.treasury_authority` and as its upgrade authority — and
+confusing it with the multisig presents as a dead link on the one page an
+operator consults before proposing an upgrade. Two surfaces link out through this
+builder: this page, and the admin Link Hub, which carries **two** tiles to the
+same Squad home because it serves two unrelated jobs — `Squads Treasury` beside
+`Treasury` in the Hub section (moving swept operator revenue out, the second hop
+of collecting revenue), and `Squads Multisig` under Signing and Multisig
+(changing program-upgrade membership).
+
 #### Evicting a signer
 
 Two steps, and the split is the design. **Arm** records the proposed set and

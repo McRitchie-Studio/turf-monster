@@ -50,7 +50,21 @@
     <%= render "hub_tile", name: "Contests",    url: contests_path, status: :reviewed %>
     <%= render "hub_tile", name: "Landing Pages", url: admin_landing_pages_path, status: :reviewed %>
     <%= render "hub_tile", name: "Seasons",     url: admin_seasons_path, status: :flagged %>
-    <%= render "hub_tile", name: "Treasury",    url: admin_pending_transactions_path, status: :flagged %>
+    <%= render "hub_tile", name: "Treasury",    url: admin_pending_transactions_path, status: :flagged,
+          note: "Co-sign pending vault transactions, the revenue sweep among them (hop 1)" %>
+    <%# TWO TILES, ONE SQUAD, AND THAT IS DELIBERATE. Collecting operator revenue is
+        two hops: the sweep lands funds in the treasury (Treasury, above), and moving
+        them onward happens ONLY in Squads' own UI, which no code in this app performs
+        or prepares. Mr. McRitchie had to hunt for that second hop mid-task, because
+        the one Squads link on this page sat under "Signing and Multisig" labelled for
+        MEMBERSHIP, which reads like a different errand. So the money hop gets its own
+        tile beside the hop it follows, and the membership tile stays where an operator
+        changing membership looks. Both resolve through Solana::Config.squads_app_url,
+        which keys the URL on the cluster's VAULT PDA and appends /home: a hardcoded
+        address would serve the wrong cluster, and the multisig address 404s. %>
+    <%= render "hub_tile", name: "Squads Treasury", external: true,
+          url: Solana::Config.squads_app_url,
+          note: "Move swept revenue out of the #{Solana::Config::NETWORK} treasury (hop 2, Squads' own UI)" %>
     <% if Admin::VaultInitController.vault_uninitialized? %>
       <%= render "hub_tile", name: "Vault Init", url: admin_vault_init_path, note: "Vault is uninitialized", status: :flagged %>
     <% else %>
@@ -89,7 +103,13 @@
         ONE fix: the address decides which cluster the link serves, so a
         hardcoded one is the more dangerous half and had to go.
         No number lives here at all now. A figure written into a tile cannot be
-        re-derived on the day; the threshold is read live on /admin/authorities. %>
+        re-derived on the day; the threshold is read live on /admin/authorities.
+
+        THE URL LANDED ON A 404 until link-squads-from-admin, on this tile and on
+        /admin/authorities alike: the builder interpolated the MULTISIG address, and
+        Squads keys on the VAULT PDA plus /home. Same destination as the Squads
+        Treasury tile in the Hub section above, kept as two tiles because the two jobs
+        start in two different places; the reasoning is written out up there. %>
     <%= render "hub_tile", name: "Squads Multisig", external: true,
           url: Solana::Config.squads_app_url,
           note: "Change program-upgrade membership on #{Solana::Config::NETWORK} (Squads' own UI)" %>

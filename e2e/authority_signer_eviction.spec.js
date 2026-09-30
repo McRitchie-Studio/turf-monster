@@ -77,7 +77,11 @@ test.describe("Authorities", () => {
     const link = page.getByRole("link", { name: /Open this cluster’s Squad/ });
     await expect(link).toBeVisible();
     const href = await link.getAttribute("href");
-    expect(href).toMatch(/^https:\/\/app\.squads\.so\/squads\/[1-9A-HJ-NP-Za-km-z]{32,44}$/);
+    // The path is `/squads/<VAULT PDA>/home`. This regex used to end at the
+    // address with no suffix, which is the form that 404s: app.squads.so
+    // resolves a Squad by its vault PDA and wants `/home`
+    // (link-squads-from-admin, measured in a browser 2026-09-29).
+    expect(href).toMatch(/^https:\/\/app\.squads\.so\/squads\/[1-9A-HJ-NP-Za-km-z]{32,44}\/home$/);
     expect(href).not.toContain("devnet.squads.so");
   });
 
