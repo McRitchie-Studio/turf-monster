@@ -28,14 +28,6 @@ module Admin
       @page_owed    = @users_data.sum { |d| d[:owed] }
       @page_minted  = @users_data.sum { |d| d[:minted] }
       @has_next     = @page < @total_pages
-      # Only the full page draws the filter; a streamed batch reuses the page's.
-      if request.format.html?
-        @source_options = source_options
-        # Signups from this source the table CANNOT list: no wallet, nothing to
-        # mint to. Under web3-only onboarding (AppFlags.web3_only_onboarding?,
-        # default on) that is every new account until it links Phantom.
-        @walletless_count = User.where(reference: @reference).count - @total_users if @reference
-      end
 
       # HTML format → full page render (index.html.erb).
       # Turbo Stream format → index.turbo_stream.erb appends the new
@@ -44,8 +36,12 @@ module Admin
       # live OUTSIDE the table because the HTML parser will hoist a
       # turbo-frame out of <tbody>, breaking column alignment — see the
       # earlier turbo-frame attempt for the failure mode.
+      #
+      # The filter's options load INSIDE format.html, not behind
+      # request.format.html?: respond_to also serves this page for a */*
+      # Accept, where the format is not html and the view would read nil.
       respond_to do |format|
-        format.html
+        format.html { load_filter_summary }
         format.turbo_stream
       end
     end
@@ -195,6 +191,15 @@ module Admin
     # the fifth TikTok signup does not drop the operator back on every user.
     def filter_params
       { reference: reference_filter }.compact
+    end
+
+    # Only the full page draws the filter; a streamed batch reuses the page's.
+    def load_filter_summary
+      @source_options = source_options
+      # Signups from this source the table CANNOT list: no wallet, nothing to
+      # mint to. Under web3-only onboarding (AppFlags.web3_only_onboarding?,
+      # default on) that is every new account until it links Phantom.
+      @walletless_count = User.where(reference: @reference).count - @total_users if @reference
     end
 
     # [[reference, wallet-user count], …], busiest first. The selected value is

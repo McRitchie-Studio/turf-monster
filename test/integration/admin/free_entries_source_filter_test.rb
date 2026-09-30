@@ -73,6 +73,16 @@ class Admin::FreeEntriesSourceFilterTest < ActionDispatch::IntegrationTest
     assert_select "[data-test='walletless-count']", count: 0
   end
 
+  # Regression: the filter options were loaded behind `request.format.html?`,
+  # but respond_to renders the HTML page for a */* Accept too (the review-hop
+  # checker's request), where format is not html — the page 500'd on nil.
+  test "the full page renders for a */* Accept, not only text/html" do
+    get admin_free_entries_path(reference: "tiktok"), headers: { "Accept" => "*/*" }
+
+    assert_response :success
+    assert_select "select#reference option[value='tiktok'][selected]"
+  end
+
   test "a streamed batch honours the filter" do
     get admin_free_entries_path(page: 1, reference: "tiktok"),
         headers: { "Accept" => "text/vnd.turbo-stream.html" }
