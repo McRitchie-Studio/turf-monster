@@ -1181,10 +1181,12 @@
 # allowed_skips at 4: 346 - 17 - 4 = 325. Derived with bin/e2e-lane-derive
 # --write on this tree, not by arithmetic.
 # 346 -> 347 (tiktok-landing-route): e2e/tiktok_funnel_free_entry.spec.js walks a
-# visitor from /tiktok through a magic-link signup to the operator filtering
-# /admin/free_entries by source and pressing Grant 1 (intercepted, never minted).
-# Only a browser proves the reference cookie survives both hops and that the
-# filtered row's button carries the filter and the shown count. Not tagged
+# visitor from /tiktok through the claim-mode CTA, the /signin card (which must
+# post the return path) and a magic-link signup to "You're in", then the
+# operator filtering /admin/free_entries by source and pressing Grant 1
+# (intercepted, never minted). Only a browser proves the return path and the
+# reference cookie survive those hops and that the filtered row's button
+# carries the filter and the shown count. Not tagged
 # @devnet and it does not skip: 347 - 17 - 4 = 326. Derived with
 # bin/e2e-lane-derive --write on this tree.
 total_specs: 347

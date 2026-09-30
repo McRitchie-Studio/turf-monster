@@ -552,7 +552,9 @@ class TestController < ApplicationController
     return head :forbidden unless Rails.env.test? || Rails.env.development?
 
     contest = Contest.find_by(slug: params[:contest].presence)
-    return_to = contest ? contest_path(contest) : nil
+    # A spec may name where the link lands (the claim-mode confirmation), under
+    # the same check the /signin card applies before forwarding one.
+    return_to = contest ? contest_path(contest) : auth_return_to
     if contest && params[:picks].present?
       ids   = params[:picks].to_s.split(",").map(&:to_i).select(&:positive?).first(6)
       picks = ids & contest.matchups.where(id: ids).pluck(:id)
