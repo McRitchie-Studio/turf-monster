@@ -144,6 +144,16 @@ Rails.application.routes.draw do
   # (below). Old /l/:slug links 301 to /lp via Studio::LinksController#show fallback.
   get "lp/:slug", to: "landing_pages#show", as: :landing_page
 
+  # Vanity funnel paths: short, spoken-aloud URLs ("type turfmonster.media/tiktok")
+  # → the landing page of the same slug, or the home page tagged
+  # ?reference=<slug> while no live page exists (LandingPagesController#vanity).
+  # The next channel is one more word in this list. Keep it to channels you say
+  # out loud: it is not a link shortener, and each entry claims a top-level path
+  # for good. Drawn before Studio.routes so no engine route can shadow them.
+  %w[tiktok].each do |slug|
+    get slug, to: "landing_pages#vanity", defaults: { slug: slug }, as: nil
+  end
+
   # Phantom deep link callback — must be before Studio.routes to avoid
   # matching OmniAuth's /auth/:provider/callback wildcard.
   #
