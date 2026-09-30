@@ -111,4 +111,30 @@ module LandingPagesHelper
     # with no contest agrees with the chrome around it.
     turf_monster_v1_path
   end
+
+  # How It Works for a CLAIM-MODE page (LandingPage#claim_mode). The visitor
+  # signs up here and the operator hand-mints their entry later the same day,
+  # so the order is the reverse of the pay-to-enter steps above: the account
+  # and the promised entry come BEFORE the picks. Showing "pick, then create an
+  # account, then submit" on this page walked a prospect to a checkout asking
+  # for money the page had just said they would not need.
+  #
+  # The format and sport rules are the same as #funnel_how_it_works: a survivor
+  # contest picks a team per round; Turf Totals picks N derived matchups.
+  def funnel_claim_steps(contest)
+    pick_step = if contest&.world_cup_survivor?
+                  ["Make your pick", "Back a team each round once your entry arrives."]
+    else
+                  required_picks = contest&.picks_required || Contest::TURF_TOTALS_DEFAULT_PICKS_REQUIRED
+                  subject = [funnel_sport_label(contest), "team matchups"].compact.join(" ")
+                  ["Pick #{required_picks} teams", "Choose #{required_picks} #{subject} for your free entry."]
+    end
+
+    [
+      ["Create your account", "Sign up with email or Google. It takes a few seconds."],
+      ["We email your free entry", "It lands in your account the same day, and we email you when it does."],
+      pick_step,
+      ["Submit before the contest locks", "The contest locks at its start time. No entries or changes after that."]
+    ]
+  end
 end

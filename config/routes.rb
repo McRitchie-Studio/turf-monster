@@ -143,6 +143,8 @@ Rails.application.routes.draw do
   # Live at /lp/:slug now that /l/<token> is the unified Studio::Link entry point
   # (below). Old /l/:slug links 301 to /lp via Studio::LinksController#show fallback.
   get "lp/:slug", to: "landing_pages#show", as: :landing_page
+  # Claim-mode confirmation ("You're in — we'll email your free entry").
+  get "lp/:slug/claimed", to: "landing_pages#claimed", as: :landing_page_claimed
 
   # Vanity funnel paths: short, spoken-aloud URLs ("type turfmonster.media/tiktok")
   # → the landing page of the same slug, or the home page tagged

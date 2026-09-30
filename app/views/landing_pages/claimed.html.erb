@@ -1,0 +1,58 @@
+<%# Claim-mode confirmation: the end of a claim-mode landing page's CTA.
+    It PROMISES a free entry and mints nothing; the operator hand-mints it from
+    /admin/free_entries (Grant 1), which emails the player when it lands.
+    Locals: none. Assigns: @landing_page, @contest (nil only in an admin
+    preview), @claimant (always signed in; the controller bounces otherwise). %>
+<% content_for :title, "You're in — Turf Monster" %>
+
+<%= render "landing_pages/backgrounds/#{@landing_page.background_partial}" %>
+
+<div class="lp-splash relative z-10 min-h-screen flex flex-col items-center px-4 py-8">
+  <div class="w-full max-w-lg">
+    <%= link_to root_path, class: "flex items-center justify-center gap-2 mb-8" do %>
+      <%= brand_logo px: 40, classes: "w-10 h-10 shadow-lg" %>
+      <span class="text-xl font-extrabold tracking-tight"><span class="text-heading">Turf</span><span class="text-primary">Monster</span></span>
+    <% end %>
+
+    <div class="card p-6 mb-6 text-center" data-test="claim-confirmation">
+      <h1 class="text-3xl font-extrabold text-heading leading-tight mb-4">You're in.</h1>
+
+      <p class="text-secondary text-lg mb-3">
+        <% if @claimant.email.present? %>
+          We'll email your free entry to
+          <strong class="text-heading" data-test="claim-email"><%= @claimant.email %></strong>
+          within a few hours.
+        <% else %>
+          Your free entry will land in your account within a few hours.
+        <% end %>
+      </p>
+
+      <% if @contest %>
+        <%# locks_at, the moment every entry door shuts (Contest#locks_at),
+            the same instant the landing page's card prints. %>
+        <p class="text-secondary mb-6" data-test="claim-lock">
+          Then make your
+          <%= @contest.world_cup_survivor? ? "pick" : "#{@contest.picks_required || Contest::TURF_TOTALS_DEFAULT_PICKS_REQUIRED} picks" %>
+          in <strong class="text-heading"><%= @contest.name %></strong>
+          <% if @contest.locks_at %>
+            before <strong class="text-heading"><%= @contest.locks_at.strftime("%A, %B %-d at %-I:%M %p %Z") %></strong>.
+          <% else %>
+            before the contest locks.
+          <% end %>
+        </p>
+
+        <%= link_to "See the contest", contest_path(@contest.slug),
+              class: "btn btn-outline btn-lg w-full", data: { turbo: false } %>
+      <% end %>
+
+      <% if @claimant.solana_address.blank? %>
+        <%# Under web3-only onboarding a new account has no wallet, and an entry
+            is minted TO a wallet. Say so here, where the promise is made, rather
+            than let the entry silently wait on a step nobody mentioned. %>
+        <p class="text-muted text-sm mt-5" data-test="claim-wallet-note">
+          One step on your side: connect your Solana wallet when we ask. Your free entry is delivered to it.
+        </p>
+      <% end %>
+    </div>
+  </div>
+</div>

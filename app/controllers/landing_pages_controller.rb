@@ -19,6 +19,28 @@ class LandingPagesController < ApplicationController
     @contest = @landing_page.contest
   end
 
+  # GET /lp/:slug/claimed — where a CLAIM-MODE page's CTA ends: "You're in,
+  # we'll email your free entry." The visitor must be signed in; a signed-out
+  # one is sent to /signin carrying this path as return_to (and the page's
+  # slug as ?reference=), and both sign-in paths bring them back here.
+  #
+  # It promises; it mints nothing. The operator hand-mints from
+  # /admin/free_entries (Grant 1), which emails the player when the mint lands.
+  def claimed
+    @landing_page = LandingPage.find_by(slug: params[:slug])
+    return redirect_to root_path unless viewable?(@landing_page)
+    return redirect_to landing_page_path(@landing_page.slug) unless @landing_page.claim_mode?
+
+    unless logged_in?
+      return redirect_to signin_path(return_to: landing_page_claimed_path(@landing_page.slug),
+                                     reference: @landing_page.slug)
+    end
+
+    attribute_claim_to_page!
+    @contest = @landing_page.contest
+    @claimant = current_user
+  end
+
   # GET /tiktok (and every vanity slug config/routes.rb lists). A 302, never a 301:
   # the answer changes when the page is created or switched off, and a browser
   # that cached a permanent redirect would keep the old one.
@@ -42,6 +64,23 @@ class LandingPagesController < ApplicationController
   end
 
   private
+
+  # How recent an account must be for a claim to name this page as its signup
+  # source. Signup already copies the reference cookie onto the user; this is
+  # the backstop for the case it cannot see — a magic link opened in a
+  # different browser (the phone's mail app) than the one that visited /tiktok,
+  # which carries no cookie. An OLDER account with no source is not re-labelled:
+  # it signed up some other way, and the filter on /admin/free_entries is a
+  # record of where signups came from.
+  CLAIM_ATTRIBUTION_WINDOW = 1.day
+
+  def attribute_claim_to_page!
+    user = current_user
+    return if user.reference.present?
+    return if user.created_at < CLAIM_ATTRIBUTION_WINDOW.ago
+
+    user.update_column(:reference, @landing_page.slug)
+  end
 
   # Inactive pages are visible to admins only (for preview before launch).
   def viewable?(page)
