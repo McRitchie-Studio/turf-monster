@@ -89,7 +89,8 @@ class LandingClaimFlowTest < ActionDispatch::IntegrationTest
     assert_select "[data-test='claim-email']", text: user.email
     assert_select "[data-test='claim-lock']", text: /Then make your 6 picks in #{Regexp.escape(@contest.name)}/
     if @contest.locks_at
-      assert_select "[data-test='claim-lock']", text: /#{Regexp.escape(@contest.locks_at.strftime("%B %-d"))}/
+      eastern = @contest.locks_at.in_time_zone("America/New_York")
+      assert_select "[data-test='claim-lock']", text: /#{Regexp.escape(eastern.strftime("%B %-d at %-l:%M %p %Z"))}/
     end
   end
 

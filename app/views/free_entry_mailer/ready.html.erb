@@ -7,7 +7,7 @@
 <p style="margin:0 0 28px;font-size:15px;line-height:1.6;color:#3f4a3c;">
   <% if @contest %>
     Make your picks in <strong style="color:#1f2a1c;"><%= @contest.name %></strong>
-    and submit before the contest locks<% if @contest.locks_at %> on <strong style="color:#1f2a1c;"><%= @contest.locks_at.strftime("%A, %B %-d at %-I:%M %p %Z") %></strong><% end %>.
+    and submit before the contest locks<% if (lock_time = claim_lock_time(@contest)) %> on <strong style="color:#1f2a1c;"><%= lock_time %></strong><% end %>.
     The entry is already paid for.
   <% else %>
     Pick a contest, make your picks and submit. The entry is already paid for.

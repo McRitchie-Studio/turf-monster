@@ -137,4 +137,14 @@ module LandingPagesHelper
       ["Submit before the contest locks", "The contest locks at its start time. No entries or changes after that."]
     ]
   end
+
+  # The contest's lock moment as a player reads it: Eastern, named. The app runs
+  # on UTC, and "12:15 AM UTC" for a Thursday-night NFL kickoff reads as the
+  # wrong day to nearly everyone this funnel reaches (ContestsHelper keeps the
+  # NFL calendar in Eastern for the same reason). Used by the claim-mode
+  # confirmation and FreeEntryMailer#ready, so both name one moment.
+  def claim_lock_time(contest)
+    contest&.locks_at&.in_time_zone(ContestsHelper::NFL_CALENDAR_ZONE)&.strftime("%A, %B %-d at %-l:%M %p %Z")
+  end
+
 end

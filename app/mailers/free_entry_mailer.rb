@@ -12,6 +12,7 @@
 # friend writing.
 class FreeEntryMailer < ApplicationMailer
   layout "branded_mailer"
+  helper :landing_pages # claim_lock_time: the moment the confirmation page names
 
   def ready(user, contest = nil)
     @user    = user
