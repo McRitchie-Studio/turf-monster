@@ -56,6 +56,12 @@
       <%= link_to "Clear", admin_free_entries_path, class: "btn btn-outline" %>
     <% end %>
   <% end %>
+  <% if @walletless_count.to_i > 0 %>
+    <p class="text-muted text-xs" data-test="walletless-count">
+      <%= pluralize(@walletless_count, "more #{@reference} signup") %> <%= @walletless_count == 1 ? "has" : "have" %> no wallet yet, so
+      <%= @walletless_count == 1 ? "is" : "are" %> not listed. A free entry mints to a wallet, and new accounts get one only when they link Phantom.
+    </p>
+  <% end %>
 
   <%# Users table %>
   <div class="card overflow-x-auto">

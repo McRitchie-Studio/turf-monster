@@ -29,7 +29,13 @@ module Admin
       @page_minted  = @users_data.sum { |d| d[:minted] }
       @has_next     = @page < @total_pages
       # Only the full page draws the filter; a streamed batch reuses the page's.
-      @source_options = source_options if request.format.html?
+      if request.format.html?
+        @source_options = source_options
+        # Signups from this source the table CANNOT list: no wallet, nothing to
+        # mint to. Under web3-only onboarding (AppFlags.web3_only_onboarding?,
+        # default on) that is every new account until it links Phantom.
+        @walletless_count = User.where(reference: @reference).count - @total_users if @reference
+      end
 
       # HTML format → full page render (index.html.erb).
       # Turbo Stream format → index.turbo_stream.erb appends the new

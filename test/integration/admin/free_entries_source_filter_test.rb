@@ -58,6 +58,21 @@ class Admin::FreeEntriesSourceFilterTest < ActionDispatch::IntegrationTest
     assert_empty row_slugs
   end
 
+  test "signups from the source with no wallet are counted, not silently dropped" do
+    User.create!(email: "walletless-fan@example.com", username: "walletlessfan", reference: "tiktok")
+
+    get admin_free_entries_path(reference: "tiktok")
+
+    assert_equal %w[sam-source], row_slugs, "a user with no wallet has nothing to mint to"
+    assert_select "[data-test='walletless-count']", text: /1 more tiktok signup has no wallet yet/
+  end
+
+  test "no walletless note when every signup from the source is listed" do
+    get admin_free_entries_path(reference: "tiktok")
+
+    assert_select "[data-test='walletless-count']", count: 0
+  end
+
   test "a streamed batch honours the filter" do
     get admin_free_entries_path(page: 1, reference: "tiktok"),
         headers: { "Accept" => "text/vnd.turbo-stream.html" }
