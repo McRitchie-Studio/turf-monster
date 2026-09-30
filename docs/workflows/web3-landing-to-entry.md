@@ -41,16 +41,16 @@ Phantom must be installed in the browser or available via mobile deep link.
 ## Sequence
 
 1. **Land on funnel.** `GET /lp/:slug` → `LandingPagesController#show` —
-   `app/controllers/landing_pages_controller.rb:7-42`.
+   `app/controllers/landing_pages_controller.rb:7-20`.
    - Auth is skipped — `skip_before_action :require_authentication` and
      `:require_profile_completion` (`:2-3`) — because funnels are public.
    - A missing or inactive page redirects to root with an alert, unless an
-     admin is previewing it (`:11-13`).
+     admin is previewing it (`:10-12`).
    - First-touch attribution: `show` writes `cookies[:reference]` with this
      funnel's slug and a 30-day expiry, and only when the cookie is blank
      (`:17`). So an explicit `?reference=…` captured earlier by
      `ApplicationController#capture_reference`
-     (`app/controllers/application_controller.rb:469-474`) wins.
+     (`app/controllers/application_controller.rb:483-488`) wins.
    - Hero CTA renders `link_to @landing_page.cta_label_display,
      contest_path(@contest.slug, scroll: 280)` with `target: "_blank"`
      (`app/views/landing_pages/show.html.erb:79-81`). A claim-mode page
@@ -59,7 +59,7 @@ Phantom must be installed in the browser or available via mobile deep link.
      `landing_page_claimed_path` (`:73`), the confirmation page. That flow is in
      `docs/UI_PATTERNS.md` under "Claim mode".
    - The `scroll=280` param drives a `window.scrollTo` past the hero chrome to
-     the matchup board (`app/views/contests/show.html.erb:236-249`).
+     the matchup board (`app/views/contests/show.html.erb:240-253`).
    - Route: `get "lp/:slug", to: "landing_pages#show", as: :landing_page` —
      `config/routes.rb:145`.
 
@@ -71,11 +71,11 @@ Phantom must be installed in the browser or available via mobile deep link.
      rows from non-admins (`:2824-2825`). On a miss it logs a forensic
      `[set_contest:miss]` warning — slug, path, referer, turbo-frame, user
      agent — for the recurring "Contest not found" toast (`:2833-2843`).
-   - `render "contests/hero"` (`app/views/contests/show.html.erb:26`) and
-     `render "contests/contest_header"` (`:29`) are unconditional. Only the
+   - `render "contests/hero"` (`app/views/contests/show.html.erb:30`) and
+     `render "contests/contest_header"` (`:33`) are unconditional. Only the
      matchup board is gated: contest `open?`, not cancelled, and the viewer
      holding no entry — unless `show_board_for_existing_entry` opens it back
-     up for `?add_entry=true` (`:71`).
+     up for `?add_entry=true` (`:75`).
    - The board partial mounts `x-data="selectionBoard()"` —
      `app/views/contests/_turf_totals_board.html.erb:2070`. The factory is
      defined inline as `window.selectionBoard = function()` (`:171`) because
@@ -119,24 +119,24 @@ Phantom must be installed in the browser or available via mobile deep link.
    - `Alpine.store('session').isGuest` is the canonical guest pivot, derived
      from `SessionContext#mode` (`studio-engine: app/models/session_context.rb`)
      and hydrated from the `session-context` JSON block on every render
-     (`app/views/layouts/application.html.erb:283`).
+     (`app/views/layouts/application.html.erb:262`).
 
 5. **Sign up via Phantom.** Choosing Solana in that wizard calls
    `openWalletConnect(ageAttested)`
    (`app/views/contests/_turf_totals_board.html.erb:1023-1028`), which swaps in
    solana-studio's wallet picker. The picker runs
-   `window.solanaConnectAndVerify` — `app/views/layouts/application.html.erb:377`.
-   - The nonce is fetched from `/auth/solana/nonce` (`:413`) →
+   `window.solanaConnectAndVerify` — `app/views/layouts/application.html.erb:356`.
+   - The nonce is fetched from `/auth/solana/nonce` (`:392`) →
      `SolanaSessionsController#nonce`
      (`app/controllers/solana_sessions_controller.rb:5-9`).
    - Two signing paths. A wallet that supports SIWS `signIn` is used directly;
      otherwise the message is built locally — domain, pubkey, statement,
      `Nonce:` — and signed with `provider.signMessage`
-     (`app/views/layouts/application.html.erb:581-582`).
+     (`app/views/layouts/application.html.erb:560-561`).
    - The `User-ID` binding that ties a signature to an account (OPSEC-005) rides
-     only on the wallet-LINK path (`opts.linkMode`), not on signup (`:471`).
+     only on the wallet-LINK path (`opts.linkMode`), not on signup (`:450`).
    - The signature is base58-encoded and POSTed to `/auth/solana/verify`
-     (`:761`) as `signatureB58` alongside the message and pubkey (`:846`).
+     (`:740`) as `signatureB58` alongside the message and pubkey (`:825`).
      An unreadable answer to that POST — an HTML body from a fault of ours,
      which usually arrives as a 302 followed to status 200 rather than a 500;
      see docs/AUTH.md — is
@@ -179,8 +179,8 @@ Phantom must be installed in the browser or available via mobile deep link.
    - `set_app_session(user)` writes `session[:turf_user_id]` +
      `session[:session_token]` and clears any stale on-chain flag
      (`app/controllers/application_controller.rb:33-66`, `:41`).
-     `promote_to_onchain_session!` then grants it (`:573-578`) — that write is
-     what `onchain_session?` reads (`:552-555`), and `verify` calls it at
+     `promote_to_onchain_session!` then grants it (`:587-592`) — that write is
+     what `onchain_session?` reads (`:566-569`), and `verify` calls it at
      `app/controllers/solana_sessions_controller.rb:81`. It lives in
      `ApplicationController` because the login and wallet-link paths used to
      drift apart.
@@ -340,7 +340,7 @@ Phantom must be installed in the browser or available via mobile deep link.
   `submitted` → `confirmed` inside `#confirm_onchain_entry`)
 - `session[:turf_user_id]`, `session[:session_token]` (write in step 6), and the
   on-chain flag set by `promote_to_onchain_session!`
-  (`app/controllers/application_controller.rb:573-578`)
+  (`app/controllers/application_controller.rb:587-592`)
 - on-chain: `UserAccount` PDA (`ensure_user_account` in step 7; re-asserted
   synchronously in step 9 `#prepare_entry`)
 - on-chain: `Entry` PDA + `Contest.entry_fees` USDC/USDT credit, or an entry

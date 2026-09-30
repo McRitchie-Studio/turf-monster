@@ -1,7 +1,7 @@
 {
   "name": "Turf Monster",
   "short_name": "Turf Monster",
-  "description": "Solana-powered World Cup pick'em contests. Pick 6 matchups, stack Turf Scores, win on-chain.",
+  "description": "Skill-based pick’em: pick your teams, stack Turf Scores, and win in contests or head-to-head against friends.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

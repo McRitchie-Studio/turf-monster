@@ -1,3 +1,11 @@
+<%# Link-preview fetchers (iMessage, Discord, Slack, X...) get only the preview
+    tags: Apple's LinkPresentation drops any page over 1 MiB, and this full
+    page runs past that on a contest. The page's content_for overrides (title,
+    meta_description, og_image) are already set by the time this runs, so the
+    slim document carries them. See ApplicationController#link_preview_bot_request?. %>
+<% if link_preview_bot_request? %>
+<%= render "layouts/link_preview_document" %>
+<% else %>
 <!DOCTYPE html>
 <html>
   <head>
@@ -12,39 +20,10 @@
       content_for(:meta_description) / content_for(:og_image) override wins,
       then the admin-set SiteSetting defaults, then the hardcoded fallbacks.
     %>
-    <%# Title/description/og:image resolve through OgHelper: a page-level
-        content_for override wins, then the admin-set SiteSetting defaults
-        (/admin/dashboard), then the hardcoded fallbacks below. See OgHelper. %>
-    <% page_title = og_title(content_for(:title)) %>
-    <% meta_description = og_description(content_for(:meta_description)) %>
-    <%# og:image — a page-level content_for(:og_image) override wins; otherwise
-        the admin-uploaded SiteSetting default, falling back to the static
-        public/og.png (1200x630 landscape, ~53KB — sized + compressed for the
-        unfurl; the old 1.3MB /logo.png timed out and blanked previews). Only
-        the static fallback has known fixed dimensions. %>
-    <% og_override = content_for(:og_image).presence %>
-    <% resolved_og_image = og_override || og_image_url %>
-    <% og_image_is_default = og_override.blank? && og_image_default? %>
-    <title><%= page_title %></title>
-    <meta name="description" content="<%= meta_description %>">
-
-    <%# Favicons + PWA icons (Turf Monster green monster mark) %>
-    <link rel="icon" href="/favicon.ico" sizes="any">
-    <link rel="icon" type="image/png" href="/favicon.png">
-    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
-    <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png">
-    <link rel="manifest" href="/site.webmanifest">
-
-    <%# Brand dark navy (matches --color-page / manifest theme_color). %>
-    <meta name="theme-color" content="#1e1b35">
-    <%# Modern companion to the engine head's apple-mobile-web-app-capable
-        (clears the Chrome deprecation warning). Both are intentionally kept. %>
-    <meta name="mobile-web-app-capable" content="yes">
-
-    <%# Open Graph + Twitter unfurl tags (shared with the landing layout). %>
-    <%= render "layouts/link_preview_meta", title: page_title, description: meta_description,
-          image: resolved_og_image, image_default: og_image_is_default %>
+    <%# Title, description, icons and the og/twitter preview tags. Shared
+        with the slim link-preview document (layouts/_link_preview_document)
+        so a preview bot reads exactly the tags a person's page carries. %>
+    <%= render "layouts/page_identity", preview: page_link_preview %>
 
     <%# SRI-pinned (audit H2): exact versions + integrity so a poisoned CDN/package
         can't swap the signing-path crypto. web3.js @1 currently resolves to 1.98.4;
@@ -2299,3 +2278,4 @@
     <% end %>
   </body>
 </html>
+<% end %>

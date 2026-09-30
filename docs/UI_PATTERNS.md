@@ -79,6 +79,29 @@ Guard the variant on `variable?`, not merely `attached?` — `.variant` raises
 `ActiveStorage.variable_content_types`, which would 500 the public page rather
 than fall through to the default card.
 
+### Link-Preview Bots Get a Slim Page
+
+Apple's LinkPresentation, which builds iMessage previews on the sender's device,
+aborts any page whose HTML exceeds **1 MiB** (WebKit 102 "Frame load
+interrupted"; measured 2026-09-30: 1,048,000 bytes previews, 1,049,000 fails). A
+contest page is past that, mostly inline script and `<template>` markup. So the
+application layout asks `link_preview_bot_request?` first, and a preview fetcher
+gets `layouts/_link_preview_document`: the identity tags and a one-card body,
+a few KB. People and unknown agents get the full page unchanged.
+
+- **The allow-list lives in one place**, `LinkPreviewBot::TOKENS`. iMessage has
+  no token of its own; it sends an old-Safari UA suffixed with
+  `facebookexternalhit/1.1 Facebot Twitterbot/1.0`. Add a fetcher's own token,
+  never an in-app browser's (`FBAN`, `LinkedInApp`, `Twitter for iPhone` are
+  people).
+- **The tags cannot drift**: both documents render `layouts/_page_identity`,
+  fed by `OgHelper#page_link_preview`, and the view's `content_for` overrides
+  (`:title`, `:meta_description`, `:og_image`) are set before either runs.
+- **A contest previews as itself**: `contests/show` sets `:title` and
+  `:meta_description` from `OgHelper#contest_og_title` / `#contest_og_description`.
+- A page on another layout (`landing`, `loading`) is not slimmed; add the guard
+  there if one grows past 1 MiB.
+
 ### Status Badges
 `ApplicationHelper::CONTEST_BADGE_STYLES`, keyed by contest status — the pill on
 contest cards and headers: mint=open, yellow=locked (DERIVED time-gate, not a

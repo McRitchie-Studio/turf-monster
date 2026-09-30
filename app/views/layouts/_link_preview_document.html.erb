@@ -1,0 +1,25 @@
+<%# The whole response for a link-preview fetcher (ApplicationController#
+    link_preview_bot_request?): the page's identity tags and a one-card body,
+    with none of the app's scripts, templates or inline SVG.
+
+    WHY: Apple's LinkPresentation (iMessage) aborts any page over 1 MiB with
+    WebKit 102 "Frame load interrupted"; the full contest page is ~1.2 MB.
+    The head renders the same partial the full layout does, so the preview
+    tags cannot drift from what a person's page carries. %>
+<% preview = page_link_preview %>
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <%= render "layouts/page_identity", preview: preview %>
+  </head>
+  <body>
+    <main>
+      <h1><%= preview[:title] %></h1>
+      <p><%= preview[:description] %></p>
+      <img src="<%= preview[:image] %>" alt="<%= preview[:title] %>">
+      <p><a href="<%= request.original_url %>">Open on Turf Monster</a></p>
+    </main>
+  </body>
+</html>
