@@ -44,7 +44,7 @@
    - `world_cup` then 302s to `contest_path(@contest)` (`app/controllers/contests_controller.rb:667`).
 
 2. **Show page renders for a logged-out visitor** — `ContestsController#show` (`app/controllers/contests_controller.rb:670-711`) → `app/views/contests/show.html.erb`.
-   - Hero banner + creator avatar + on-chain explorer link — `contests/hero` is rendered at `app/views/contests/show.html.erb:26`; inside the partial the `explorer.solana.com` link is at `app/views/contests/_hero.html.erb:19` and the avatar circle, which renders `creator_name.first.upcase`, at `:29-31`.
+   - Hero banner + creator avatar + on-chain explorer link — `contests/hero` is rendered at `app/views/contests/show.html.erb:30`; inside the partial the `explorer.solana.com` link is at `app/views/contests/_hero.html.erb:19` and the avatar circle, which renders `creator_name.first.upcase`, at `:29-31`.
    - The inline matchup board never links out to `/tokens/buy`: the buy affordance is the IN-MODAL entry-token picker opened by `showBuyEntryToken()` (`app/views/contests/_turf_totals_board.html.erb:1243-1261`), so the buyer never visually leaves the contest. An anonymous visitor is bounced to the auth modal first — `confirmEntry()` reads `sess.isGuest` and calls `showLoginModal()` (`:1575-1580`) — and resumed afterwards by `afterLoginSuccess()` (`:1361-1390`), which replays the cart and re-runs `confirmEntry`. From there `showEligibilityBlockerModal()` (`:811-836`) routes a token-less buyer onward. The entry fee reaches the board as `entryFeeCents` (`:142`).
 
 3. **Clicks "Sign in" in the navbar** — the logged-out CTA targets the unified `/signin` page, `get "signin", to: "sessions#new"` (`config/routes.rb:178`). Legacy `GET /login` and `GET /signup` both redirect through `signin_redirect` (`:180-181`).
@@ -105,7 +105,7 @@
     - `entry.confirm!(tx_signature:, onchain_entry_id:)` runs from `ContestsController#finalize_managed_entry!` (`app/controllers/contests_controller.rb:2168`). `Entry#confirm!` (`app/models/entry.rb:170-208`) re-runs `assert_enterable!` under the user row lock (`:176`), refuses a paid entry with no payment proof (`:185-187`), writes the `entry_fee` `TransactionLog` debit (`:189-191`), and flips `entries.status` → `active` (`:192`). The 6-selection count, lock time, and duplicate-combo checks all live in `Entry#assert_enterable!` (`:125-159`).
     - The JSON response carries `redirect: contest_path(@contest)` (`app/controllers/contests_controller.rb:972`).
 
-11. **Land back on the contest show page** — `@has_entry` is now true, so the seeds + share cards render (`app/views/contests/show.html.erb:34-57`) and the leaderboard partial replaces the matchup board. The same page hosts `contests/chat_panel`, rendered at `:103`.
+11. **Land back on the contest show page** — `@has_entry` is now true, so the seeds + share cards render (`app/views/contests/show.html.erb:38-61`) and the leaderboard partial replaces the matchup board. The same page hosts `contests/chat_panel`, rendered at `:107`.
 
 12. **Send a chat message** — the composer in the chat panel POSTs to `contest_messages_path(contest)` (`app/views/contests/_chat_panel.html.erb:38`) from `send()` (`:220-264`) → `MessagesController#create` (`app/controllers/messages_controller.rb:8-33`).
     - The class-body `before_action :set_contest` (`:4`, definition `MessagesController#set_contest` at `:130-133`) and `before_action :require_chat_enabled` (`:5`, definition `MessagesController#require_chat_enabled` at `:135-138`, which reads the `chat_enabled` DB column).
