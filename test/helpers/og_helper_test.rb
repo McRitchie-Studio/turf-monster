@@ -153,4 +153,30 @@ class OgHelperTest < ActionView::TestCase
     )
     assert_not og_image_default?(lp)
   end
+
+  # --- contest preview copy (contest pages set these as :title and
+  #     :meta_description so a shared link previews as the contest) ---
+
+  test "contest_og_title names the contest" do
+    assert_equal "Test Contest — Turf Monster", contest_og_title(contests(:one))
+  end
+
+  test "contest_og_description leads with the tagline and states the money line" do
+    contest = contests(:one)
+    contest.tagline = "Weeks 4-6 on the NFL slate"
+    description = contest_og_description(contest)
+
+    assert description.start_with?("Weeks 4-6 on the NFL slate: $#{contest.guaranteed_prize_dollars.to_i} in prizes, $19 entry.")
+    assert_not_includes description, "World Cup"
+  end
+
+  test "contest_og_description falls back to the name and calls a free contest free" do
+    contest = contests(:one)
+    contest.tagline = nil
+    contest.entry_fee_cents = 0
+
+    assert_includes contest_og_description(contest), "Test Contest: "
+    assert_includes contest_og_description(contest), "free to enter"
+    assert_not_includes contest_og_description(contest), "$0 entry"
+  end
 end
