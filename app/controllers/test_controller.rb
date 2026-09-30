@@ -458,8 +458,10 @@ class TestController < ApplicationController
     # Read back through the same accessor the page uses. A store that failed to
     # install would otherwise hand the spec a cheerful ok:true and then render an
     # empty row, sending the spec hunting for a bug in the view.
+    # nil?, not blank?: minted=0 warms an EMPTY list, which is a real answer
+    # (a brand-new user holds nothing) and is exactly what a Grant spec needs.
     warmed = Rails.cache.read(Solana::Vault.entry_tokens_cache_key(address))
-    if warmed.blank?
+    if warmed.nil?
       return render json: { error: "cache write did not stick (store: #{Rails.cache.class})" },
                     status: :unprocessable_entity
     end
