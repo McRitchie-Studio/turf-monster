@@ -8,9 +8,9 @@ what it refuses to do.
 > resets at each `##` heading. The number is bookkeeping; the SYMBOL beside it is
 > the claim, and `test/docs/workflow_citation_docs_test.rb` reddens when a citation
 > stops landing inside the definition its prose names.
-> That symbol check reaches **48 of the 73 citations** here. The other **25**
+> That symbol check reaches **59 of the 87 citations** here. The other **28**
 > sit in code with no enclosing definition the guard can derive, and they are not
-> all checked alike. **4 of those 25** are `config/routes.rb` entries, which get a
+> all checked alike. **4 of those 28** are `config/routes.rb` entries, which get a
 > stricter check: each must OPEN on the line that carries its route, not merely
 > quote a word found somewhere in its span. That catches most one-line drift, not
 > all of it — [the workflows README](README.md) has the measurement. The rest —
@@ -22,7 +22,8 @@ what it refuses to do.
 > choice: the guard reads definitions only from `.rb`
 > (with Prism) and from inline JS in `.erb`, and a script with no extension gets
 > neither. One citation — the `config/schedule.yml` header — is a deliberate comment
-> citation; an ABSENCE ("no NFL entry") cannot be cited, only grepped.
+> citation, kept because the mechanism it explains (`active_job: true`, and why
+> `sidekiq-cron` cannot infer it) has no definition to point at.
 >
 > **Cited since 2026-09-09.** Until then this document named its symbols and pointed
 > at none of them, which made it invisible to the guard rather than weakly checked.
@@ -42,7 +43,7 @@ ESPN scoreboard  ->  Nfl::LiveScores::PollCycle
 ```
 
 Nothing in the poller writes a score directly. `Nfl::LiveScores::PollCycle#record_play`
-writes `Goal` rows (`app/services/nfl/live_scores/poll_cycle.rb:377-402`) and the
+writes `Goal` rows (`app/services/nfl/live_scores/poll_cycle.rb:440-465`) and the
 existing callbacks carry them the rest of the way, which is why a hand-recorded goal
 and a fed one behave identically. On `Goal`, the `after_create :refresh_game_scores`
 declaration (`app/models/goal.rb:46`) runs `Goal#refresh_game_scores` (`:156-158`),
@@ -57,9 +58,9 @@ Every link in that chain, with its owner:
 
 | Step | Where |
 |---|---|
-| `Nfl::LiveScores::PollCycle#call` — one cycle | `app/services/nfl/live_scores/poll_cycle.rb:74-86` |
-| `Nfl::LiveScores::PollCycle#process` — one game per scoreboard row | `:110-176` |
-| `Nfl::LiveScores::PollCycle#sync_scoring_plays` — reconciles the play list | `:290-343` |
+| `Nfl::LiveScores::PollCycle#call` — one cycle | `app/services/nfl/live_scores/poll_cycle.rb:78-94` |
+| `Nfl::LiveScores::PollCycle#process` — one game per scoreboard row | `:183-249` |
+| `Nfl::LiveScores::PollCycle#sync_scoring_plays` — reconciles the play list | `:353-406` |
 | `Game#update_scores_from_goals!` — sums points | `app/models/game.rb:66-71` |
 | `Game#update_slate_matchups!` — sets `SlateMatchup#goals` | `:74-84` |
 | `Game#score_affected_contests!` — re-scores open contests | `:94-106` |
@@ -74,7 +75,7 @@ Every link in that chain, with its owner:
 |---|---|
 | League scoreboard — `get "live", to: "live#index"` | `config/routes.rb:62` — public, read-only, no sign-in |
 | Focus-game priority list — `resources :weeks` | `config/routes.rb:512-514` — admin only |
-| One cycle, printed as a delta — `Nfl::LiveScores::PollCycle.call` | `bin/nfl-live-poll:80` |
+| One cycle, printed as a delta — `Nfl::LiveScores::PollCycle.call` | `bin/nfl-live-poll:98` |
 | Score injectors, non-production only — `dev/live_scores#record` | `config/routes.rb:82-84` |
 | The operator act | `live-score-watch` (mcritchie-studio SOP, Avi) |
 
@@ -165,13 +166,14 @@ bin/nfl-live-poll                  # the slot ESPN considers current
 bin/nfl-live-poll --slot 2026:1:4  # year:season_type:week  (1=pre 2=reg 3=post)
 bin/nfl-live-poll --json           # machine-readable
 bin/nfl-live-poll --quiet          # print nothing when nothing changed
+bin/nfl-live-poll --allow-settled  # override the settled-contest refusal
 ```
 
-The script calls `Nfl::LiveScores::PollCycle.call` (`bin/nfl-live-poll:80`) and exits
+The script calls `Nfl::LiveScores::PollCycle.call` (`bin/nfl-live-poll:98`) and exits
 0 when the cycle completed, whether or not anything changed — with an explicit `exit 0`
-on the `--json` and `--quiet` paths (`:90`, `:93`), and by running off the end
+on the `--json` and `--quiet` paths (`:108`, `:111`), and by running off the end
 otherwise. It reaches `exit 1` only when the scoreboard itself did not arrive — a
-rescued `Nfl::Espn::Client::Error` (`:81-85`) — because then the cycle observed nothing.
+rescued `Nfl::Espn::Client::Error` (`:99-103`) — because then the cycle observed nothing.
 **Anomalies are reported, never fatal** — a feed we do not own will have bad minutes,
 and a bad minute must not end a watch.
 
@@ -179,38 +181,92 @@ and a bad minute must not end a watch.
 (`external_id`) under the unique partial index
 `index_goals_on_external_id_when_present` (`db/schema.rb:361`), and
 `Nfl::LiveScores::PollCycle#sync_scoring_plays` indexes what it already holds by that
-id before writing (`app/services/nfl/live_scores/poll_cycle.rb:308-309`) — so a second
+id before writing (`app/services/nfl/live_scores/poll_cycle.rb:371-372`) — so a second
 identical cycle writes nothing and an interrupted one resumes by being run again.
 
-## THERE IS NO SCHEDULER
+## The scheduler, and the tripwire behind it
 
 `config/schedule.yml` — the `sidekiq-cron` job list, per its own header comment
-(`config/schedule.yml:1`) — has no NFL entry: nothing in it names the poller, and `bin/nfl-live-poll`
-is the only non-test caller of `Nfl::LiveScores::PollCycle` (`bin/nfl-live-poll:80`). **An operator running the
-`live-score-watch` act is the sole path by which production contests re-score.**
+(`config/schedule.yml:1`) — carries two NFL entries. Both are needed, and the
+second exists because the first can fail silently.
 
-That is a deliberate current state, not an oversight — but it means the act's
-target matters enormously, and the SOP makes the environment explicit in every
-command for that reason. If this ever moves to a cron trigger, the SOP's own
-design note is the place to start.
+| Entry | Cron | Runs | Why |
+|---|---|---|---|
+| `nfl_live_poll` | `*/5 * * * *` | `Nfl::LivePollJob#perform` (`app/jobs/nfl/live_poll_job.rb:47-58`) | One cycle against the slot ESPN considers current, so contests re-score with nobody watching |
+| `nfl_silent_gap_check` | `37 */6 * * *` | `Nfl::SilentGapCheckJob#perform` (`app/jobs/nfl/silent_gap_check_job.rb:26-44`) | Detects a slot FINAL at the source carrying zero goals here — the failure the poller cannot report about itself |
+
+**Both entries carry `active_job: true`**, which on Sidekiq 7 is the only signal
+that works — `sidekiq-cron`'s own ActiveJob inference can never succeed, and an
+entry missing the flag raises at ENQUEUE where no dashboard shows it. The
+schedule's own header comment carries the mechanism (`config/schedule.yml:1`),
+and `test/initializers/sidekiq_cron_schedule_test.rb` proves every entry
+ENQUEUES rather than merely parsing.
+
+**THE POLLER RUNS UNCONDITIONALLY, WITH NO GAME WINDOW, AND THAT IS THE DESIGN.**
+Gating the request on "is a game on?" would cut ~288 scoreboard requests a day to
+~40, and the gate would be derived from the very data the poll maintains — a
+slate never built, kickoff times never refreshed, rows carrying a null season
+slot. Each of those produces an empty window, so the gate closes itself,
+permanently and silently, in exactly the case the poll is needed. `perform` names
+no slot for the same reason (`app/jobs/nfl/live_poll_job.rb:47-58`): a bare
+scoreboard request returns whatever ESPN considers current, which is more reliable
+than any calendar we could keep. One request per tick covers every game in the
+slot; a per-game summary is spent only when a score actually moved.
+
+Five minutes is a FLOOR on latency, not a target. The `live-score-watch` act is
+still the tool for a live contest an operator is actually watching, on a tighter
+loop. What the cron guarantees is that a week can never again vanish because
+nobody ran it.
+
+**WHY A TRIPWIRE IS THE OTHER HALF.** A cron fails exactly as quietly as no cron:
+on 2026-08-25 a merge resolution dropped `active_job: true` from every entry in
+this file at once and nothing ran in either environment for a day, with every
+dashboard reading healthy. `Nfl::LiveScores::SilentGapCheck#unscored_final`
+(`app/services/nfl/live_scores/silent_gap_check.rb:164-174`) asks the one question
+that catches the whole class — is this game FINAL at the source while carrying
+zero scoring events here — and `Nfl::LiveScores::SilentGapCheck#alert!` (`:190-201`)
+pages a human through `ErrorLog` with the repair command in the message. It costs
+nothing on a healthy week: `Nfl::LiveScores::SilentGapCheck#candidate_slots`
+(`:116-127`) is one indexed query over our OWN goal-less games, so a week we have
+scored produces no candidates and no network request at all. `SETTLE_GRACE` (`:50`)
+keeps it off a slate still being played and `LOOKBACK` (`:55`) bounds how far back
+it reaches.
+
+It ALERTS and does not repair. Re-polling a historical week unattended is the one
+act that can reach across the grading/settlement seam, so the decision to reach
+back stays a human's — `bin/nfl-live-poll --slot Y:T:W`, which the alert names.
+
+**THIS IS NEW AS OF 2026-09-30, AND THE HISTORY IS THE REASON FOR ALL OF IT.**
+Before it, nothing in `config/schedule.yml` named the poller and
+`bin/nfl-live-poll` held the only non-test call of `Nfl::LiveScores::PollCycle`
+(`bin/nfl-live-poll:98`), so an operator running `live-score-watch` was the sole
+path by which production contests re-scored. Nobody ran it between 2026-09-17 and 2026-09-23. Regular
+season 2026 week 2 vanished: ESPN reported all 16 games Final while
+turf-monster-mainnet held all 16 at `status=scheduled` with zero goals, and the
+Weeks 1-3 contest — 7 active PAID entries from 7 different people — scored on two
+weeks out of three for ten days. The backfill on 2026-09-27 moved the contest
+total 1548.9 → 2930.3 and changed the leaderboard order. There was no error, no
+anomaly and no `degraded_feed`; the standings simply omitted a week and looked
+plausible.
 
 ## The anomaly vocabulary
 
-Seven kinds. The cycle reports and continues; none is fatal.
+Eight kinds. The cycle reports and continues; none is fatal.
 
 Every kind is raised inside `Nfl::LiveScores::PollCycle`, whose file the bare `:NN`
 citations below name (`app/services/nfl/live_scores/poll_cycle.rb`).
 
 | Kind | Raised in | Means | What to do |
 |---|---|---|---|
-| `fetch_failed` | `#process` (`app/services/nfl/live_scores/poll_cycle.rb:168`) | One game's summary did not arrive | Ignore once. Twice on the same game: report it. |
-| `unknown_team` | `#upsert_game` (`:197`) and `#record_play` (`:380`) | An abbreviation resolved to no team | **Escalate.** A team that cannot be matched silently never scores. |
-| `score_drift` | `#detect_drift` (`:444-453`) | Our summed events disagree with the feed's total | Ignore a single cycle mid-play; persisting means a play was missed. |
-| `degraded_feed` | `#process` (`:127-128`) and `#sync_scoring_plays` (`:298`, `:320`) | The feed declined to answer — an absent `scoringPlays` key, zero plays against goals we hold, or a blank score on a live game | The cycle **refuses to act**. Investigate if it persists. |
-| `status_regression` | `#status_for` (`:266`) | A stale row reported an earlier state for a completed game | Informational; the game keeps its completed status. |
-| `recap_push_failed` | `#push_recap` (`:429-437`) | The studio hub could not be told a game finished | Informational. The game IS settled; only the content idea is missing. |
-| `unsettled_final` | `#process` (`:149`) | The feed says FINAL but our events disagree with its total | The game is **not settled**. It settles on the next reconciling cycle. |
-| `cycle_error` | `#process` (`:175`) | An unexpected exception, captured to `ErrorLog` | A bug. Read the ErrorLog. |
+| `fetch_failed` | `#process` (`app/services/nfl/live_scores/poll_cycle.rb:241`) | One game's summary did not arrive | Ignore once. Twice on the same game: report it. |
+| `unknown_team` | `#upsert_game` (`:270`) and `#record_play` (`:443`) | An abbreviation resolved to no team | **Escalate.** A team that cannot be matched silently never scores. |
+| `score_drift` | `#detect_drift` (`:507-516`) | Our summed events disagree with the feed's total | Ignore a single cycle mid-play; persisting means a play was missed. |
+| `degraded_feed` | `#process` (`:200`) and `#sync_scoring_plays` (`:361`, `:383`) | The feed declined to answer — an absent `scoringPlays` key, zero plays against goals we hold, or a blank score on a live game | The cycle **refuses to act**. Investigate if it persists. |
+| `status_regression` | `#status_for` (`:332`) | A stale row reported an earlier state for a completed game | Informational; the game keeps its completed status. |
+| `recap_push_failed` | `#push_recap` (`:492-501`) | The studio hub could not be told a game finished | Informational. The game IS settled; only the content idea is missing. |
+| `unsettled_final` | `#process` (`:222`) | The feed says FINAL but our events disagree with its total | The game is **not settled**. It settles on the next reconciling cycle. |
+| `cycle_error` | `#process` (`:248`) | An unexpected exception, captured to `ErrorLog` | A bug. Read the ErrorLog. |
+| `settled_contest` | `#refuse_settled` (`:149-161`) | A contest on this slot is already SETTLED, so the cycle wrote NOTHING | Expected on a finished week. Override deliberately with `bin/nfl-live-poll --allow-settled`. |
 
 ## What it refuses to do
 
@@ -223,12 +279,28 @@ These are guards with reproductions behind them, not defensive padding.
   now separates "no plays" from "no answer" by asking whether `scoringPlays` is an
   Array at all (`app/services/nfl/espn/scoring_plays.rb:65-67`);
   `Nfl::LiveScores::PollCycle#sync_scoring_plays` refuses to sweep to nothing
-  (`app/services/nfl/live_scores/poll_cycle.rb:298`, `:320`); and `#process` treats a
-  blank score on a live game as an anomaly rather than a zero (`:127-128`).
+  (`app/services/nfl/live_scores/poll_cycle.rb:361`, `:383`); and `#process` treats a
+  blank score on a live game as an anomaly rather than a zero (`:200`).
 - **It will not settle a game it cannot reconcile.** Finalising flips every
   matchup and re-scores every contest. Doing that while our events disagree with
   the feed settles a contest on a number one side of the system does not
   believe, so the game stays open and the disagreement is reported.
+- **It will not re-score a SETTLED contest.** The cycle is idempotent about
+  scoring EVENTS — plays are keyed on ESPN's play id under
+  `index_goals_on_external_id_when_present` — but not about their consequences: one
+  new or withdrawn play re-sums the game and rewrites every `SlateMatchup#goals` it
+  feeds. Under a contest whose ranks and payouts are final that leaves a
+  leaderboard disagreeing with the money paid out, and `Contest#grade!`
+  (`app/models/contest.rb:404-467`) raises rather than regrade it.
+  `Nfl::LiveScores::PollCycle#settled_contest_slug`
+  (`app/services/nfl/live_scores/poll_cycle.rb:130-143`) answers before any write,
+  from the union of the games we hold and the slugs the feed rows would take — a
+  `SlateMatchup` can name a slug before any `Game` row exists for it — and
+  `Nfl::LiveScores::PollCycle#refuse_settled` (`:149-161`) reports the refusal as an
+  anomaly. It reads `Contest#status`, never `onchain_settled`: `grade!` writes
+  `settled` and only then attempts `Contest#settle_onchain!`
+  (`app/models/contest.rb:685-687`), so a graded, paid-out contest routinely reads
+  `onchain_settled` false.
 - **It will not un-complete a finished game.** A stale scoreboard row would
   otherwise re-open a settled game and re-fire the FINAL broadcast.
 - **It will not store an id-less play.** `play["id"].to_s` yields `""`, which the
