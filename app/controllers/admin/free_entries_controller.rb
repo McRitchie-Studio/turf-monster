@@ -85,6 +85,7 @@ module Admin
     # next level-up entry. The confirm dialog says so.
     def grant
       user = User.find_by!(slug: params[:user_slug])
+      minted = false
       rescue_and_log(target: user) do
         user.with_lock do
           address = user.solana_address
@@ -104,10 +105,15 @@ module Admin
             next
           end
 
+          # mint_entry_token returns only after send_and_confirm, so reaching
+          # the next line means the token is on chain. Anything short of that
+          # raised, and `minted` stays false: no email for a mint that failed.
           mint_n_tokens(user, 1)
+          minted = true
           flash[:notice] = "Granted 1 free entry to #{user.display_name}"
         end
       end
+      notify_free_entry_ready(user) if minted
       redirect_to admin_free_entries_path(filter_params)
     rescue ActiveRecord::RecordNotFound
       raise
@@ -179,6 +185,31 @@ module Admin
     end
 
     private
+
+    # "Your free Turf Monster entry is ready" — once per CONFIRMED grant.
+    #
+    # Outside the per-user lock and after it: the mint is final, and a mail
+    # enqueue has no business holding a row lock. It is its own rescue on
+    # purpose: a delivery hiccup must not report a landed mint as "Grant
+    # failed" (the operator would press again and mint a second entry). Once
+    # per grant holds because #grant mints at most one token per request and
+    # its shown-count guard refuses a second submit, which never reaches here.
+    #
+    # The contest is the one the player's signup page was promoting (their
+    # reference is that page's slug), else the featured one.
+    def notify_free_entry_ready(user)
+      if user.email.blank?
+        flash[:alert] = "#{user.display_name} has no email address, so no entry-ready email was sent."
+        return
+      end
+
+      contest = LandingPage.find_by(slug: user.reference.presence)&.contest || Contest.featured
+      rescue_and_log(target: user) do
+        Studio::Email.deliver(FreeEntryMailer, :ready, user, contest, to: user.email, user: user)
+      end
+    rescue StandardError => e
+      flash[:alert] = "The entry landed, but its email to #{user.email} failed: #{e.message.to_s[0, 200]}"
+    end
 
     # The signup-source filter: users.reference, the first-touch attribution a
     # landing page (/lp/:slug, /tiktok) or a ?reference= link stamps at signup.

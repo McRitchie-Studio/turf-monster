@@ -1,0 +1,11 @@
+Your free entry is in your Turf Monster account.
+<% if @contest %>
+
+Make your picks in <%= @contest.name %> and submit before the contest locks<% if @contest.locks_at %> on <%= @contest.locks_at.strftime("%A, %B %-d at %-I:%M %p %Z") %><% end %>. The entry is already paid for.
+<% else %>
+
+Pick a contest, make your picks and submit. The entry is already paid for.
+<% end %>
+
+Make your picks:
+<%= @contest_url %>
