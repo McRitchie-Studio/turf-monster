@@ -586,17 +586,31 @@ module Solana
         (network == "mainnet-beta" ? MAINNET_SQUADS_MULTISIG : DEVNET_SQUADS_MULTISIG)
     end
 
-    # Where the operator goes to change Squads MEMBERSHIP. Squads ships its own
-    # web UI for exactly that, and this app deliberately does not reimplement
-    # it — /admin/authorities links out.
+    # Where the operator goes to ACT ON THE SQUAD — both jobs it serves: moving
+    # swept operator revenue OUT of the treasury (the second hop of collecting
+    # revenue, and the only way to perform it), and changing program-upgrade
+    # MEMBERSHIP. Squads ships its own web UI for both, and this app
+    # deliberately does not reimplement either — /admin and /admin/authorities
+    # link out.
     #
     # ONE HOST FOR BOTH CLUSTERS. `devnet.squads.so` is DECOMMISSIONED, so a
     # devnet-flavoured URL is a dead link rather than a cluster-correct one;
-    # app.squads.so is the only surviving front end and it resolves a multisig
+    # app.squads.so is the only surviving front end and it resolves a Squad
     # by address. The cluster is therefore carried by the ADDRESS, not by the
     # host, which is why the caller must say which cluster the link serves.
+    #
+    # IT KEYS ON THE VAULT PDA, NOT THE MULTISIG — and this method got that
+    # wrong until `link-squads-from-admin`. Measured in a browser 2026-09-29,
+    # both directions, on the mainnet Squad:
+    #   404  https://app.squads.so/squads/4H3fP3ot…XcKSX        (the multisig)
+    #   OK   https://app.squads.so/squads/Bk9sS7ii…GdJm/home    (the vault PDA)
+    # So the address that resolves is `squads_vault_pda` — the same value the
+    # program holds as `vault_state.treasury_authority` and as its upgrade
+    # authority — and the path needs the `/home` suffix. Confusing the two
+    # accounts is the recurring mistake this file warns about 30 lines up; here
+    # it presented as a 404 on the one link an operator follows to move money.
     def self.squads_app_url(network = NETWORK)
-      "https://app.squads.so/squads/#{squads_multisig(network)}"
+      "https://app.squads.so/squads/#{squads_vault_pda(network)}/home"
     end
 
     DECIMALS = 6
