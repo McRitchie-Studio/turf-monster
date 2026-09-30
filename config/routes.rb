@@ -553,6 +553,9 @@ Rails.application.routes.draw do
     get  "free_entries",                       to: "free_entries#index",    as: :free_entries
     post "free_entries/:user_slug/mint",       to: "free_entries#mint",     as: :mint_free_entries
     post "free_entries/mint_all",              to: "free_entries#mint_all", as: :mint_all_free_entries
+    # Discretionary hand-mint of ONE entry regardless of level arithmetic (a
+    # promised free entry, e.g. a TikTok signup). Manual only; nothing calls it.
+    post "free_entries/:user_slug/grant",      to: "free_entries#grant",    as: :grant_free_entries
     # Claw-back. Scoped to ONE user by design — there is no burn_all counterpart
     # to mint_all, because "destroy every unspent free entry on the platform" is
     # a footgun no support workflow needs.
