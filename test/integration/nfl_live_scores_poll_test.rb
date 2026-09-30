@@ -611,6 +611,125 @@ class NflLiveScoresPollTest < ActionDispatch::IntegrationTest
     assert_equal %w[P2 P3], ids.sort
   end
 
+  # ── THE SETTLEMENT SEAM ───────────────────────────────────────────────────
+  #
+  # GRADING AND SETTLEMENT ARE SEPARATE ACTS, and a cycle must not reach across
+  # the boundary between them. The cycle is idempotent about SCORING EVENTS —
+  # plays are keyed on ESPN's own id under a unique index — but not about their
+  # CONSEQUENCES: one new or withdrawn play re-sums the game and rewrites every
+  # SlateMatchup#goals it feeds. Doing that under a contest whose ranks and
+  # payouts are already final leaves a leaderboard that disagrees with the money
+  # that was paid out, and `Contest#grade!` cannot repair it — it raises on a
+  # settled contest by design.
+  #
+  # These live on the CYCLE and not on the scheduled job on purpose: the job is
+  # not the only caller. `bin/nfl-live-poll --slot` is what an operator reaches
+  # for when repairing a historical week, which is exactly when a settled contest
+  # is most likely to be in range.
+
+  test "refuses a slot whose contest has already settled, before writing anything" do
+    settled_contest_on("team-a-vs-team-b-pre4")
+    client = StubClient.new(scoreboard: scoreboard(home: 10, away: 7), summaries: { "EV1" => summary })
+
+    result = nil
+    assert_no_difference ["Goal.count", "Game.count"] do
+      result = Nfl::LiveScores::PollCycle.call(slot: @slot, client: client)
+    end
+
+    assert_equal ["settled_contest"], result.anomalies.map(&:kind)
+    assert_match contests(:one).slug, result.anomalies.first.detail
+    assert_empty result.changes
+    assert_empty client.summary_calls, "it refused before spending a request"
+    assert_equal 1, result.games_seen, "the scoreboard WAS read — nothing was written"
+  end
+
+  # THE CONTROL. Without it the test above passes just as well against a cycle
+  # that refuses every slot, which would stop all live scoring — the defect, in a
+  # new costume.
+  test "still polls a slot whose contest is merely open" do
+    matchup_on("team-a-vs-team-b-pre4")
+    assert_predicate contests(:one).reload, :open?
+    client = StubClient.new(scoreboard: scoreboard(home: 10, away: 7), summaries: { "EV1" => summary })
+
+    result = Nfl::LiveScores::PollCycle.call(slot: @slot, client: client)
+
+    assert_empty result.anomalies, "an open contest is not a reason to refuse a slot"
+    assert_equal 3, Game.find_by(external_id: "EV1").goals.count
+  end
+
+  # A CONTEST IS SETTLED IN THE DATABASE BEFORE IT IS SETTLED ON CHAIN.
+  # `Contest#grade!` writes `status: "settled"` and only then attempts
+  # `settle_onchain!`, which can legitimately still be pending — so a graded,
+  # paid-out contest routinely reads `onchain_settled: false`. A guard keyed on
+  # the on-chain flag would walk straight through it.
+  test "settlement is read from status, not from onchain_settled" do
+    contest = settled_contest_on("team-a-vs-team-b-pre4")
+    contest.update!(onchain_settled: false)
+    client = StubClient.new(scoreboard: scoreboard(home: 10, away: 7), summaries: { "EV1" => summary })
+
+    result = Nfl::LiveScores::PollCycle.call(slot: @slot, client: client)
+
+    assert_equal ["settled_contest"], result.anomalies.map(&:kind)
+    assert_equal 0, Goal.count
+  end
+
+  # The matchup can name a game slug before any Game row exists for it — that is
+  # how the odds CSV seeds a slate. The guard has to resolve the slug a row WOULD
+  # take, not only the row we already hold, or it walks past exactly that case.
+  test "refuses a settled contest whose matchup names a game we do not hold yet" do
+    assert_equal 0, Game.where(slug: "team-a-vs-team-b-pre4").count
+    settled_contest_on("team-a-vs-team-b-pre4")
+    client = StubClient.new(scoreboard: scoreboard(home: 10, away: 7), summaries: { "EV1" => summary })
+
+    result = Nfl::LiveScores::PollCycle.call(slot: @slot, client: client)
+
+    assert_equal ["settled_contest"], result.anomalies.map(&:kind)
+    assert_equal 0, Game.where(external_id: "EV1").count, "the row was never created"
+  end
+
+  # AND THE OTHER HALF OF THE UNION. A game we already hold can carry a
+  # DIFFERENT week than the feed row naming it — the NFL flexes games, and our
+  # slug is computed from our own stored week. The matchup then points at the old
+  # slug while the row computes the new one, so only the Game we hold by
+  # `external_id` reaches the settled contest.
+  test "refuses when the game we hold sits in a different week than the feed row" do
+    Game.create!(external_id: "EV1", home_team_slug: @home.slug, away_team_slug: @away.slug,
+                 season_year: 2026, season_type: 1, week: 3, status: "scheduled")
+    settled_contest_on("team-a-vs-team-b-pre3")
+    client = StubClient.new(scoreboard: scoreboard(home: 10, away: 7), summaries: { "EV1" => summary })
+
+    result = Nfl::LiveScores::PollCycle.call(slot: @slot, client: client)
+
+    assert_equal ["settled_contest"], result.anomalies.map(&:kind)
+    assert_equal 0, Goal.count
+    assert_equal 3, Game.find_by(external_id: "EV1").week, "the row was not re-slotted either"
+  end
+
+  # THE DELIBERATE OVERRIDE. An operator who has read the seam and decided
+  # anyway can still repair a settled slot by hand. Nothing on a schedule passes
+  # this flag.
+  test "allow_settled lets an operator override the refusal on purpose" do
+    settled_contest_on("team-a-vs-team-b-pre4")
+    client = StubClient.new(scoreboard: scoreboard(home: 10, away: 7), summaries: { "EV1" => summary })
+
+    result = Nfl::LiveScores::PollCycle.call(slot: @slot, client: client, allow_settled: true)
+
+    assert_equal 3, Game.find_by(external_id: "EV1").goals.count
+    refute_includes result.anomalies.map(&:kind), "settled_contest"
+  end
+
+  # A slot no contest touches is nobody's settlement, so the guard must not be a
+  # blanket "is anything settled anywhere" check.
+  test "a settled contest on an unrelated slate does not block the slot" do
+    settled_contest_on("some-other-game-entirely")
+    client = StubClient.new(scoreboard: scoreboard(home: 10, away: 7), summaries: { "EV1" => summary })
+
+    result = Nfl::LiveScores::PollCycle.call(slot: @slot, client: client)
+
+    assert_empty result.anomalies, "the guard must be scoped to THIS slot's contests"
+    assert_equal 3, Game.find_by(external_id: "EV1").goals.count
+  end
+
   # ── THE SITUATION ────────────────────────────────────────────────────────
 
   test "persists the down, the field position and who has the ball" do
@@ -674,6 +793,22 @@ class NflLiveScoresPollTest < ActionDispatch::IntegrationTest
   end
 
   private
+
+  # A SlateMatchup on the fixture slate pointing at `game_slug` — the link that
+  # carries a score from a game to a contest's entries.
+  def matchup_on(game_slug)
+    SlateMatchup.create!(slate: slates(:one), team_slug: @home.slug,
+                         opponent_team_slug: @away.slug, game_slug: game_slug,
+                         slug: "sm-#{game_slug}", rank: 1)
+  end
+
+  # The fixture contest, on that same slate, moved to the terminal state.
+  # `update!` rather than `grade!`: grading is a separate act with its own
+  # preconditions, and what this guard reads is the recorded status.
+  def settled_contest_on(game_slug)
+    matchup_on(game_slug)
+    contests(:one).tap { |contest| contest.update!(status: "settled") }
+  end
 
   def scoreboard(home:, away:, state: "in", completed: false, situation: :none)
     competition = {

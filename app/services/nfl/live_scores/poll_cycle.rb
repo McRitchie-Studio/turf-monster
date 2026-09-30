@@ -64,9 +64,13 @@ module Nfl
 
       def self.call(...) = new(...).call
 
-      def initialize(slot: nil, client: Espn::Client.new)
+      # `allow_settled` is the deliberate override for the one case the guard
+      # below refuses. It is false everywhere except an operator who has read
+      # the seam and decided anyway — never on a schedule.
+      def initialize(slot: nil, client: Espn::Client.new, allow_settled: false)
         @slot = slot
         @client = client
+        @allow_settled = allow_settled
         @changes = []
         @anomalies = []
       end
@@ -74,11 +78,15 @@ module Nfl
       def call
         payload = fetch_scoreboard
         rows = Espn::Scoreboard.rows_from(payload)
+        slot = @slot || slot_from(rows)
+
+        settled = settled_contest_slug(rows) unless @allow_settled
+        return refuse_settled(slot, rows, settled) if settled
 
         rows.each { |row| process(row) }
 
         Result.new(
-          slot: @slot || slot_from(rows),
+          slot: slot,
           games_seen: rows.length,
           changes: @changes,
           anomalies: @anomalies
@@ -86,6 +94,71 @@ module Nfl
       end
 
       private
+
+      # GRADING AND SETTLEMENT ARE SEPARATE ACTS, AND THIS IS THE SEAM.
+      #
+      # A cycle is idempotent about SCORING EVENTS — every play is keyed on
+      # ESPN's own id under a unique partial index, so running it twice writes
+      # nothing the second time. It is NOT idempotent about consequences: a
+      # single new or withdrawn play re-sums the game, rewrites every
+      # SlateMatchup#goals the game feeds, and re-scores every OPEN contest on
+      # those slates.
+      #
+      # `Game#score_affected_contests!` already scopes to open contests, so a
+      # settled contest is not re-scored — but that is the wrong place to rely
+      # on, because the MATCHUP rows are rewritten regardless and they are what
+      # a settled contest's standings render from. A cycle that moves a matchup
+      # under a contest whose ranks and payouts are already final produces a
+      # leaderboard that disagrees with the money that was paid out, and
+      # `Contest#grade!` cannot fix it: it raises on a settled contest by design.
+      #
+      # So the refusal is explicit, and it is here rather than in the scheduled
+      # job, because the job is not the only caller — `bin/nfl-live-poll` is what
+      # an operator reaches for when repairing a historical slot, which is
+      # precisely when a settled contest is most likely to be in range.
+      #
+      # IT IS DECIDED BEFORE ANY WRITE. The slot's games are the ones this cycle
+      # is about to touch, resolved through the same lookup order `process` uses,
+      # so the answer describes the real blast radius rather than a slot query
+      # that might miss an adopted row.
+      #
+      # `status` IS THE SEAM, NOT `onchain_settled`. A contest is settled in the
+      # database the moment `grade!` finishes; the on-chain settle is attempted
+      # after and can legitimately still be pending, so a contest routinely
+      # reads `settled` with `onchain_settled` false. Keying on the on-chain flag
+      # would let a cycle walk straight through a graded, paid-out contest.
+      def settled_contest_slug(rows)
+        # BOTH HANDLES, unioned. The Game row we already hold is the blast radius
+        # this cycle will actually rewrite; the slug the row WOULD take is what a
+        # SlateMatchup references, and a matchup can name a slug before any Game
+        # row exists for it. Asking only the first question would walk past a
+        # settled contest whose matchup we hold and whose game we do not.
+        slugs = rows.flat_map { |row| [GameLookup.find(row)&.slug, GameLookup.slug_for(row)] }.compact.uniq
+        return nil if slugs.empty?
+
+        slate_ids = SlateMatchup.where(game_slug: slugs).pluck(:slate_id).uniq
+        return nil if slate_ids.empty?
+
+        Contest.where(slate_id: slate_ids).settled.pick(:slug)
+      end
+
+      # Reported as an anomaly, not raised: the CLI already prints anomalies and
+      # already treats them as non-fatal, so a refusal shows up in the watch log
+      # exactly where an operator is looking. `games_seen` is still the honest
+      # count — the scoreboard WAS read; nothing was written.
+      def refuse_settled(slot, rows, contest_slug)
+        Result.new(
+          slot: slot,
+          games_seen: rows.length,
+          changes: [],
+          anomalies: [Anomaly.new(
+            kind: "settled_contest",
+            detail: "contest #{contest_slug} on this slot is already SETTLED — refusing to " \
+                    "re-score a graded contest. Its ranks and payouts are final; rewriting its " \
+                    "matchups would leave the standings disagreeing with the money paid out."
+          )]
+        )
+      end
 
       attr_reader :client
 
@@ -231,19 +304,12 @@ module Nfl
         Espn::TeamMap.team_for(row.possession_abbr)&.slug
       end
 
-      # Lookup order matters and is shared by `process` and `upsert_game`:
-      # `external_id` first because it is collision-proof, then the computed
-      # slug so an odds-CSV game is adopted rather than duplicated.
-      def find_game(row)
-        by_id = Game.find_by(external_id: row.external_id)
-        return by_id if by_id
-
-        home = Espn::TeamMap.team_for(row.home_abbr)
-        away = Espn::TeamMap.team_for(row.away_abbr)
-        return nil unless home && away
-
-        Game.find_by(slug: slug_for(row, home, away))
-      end
+      # Lookup order matters and is shared by `process`, `upsert_game` and
+      # `settled_contest_slug`. It lives in `GameLookup` because
+      # `SilentGapCheck` asks the same question from outside this class, and a
+      # copy that lost the slug fallback would silently answer "no such game"
+      # about exactly the rows the 2026 week-2 incident was made of.
+      def find_game(row) = GameLookup.find(row)
 
       # GAME STATE ONLY MOVES FORWARD.
       #
@@ -269,12 +335,9 @@ module Nfl
         game.status
       end
 
-      def slug_for(row, home, away)
-        Game.new(
-          home_team_slug: home.slug, away_team_slug: away.slug,
-          season_type: row.season_type, week: row.week
-        ).name_slug
-      end
+      # Both teams are already resolved by the one caller left, so they are
+      # handed in rather than looked up a second time.
+      def slug_for(row, home, away) = GameLookup.slug_for(row, home: home, away: away)
 
       def score_disagrees?(game, row)
         return false unless scores_known?(row)
