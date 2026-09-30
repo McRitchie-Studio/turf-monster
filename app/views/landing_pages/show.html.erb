@@ -43,8 +43,10 @@
 
         <div class="grid grid-cols-3 gap-3 text-center mb-5">
           <div>
-            <p class="font-mono text-2xl font-bold text-heading"><%= @contest.entry_fee_cents.to_i.zero? ? "Free" : "$#{@contest.entry_fee_dollars.to_i}" %></p>
-            <p class="text-muted text-[10px] uppercase tracking-wide">Entry</p>
+            <%# Claim mode: the visitor's entry is the free one this page
+                promises, so the card must not quote the fee they will not pay. %>
+            <p class="font-mono text-2xl font-bold text-heading"><%= @landing_page.claim_mode? || @contest.entry_fee_cents.to_i.zero? ? "Free" : "$#{@contest.entry_fee_dollars.to_i}" %></p>
+            <p class="text-muted text-[10px] uppercase tracking-wide"><%= @landing_page.claim_mode? ? "Your entry" : "Entry" %></p>
           </div>
           <div>
             <p class="font-mono text-2xl font-bold text-primary">$<%= @contest.guaranteed_prize_dollars.to_i %></p>
@@ -62,9 +64,22 @@
             data-test scopes the guard in turf_totals_lock_rule_test.rb. %>
         <p class="text-secondary text-xs text-center mb-5" data-test="funnel-lock-time"><%= @contest.lock_time_display %></p>
 
-        <%= link_to @landing_page.cta_label_display, contest_path(@contest.slug, scroll: 280),
-              class: "btn btn-primary btn-lg w-full shadow-lg shadow-primary/20",
-              target: "_blank", rel: "noopener" %>
+        <% if @landing_page.claim_mode? %>
+          <%# CLAIM MODE: the CTA collects the signup, never the checkout. A
+              signed-out visitor goes to /signin carrying the confirmation page
+              as return_to (both email-link and Google sign-in come back to it)
+              and the slug as ?reference=; a signed-in one goes straight there.
+              Same tab: the confirmation is the next step of this flow. %>
+          <% claimed_path = landing_page_claimed_path(@landing_page.slug) %>
+          <%= link_to @landing_page.cta_label_display,
+                (logged_in? ? claimed_path : signin_path(return_to: claimed_path, reference: @landing_page.slug)),
+                class: "btn btn-primary btn-lg w-full shadow-lg shadow-primary/20",
+                data: { test: "claim-cta", turbo: false } %>
+        <% else %>
+          <%= link_to @landing_page.cta_label_display, contest_path(@contest.slug, scroll: 280),
+                class: "btn btn-primary btn-lg w-full shadow-lg shadow-primary/20",
+                target: "_blank", rel: "noopener" %>
+        <% end %>
       </div>
     <% else %>
       <div class="card p-6 mb-6 text-center">
@@ -77,7 +92,8 @@
     <div class="mb-8" data-test="funnel-how-it-works">
       <p class="text-muted text-[10px] uppercase tracking-widest text-center mb-4">How it works</p>
       <div class="space-y-3">
-        <% funnel_how_it_works(@contest).each_with_index do |(title, body), i| %>
+        <% steps = @landing_page.claim_mode? ? funnel_claim_steps(@contest) : funnel_how_it_works(@contest) %>
+        <% steps.each_with_index do |(title, body), i| %>
           <div class="flex items-start gap-3">
             <span class="flex-shrink-0 w-7 h-7 rounded-full bg-primary/15 text-primary font-bold text-sm flex items-center justify-center"><%= i + 1 %></span>
             <div>

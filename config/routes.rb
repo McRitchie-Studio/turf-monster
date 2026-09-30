@@ -143,6 +143,18 @@ Rails.application.routes.draw do
   # Live at /lp/:slug now that /l/<token> is the unified Studio::Link entry point
   # (below). Old /l/:slug links 301 to /lp via Studio::LinksController#show fallback.
   get "lp/:slug", to: "landing_pages#show", as: :landing_page
+  # Claim-mode confirmation ("You're in — we'll email your free entry").
+  get "lp/:slug/claimed", to: "landing_pages#claimed", as: :landing_page_claimed
+
+  # Vanity funnel paths: short, spoken-aloud URLs ("type turfmonster.media/tiktok")
+  # → the landing page of the same slug, or the home page tagged
+  # ?reference=<slug> while no live page exists (LandingPagesController#vanity).
+  # The next channel is one more word in this list. Keep it to channels you say
+  # out loud: it is not a link shortener, and each entry claims a top-level path
+  # for good. Drawn before Studio.routes so no engine route can shadow them.
+  %w[tiktok].each do |slug|
+    get slug, to: "landing_pages#vanity", defaults: { slug: slug }, as: nil
+  end
 
   # Phantom deep link callback — must be before Studio.routes to avoid
   # matching OmniAuth's /auth/:provider/callback wildcard.
@@ -543,6 +555,9 @@ Rails.application.routes.draw do
     get  "free_entries",                       to: "free_entries#index",    as: :free_entries
     post "free_entries/:user_slug/mint",       to: "free_entries#mint",     as: :mint_free_entries
     post "free_entries/mint_all",              to: "free_entries#mint_all", as: :mint_all_free_entries
+    # Discretionary hand-mint of ONE entry regardless of level arithmetic (a
+    # promised free entry, e.g. a TikTok signup). Manual only; nothing calls it.
+    post "free_entries/:user_slug/grant",      to: "free_entries#grant",    as: :grant_free_entries
     # Claw-back. Scoped to ONE user by design — there is no burn_all counterpart
     # to mint_all, because "destroy every unspent free entry on the platform" is
     # a footgun no support workflow needs.

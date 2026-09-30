@@ -15,11 +15,14 @@ require "test_helper"
 # button takes the page's occurrences of solana-mark.svg from three to two, not
 # to zero.
 class AuthCardManagedWalletTest < ActionView::TestCase
-  # The two helpers the card reads. Stubbed at the view rather than the
+  # The helpers the card reads. Stubbed at the view rather than the
   # controller because this tier renders the partial, not the request.
+  # auth_return_to (the claim-mode return path) is nil here: this file is about
+  # the wallet nudge, and landing_claim_flow_test covers the return path.
   def render_card(nudged:, user: nil)
     view.define_singleton_method(:managed_wallet_onboarding?) { nudged }
     view.define_singleton_method(:current_user) { user }
+    view.define_singleton_method(:auth_return_to) { |*| nil }
     render partial: "shared/auth_card"
   end
 

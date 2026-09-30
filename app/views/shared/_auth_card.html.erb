@@ -3,6 +3,13 @@
     canonical page at /signin rendering this — no separate "sign up" variant and
     no required locals. CTA order: Google -> Solana wallet hub -> (or) -> email
     magic link. No password field — email auth is a one-tap magic link. %>
+<%# A flow that sent the visitor here to sign in (a claim-mode landing page)
+    names where to come back to as ?return_to=. It rides into BOTH paths below:
+    the Google request phase (read back from omniauth.params in the callback)
+    and the magic-link request (baked into the signed link). auth_return_to
+    refuses anything but a plain in-app path. %>
+<% card_return_to = auth_return_to %>
+<% google_base = card_return_to ? "/auth/google_oauth2?#{{ return_to: card_return_to }.to_query}" : "/auth/google_oauth2" %>
 <div class="min-h-[70vh] flex items-center justify-center">
   <div class="w-full max-w-md">
     <div class="text-center mb-8">
@@ -26,9 +33,9 @@
 
       <%# 1. Google — the attestation rides the OAuth round-trip as a request
           phase query param (read back via omniauth.params in the callback). %>
-      <%= button_to "/auth/google_oauth2", method: :post, data: { turbo: false },
+      <%= button_to google_base, method: :post, data: { turbo: false },
           form: {
-            ":action" => "ageAttested ? '/auth/google_oauth2?age_attestation=1' : '/auth/google_oauth2'",
+            ":action" => "ageAttested ? #{"#{google_base}#{card_return_to ? '&' : '?'}age_attestation=1".to_json} : #{google_base.to_json}",
             "@submit" => "if (!ageAttested) { $event.preventDefault(); ageError = true }"
           },
           class: "btn btn-neutral btn-lg w-full gap-3" do %>
@@ -85,7 +92,7 @@
                 this.error = '';
                 this.sending = true;
                 try {
-                  await window.postMagicLink(email, { ageAttested: true });
+                  await window.postMagicLink(email, { ageAttested: true, returnTo: <%= card_return_to.to_json %> });
                   $store.modals.open('auth', { step: 'magic-link-sent', sentEmail: email });
                 } catch (e) {
                   this.error = 'Could not send the link — check your connection and try again.';

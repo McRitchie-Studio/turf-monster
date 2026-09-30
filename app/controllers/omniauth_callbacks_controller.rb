@@ -166,7 +166,13 @@ class OmniauthCallbacksController < ApplicationController
         # returning Google users go to the app root. A wallet-less signup skips
         # that upsell — /tokens/buy sells web2 entry tokens it cannot pay for —
         # and lands on the app root, where the setup modal opens.
-        landing = new_signup && !needs_wallet ? tokens_buy_path : root_path
+        #
+        # An explicit return_to from the /signin card wins over both: the flow
+        # that sent the visitor to sign in (a claim-mode landing page's
+        # confirmation) is where they were going. It rode the request phase
+        # like age_attestation and is re-checked by auth_return_to here.
+        oauth_return_to = auth_return_to(request.env["omniauth.params"]&.fetch("return_to", nil))
+        landing = oauth_return_to || (new_signup && !needs_wallet ? tokens_buy_path : root_path)
         finish_oauth(landing, success: true,
                      needs_profile: !result.profile_complete?,
                      notice: "Signed in with Google!")

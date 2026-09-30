@@ -7,7 +7,9 @@
     (index.turbo_stream.erb) appends rows into #users-tbody and either
     replaces this trigger with the next one or removes it entirely.
 
-    Locals: page (next page #), total_users, per_page %>
+    Locals: page (next page #), total_users, per_page, reference (the active
+    source filter, or nil — it MUST ride on the fetch, or batch 2 onward would
+    stream in every user under a filtered page 1). %>
 <% from = (page - 1) * per_page + 1 %>
 <% to   = [page * per_page, total_users].min %>
 <div id="load-trigger"
@@ -15,7 +17,7 @@
      x-data
      x-init="(async () => {
        try {
-         const res = await fetch('<%= admin_free_entries_path(page: page) %>', {
+         const res = await fetch('<%= admin_free_entries_path(page: page, reference: local_assigns[:reference]) %>', {
            headers: { 'Accept': 'text/vnd.turbo-stream.html' },
            credentials: 'same-origin'
          });

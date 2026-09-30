@@ -157,6 +157,23 @@ Rails.application.config.to_prepare do
     }
   )
 
+  # THE FREE ENTRY IS READY — sent by Admin::FreeEntriesController#grant once a
+  # hand-minted entry has confirmed. Closes the claim-mode landing page's
+  # promise ("we'll email your free entry"). Transactional by mechanism.
+  #
+  # THE BANNER IS BORROWED, like the gift invite's above, and for the same
+  # reason: an operator upload on /admin/emails replaces it with no deploy.
+  Studio::EmailCatalog.register(
+    "free_entry_ready",
+    label: "Free entry ready",
+    description: "Sent when an operator's hand-minted free entry lands in the player's wallet.",
+    type: :transactional,
+    default_asset: "emails/friend-joined-banner.jpg",
+    preview: lambda {
+      FreeEntryMailer.ready(sample_user.call, Contest.featured)
+    }
+  )
+
   Studio::EmailCatalog.register(
     "newsletter_welcome",
     label: "Newsletter welcome",

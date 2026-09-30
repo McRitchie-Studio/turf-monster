@@ -1,8 +1,10 @@
 <%# Single row in the free-entries admin table. Rendered as part of the
     initial /admin/free_entries page AND as part of each auto-loaded
-    turbo-frame batch (see _page_frame.html.erb). Locals: `row` is the
-    hash compute_user_data_for emits. %>
+    turbo-stream batch (index.turbo_stream.erb). Locals: `row` is the
+    hash compute_user_data_for emits; `reference` is the active source
+    filter (nil for all), carried on each action so its redirect keeps it. %>
 <% user = row[:user] %>
+<% reference = local_assigns[:reference] %>
 <tr class="border-b border-subtle/40 hover:bg-inset transition">
   <td class="px-4 py-3">
     <div class="flex items-center gap-2">
@@ -12,6 +14,17 @@
         <div class="font-mono text-[10px] text-muted"><%= user.truncated_solana %></div>
       </div>
     </div>
+  </td>
+  <%# Signup source: users.reference, the first-touch attribution a landing
+      page (/lp/:slug, /tiktok) or a ?reference= link stamped at signup.
+      "none", not a dash: a dash on this row has meant "nothing to do", and
+      the burn view test refutes one on any row with a live Burn button. %>
+  <td class="px-3 py-3" data-test="signup-source">
+    <% if user.reference.present? %>
+      <span class="font-mono text-xs text-heading"><%= user.reference %></span>
+    <% else %>
+      <span class="text-muted text-xs">none</span>
+    <% end %>
   </td>
   <%# seeds/level come from the denormalized users.seeds mirror — always
       accurate, shown even while the on-chain token list is warming. %>
@@ -31,11 +44,25 @@
         <span class="text-muted text-xs">syncing…</span>
       <% end %>
       <% if !row[:loading] && row[:owed] > 0 %>
-        <%= button_to admin_mint_free_entries_path(user_slug: user.slug),
+        <%= button_to admin_mint_free_entries_path(user_slug: user.slug, reference: reference),
                       class: "btn btn-success btn-sm",
                       form_class: "inline-block",
                       data: { turbo_confirm: "Mint #{row[:owed]} free #{'entry'.pluralize(row[:owed])} for #{user.display_name}?" } do %>
           Mint <%= row[:owed] %>
+        <% end %>
+      <% end %>
+      <%# Discretionary grant: one entry for a user the level arithmetic owes
+          nothing (a new TikTok signup has 0 seeds, so no Mint button). Shown
+          only where Mint is not, so the row never offers two green mints.
+          `minted` is the count this row SHOWS; the controller refuses unless the
+          chain still agrees, which makes the confirm binding and a double-click
+          harmless. Hidden on a cold cache, like every action keyed to a count. %>
+      <% if !row[:loading] && row[:owed] <= 0 %>
+        <%= button_to admin_grant_free_entries_path(user_slug: user.slug, minted: row[:minted], reference: reference),
+                      class: "btn btn-success btn-sm",
+                      form_class: "inline-block",
+                      data: { turbo_confirm: "Grant 1 free entry to #{user.display_name}? It mints on-chain now, and it counts toward their level-up entries, so it absorbs the next one they earn." } do %>
+          Grant 1
         <% end %>
       <% end %>
       <%# Claw-back. Offered on UNCONSUMED (what the user can still spend), not on
@@ -54,7 +81,7 @@
             pixel-identical to the benign "Act as" at rest and, on hover, to
             "Mint" 8px away. This is the app's only irreversible action; it does
             not get to look like the two safe buttons beside it. %>
-        <%= button_to admin_burn_free_entries_path(user_slug: user.slug, count: 1),
+        <%= button_to admin_burn_free_entries_path(user_slug: user.slug, count: 1, reference: reference),
                       class: "btn btn-danger btn-sm",
                       form_class: "inline-block",
                       data: { turbo_confirm: "Burn the newest unspent free entry for #{user.display_name}? This cannot be undone." } do %>
@@ -74,7 +101,7 @@
               With the count sent, the controller's clamp(0, burnable.length)
               turns the confirmed number into a CEILING: burn everything you saw,
               never more, and still fewer if some were spent in the meantime. %>
-          <%= button_to admin_burn_free_entries_path(user_slug: user.slug, count: row[:unconsumed]),
+          <%= button_to admin_burn_free_entries_path(user_slug: user.slug, count: row[:unconsumed], reference: reference),
                         class: "btn btn-danger btn-sm",
                         form_class: "inline-block",
                         data: { turbo_confirm: "Burn ALL #{row[:unconsumed]} unspent free entries for #{user.display_name}? This cannot be undone." } do %>
@@ -90,15 +117,6 @@
                       class: "btn btn-outline btn-sm",
                       form_class: "inline-block",
                       data: { turbo_confirm: "Act as #{user.display_name}? You'll browse the app as this user until you return." } %>
-      <% end %>
-      <%# The "nothing actionable" placeholder, so an admin's cell is never blank.
-          It must track EVERY button above it or it contradicts them: admins get
-          no "Act as", so before burn existed `owed <= 0` really did mean the cell
-          was empty. It no longer does — an admin can hold unspent tokens with
-          nothing owed — so the dash now also requires there to be nothing to
-          burn. %>
-      <% if !row[:loading] && row[:owed] <= 0 && row[:unconsumed] <= 0 && user.admin? %>
-        <span class="text-muted text-xs">—</span>
       <% end %>
     </div>
   </td>
