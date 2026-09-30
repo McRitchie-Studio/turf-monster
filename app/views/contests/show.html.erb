@@ -21,6 +21,10 @@
     it lands on. So a shared turfmonster.media link unfurls with the pinned
     contest's banner, and re-pinning changes the card with no deploy. %>
 <% content_for :og_image, contest_og_image_url(@contest) %>
+<%# Title + description: the contest's own name and money line, so a shared
+    link previews as this contest rather than the site-wide default copy. %>
+<% content_for :title, contest_og_title(@contest) %>
+<% content_for :meta_description, contest_og_description(@contest) %>
 
 <!-- Section 1: Hero Banner + Creator Avatar -->
 <%= render "contests/hero" %>

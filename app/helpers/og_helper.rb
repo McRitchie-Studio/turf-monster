@@ -8,6 +8,10 @@
 #   title: content_for(:title)    ->  SiteSetting default_og_title  ->  hardcoded
 #   desc:  content_for(:meta_..)  ->  SiteSetting default_og_desc.   ->  hardcoded
 #
+# A contest page sets its own :title and :meta_description from
+# contest_og_title / contest_og_description, so it previews with its name
+# rather than the site-wide copy.
+#
 # `landing_page` is nil on the standard application layout; the landing layout
 # passes the current @landing_page so an operator can override per funnel page.
 # The contest rung is not a fourth argument to og_image_url — a contest page
@@ -60,6 +64,38 @@ module OgHelper
     return nil unless contest.contest_image.variable?
 
     rails_storage_proxy_url(contest.contest_image.variant(:og_card))
+  end
+
+  # Everything the page's identity tags need, resolved once per render and
+  # shared by the full application layout and the slim link-preview document
+  # (layouts/_page_identity), so the two never disagree. Reads the page's
+  # content_for overrides, which the view has set by the time the layout runs.
+  def page_link_preview
+    image_override = content_for(:og_image).presence
+    {
+      title: og_title(content_for(:title)),
+      description: og_description(content_for(:meta_description)),
+      image: image_override || og_image_url,
+      image_default: image_override.blank? && og_image_default?
+    }
+  end
+
+  # A contest page's own preview title, instead of the site-wide default.
+  def contest_og_title(contest)
+    "#{contest.name} — Turf Monster"
+  end
+
+  # A contest page's own preview description: its tagline (or name), the money
+  # line a player decides on, then the one-line pitch.
+  def contest_og_description(contest)
+    lead = contest.tagline.presence || contest.name
+    prize = contest.guaranteed_prize_dollars.to_i
+    fee = contest.entry_fee_dollars.to_i
+    money = []
+    money << "$#{prize} in prizes" if prize.positive?
+    money << (fee.positive? ? "$#{fee} entry" : "free to enter")
+    "#{lead}: #{money.join(', ')}. Skill-based pick’em on Turf Monster: " \
+      "pick your matchups, stack Turf Scores, and win cash prizes."
   end
 
   def og_title(override = nil)
