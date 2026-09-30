@@ -41,14 +41,14 @@ Phantom must be installed in the browser or available via mobile deep link.
 ## Sequence
 
 1. **Land on funnel.** `GET /lp/:slug` → `LandingPagesController#show` —
-   `app/controllers/landing_pages_controller.rb:7-21`.
+   `app/controllers/landing_pages_controller.rb:7-20`.
    - Auth is skipped — `skip_before_action :require_authentication` and
      `:require_profile_completion` (`:2-3`) — because funnels are public.
    - A missing or inactive page redirects to root with an alert, unless an
      admin is previewing it (`:11-13`).
    - First-touch attribution: `show` writes `cookies[:reference]` with this
      funnel's slug and a 30-day expiry, and only when the cookie is blank
-     (`:18`). So an explicit `?reference=…` captured earlier by
+     (`:17`). So an explicit `?reference=…` captured earlier by
      `ApplicationController#capture_reference`
      (`app/controllers/application_controller.rb:455-460`) wins.
    - Hero CTA renders `link_to @landing_page.cta_label_display,
@@ -107,7 +107,7 @@ Phantom must be installed in the browser or available via mobile deep link.
    - `runHoldValidations()` (`:1520-1550`) hits `GET /geo/check` first
      (`:1522`); a blocked state aborts into the `Location Restricted` redirect
      modal (`:1526`). That route is drawn by the engine now, behind
-     `config.draw_geo_routes`, not by this app (`config/routes.rb:628-634`).
+     `config.draw_geo_routes`, not by this app (`config/routes.rb:641-647`).
    - `confirmEntry()` (`_turf_totals_board.html.erb:1567-2054`) short-circuits
      to `showLoginModal()` when the session is a guest (`:1576-1580`), which
      opens the auth wizard at `step: 'credentials'` (`:935-948`) — the entry
@@ -356,7 +356,7 @@ Phantom must be installed in the browser or available via mobile deep link.
 - **`?reference=` cookie collision.** A user who clicks Landing Page A and then
   Landing Page B keeps A's attribution: both `capture_reference` and
   `LandingPagesController#show` only set the cookie when it is blank
-  (`app/controllers/landing_pages_controller.rb:18`). Symptom:
+  (`app/controllers/landing_pages_controller.rb:17`). Symptom:
   `User.reference` does not match the page that converted them.
 - **No on-chain Contest PDA.** Paid contests refuse free entry —
   `ContestsController#enter` raises `"This contest isn't on-chain yet — paid
@@ -422,7 +422,7 @@ Phantom must be installed in the browser or available via mobile deep link.
 
 > **Orphaned endpoint.** `ContestsController#stamp_entry_signature`
 > (`app/controllers/contests_controller.rb:1260-1272`, routed as
-> `post :stamp_entry_signature` at `config/routes.rb:319`) is no longer called
+> `post :stamp_entry_signature` at `config/routes.rb:329`) is no longer called
 > by any client. It belonged to the
 > browser-broadcast flow, and the comment that replaced it says so —
 > `the client no longer calls stamp_entry_signature before confirm`
