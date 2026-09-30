@@ -51,7 +51,9 @@ LANDING_PAGES = [
     badge: "TikTok",
     cta_label: "Claim Your Free Entry",
     background_style: "blobs",
-    contest_slug: nil
+    contest_slug: nil,
+    # Collect the signup and promise the entry; Alex mints it by hand.
+    claim_mode: true
   }
 ].freeze
 
@@ -66,6 +68,7 @@ LANDING_PAGES.each do |attrs|
     badge:            attrs[:badge],
     cta_label:        attrs[:cta_label],
     background_style: attrs[:background_style],
+    claim_mode:       attrs.fetch(:claim_mode, false),
     contest:          contest,
     active:           contest.present? # can't be active without a contest (model validation)
   )

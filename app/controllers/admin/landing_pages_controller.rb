@@ -85,7 +85,7 @@ module Admin
       # :og_image is permitted for programmatic/seed attach; the admin UI sets
       # it via the immediate-save update_og_image endpoint (the cropper submits
       # its own form), not through this main form.
-      params.require(:landing_page).permit(:name, :slug, :headline, :subheadline, :badge, :cta_label, :contest_id, :active, :background_style, :og_image)
+      params.require(:landing_page).permit(:name, :slug, :headline, :subheadline, :badge, :cta_label, :contest_id, :active, :claim_mode, :background_style, :og_image)
     end
   end
 end
