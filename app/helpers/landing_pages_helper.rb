@@ -111,4 +111,39 @@ module LandingPagesHelper
     # with no contest agrees with the chrome around it.
     turf_monster_v1_path
   end
+
+  # How It Works for a CLAIM-MODE page (LandingPage#claim_mode). The visitor
+  # signs up here and the operator hand-mints their entry later the same day,
+  # so the order is the reverse of the pay-to-enter steps above: the account
+  # and the promised entry come BEFORE the picks. Showing "pick, then create an
+  # account, then submit" on this page walked a prospect to a checkout asking
+  # for money the page had just said they would not need.
+  #
+  # The format and sport rules are the same as #funnel_how_it_works: a survivor
+  # contest picks a team per round; Turf Totals picks N derived matchups.
+  def funnel_claim_steps(contest)
+    pick_step = if contest&.world_cup_survivor?
+                  ["Make your pick", "Back a team each round once your entry arrives."]
+    else
+                  required_picks = contest&.picks_required || Contest::TURF_TOTALS_DEFAULT_PICKS_REQUIRED
+                  subject = [funnel_sport_label(contest), "team matchups"].compact.join(" ")
+                  ["Pick #{required_picks} teams", "Choose #{required_picks} #{subject} for your free entry."]
+    end
+
+    [
+      ["Create your account", "Sign up with email or Google. It takes a few seconds."],
+      ["We email your free entry", "It lands in your account the same day, and we email you when it does."],
+      pick_step,
+      ["Submit before the contest locks", "The contest locks at its start time. No entries or changes after that."]
+    ]
+  end
+
+  # The contest's lock moment as a player reads it: Eastern, named. The app runs
+  # on UTC, and "12:15 AM UTC" for a Thursday-night NFL kickoff reads as the
+  # wrong day to nearly everyone this funnel reaches (ContestsHelper keeps the
+  # NFL calendar in Eastern for the same reason). Used by the claim-mode
+  # confirmation and FreeEntryMailer#ready, so both name one moment.
+  def claim_lock_time(contest)
+    contest&.locks_at&.in_time_zone(ContestsHelper::NFL_CALENDAR_ZONE)&.strftime("%A, %B %-d at %-l:%M %p %Z")
+  end
 end

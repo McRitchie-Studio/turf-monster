@@ -17,6 +17,7 @@ class EmailRegistrationTest < ActiveSupport::TestCase
     "email_change_confirmation" => { type: :transactional, asset: "emails/email-change-confirm-banner.jpg" },
     "friend_joined_contest"     => { type: :transactional, asset: "emails/friend-joined-banner.jpg" },
     "contest_winnings"          => { type: :transactional, asset: "emails/winnings-banner.jpg" },
+    "free_entry_ready"          => { type: :transactional, asset: "emails/friend-joined-banner.jpg" },
     "newsletter_welcome"        => { type: :marketing,     asset: "emails/welcome-banner.jpg" }
   }.freeze
 

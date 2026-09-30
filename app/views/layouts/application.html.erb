@@ -871,6 +871,9 @@
           body.set('email', email || '');
           if (opts.contest) body.set('contest', opts.contest);
           if (opts.picks)   body.set('picks', opts.picks);
+          // Where the consumed link lands (MagicLinksController#resolved_return_to
+          // re-checks it server-side). The /signin card passes its ?return_to=.
+          if (opts.returnTo) body.set('return_to', opts.returnTo);
           // Legal-age attestation — rides in the magic-link row so the
           // consume side can require it before creating a new account.
           if (opts.ageAttested) body.set('age_attestation', '1');

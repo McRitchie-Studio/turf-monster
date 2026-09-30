@@ -10,8 +10,15 @@ module Admin
     # refresh jobs. Matches the entry-token list cache TTL.
     REFRESH_GUARD_TTL = 60.seconds
 
+    # How many signup sources the filter lists. `reference` is free text (any
+    # ?reference= a link carries), so the list is capped to the busiest ones.
+    SOURCE_OPTIONS_LIMIT = 50
+
     def index
-      scope         = users_with_wallet.order(:id)
+      @reference    = reference_filter
+      scope         = users_with_wallet
+      scope         = scope.where(reference: @reference) if @reference
+      scope         = scope.order(:id)
       @total_users  = scope.count
       @page         = [params[:page].to_i, 1].max
       @total_pages  = [(@total_users.to_f / PER_PAGE).ceil, 1].max
@@ -29,8 +36,12 @@ module Admin
       # live OUTSIDE the table because the HTML parser will hoist a
       # turbo-frame out of <tbody>, breaking column alignment — see the
       # earlier turbo-frame attempt for the failure mode.
+      #
+      # The filter's options load INSIDE format.html, not behind
+      # request.format.html?: respond_to also serves this page for a */*
+      # Accept, where the format is not html and the view would read nil.
       respond_to do |format|
-        format.html
+        format.html { load_filter_summary }
         format.turbo_stream
       end
     end
@@ -52,7 +63,68 @@ module Admin
           flash[:notice] = "Minted #{signatures.length} free #{'entry'.pluralize(signatures.length)} for #{user.display_name}"
         end
       end
-      redirect_to admin_free_entries_path
+      redirect_to admin_free_entries_path(filter_params)
+    end
+
+    # Hand-mint ONE free entry for one user, whatever the level arithmetic owes.
+    #
+    # #mint pays only what levels have EARNED and clamps to it, so a brand-new
+    # signup (0 seeds, 0 owed) had no button at all. This is the operator's
+    # discretionary grant — a TikTok follower's promised free entry — and it is
+    # deliberately manual: nothing on the platform calls it but this button.
+    #
+    # `minted` is the count the operator was SHOWN, and the grant refuses unless
+    # the live chain still agrees. That makes the confirm binding the way the
+    # burn buttons' `count` does, and it is what makes a double-click safe: the
+    # ref is keyed on that count, so a retry the read cannot see yet (a confirm
+    # that timed out but landed) collides on `init`. A second submit re-reads
+    # minted + 1, disagrees, and mints nothing.
+    #
+    # The token has no level behind it, so it counts toward the same
+    # `owed = seeds / 100 - tokens` as every other token: it absorbs the user's
+    # next level-up entry. The confirm dialog says so.
+    def grant
+      user = User.find_by!(slug: params[:user_slug])
+      minted = false
+      rescue_and_log(target: user) do
+        user.with_lock do
+          address = user.solana_address
+          raise "#{user.display_name} has no wallet to mint to" if address.blank?
+
+          # The entry-token list read, unrescued (unlike #owed_plan_for's): a
+          # failed read must stop the grant, never let it through on an empty
+          # list that happens to match a shown 0. Every mint deletes this cache
+          # key after confirming, so a second submit waiting on the lock reads
+          # the first one's token.
+          # A confirm that timed out never deleted it, so drop it before reading.
+          Rails.cache.delete(Solana::Vault.entry_tokens_cache_key(address))
+          live_minted = vault.list_entry_tokens(address).length
+
+          if params[:minted].blank? || params[:minted].to_i != live_minted
+            flash[:alert] = "#{user.display_name} now holds #{live_minted} minted " \
+                            "#{'entry'.pluralize(live_minted)}, not the #{params[:minted].to_i} shown. " \
+                            "Nothing was minted — refresh and check before granting."
+            next
+          end
+
+          # mint_entry_token returns only after send_and_confirm, so reaching
+          # the next line means the token is on chain. Anything short of that
+          # raised, and `minted` stays false: no email for a mint that failed.
+          ref = "grant:#{Tokens::LevelUpGrant.deployment_namespace}:#{Tokens::LevelUpGrant.wallet_key(address)}:#{live_minted}"
+          vault.mint_entry_token(wallet_address: address, source: :operator, source_ref: ref)
+          minted = true
+          flash[:notice] = "Granted 1 free entry to #{user.display_name}"
+        end
+      end
+      notify_free_entry_ready(user) if minted
+      redirect_to admin_free_entries_path(filter_params)
+    rescue ActiveRecord::RecordNotFound
+      raise
+    rescue StandardError => e
+      # rescue_and_log has already filed the ErrorLog and re-raised. Land the
+      # operator back on the (filtered) list with the reason, not an error page.
+      flash[:alert] = "Grant failed: #{e.message.to_s[0, 300]}"
+      redirect_to admin_free_entries_path(filter_params)
     end
 
     def mint_all
@@ -67,7 +139,7 @@ module Admin
         end
         flash[:notice] = "Minted #{total} free entries across all users"
       end
-      redirect_to admin_free_entries_path
+      redirect_to admin_free_entries_path(filter_params)
     end
 
     # Void a user's unspent free entries — the claw-back counterpart to #mint.
@@ -112,10 +184,69 @@ module Admin
           flash[:alert]  = "#{failed.length} burn(s) failed: #{failed.first}" if failed.any?
         end
       end
-      redirect_to admin_free_entries_path
+      redirect_to admin_free_entries_path(filter_params)
     end
 
     private
+
+    # "Your free Turf Monster entry is ready" — once per CONFIRMED grant.
+    #
+    # Outside the per-user lock and after it: the mint is final, and a mail
+    # enqueue has no business holding a row lock. It is its own rescue on
+    # purpose: a delivery hiccup must not report a landed mint as "Grant
+    # failed" (the operator would press again and mint a second entry). Once
+    # per grant holds because #grant mints at most one token per request and
+    # its shown-count guard refuses a second submit, which never reaches here.
+    #
+    # The contest is the one the player's signup page was promoting (their
+    # reference is that page's slug), else the featured one.
+    def notify_free_entry_ready(user)
+      if user.email.blank?
+        flash[:alert] = "#{user.display_name} has no email address, so no entry-ready email was sent."
+        return
+      end
+
+      contest = LandingPage.find_by(slug: user.reference.presence)&.contest || Contest.featured
+      rescue_and_log(target: user) do
+        Studio::Email.deliver(FreeEntryMailer, :ready, user, contest, to: user.email, user: user)
+      end
+    rescue StandardError => e
+      flash[:alert] = "The entry landed, but its email to #{user.email} failed: #{e.message.to_s[0, 200]}"
+    end
+
+    # The signup-source filter: users.reference, the first-touch attribution a
+    # landing page (/lp/:slug, /tiktok) or a ?reference= link stamps at signup.
+    # Same 64-character cap capture_reference writes with.
+    def reference_filter
+      params[:reference].to_s.strip.first(64).presence
+    end
+
+    # Carries the active filter through a row action's redirect, so minting
+    # the fifth TikTok signup does not drop the operator back on every user.
+    def filter_params
+      { reference: reference_filter }.compact
+    end
+
+    # Only the full page draws the filter; a streamed batch reuses the page's.
+    def load_filter_summary
+      @source_options = source_options
+      # Signups from this source the table CANNOT list: no wallet, nothing to
+      # mint to. Under web3-only onboarding (AppFlags.web3_only_onboarding?,
+      # default on) that is every new account until it links Phantom.
+      @walletless_count = User.where(reference: @reference).count - @total_users if @reference
+    end
+
+    # [[reference, wallet-user count], …], busiest first. The selected value is
+    # kept even when it has no wallet users (a typed ?reference=), so the
+    # select never silently shows "All sources" over a filtered table.
+    def source_options
+      counts = users_with_wallet.where.not(reference: [nil, ""])
+                                .group(:reference).count
+                                .sort_by { |ref, n| [-n, ref] }
+                                .first(SOURCE_OPTIONS_LIMIT)
+      counts << [@reference, 0] if @reference && counts.none? { |ref, _| ref == @reference }
+      counts
+    end
 
     def vault
       @vault ||= Solana::Vault.new

@@ -7,6 +7,7 @@
       <p class="text-muted text-sm">
         Mint on-chain <code class="font-mono">EntryTokenAccount</code> PDAs for users based on their on-chain seeds.
         <span class="font-mono">owed = floor(seeds / 100) − minted</span>.
+        <span class="font-semibold">Grant 1</span> hand-mints one entry for a user who is owed none, such as a new TikTok signup.
       </p>
     </div>
     <%# Mint All Owed always shown — it sweeps every user, including
@@ -24,7 +25,7 @@
       loads more batches without re-introducing the render-time N+1 RPC. %>
   <div class="grid grid-cols-3 gap-3">
     <div class="card p-4">
-      <div class="text-muted text-[10px] uppercase tracking-wide">Total Users</div>
+      <div class="text-muted text-[10px] uppercase tracking-wide"><%= @reference ? "Users from #{@reference}" : "Total Users" %></div>
       <div class="text-heading text-2xl font-bold font-mono"><%= @total_users %></div>
     </div>
     <div class="card p-4">
@@ -37,12 +38,38 @@
     </div>
   </div>
 
+  <%# Signup-source filter: narrows the table to users.reference == the chosen
+      source (e.g. tiktok, stamped by /tiktok → /lp/tiktok) so the operator can
+      find a channel's signups and hand-mint for them. The row actions carry
+      the filter, so their redirects land back here filtered. Mint All Owed
+      above ignores it on purpose — it has always swept every user. %>
+  <%= form_with url: admin_free_entries_path, method: :get, local: true,
+                class: "flex flex-wrap items-end gap-3", data: { test: "source-filter" } do %>
+    <div>
+      <label for="reference" class="label-upper block mb-1">Signup source</label>
+      <%= select_tag :reference,
+            options_for_select([["All sources", ""]] + @source_options.map { |ref, n| ["#{ref} (#{n})", ref] }, @reference),
+            id: "reference", class: "input-field" %>
+    </div>
+    <%= submit_tag "Filter", name: nil, class: "btn btn-primary" %>
+    <% if @reference %>
+      <%= link_to "Clear", admin_free_entries_path, class: "btn btn-outline" %>
+    <% end %>
+  <% end %>
+  <% if @walletless_count.to_i > 0 %>
+    <p class="text-muted text-xs" data-test="walletless-count">
+      <%= pluralize(@walletless_count, "more #{@reference} signup") %> <%= @walletless_count == 1 ? "has" : "have" %> no wallet yet, so
+      <%= @walletless_count == 1 ? "is" : "are" %> not listed. A free entry mints to a wallet, and new accounts get one only when they link Phantom.
+    </p>
+  <% end %>
+
   <%# Users table %>
   <div class="card overflow-x-auto">
     <table class="w-full text-sm">
       <thead>
         <tr class="border-b border-subtle text-muted text-[10px] uppercase tracking-wide">
           <th class="text-left px-4 py-3">User</th>
+          <th class="text-left px-3 py-3">Source</th>
           <th class="text-right px-3 py-3">Seeds</th>
           <th class="text-right px-3 py-3">Level</th>
           <th class="text-right px-3 py-3">Minted</th>
@@ -59,10 +86,12 @@
             out of table internals, which breaks column alignment for
             the loaded rows. Stream actions target #users-tbody by id
             and append cleanly. %>
-        <%= render partial: "user_row", collection: @users_data, as: :row %>
+        <%= render partial: "user_row", collection: @users_data, as: :row, locals: { reference: @reference } %>
         <% if @users_data.empty? %>
           <tr>
-            <td colspan="7" class="px-4 py-8 text-center text-muted">No users with Solana wallets.</td>
+            <td colspan="8" class="px-4 py-8 text-center text-muted">
+              <%= @reference ? "No users from #{@reference} with Solana wallets yet." : "No users with Solana wallets." %>
+            </td>
           </tr>
         <% end %>
       </tbody>
@@ -72,6 +101,7 @@
   <% if @has_next %>
     <%= render "load_trigger",
                page: @page + 1,
+               reference: @reference,
                total_users: @total_users,
                per_page: Admin::FreeEntriesController::PER_PAGE %>
   <% end %>

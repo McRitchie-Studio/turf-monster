@@ -213,7 +213,11 @@ and redirects to the entry-token upsell. It does not set a password.
   copied to new users by magic-link, Google, and wallet signups.
 - **Post-signup landing:** in-contest auth tries to return to the contest and
   restore picks; generic new-user flows usually land on the featured contest or
-  the entry-token upsell depending on the controller path.
+  the entry-token upsell depending on the controller path. A `/signin?return_to=`
+  that passes `ApplicationController#auth_return_to` (a plain in-app path) wins
+  for both the magic-link and Google paths; a claim-mode landing page uses it to
+  bring a new signup back to its confirmation (`/lp/<slug>/claimed`, see
+  `docs/UI_PATTERNS.md`).
 - **Email verification:** magic-link and Google signups prove email ownership.
   Users who add or change email later use the separate verification and
   out-of-band confirmation flows.

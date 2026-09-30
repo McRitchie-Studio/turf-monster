@@ -9,7 +9,11 @@
 # rejects active without a contest); otherwise it seeds as an admin-previewable
 # DRAFT until the operator wires a contest + flips it live via /admin/landing_pages.
 #
-# Public funnel URL: /l/:slug.
+# Public funnel URL: /lp/:slug. The tiktok page is also reachable at /tiktok
+# (the vanity list in config/routes.rb).
+#
+# DEV DATA ONLY. Production's release phase only migrates (Procfile), so its
+# pages, tiktok included, are created by an operator in /admin/landing_pages.
 #
 # NOTE: "alpha" has no dedicated seeded contest (it pointed at a throwaway test
 # contest in dev). It targets the World Cup contest its copy references; if you
@@ -36,11 +40,25 @@ LANDING_PAGES = [
     cta_label: "Make Your Picks",
     background_style: "circles",
     contest_slug: "world-cup-2026"
+  },
+  {
+    # The TikTok funnel: videos say "type turfmonster.media/tiktok for a free
+    # contest entry". No contest_slug: it follows whatever contest is featured.
+    slug: "tiktok",
+    name: "TikTok Free Entry",
+    headline: "Free entry for TikTok followers",
+    subheadline: "You found us on TikTok. Sign up and your first contest entry is on us.",
+    badge: "TikTok",
+    cta_label: "Claim Your Free Entry",
+    background_style: "blobs",
+    contest_slug: nil,
+    # Collect the signup and promise the entry; Alex mints it by hand.
+    claim_mode: true
   }
 ].freeze
 
 LANDING_PAGES.each do |attrs|
-  contest = Contest.find_by(slug: attrs[:contest_slug])
+  contest = attrs[:contest_slug] ? Contest.find_by(slug: attrs[:contest_slug]) : Contest.featured
 
   page = LandingPage.find_or_initialize_by(slug: attrs[:slug])
   page.assign_attributes(
@@ -50,11 +68,12 @@ LANDING_PAGES.each do |attrs|
     badge:            attrs[:badge],
     cta_label:        attrs[:cta_label],
     background_style: attrs[:background_style],
+    claim_mode:       attrs.fetch(:claim_mode, false),
     contest:          contest,
     active:           contest.present? # can't be active without a contest (model validation)
   )
   page.save!
 
-  state = page.active? ? "active → #{contest.slug}" : "draft (awaiting contest #{attrs[:contest_slug].inspect})"
-  puts "  /l/#{page.slug} — #{state}"
+  state = page.active? ? "active → #{contest.slug}" : "draft (awaiting contest #{(attrs[:contest_slug] || 'featured').inspect})"
+  puts "  /lp/#{page.slug} — #{state}"
 end

@@ -97,6 +97,19 @@
       </label>
       <p class="text-muted text-xs mt-1">A page can only be activated once a CTA contest is selected.</p>
     </div>
+
+    <div>
+      <label class="flex items-center gap-2 text-sm text-secondary">
+        <%= f.check_box :claim_mode, class: "rounded" %>
+        Claim mode — the CTA signs the visitor up and promises a free entry
+      </label>
+      <p class="text-muted text-xs mt-1">
+        The button sends a visitor to sign in (email link or Google), then to a
+        confirmation page that says their free entry is on its way. It never
+        opens the contest checkout. You mint each entry by hand from Free Entries
+        (filter by this page's slug and press Grant 1), which emails them.
+      </p>
+    </div>
   </div>
 
   <div class="flex items-center gap-3">

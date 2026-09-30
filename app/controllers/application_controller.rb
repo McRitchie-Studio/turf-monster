@@ -449,6 +449,20 @@ class ApplicationController < ActionController::Base
     target
   end
 
+  # The destination the /signin card forwards into BOTH sign-in paths (the
+  # magic-link request and the Google round-trip), so a flow that sent the
+  # visitor to sign in — a claim-mode landing page — gets them back. Stricter
+  # than safe_return_to: this value is stored in a signed link and replayed
+  # after OAuth, so it also refuses backslashes (browsers read "/\host" as
+  # "//host") and anything that is not a plain printable path.
+  def auth_return_to(value = params[:return_to])
+    target = value.to_s
+    return nil unless target.match?(%r{\A/[^/\\]}) && target.match?(/\A[[:graph:]]+\z/)
+
+    target.first(512)
+  end
+  helper_method :auth_return_to
+
   # Populates Current.* for the request lifecycle so OutboundRequestLogger can
   # attribute Stripe / Solana calls back to the user without param threading.
   def set_current_context
