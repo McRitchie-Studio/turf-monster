@@ -66,7 +66,7 @@ module OgHelper
     rails_storage_proxy_url(contest.contest_image.variant(:og_card))
   end
 
-  # Everything the page's identity tags need, resolved once per render and
+  # Everything the page's identity tags need, resolved in one place and
   # shared by the full application layout and the slim link-preview document
   # (layouts/_page_identity), so the two never disagree. Reads the page's
   # content_for overrides, which the view has set by the time the layout runs.
