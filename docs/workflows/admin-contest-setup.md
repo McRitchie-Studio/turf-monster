@@ -66,7 +66,7 @@ The `if needed` branch in the user's mental model maps to three distinct chain-i
 Surfaced from the admin Link Hub as **"Vault Init"** when the vault is uninitialized, and from the Vault State page when an operator needs the direct init path:
 
 - Visibility check: `Admin::VaultInitController.vault_uninitialized?` (`app/controllers/admin/vault_init_controller.rb:124-130`) — it calls `Solana::Vault#read_vault_state` (`app/services/solana/vault.rb:857-944`) and caches the boolean. `Admin::VaultInitController#confirm` busts that cache on success (`app/controllers/admin/vault_init_controller.rb:104`).
-- Both entry points link to `admin_vault_init_path` — the Link Hub tile (`app/views/admin/hub.html.erb:55`) and the Vault State fallback link (`app/views/admin/vault_state/show.html.erb:20`).
+- Both entry points link to `admin_vault_init_path` — the Link Hub tile (`app/views/admin/hub.html.erb:69`) and the Vault State fallback link (`app/views/admin/vault_state/show.html.erb:20`).
 - Routes: `config/routes.rb:560-562` — `vault_init#show`, `vault_init#build`, `vault_init#confirm`.
 - Flow:
   1. `Admin::VaultInitController#build` (`app/controllers/admin/vault_init_controller.rb:64-86`) refuses an already-initialized vault (`:66`), runs `Admin::VaultInitController#validate_init_params!` (`:138-159` — three distinct signers `:149`, threshold 1-3 `:150`, creator must be one of the signers `:151` and must equal `INIT_AUTHORITY` on mainnet `:156-157`), then calls `Solana::Vault#build_initialize_vault` (`app/services/solana/vault.rb:758-789`). The bot fee-pays; the creator slot is left for Phantom.

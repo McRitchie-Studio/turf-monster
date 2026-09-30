@@ -200,17 +200,81 @@ class Solana::SquadsTest < ActiveSupport::TestCase
     assert_equal Solana::Config::DEVNET_SQUADS_MULTISIG, Solana::Config.squads_multisig("localnet")
   end
 
+  # ── THE WEB LINK ──────────────────────────────────────────────────────────
+  #
+  # THIS TEST USED TO PIN THE BUG. It asserted the host prefix, that the two
+  # clusters differ, and that each URL carried its cluster's MULTISIG — every
+  # one of which the broken builder satisfied, because the multisig is exactly
+  # what it interpolated. app.squads.so resolves a Squad by its VAULT PDA and
+  # wants `/home`; the multisig address returns 404. Measured in a browser
+  # 2026-09-29 on the mainnet Squad, both directions:
+  #   404  https://app.squads.so/squads/4H3fP3ot…XcKSX
+  #   OK   https://app.squads.so/squads/Bk9sS7ii…GdJm/home
+  #
+  # So the assertions below pin the SHAPE — the whole URL, per cluster — plus
+  # the negative that the old form cannot survive: the multisig must be ABSENT.
+  # A prefix match is what let the defect ship; do not weaken back to one.
+  #
+  # The env override is cleared explicitly. A developer's local
+  # SOLANA_SQUADS_VAULT_PDA would otherwise decide what these read, and the
+  # cluster DEFAULT is the path both deployed apps take (the key is absent from
+  # turf-monster-mainnet and turf-monster-qa alike).
+  def without_vault_override
+    previous = ENV["SOLANA_SQUADS_VAULT_PDA"]
+    ENV.delete("SOLANA_SQUADS_VAULT_PDA")
+    yield
+  ensure
+    previous.nil? ? ENV.delete("SOLANA_SQUADS_VAULT_PDA") : ENV["SOLANA_SQUADS_VAULT_PDA"] = previous
+  end
+
+  test "the Squads web link keys on the VAULT PDA and ends in /home, per cluster" do
+    without_vault_override do
+      assert_equal "https://app.squads.so/squads/#{Solana::Config::DEVNET_SQUADS_VAULT_PDA}/home",
+                   Solana::Config.squads_app_url("devnet")
+      assert_equal "https://app.squads.so/squads/#{Solana::Config::MAINNET_SQUADS_VAULT_PDA}/home",
+                   Solana::Config.squads_app_url("mainnet-beta")
+    end
+  end
+
+  test "neither cluster's Squads link carries a MULTISIG address" do
+    without_vault_override do
+      %w[devnet mainnet-beta localnet].each do |cluster|
+        url = Solana::Config.squads_app_url(cluster)
+
+        assert_not_includes url, Solana::Config::DEVNET_SQUADS_MULTISIG,
+          "#{cluster}: app.squads.so 404s on a multisig address — it resolves a Squad by vault PDA"
+        assert_not_includes url, Solana::Config::MAINNET_SQUADS_MULTISIG,
+          "#{cluster}: app.squads.so 404s on a multisig address — it resolves a Squad by vault PDA"
+        assert url.end_with?("/home"), "#{cluster}: the Squad URL needs its /home suffix, got #{url}"
+      end
+    end
+  end
+
   test "the Squads web link carries the cluster in its ADDRESS, not its host" do
     # `devnet.squads.so` is decommissioned, so there is no cluster-flavoured
     # host to switch to — app.squads.so serves both and resolves by address.
-    devnet  = Solana::Config.squads_app_url("devnet")
-    mainnet = Solana::Config.squads_app_url("mainnet-beta")
+    without_vault_override do
+      devnet  = Solana::Config.squads_app_url("devnet")
+      mainnet = Solana::Config.squads_app_url("mainnet-beta")
 
-    assert_match %r{\Ahttps://app\.squads\.so/squads/}, devnet
-    assert_match %r{\Ahttps://app\.squads\.so/squads/}, mainnet
-    assert_not_equal devnet, mainnet
-    assert_includes devnet, Solana::Config::DEVNET_SQUADS_MULTISIG
-    assert_includes mainnet, Solana::Config::MAINNET_SQUADS_MULTISIG
-    assert_not_includes devnet, "devnet.squads.so"
+      assert_match %r{\Ahttps://app\.squads\.so/squads/}, devnet
+      assert_match %r{\Ahttps://app\.squads\.so/squads/}, mainnet
+      assert_not_equal devnet, mainnet
+      assert_includes devnet, Solana::Config::DEVNET_SQUADS_VAULT_PDA
+      assert_includes mainnet, Solana::Config::MAINNET_SQUADS_VAULT_PDA
+      assert_not_includes devnet, "devnet.squads.so"
+    end
+  end
+
+  # An unrecognised cluster must fall to DEVNET here too, for the reason
+  # `squads_multisig` gives above: the failure that matters is offering the
+  # MAINNET treasury somewhere mainnet does not apply.
+  test "an unrecognised cluster gets the devnet Squad, never the mainnet one" do
+    without_vault_override do
+      url = Solana::Config.squads_app_url("localnet")
+
+      assert_includes url, Solana::Config::DEVNET_SQUADS_VAULT_PDA
+      assert_not_includes url, Solana::Config::MAINNET_SQUADS_VAULT_PDA
+    end
   end
 end
