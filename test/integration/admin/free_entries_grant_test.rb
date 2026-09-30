@@ -27,8 +27,8 @@ class Admin::FreeEntriesGrantTest < ActionDispatch::IntegrationTest
 
     assert_redirected_to admin_free_entries_path
     assert_equal 1, vault.mint_calls.length, "a grant is ONE entry"
-    assert_match(/\Aoperator:#{@signup.id}:/, vault.mint_calls.first,
-      "a grant has no level behind it, so it takes the operator ref, never a levelup ref")
+    assert_match(/\Agrant:test:\h{16}:0\z/, vault.mint_calls.first,
+      "a grant has no level, so a grant ref keyed on the shown count, never a levelup ref")
     assert_equal [@signup.solana_address], vault.mint_wallets
     assert_equal "Granted 1 free entry to #{@signup.display_name}", flash[:notice]
   end
@@ -46,6 +46,13 @@ class Admin::FreeEntriesGrantTest < ActionDispatch::IntegrationTest
     assert_empty vault.mint_calls
     assert_match(/Nothing was minted/, flash[:alert])
     assert_redirected_to admin_free_entries_path
+  end
+
+  test "a retry after a confirm timeout reuses the ref, so the chain refuses a second token" do
+    log_in_as(@admin)
+    (vault = FakeVault.new(tokens: [])).raise_on_mint = StandardError.new("Transaction confirmation timeout")
+    Solana::Vault.stub(:new, vault) { 2.times { post admin_grant_free_entries_path(user_slug: @signup.slug, minted: 0) } }
+    assert_equal [vault.mint_calls.first] * 2, vault.mint_calls, "one PDA: a landed first mint makes the retry collide"
   end
 
   test "refuses a grant that names no shown count" do

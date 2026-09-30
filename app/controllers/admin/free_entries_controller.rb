@@ -76,11 +76,11 @@ module Admin
     # `minted` is the count the operator was SHOWN, and the grant refuses unless
     # the live chain still agrees. That makes the confirm binding the way the
     # burn buttons' `count` does, and it is what makes a double-click safe: the
-    # operator ref is random, so two submits would otherwise land two tokens,
-    # and the per-user lock only serialises them. The second submit re-reads
+    # ref is keyed on that count, so a retry the read cannot see yet (a confirm
+    # that timed out but landed) collides on `init`. A second submit re-reads
     # minted + 1, disagrees, and mints nothing.
     #
-    # The token is under a random operator ref, so it counts toward the same
+    # The token has no level behind it, so it counts toward the same
     # `owed = seeds / 100 - tokens` as every other token: it absorbs the user's
     # next level-up entry. The confirm dialog says so.
     def grant
@@ -96,6 +96,8 @@ module Admin
           # list that happens to match a shown 0. Every mint deletes this cache
           # key after confirming, so a second submit waiting on the lock reads
           # the first one's token.
+          # A confirm that timed out never deleted it, so drop it before reading.
+          Rails.cache.delete(Solana::Vault.entry_tokens_cache_key(address))
           live_minted = vault.list_entry_tokens(address).length
 
           if params[:minted].blank? || params[:minted].to_i != live_minted
@@ -108,7 +110,8 @@ module Admin
           # mint_entry_token returns only after send_and_confirm, so reaching
           # the next line means the token is on chain. Anything short of that
           # raised, and `minted` stays false: no email for a mint that failed.
-          mint_n_tokens(user, 1)
+          ref = "grant:#{Tokens::LevelUpGrant.deployment_namespace}:#{Tokens::LevelUpGrant.wallet_key(address)}:#{live_minted}"
+          vault.mint_entry_token(wallet_address: address, source: :operator, source_ref: ref)
           minted = true
           flash[:notice] = "Granted 1 free entry to #{user.display_name}"
         end
