@@ -146,5 +146,4 @@ module LandingPagesHelper
   def claim_lock_time(contest)
     contest&.locks_at&.in_time_zone(ContestsHelper::NFL_CALENDAR_ZONE)&.strftime("%A, %B %-d at %-l:%M %p %Z")
   end
-
 end
