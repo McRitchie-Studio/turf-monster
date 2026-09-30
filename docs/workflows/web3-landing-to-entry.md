@@ -6,10 +6,10 @@
 > `test/docs/workflow_citation_docs_test.rb` enforces both rules and checks every
 > number against the symbol its prose names — the symbol is the claim, the number
 > is bookkeeping. That check comes in three strengths, and it is worth knowing
-> which one you are reading. **130 of the 166 citations** below sit inside a
+> which one you are reading. **130 of the 167 citations** below sit inside a
 > definition, and there the prose must name that definition or the citation
-> reddens. The other **36** sit in code with no enclosing definition, and they
-> split. **4 of those 36** cite `config/routes.rb`, and each must OPEN on the line
+> reddens. The other **37** sit in code with no enclosing definition, and they
+> split. **4 of those 37** cite `config/routes.rb`, and each must OPEN on the line
 > that carries its route — or, where it cites a routes comment, name that whole
 > comment block. That catches most one-line drift, not all of it —
 > [the workflows README](README.md) has the measurement. For the rest — ERB
@@ -41,7 +41,7 @@ Phantom must be installed in the browser or available via mobile deep link.
 ## Sequence
 
 1. **Land on funnel.** `GET /lp/:slug` → `LandingPagesController#show` —
-   `app/controllers/landing_pages_controller.rb:7-20`.
+   `app/controllers/landing_pages_controller.rb:7-42`.
    - Auth is skipped — `skip_before_action :require_authentication` and
      `:require_profile_completion` (`:2-3`) — because funnels are public.
    - A missing or inactive page redirects to root with an alert, unless an
@@ -50,10 +50,14 @@ Phantom must be installed in the browser or available via mobile deep link.
      funnel's slug and a 30-day expiry, and only when the cookie is blank
      (`:17`). So an explicit `?reference=…` captured earlier by
      `ApplicationController#capture_reference`
-     (`app/controllers/application_controller.rb:455-460`) wins.
+     (`app/controllers/application_controller.rb:469-474`) wins.
    - Hero CTA renders `link_to @landing_page.cta_label_display,
      contest_path(@contest.slug, scroll: 280)` with `target: "_blank"`
-     (`app/views/landing_pages/show.html.erb:65-67`).
+     (`app/views/landing_pages/show.html.erb:79-81`). A claim-mode page
+     (`LandingPage#claim_mode`) renders a different CTA that never reaches the
+     contest: it goes to `/signin` with `return_to` set to
+     `landing_page_claimed_path` (`:73`), the confirmation page. That flow is in
+     `docs/UI_PATTERNS.md` under "Claim mode".
    - The `scroll=280` param drives a `window.scrollTo` past the hero chrome to
      the matchup board (`app/views/contests/show.html.erb:236-249`).
    - Route: `get "lp/:slug", to: "landing_pages#show", as: :landing_page` —
@@ -107,7 +111,7 @@ Phantom must be installed in the browser or available via mobile deep link.
    - `runHoldValidations()` (`:1520-1550`) hits `GET /geo/check` first
      (`:1522`); a blocked state aborts into the `Location Restricted` redirect
      modal (`:1526`). That route is drawn by the engine now, behind
-     `config.draw_geo_routes`, not by this app (`config/routes.rb:641-647`).
+     `config.draw_geo_routes`, not by this app (`config/routes.rb:643-649`).
    - `confirmEntry()` (`_turf_totals_board.html.erb:1567-2054`) short-circuits
      to `showLoginModal()` when the session is a guest (`:1576-1580`), which
      opens the auth wizard at `step: 'credentials'` (`:935-948`) — the entry
@@ -175,8 +179,8 @@ Phantom must be installed in the browser or available via mobile deep link.
    - `set_app_session(user)` writes `session[:turf_user_id]` +
      `session[:session_token]` and clears any stale on-chain flag
      (`app/controllers/application_controller.rb:33-66`, `:41`).
-     `promote_to_onchain_session!` then grants it (`:559-564`) — that write is
-     what `onchain_session?` reads (`:538-541`), and `verify` calls it at
+     `promote_to_onchain_session!` then grants it (`:573-578`) — that write is
+     what `onchain_session?` reads (`:552-555`), and `verify` calls it at
      `app/controllers/solana_sessions_controller.rb:81`. It lives in
      `ApplicationController` because the login and wallet-link paths used to
      drift apart.
@@ -336,7 +340,7 @@ Phantom must be installed in the browser or available via mobile deep link.
   `submitted` → `confirmed` inside `#confirm_onchain_entry`)
 - `session[:turf_user_id]`, `session[:session_token]` (write in step 6), and the
   on-chain flag set by `promote_to_onchain_session!`
-  (`app/controllers/application_controller.rb:559-564`)
+  (`app/controllers/application_controller.rb:573-578`)
 - on-chain: `UserAccount` PDA (`ensure_user_account` in step 7; re-asserted
   synchronously in step 9 `#prepare_entry`)
 - on-chain: `Entry` PDA + `Contest.entry_fees` USDC/USDT credit, or an entry
@@ -422,7 +426,7 @@ Phantom must be installed in the browser or available via mobile deep link.
 
 > **Orphaned endpoint.** `ContestsController#stamp_entry_signature`
 > (`app/controllers/contests_controller.rb:1260-1272`, routed as
-> `post :stamp_entry_signature` at `config/routes.rb:329`) is no longer called
+> `post :stamp_entry_signature` at `config/routes.rb:331`) is no longer called
 > by any client. It belonged to the
 > browser-broadcast flow, and the comment that replaced it says so —
 > `the client no longer calls stamp_entry_signature before confirm`
