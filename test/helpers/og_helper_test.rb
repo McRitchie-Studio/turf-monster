@@ -179,4 +179,11 @@ class OgHelperTest < ActionView::TestCase
     assert_includes contest_og_description(contest), "free to enter"
     assert_not_includes contest_og_description(contest), "$0 entry"
   end
+
+  test "the site-wide fallback copy names no sport" do
+    [OgHelper::DEFAULT_OG_TITLE, OgHelper::DEFAULT_OG_DESCRIPTION].each do |copy|
+      assert_no_match(/World Cup|NFL/i, copy)
+      assert_match(/skill-based/i, copy)
+    end
+  end
 end
