@@ -50,7 +50,7 @@ Phantom must be installed in the browser or available via mobile deep link.
      funnel's slug and a 30-day expiry, and only when the cookie is blank
      (`:17`). So an explicit `?reference=…` captured earlier by
      `ApplicationController#capture_reference`
-     (`app/controllers/application_controller.rb:472-477`) wins.
+     (`app/controllers/application_controller.rb:494-499`) wins.
    - Hero CTA renders `link_to @landing_page.cta_label_display,
      contest_path(@contest.slug, scroll: 280)` with `target: "_blank"`
      (`app/views/landing_pages/show.html.erb:79-81`). A claim-mode page
@@ -111,7 +111,7 @@ Phantom must be installed in the browser or available via mobile deep link.
    - `runHoldValidations()` (`:1520-1550`) hits `GET /geo/check` first
      (`:1522`); a blocked state aborts into the `Location Restricted` redirect
      modal (`:1526`). That route is drawn by the engine now, behind
-     `config.draw_geo_routes`, not by this app (`config/routes.rb:639-645`).
+     `config.draw_geo_routes`, not by this app (`config/routes.rb:656-662`).
    - `confirmEntry()` (`_turf_totals_board.html.erb:1567-2054`) short-circuits
      to `showLoginModal()` when the session is a guest (`:1576-1580`), which
      opens the auth wizard at `step: 'credentials'` (`:935-948`) — the entry
@@ -151,36 +151,36 @@ Phantom must be installed in the browser or available via mobile deep link.
      delete-before-verify, host bind, TTL. **No Solana RPC call** during signup
      (OPSEC-044 — see `docs/SIGNUP_FLOWS.md`). Called at `:26-31`.
    - `User.from_solana_wallet(pubkey_b58)` looks up an existing user
-     (`app/models/user.rb:236-238`); if absent, `verify` builds a new `User`
+     (`app/models/user.rb:239-241`); if absent, `verify` builds a new `User`
      with `web3_solana_address` and `reference: cookies[:reference]` — the
      first-touch stamp set in step 1
      (`app/controllers/solana_sessions_controller.rb:38`, `:57-61`).
    - `user.save!` triggers the shared spine. Declaration and definition sit far
      apart in `app/models/user.rb`, so both are cited:
-     - `before_validation :ensure_username` (`app/models/user.rb:106`) —
+     - `before_validation :ensure_username` (`app/models/user.rb:109`) —
        `ensure_username` auto-fills a username via
-       `Studio::UsernameGenerator.generate` (`:742-757`).
-     - `before_create :set_initial_session_token` (`:108`) — writes
-       `users.session_token` for OPSEC-045 cookie binding (`:527-529`).
-     - `after_create :generate_managed_wallet!` (`:123`) — generates a
-       server-managed ed25519 keypair with `Solana::Keypair.generate` (`:587`,
-       local, no RPC), encrypts the secret key (`:590`), and writes
+       `Studio::UsernameGenerator.generate` (`:760-775`).
+     - `before_create :set_initial_session_token` (`:111`) — writes
+       `users.session_token` for OPSEC-045 cookie binding (`:530-532`).
+     - `after_create :generate_managed_wallet!` (`:126`) — generates a
+       server-managed ed25519 keypair with `Solana::Keypair.generate` (`:590`,
+       local, no RPC), encrypts the secret key (`:593`), and writes
        `web2_solana_address` + `encrypted_web2_solana_private_key`. It bails for
-       admins (`:586`) and, under `AppFlags.web3_only_onboarding?`, for everyone
-       (`:580`). The key material itself is read a layer down, in
+       admins (`:589`) and, under `AppFlags.web3_only_onboarding?`, for everyone
+       (`:583`). The key material itself is read a layer down, in
        `Solana::Keypair.current_encryptor`
        (`app/services/solana/keypair.rb:214-216`).
      - `after_commit :enqueue_onchain_account_setup`
-       (`app/models/user.rb:127`) →
-       `CreateOnchainUserAccountJob.perform_later` (`:793-795`). Async — the
+       (`app/models/user.rb:130`) →
+       `CreateOnchainUserAccountJob.perform_later` (`:811-813`). Async — the
        user is logged in before the on-chain PDA finalizes.
    - `cookies.delete(:reference)` consumes the cookie only for a new signup
      (`app/controllers/solana_sessions_controller.rb:66`).
    - `set_app_session(user)` writes `session[:turf_user_id]` +
      `session[:session_token]` and clears any stale on-chain flag
      (`app/controllers/application_controller.rb:36-69`, `:44`).
-     `promote_to_onchain_session!` then grants it (`:576-581`) — that write is
-     what `onchain_session?` reads (`:555-558`), and `verify` calls it at
+     `promote_to_onchain_session!` then grants it (`:598-603`) — that write is
+     what `onchain_session?` reads (`:577-580`), and `verify` calls it at
      `app/controllers/solana_sessions_controller.rb:81`. It lives in
      `ApplicationController` because the login and wallet-link paths used to
      drift apart.
@@ -340,7 +340,7 @@ Phantom must be installed in the browser or available via mobile deep link.
   `submitted` → `confirmed` inside `#confirm_onchain_entry`)
 - `session[:turf_user_id]`, `session[:session_token]` (write in step 6), and the
   on-chain flag set by `promote_to_onchain_session!`
-  (`app/controllers/application_controller.rb:576-581`)
+  (`app/controllers/application_controller.rb:598-603`)
 - on-chain: `UserAccount` PDA (`ensure_user_account` in step 7; re-asserted
   synchronously in step 9 `#prepare_entry`)
 - on-chain: `Entry` PDA + `Contest.entry_fees` USDC/USDT credit, or an entry
@@ -426,7 +426,7 @@ Phantom must be installed in the browser or available via mobile deep link.
 
 > **Orphaned endpoint.** `ContestsController#stamp_entry_signature`
 > (`app/controllers/contests_controller.rb:1260-1272`, routed as
-> `post :stamp_entry_signature` at `config/routes.rb:331`) is no longer called
+> `post :stamp_entry_signature` at `config/routes.rb:348`) is no longer called
 > by any client. It belonged to the
 > browser-broadcast flow, and the comment that replaced it says so —
 > `the client no longer calls stamp_entry_signature before confirm`
