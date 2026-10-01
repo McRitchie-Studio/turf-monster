@@ -65,6 +65,7 @@ class Entries::ApiSubmissionTest < ActiveSupport::TestCase
     assert_empty @vault.tickets, "a ticket exists on chain"
     assert_empty @vault.spent_tokens, "a token was consumed"
     assert_empty entries, "an entry row was left behind"
+    assert_equal 0, TransactionLog.where(user: @user, transaction_type: "entry_fee").count, "an entry fee was recorded"
   end
 
   # ── the happy path and what it writes ─────────────────────────────────────

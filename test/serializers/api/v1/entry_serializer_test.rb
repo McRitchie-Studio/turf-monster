@@ -57,6 +57,16 @@ class Api::V1::EntrySerializerTest < ActiveSupport::TestCase
     assert_raises(RuntimeError) { @entry.update_picks!(fixture_matchups.map(&:id)) }
   end
 
+  # PATCH /api/v1/entries/:slug refuses a caller who may not write, and a
+  # cancelled contest (Api::V1::EntriesController#update_refusal).
+  test "editable is false for a caller who may not write, and in a cancelled contest" do
+    assert_equal true, serializer(writable: true).as_json[:editable]
+    assert_equal false, serializer(writable: false).as_json[:editable]
+
+    @contest.update!(onchain_cancelled: true)
+    assert_equal false, serializer.as_json[:editable]
+  end
+
   test "a complete entry in a settled contest is final: stored rank and payout, not editable" do
     @contest.update!(status: :settled)
     @entry.update!(status: :complete, rank: 2, payout_cents: 5000, score: 7.4)

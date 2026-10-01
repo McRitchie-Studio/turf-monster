@@ -83,6 +83,17 @@ class Api::V1::ContestSerializerTest < ActiveSupport::TestCase
     assert_equal false, serialize[:accepting_entries]
   end
 
+  # POST /api/v1/contests/:slug/entries refuses an account on hold or not yet
+  # age verified (ApiKeyAuthentication#write_refusal) and a survivor contest
+  # (Entries::ApiSubmission). The field must not promise what the endpoint refuses.
+  test "accepting_entries is false for a caller who may not write, and for a contest the API cannot enter" do
+    assert_equal true, serialize(writable: true)[:accepting_entries]
+    assert_equal false, serialize(writable: false)[:accepting_entries]
+
+    @contest.update!(game_type: :world_cup_survivor)
+    assert_equal [false, false], serialize.values_at(:supported, :accepting_entries)
+  end
+
   test "a locked contest is live, a settled one is settled and not live" do
     @contest.update!(starts_at: 1.hour.ago)
     assert_equal ["live", true, true, false], serialize.values_at(:phase, :locked, :live, :settled)
