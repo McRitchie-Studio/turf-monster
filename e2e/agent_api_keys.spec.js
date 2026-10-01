@@ -386,6 +386,10 @@ test.describe("Agent API keys", () => {
     const card = page.locator(CARD);
     await createKey(page, "Stays");
     await card.getByRole("link", { name: "I've copied it" }).click();
+    // The row is already listed under the reveal, so wait for the reveal to go:
+    // the frame swap that removes it also replaces the row this is about to edit.
+    await expect(card.locator("[data-api-key-created]")).toHaveCount(0);
+    await expect(card.locator("[data-api-key-add]")).toBeVisible();
     const row = card.locator("[data-api-key-row]");
     await expect(row).toHaveCount(1);
 
@@ -394,7 +398,8 @@ test.describe("Agent API keys", () => {
     });
     const statuses = [];
     page.on("response", (res) => {
-      if (res.request().method() === "DELETE") statuses.push(res.status());
+      // button_to sends the DELETE as a POST carrying _method.
+      if (new URL(res.url()).pathname === "/account/api_keys/0") statuses.push(res.status());
     });
     page.on("dialog", (dialog) => dialog.accept());
     await row.getByRole("button", { name: "Revoke" }).click();
