@@ -1,7 +1,7 @@
-<%# locals: (dom_id:, attachment:, alt:, fallback:) — current og:image preview
+<%# locals: (dom_id:, attachment:, alt:, fallback:) — current link-preview image
     (1200×630). The owning controller's image-save action Turbo-Stream-replaces
-    this element by dom_id after an immediate crop save. Shared by the Admin
-    Dashboard default image and the per-landing-page override. %>
+    this element by dom_id after an immediate crop save. Used by the
+    per-landing-page override; the site-wide default lives at /admin/link_preview. %>
 <div id="<%= dom_id %>" class="rounded-lg overflow-hidden border border-subtle" style="aspect-ratio: 1200 / 630;">
   <% if attachment.attached? %>
     <%= image_tag attachment, class: "w-full h-full object-cover", alt: alt %>

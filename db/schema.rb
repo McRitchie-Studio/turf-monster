@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_30_200000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_01_013400) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -817,6 +817,17 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_30_200000) do
     t.index ["kind"], name: "index_studio_links_on_kind"
     t.index ["linkable_type", "linkable_id", "kind"], name: "idx_studio_links_owner_kind"
     t.index ["token"], name: "index_studio_links_on_token", unique: true
+  end
+
+  create_table "studio_site_identities", force: :cascade do |t|
+    t.string "app_name", null: false
+    t.datetime "created_at", null: false
+    t.text "description"
+    t.string "slug"
+    t.string "title"
+    t.datetime "updated_at", null: false
+    t.index ["app_name"], name: "index_studio_site_identities_on_app_name", unique: true
+    t.index ["slug"], name: "index_studio_site_identities_on_slug", unique: true
   end
 
   create_table "survivor_picks", force: :cascade do |t|

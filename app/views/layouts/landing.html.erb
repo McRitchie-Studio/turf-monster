@@ -2,25 +2,17 @@
 <%# Funnel splash always renders dark — it sits on an animated background. %>
 <html lang="en" class="dark">
   <head>
-    <%
-      # Funnel pages are the URLs most likely to be shared in SMS/Slack/social,
-      # so they need rich link-preview tags. This layout doesn't use the app
-      # layout (no navbar/footer), so the canonical og/twitter block is mirrored
-      # here. Everything resolves through OgHelper, passing the current
-      # @landing_page so a per-funnel og:image/title/description override (set
-      # in /admin/landing_pages) wins, then the SiteSetting site-wide defaults,
-      # then the branded landscape og.png (1200x630).
-      lp_title       = og_title(content_for(:title))
-      lp_description = og_description(content_for(:meta_description))
-      lp_og_image    = og_image_url(@landing_page)
-      lp_image_default = og_image_default?(@landing_page)
-    %>
-    <title><%= lp_title %></title>
-    <meta name="description" content="<%= lp_description %>">
-
-    <%# Open Graph + Twitter unfurl tags (shared with the application layout). %>
-    <%= render "layouts/link_preview_meta", title: lp_title, description: lp_description,
-          image: lp_og_image, image_default: lp_image_default %>
+    <%# Funnel pages are the URLs most likely to be shared in SMS/Slack/social.
+        A per-funnel image set in /admin/landing_pages overrides the preview;
+        an unset one falls back to the site identity at /admin/link_preview.
+        The title and description resolve the same way the tags do, and the
+        tags themselves come from studio-engine's layouts/studio/_head. %>
+    <% link_preview image: @landing_page&.og_image %>
+    <% identity = studio_link_preview %>
+    <title><%= identity[:title] %></title>
+    <% if identity[:description] %>
+    <meta name="description" content="<%= identity[:description] %>">
+    <% end %>
 
     <%= render "layouts/studio/head" %>
   </head>

@@ -1,10 +1,10 @@
 <%# locals: (form_url:, form_id:, file_param:, preview_dom_id:, attachment:, alt:, fallback:, label:, note: nil) %>
-<%# The cropper-backed og:image upload unit: the imageUploadHost x-data host, the
+<%# The cropper-backed link-preview image upload unit: the imageUploadHost x-data host, the
     live preview, the Edit button, and the hidden multipart form the cropper
     submits on confirm. The CALLER renders studio/cropper_assets and wraps this in
     a card. `label`/`note` are html_safe (build them with tag.label / tag.p so the
-    differing copy + styling stay at the call site). Shared by the dashboard
-    default + the per-landing-page override. %>
+    differing copy + styling stay at the call site). Used by the per-landing-page
+    override; the site-wide default lives at /admin/link_preview. %>
 <div x-data="imageUploadHost({ aspectRatio: <%= 1200.0 / 630 %>, maxWidth: 1200, filename: 'og-image.png', saving: 'Saving image…', success: 'Image updated', successMessage: 'Your new link-preview image is live.', failure: 'Couldn\'t save the image' })"
      @crop-photo-confirmed.window="applyCrop($event.detail.blob)">
   <%= label %>

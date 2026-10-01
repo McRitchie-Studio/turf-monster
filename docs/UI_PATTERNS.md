@@ -58,10 +58,12 @@ There are two sanctioned ways to satisfy that, and which one applies depends on
 whether the image is an OG asset in its own right or a rendition of an image
 that already lives somewhere private.
 
-**1. Images uploaded AS og:images — public service.** `SiteSetting`'s
-`default_og_image` and `LandingPage`'s `og_image` use the `amazon_public` /
-`amazon_public_dev` services and are served as permanent S3 object URLs.
-`OgImageAttachable` owns the per-environment service choice. Do NOT put these on
+**1. Images uploaded AS og:images — public service.** The site identity's
+default image (`Studio::SiteIdentity#image`, set at `/admin/link_preview`) and
+`LandingPage`'s `og_image` use the `amazon_public` / `amazon_public_dev`
+services and are served as permanent S3 object URLs. `OgImageAttachable` owns
+the per-environment service choice; the engine reads it through
+`Studio.link_preview_image_service`, set in `config/initializers/studio.rb`. Do NOT put these on
 the private `amazon` services, whose `.url` is a signature that expires.
 
 **2. Renditions of an image that lives on the PRIVATE service — proxy route.**
@@ -79,28 +81,34 @@ Guard the variant on `variable?`, not merely `attached?` — `.variant` raises
 `ActiveStorage.variable_content_types`, which would 500 the public page rather
 than fall through to the default card.
 
-### Link-Preview Bots Get a Slim Page
+### Link Previews Come From studio-engine
 
-Apple's LinkPresentation, which builds iMessage previews on the sender's device,
-aborts any page whose HTML exceeds **1 MiB** (WebKit 102 "Frame load
-interrupted"; measured 2026-09-30: 1,048,000 bytes previews, 1,049,000 fails). A
-contest page is past that, mostly inline script and `<template>` markup. So the
-application layout asks `link_preview_bot_request?` first, and a preview fetcher
-gets `layouts/_link_preview_document`: the identity tags and a one-card body,
-a few KB. People and unknown agents get the full page unchanged.
+The og:/twitter: tags, the default image, title and description, and the slim
+page for preview bots are studio-engine's site identity primitive
+(`docs/LINK_PREVIEW.md` in the gem). This app adopted it in
+`/tasks/turf-adopts-link-preview` and keeps no copy of its own.
 
-- **The allow-list lives in one place**, `LinkPreviewBot::TOKENS`. iMessage has
-  no token of its own; it sends an old-Safari UA suffixed with
-  `facebookexternalhit/1.1 Facebot Twitterbot/1.0`. Add a fetcher's own token,
-  never an in-app browser's (`FBAN`, `LinkedInApp`, `Twitter for iPhone` are
-  people).
-- **The tags cannot drift**: both documents render `layouts/_page_identity`,
-  fed by `OgHelper#page_link_preview`, and the view's `content_for` overrides
-  (`:title`, `:meta_description`, `:og_image`) are set before either runs.
-- **A contest previews as itself**: `contests/show` sets `:title` and
-  `:meta_description` from `OgHelper#contest_og_title` / `#contest_og_description`.
-- A page on another layout (`landing`, `loading`) is not slimmed; add the guard
-  there if one grows past 1 MiB.
+- **Where the tags come from**: `layouts/studio/_head`, which both the
+  application and landing layouts render. The engine resolves each rung: the
+  page's `link_preview` call, then the page's `content_for(:title)`,
+  `content_for(:meta_description)` and `content_for(:og_image)`, then the site
+  identity edited at `/admin/link_preview`, then the drafted copy in
+  `config/initializers/studio.rb`, then the static `/og.png`.
+- **No template writes or mentions its own og tags.** Under the default
+  `link_preview_tags = :auto` the engine turns its tags OFF if any template
+  under `app/views` mentions `og:title` or `og:image`, a comment included.
+  `test/integration/site_identity_adoption_test.rb` holds that line.
+- **A contest previews as itself**: `contests/show` sets `:og_image` from
+  `OgHelper#contest_og_image_url` (its banner card; nil falls back to the site
+  image) and `:title` / `:meta_description` from `OgHelper#contest_og_title` /
+  `#contest_og_description`.
+- **Preview bots get a slim page under 1 MiB.** Apple's LinkPresentation aborts
+  any page over 1 MiB (WebKit 102 "Frame load interrupted"; measured
+  2026-09-30: 1,048,000 bytes previews, 1,049,000 fails), and a contest page is
+  past that. `ApplicationController` includes `Studio::LinkPreviewBots`, which
+  rebuilds the rendered page as its head tags and a one-card body for a known
+  fetcher (the allow-list is `Studio::LinkPreview::BOT_TOKENS`), under any
+  layout. People and in-app browsers get the full page.
 
 ### Status Badges
 `ApplicationHelper::CONTEST_BADGE_STYLES`, keyed by contest status — the pill on

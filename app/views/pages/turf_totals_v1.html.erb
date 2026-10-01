@@ -1,10 +1,5 @@
 <% content_for :title, "Turf Totals v1 — How It Works" %>
-<% content_for :head do %>
-  <meta property="og:title" content="Turf Totals v1 — How It Works">
-  <meta property="og:description" content="Pick 6 team offensive matchups. Multiplier scoring. Win cash.">
-  <meta property="og:type" content="article">
-  <meta property="og:image" content="<%= request.base_url %>/logo.png">
-<% end %>
+<% link_preview description: "Pick 6 team offensive matchups. Multiplier scoring. Win cash." %>
 
 <%# data-test hook: the tests scope their copy assertions to THIS subtree, so a
     page-wide assert_select cannot pass on navbar/footer text. Mirrors the NFL
