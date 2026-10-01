@@ -185,6 +185,20 @@ class ApiKeyTest < ActiveSupport::TestCase
     assert_equal now + 61.seconds, key.reload.last_used_at
   end
 
+  # --- the name, in the table as well as the model ------------------------------
+
+  test "the table itself refuses a key with no name" do
+    key = mint
+
+    assert_not ApiKey.columns_hash.fetch("name").null, "api_keys.name must be NOT NULL in the schema"
+    # update_column skips the validation, so this is the database answering.
+    # In a savepoint: the violation aborts the transaction it happens in.
+    assert_raises(ActiveRecord::NotNullViolation) do
+      ApiKey.transaction(requires_new: true) { key.update_column(:name, nil) }
+    end
+    assert_equal "Claude", key.reload.name
+  end
+
   # --- ownership ---------------------------------------------------------------
 
   test "destroying the user destroys their keys" do

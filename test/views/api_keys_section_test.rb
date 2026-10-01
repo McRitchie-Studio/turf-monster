@@ -127,8 +127,10 @@ class ApiKeysSectionTest < ActionView::TestCase
     idle, working = create.at_css('button[type="submit"]').css("> span")
 
     assert_match(/busy: false/, create.parent["x-data"])
-    assert_equal "busy = true", create["@turbo:submit-start"]
-    assert_equal "busy = false", create["@turbo:submit-end"]
+    # Each handler now also drives the throttle message (see the 429 test
+    # below), so the busy assignment is one statement of two.
+    assert_equal "busy = true", create["@turbo:submit-start"].split(";").first.strip
+    assert_equal "busy = false", create["@turbo:submit-end"].split(";").first.strip
     assert_equal "Create key", idle.text.strip
     assert working.at_css(".cta-spinner")
     assert_match(/Creating/, working.text)
@@ -238,10 +240,90 @@ class ApiKeysSectionTest < ActionView::TestCase
     assert doc.at_css(%([data-api-key-row="#{key.id}"]))
     assert_nil form(doc)
     assert_nil doc.at_css("[data-api-key-add]")
+    # The way on for a card restored without its reveal: outside the temporary
+    # block, hidden while the reveal is in the frame, a frame navigation.
+    after = doc.at_css("[data-api-key-add-after-reveal]")
+    assert_nil after.ancestors.find { |node| node.key?("data-turbo-temporary") }
+    assert after.key?("x-cloak")
+    assert_equal "!revealed", after["x-show"]
+    assert_match(/revealed: true/, after["x-data"])
+    assert_includes after["x-init"], "querySelector('[data-api-key-created]')"
+    link = after.at_css("a")
+    assert_equal "Add another API key", link.text
+    assert_equal account_api_keys_path(adding: 1), link["href"]
+    assert_nil link["data-turbo-frame"], "it must stay inside the card's frame"
     # Dismissing is a frame navigation back to the plain card.
     done = doc.at_css("[data-api-key-created] a.btn")
     assert_equal account_api_keys_path, done["href"]
     assert_nil done["data-turbo-frame"]
+  end
+
+  # Turbo snapshots the page on the way out and Back restores the snapshot
+  # without a request. It drops data-turbo-temporary elements first, so the
+  # attribute has to sit on an element that CONTAINS every copy of the raw key.
+  test "the reveal is temporary to Turbo, and nothing outside it carries the key" do
+    key = mint
+    doc = render_section(new_key: key)
+    created = doc.at_css("[data-api-key-created]")
+
+    assert created.key?("data-turbo-temporary")
+    created.remove
+    assert_not_includes doc.to_html, key.raw_token
+    # What the snapshot keeps: the card and the key's row.
+    assert doc.at_css(%(turbo-frame#api_keys_card [data-api-key-row="#{key.id}"]))
+  end
+
+  # --- refusals said in the card ---------------------------------------------------
+
+  test "a card error is announced inside the frame, above the list" do
+    key = mint
+    doc = render_section(card_error: "We couldn't revoke that key. Please try again.")
+    error = doc.at_css("turbo-frame#api_keys_card [data-api-key-card-error]")
+
+    assert_equal "alert", error["role"]
+    assert_equal "We couldn't revoke that key. Please try again.", error.text
+    assert doc.at_css(%([data-api-key-row="#{key.id}"])), "the keys are still listed under it"
+    assert form(doc), "and the card still offers its form"
+  end
+
+  test "with no card error there is no error markup" do
+    assert_nil render_section.at_css("[data-api-key-card-error]")
+  end
+
+  # rack-attack answers a throttled mint in JSON before any controller runs, so
+  # there is no card to swap in: the form reads the status and says so itself.
+  test "the form reads a 429 off the response and has a message waiting for it" do
+    doc = render_section
+    message = form(doc).at_css("[data-api-key-throttled]")
+
+    assert_match(/throttled: false/, form(doc).parent["x-data"])
+    assert_equal "throttled", message["x-show"]
+    assert message.key?("x-cloak"), "hidden until Alpine says otherwise"
+    assert_equal "alert", message["role"]
+    assert_match(/too many keys/i, message.text)
+    assert_match(/throttled = false/, form(doc)["@turbo:submit-start"])
+    assert_match(/throttled = \$event\.detail\.fetchResponse\?\.response\.status === 429/,
+                 form(doc)["@turbo:submit-end"])
+    assert_match(/busy = false/, form(doc)["@turbo:submit-end"])
+  end
+
+  test "outside the reveal there is no after-reveal link" do
+    mint
+
+    assert_nil render_section.at_css("[data-api-key-add-after-reveal]")
+  end
+
+  test "form_open renders the form open although keys exist" do
+    mint
+
+    assert_match(/adding: false/, form(render_section).parent["x-data"])
+    assert_match(/adding: true/, form(render_section(form_open: true)).parent["x-data"])
+  end
+
+  test "the name error stands down while the throttle message is up" do
+    doc = render_section(form_error: "Name can't be blank", form_name: " ")
+
+    assert_equal "!throttled", doc.at_css("[data-api-key-error]")["x-show"]
   end
 
   test "a key reloaded from the database reveals nothing" do

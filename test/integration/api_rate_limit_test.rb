@@ -94,6 +94,27 @@ class ApiRateLimitTest < ActionDispatch::IntegrationTest
     assert_nil discriminator("api_key_mint/ip", request_for("/account/api_keys/1", method: "DELETE"))
   end
 
+  # The route takes an optional format and Rails ignores a trailing slash, so
+  # each of these reaches api_keys#create. A throttle on the bare path alone is
+  # one a loop walks around by adding ".html".
+  test "the mint throttle covers every spelling the router sends to create" do
+    %w[/account/api_keys /account/api_keys.html /account/api_keys.json /account/api_keys/ /account/api_keys.html/].each do |path|
+      assert_equal "api_keys#create", Rails.application.routes.recognize_path(path, method: :post)
+                                           .values_at(:controller, :action).join("#"),
+                   "#{path} is not a mint; drop it from this list"
+      assert_equal "203.0.113.9", discriminator("api_key_mint/ip", request_for(path, method: "POST")),
+                   "POST #{path} mints a key but is not throttled"
+    end
+  end
+
+  test "the mint throttle reaches nothing but the mint" do
+    assert_nil discriminator("api_key_mint/ip", request_for("/account/api_keys", method: "GET"))
+    assert_nil discriminator("api_key_mint/ip", request_for("/account/api_keys.html", method: "GET"))
+    assert_nil discriminator("api_key_mint/ip", request_for("/account/api_keys/1", method: "POST"))
+    assert_nil discriminator("api_key_mint/ip", request_for("/account/api_keys_export", method: "POST"))
+    assert_nil discriminator("api_key_mint/ip", request_for("/account/api_keysx.html", method: "POST"))
+  end
+
   # --- the real middleware ---------------------------------------------------------
 
   test "the request past the per-key limit is a 429 in the API envelope" do
@@ -119,6 +140,30 @@ class ApiRateLimitTest < ActionDispatch::IntegrationTest
       # A different key, same address, is still served.
       get "/api/v1/me", headers: { "Authorization" => "Bearer tmk_" + "d" * ApiKey::TOKEN_LENGTH }
       assert_response :unauthorized
+    end
+  end
+
+  # What the keys card has to cope with: the throttled mint never reaches
+  # ApiKeysController, so the answer is rack-attack's JSON and carries no card.
+  # The card's form reads the 429 status itself (test/views/api_keys_section_test.rb,
+  # e2e/agent_api_keys.spec.js). The .html spelling is the one that used to slip by.
+  test "the mint past the hourly limit is a 429 with no card in it, on either spelling" do
+    limit = Rack::Attack.throttles.fetch("api_key_mint/ip").limit
+
+    with_rack_attack do
+      limit.times do |i|
+        post i.even? ? "/account/api_keys" : "/account/api_keys.html", params: { name: "Loop" }
+        assert_not_equal 429, response.status
+      end
+
+      post "/account/api_keys.html", params: { name: "Loop" }
+      assert_response :too_many_requests
+      assert_equal "application/json", response.media_type
+      assert_not_includes response.body, "turbo-frame"
+      assert_equal 3600, JSON.parse(response.body)["retry_after"]
+
+      post "/account/api_keys", params: { name: "Loop" }
+      assert_response :too_many_requests
     end
   end
 

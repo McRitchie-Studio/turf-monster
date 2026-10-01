@@ -24,9 +24,29 @@
 #     player. Eligibility was checked in the player's own browser when the key
 #     was minted and is carried by the key (ApiKey#eligibility).
 #
-# WHAT IT KEEPS: the account freeze (OPSEC-048). A frozen account is frozen for
-# every credential that can reach it — `require_unfrozen_account` is here for
-# every action that moves money, exactly as on the web.
+# WHAT IT KEEPS, and how a write endpoint uses it:
+#
+#   * The account freeze (OPSEC-048), DEFAULT-DENY. A frozen account is refused
+#     403 `account_frozen` on every request that is not a GET or a HEAD, with
+#     nothing to remember: a new write endpoint is covered the day it is routed.
+#     Reads stay open, as they do on the web. A controller opts an action out
+#     by name — `allow_frozen_account_writes only: :call_tool` — and then owes
+#     the check itself.
+#   * The age gate, ON REQUEST. A key stamped `not_required` can outlive
+#     ENABLE_AGE_GATE being turned on, so an action that enters a contest
+#     re-asks: `before_action :require_age_verified`.
+#
+# Each gate is also a PLAIN QUESTION that renders nothing — `frozen_account_refusal`,
+# `age_gate_refusal`, and `write_refusal` for both — returning nil or a Refusal
+# (code, message, status). That is what a surface with ONE action and many
+# operations calls (an MCP endpoint dispatching tools through one POST): a
+# before_action cannot know which tool writes, and the answer has to go back in
+# that surface's own envelope, not this one's.
+#
+#   refusal = write_refusal
+#   return tool_error(refusal.code, refusal.message) if refusal
+#
+# Geo is NOT re-asked per request, on purpose (see above).
 #
 # Include it in an ActionController::API controller. In a controller that also
 # has cookie sessions, the host must turn CSRF off for these actions itself.
@@ -45,6 +65,12 @@ module ApiKeyAuthentication
 
   FROZEN_MESSAGE = "This account is on hold pending review of a recent payment. " \
                    "Contact support@turfmonster.media.".freeze
+  AGE_GATE_MESSAGE = "Verify your age on turfmonster.media before entering a contest. " \
+                     "Sign in, open your account page, and confirm your date of birth.".freeze
+
+  # Why a request is being turned away, as data. `status` is a Rails status
+  # symbol; a surface with its own envelope uses `code` and `message` only.
+  Refusal = Struct.new(:code, :message, :status)
 
   included do
     # ORDER IS LOAD-BEARING: Rescuable resolves handlers last-registered-first,
@@ -54,6 +80,18 @@ module ApiKeyAuthentication
     rescue_from ActionController::ParameterMissing, with: :render_api_bad_request
 
     before_action :authenticate_api_key!
+    # After authentication, so a keyless write is still a 401, not a 403.
+    before_action :refuse_frozen_account_writes
+  end
+
+  class_methods do
+    # The explicit opt-out from the default freeze gate. Takes the options of
+    # skip_before_action (`only:`, `except:`). An action named here is reachable
+    # by a frozen account on any verb, so it owes `frozen_account_refusal` (or
+    # `require_unfrozen_account`) wherever it actually writes.
+    def allow_frozen_account_writes(**options)
+      skip_before_action :refuse_frozen_account_writes, **options
+    end
   end
 
   private
@@ -82,12 +120,54 @@ module ApiKeyAuthentication
     request.authorization.to_s[BEARER_PATTERN, 1]
   end
 
-  # OPSEC-048, the API's copy. Hang it on every action that moves money or
-  # spends a free entry; read-only actions stay open, as they do on the web.
-  def require_unfrozen_account
+  # ── The write gates ────────────────────────────────────────────────────────
+  # Three layers, each built on the one before:
+  #   *_refusal        the question. Renders nothing; nil means "go ahead".
+  #   require_*        the question as a before_action: renders the refusal.
+  #   refuse_frozen_…  require_unfrozen_account on every non-read, by default.
+
+  # OPSEC-048, the API's copy. nil, or why this account may not write.
+  def frozen_account_refusal
     return unless current_user&.frozen?
 
-    render_api_error(:account_frozen, FROZEN_MESSAGE, status: :forbidden)
+    Refusal.new(:account_frozen, FROZEN_MESSAGE, :forbidden)
+  end
+
+  # The entry age gate, re-asked at the moment of a write. Eligibility is
+  # stamped on the key at mint, but ENABLE_AGE_GATE can be turned on AFTER a key
+  # was stamped `not_required`; the stamp cannot answer for that, the user row
+  # can. Reads the same two facts as ApplicationController#age_verification_pending?.
+  def age_gate_refusal
+    return unless AppFlags.age_gate?
+    return if current_user&.age_attested_at.present?
+
+    Refusal.new(:age_verification_required, AGE_GATE_MESSAGE, :forbidden)
+  end
+
+  # Everything a write must clear, freeze first: it is the broader hold.
+  def write_refusal
+    frozen_account_refusal || age_gate_refusal
+  end
+
+  def require_unfrozen_account
+    render_api_refusal(frozen_account_refusal)
+  end
+
+  def require_age_verified
+    render_api_refusal(age_gate_refusal)
+  end
+
+  # GET and HEAD are the reads; every other verb is treated as a write.
+  def refuse_frozen_account_writes
+    return if request.get? || request.head?
+
+    require_unfrozen_account
+  end
+
+  def render_api_refusal(refusal)
+    return if refusal.nil?
+
+    render_api_error(refusal.code, refusal.message, status: refusal.status)
   end
 
   def render_api_error(code, message, status:)
