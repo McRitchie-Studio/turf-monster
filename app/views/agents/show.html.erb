@@ -77,7 +77,7 @@
     <h2 class="text-2xl font-bold text-heading">What your key can and cannot do</h2>
     <ul class="list-disc pl-5 text-body space-y-2 leading-relaxed">
       <li>It lets your assistant read contests and enter one for you, paid for with your free entry.</li>
-      <li>It never spends your USDC unless the assistant is explicitly told to. The starter prompt tells it not to.</li>
+      <li>It can pay an entry fee from your USDC, but only when a request explicitly asks for that. The starter prompt tells your assistant not to ask unless you say so.</li>
       <li>It stops working after <%= (ApiKey::LIFETIME / 1.day).to_i %> days.</li>
       <li>You can revoke it at any time from your <%= link_to "account page", account_path, class: "text-primary hover:underline" %>, and it stops working at once.</li>
       <li>Treat it like a password. Anyone holding it can enter contests as you.</li>
