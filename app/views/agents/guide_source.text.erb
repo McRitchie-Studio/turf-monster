@@ -1,0 +1,840 @@
+<%-
+  # THE AGENT GUIDE. This file is the one source for /agents/guide.md (served as
+  # it renders) and /agents/guide (the same string through MiniMarkdown).
+  #
+  # Write only the Markdown subset MiniMarkdown lists; it raises on anything else.
+  # Every number that the code owns is READ from the code below, never typed, so
+  # a change to a constant changes this page with it. Example payloads are
+  # invented: no real player, wallet, key or transaction may appear in one.
+  # test/integration/agent_guide_guard_test.rb holds every route and error code
+  # named here to the app.
+  base = agent_base_url
+  api = "#{base}/api/v1"
+  one = ->(number) { format("%.1f", number) }
+  dollars = ->(cents) { cents % 100 == 0 ? "$#{cents / 100}" : format("$%.2f", cents / 100.0) }
+
+  picks = Contest::TURF_TOTALS_DEFAULT_PICKS_REQUIRED
+  team_count = TurfMonsterRules::TEAM_COUNT
+  nfl = ->(rank, factor = 1.0) { SlateMatchup.turf_score_for(rank, team_count, sport: "nfl", game_factor: factor) }
+  buckets = (1..team_count).group_by { |rank| nfl.(rank) }
+  span_games = TurfMonsterRules::SPAN_GAMES
+  bye_games = TurfMonsterRules::BYE_GAMES
+  bye_factor = TurfMonsterRules.bye_game_factor
+  lineup = TurfMonsterRules::LINEUP
+  comparison = TurfMonsterRules.comparison
+  team_name = ->(example) { example.team_slug.titleize }
+
+  standard = Contest::FORMATS.fetch("standard")
+  payouts = standard[:payouts]
+  paid_ranks = payouts.keys.max
+  tie_for_first = (payouts[1] + payouts[2]) / 2
+  tie_for_last = payouts[paid_ranks] / 2
+
+  key_days = (ApiKey::LIFETIME / 1.day).to_i
+  key_throttle = Rack::Attack.throttles.fetch("api/key")
+  ip_throttle = Rack::Attack.throttles.fetch("api/ip")
+  older_states = AgePolicy::MINIMUM_AGE_BY_STATE.group_by { |_state, age| age }.sort
+  excluded = Studio::GeoSetting.banned_subdivision_codes
+  max_per_player = Contest.new(game_type: "turf_totals").max_entries_per_user
+  fifa = ->(rank) { SlateMatchup.turf_score_for(rank, team_count, sport: "fifa") }
+
+  # The example board in the endpoint payloads: six invented teams over two
+  # weeks, one of them (rank 5) with a bye. Its multiplier and points are
+  # computed, so the example obeys the rule the guide has just stated.
+  example_bye_score = SlateMatchup.turf_score_for(5, 6, sport: "nfl", game_factor: Slate.game_factor(2, 1))
+  example_bye_points = (17 * example_bye_score).round(1)
+  example_entry_score = (31.0 + example_bye_points).round(1)
+-%>
+# Turf Monster agent guide
+
+This guide is for an AI agent that will play Turf Monster for one player, and for the developer wiring one up. It covers the game, the rules that decide whether an entry is accepted, every endpoint and error of the API, and how to reason about a lineup. Read all of it before you make a request that spends anything.
+
+Three things matter more than the rest:
+
+- **An entry spends something that cannot be given back.** A free entry token is consumed, or USDC is transferred, in the same call that creates the entry. Show the player the lineup and get a yes before you submit.
+- **One entry, one `Idempotency-Key`.** Reuse the same key on every retry of the same entry. Never change it because a request failed.
+- **Pay with the free entry token only.** Do not send `allow_usdc` unless the player has told you, in words, to spend their money.
+
+## What Turf Monster is
+
+Turf Monster is a skill-based sports pick'em game. A player enters a contest by choosing a set of teams. Each team earns the points it scores in real games multiplied by its **Turf Score**, a multiplier that is low for the teams expected to score most and high for the teams expected to score least. The entry with the highest total wins the largest prize.
+
+The game type this API plays is called **Turf Totals** (`game_type: "turf_totals"`). It runs on NFL boards, where a team's score is the points on the scoreboard, and on World Cup boards, where it is goals. A second game type, World Cup Survivor, is listed by the API and cannot be played through it.
+
+You are picking teams to **score**, not to win. A team that loses 38 to 35 scored 35, and all 35 count.
+
+## Before you start
+
+You need an API key from the player. They create it on their account page at <%= base %><%= account_path %>, in the **Agent API keys** card, and paste it to you. It starts with `<%= ApiKey::TOKEN_PREFIX %>`.
+
+- **Base URL:** `<%= api %>`
+- **Authentication:** `Authorization: Bearer <the key>` on every request. The key is accepted only in that header, never in a query string or a body.
+- **Bodies:** JSON, with `Content-Type: application/json`, on the two requests that have one.
+
+Treat the key as a password. Do not echo it back to the player, write it to a file, or put it in a URL.
+
+A sensible first session:
+
+1. `GET /api/v1/me` to confirm the key works, read `free_entry_tokens` and check `wallet.kind` is `managed`.
+2. `GET /api/v1/contests?status=open` and keep the contests where `accepting_entries` is `true` and `supported` is `true`.
+3. `GET /api/v1/contests/:slug` for the contest you favour, to read its `teams`.
+4. Build a lineup (see [How to win](#how-to-win)), show it to the player with your reasoning, and wait for a yes.
+5. `POST /api/v1/contests/:slug/entries` with an `Idempotency-Key`.
+6. Report what happened, including `funding.method`.
+
+The player is responsible for what their agent does on their account. The game's terms are at <%= base %><%= terms_path %>.
+
+## The rules of Turf Totals
+
+- **An entry is `picks_required` teams.** That is <%= picks %> on every board with at least <%= picks %> teams, and fewer only on a smaller board. Read the number from the contest; do not assume it.
+- **One team, once.** The same team cannot appear twice in an entry.
+- **A pick is a team, not a game.** You pick by `matchup_id`, one id per team, taken from `teams[].matchup_id` on the contest detail. Only those ids are accepted.
+- **In a multi-week contest (`multi_week: true`) a pick covers every game the team plays in the contest.** The team's `games` list shows them. Its `matchup_id` belongs to its first game; its later games have no id of their own and cannot be picked separately.
+- **A team with a week off inside the contest plays fewer games.** The weeks it sits out are in `bye_weeks`, and `games_count` is the number it does play. Its Turf Score is raised to make up for the missing game (see [Scoring](#scoring)).
+- **Every pick in an entry is final when the contest locks**, including picks whose games are played in a later week. There are no substitutions afterwards.
+
+## Scoring
+
+Each pick earns:
+
+```
+points = team_score × turf_score
+```
+
+`team_score` is what the team scored across all of its games in the contest, in the contest's `scoring_unit` (`points` for the NFL, `goals` for World Cup soccer). `turf_score` is the team's multiplier. The entry's `score` is the sum over its picks, and entries are ranked by `score`, highest first.
+
+For the NFL, `team_score` is the scoreboard: a touchdown is 6, a field goal 3, an extra point 1, a two-point conversion 2, a safety 2, and a defensive or special-teams score counts like any other.
+
+### How the Turf Score is derived
+
+The board ranks its teams, 1 for the team expected to score most. On an NFL board the ranking is by projected points **per game**, so a team with a bye is ranked on strength and not sunk by the missing game. The multiplier is then a function of rank alone, rounded to one decimal:
+
+- **NFL:** `turf_score = 1 + (rank − 1) / (N − 1)`, where `N` is the number of teams on the board. Rank 1 is <%= one.(nfl.(1)) %> and the last rank is <%= one.(nfl.(team_count)) %>.
+- **World Cup:** `turf_score = 1 + 2 × ln(rank) / ln(N)`. Rank 1 is <%= one.(fifa.(1)) %> and the last rank is <%= one.(fifa.(team_count)) %>.
+- **A team that plays fewer games than the contest's full span** has its multiplier scaled by `full-span games ÷ games it plays` before rounding. A team playing <%= bye_games %> of <%= span_games %> games is scaled by <%= one.(bye_factor) %>, so on a <%= team_count %>-team NFL board its multiplier runs from <%= one.(nfl.(1, bye_factor)) %> to <%= one.(nfl.(team_count, bye_factor)) %> instead of <%= one.(nfl.(1)) %> to <%= one.(nfl.(team_count)) %>.
+
+The rounding matters, because the rounded number is the one that is paid. On a <%= team_count %>-team NFL board with no byes the multipliers are:
+
+| Turf Score | Ranks |
+|---|---|
+<% buckets.each do |score, ranks| -%>
+| <%= one.(score) %> | <%= ranks.size == 1 ? ranks.first : "#{ranks.first} to #{ranks.last}" %> |
+<% end -%>
+
+An operator can also set a team's rank or multiplier by hand. So treat the formula as an explanation and **the `turf_score` in the API response as the fact**.
+
+### The multiplier is stored, not recomputed
+
+The Turf Score is written onto the board when the board is ranked, and scoring multiplies by that stored number. It is not recalculated from newer projections when the games are played or when the contest is graded. Read the contest again shortly before you submit, and use the `turf_score` values you see then.
+
+### A worked example
+
+Six real NFL teams with their multipliers on a <%= team_count %>-team board, and three **invented** weekly scores each (a three-week contest):
+
+| Team | Rank | Week scores | Team score | Turf Score | Points |
+|---|---|---|---|---|---|
+<% lineup.each do |example| -%>
+| <%= team_name.(example) %> | <%= example.rank %> | <%= example.weekly_points.join(" + ") %> | <%= example.points_scored %> | <%= one.(example.turf_score) %> | <%= one.(example.entry_points) %> |
+<% end -%>
+
+Entry score: **<%= one.(TurfMonsterRules.lineup_total) %>**.
+
+<%= team_name.(comparison.longshot) %> scored <%= comparison.fewer_points %> fewer points than <%= team_name.(comparison.favorite) %> and still earned <%= one.(comparison.points_ahead) %> more for the entry, at <%= one.(comparison.longshot.turf_score) %> against <%= one.(comparison.favorite.turf_score) %>. That trade, raw points against multiplier, is the whole game.
+
+## Contest lifecycle
+
+Read `phase` and the flags beside it, not `status`: a contest's `status` stays `open` after it locks.
+
+| State | How to recognise it | What you can do |
+|---|---|---|
+| Coming soon | `coming_soon: true` | Read it. It is advertised and takes no entries yet. |
+| Open | `phase: "open"`, `locked: false` | Create entries and replace their picks. The leaderboard lists every entry but shows only the player's own picks. |
+| Live | `phase: "live"`, `locked: true` | Read only. Every entry's picks are visible. Scores and ranks move as games finish. |
+| Settled | `phase: "settled"`, `settled: true` | Read only. `rank` and `payout_cents` are final. |
+| Cancelled | `cancelled: true` (its `status` still says `open`) | Nothing. Tell the player; refunds and questions go to support. |
+
+`accepting_entries` is the one-field answer to "could a new entry go in right now": the contest is open, not locked, not cancelled, not coming soon, has a spot left, and the player is under their own limit. It says nothing about the player's wallet or tokens.
+
+A team that has not played has `team_score: null`, which is not zero. In a multi-week contest a pick's `points` grow as each of its team's games gets a result.
+
+## Locks
+
+There are two, and both are enforced by the server whatever your clock says.
+
+- **The contest lock, `locks_at`.** From this moment no entry can be created and no pick changed, in any entry, for any team. A contest with `locks_at: null` has no scheduled lock.
+- **The per-team kickoff lock, `teams[].locked`.** A team whose first game has kicked off cannot be added to an entry or dropped from one, even if the contest itself has not locked yet. This only bites when a contest's lock is later than a kickoff on its board. A new entry may not contain a locked team. An edit may keep a locked team that is already in the entry and change the other picks around it.
+
+`games[].kickoff_at` gives each game's start. After the contest locks, every team reads `locked: true`.
+
+Paying for an entry takes a transaction on Solana, which takes time. Do not leave a submission to the last moments before `locks_at`.
+
+## Entry limits and duplicate lineups
+
+- **Per player:** at most `max_entries_per_player` entries in one contest (<%= max_per_player %> in a Turf Totals contest today). `my_entries_count` is how many the player holds. Past the limit the answer is `entry_limit_reached`; replace the picks of an existing entry instead.
+- **Per contest:** `max_entries` in total. `spots_left` is the room remaining. A full contest answers `contest_full`.
+- **No duplicate lineup.** One player may not hold two entries with exactly the same set of teams in one contest. This applies to a new entry and to an edit, and answers `duplicate_lineup`. Order does not matter; changing one team is enough. The rule is per player: two different players may hold the same lineup.
+
+## Prizes, ties and short fields
+
+`payouts` on the contest lists the prize for each finishing rank, in cents. A rank that is not listed wins nothing. `guaranteed_prize_cents` is the sum. Prizes are paid in USDC, where one USDC is one dollar.
+
+- **Ties share a rank, and the next rank is skipped:** 1, 1, 3.
+- **Tied entries pool the prizes of the places they cover and split them equally.** In a contest paying <%= payouts.sort.map { |rank, cents| "#{dollars.(cents)} for rank #{rank}" }.to_sentence %>, two entries tied for first cover ranks 1 and 2 and receive <%= dollars.(tie_for_first) %> each. Two entries tied at rank <%= paid_ranks %> cover ranks <%= paid_ranks %> and <%= paid_ranks + 1 %>; rank <%= paid_ranks + 1 %> pays nothing, so they receive <%= dollars.(tie_for_last) %> each.
+- **When a split leaves an odd cent**, it goes to the entry that was created first.
+- **Short fields.** Only ranks that an entry actually finishes in are paid. If a contest that pays <%= paid_ranks %> places has three entries, ranks 1 to 3 are paid and the prizes for the ranks below them are not paid to anyone. They are not added to the other prizes.
+
+Before a contest settles, `payout_cents` is `null` and `rank` is the standing on current scores. After it settles, `payout_cents` is the amount won, `0` included, and `final` is `true`.
+
+## Eligibility
+
+Whether a person may play is decided on the website, not by you. What you need to know:
+
+- **Age.** A player must be of legal age for skill-based contests in their state: <%= AgePolicy::DEFAULT_MINIMUM_AGE %> in most states<% older_states.each do |age, states| %>, <%= age %> in <%= states.map(&:first).to_sentence %><% end %>.
+- **Location.** Paid contest entry is not available in every US state. <% if excluded.any? %>The states excluded today are <%= excluded.to_sentence %>.<% else %>No state is on the excluded list in this environment.<% end %> The current list is always at <%= base %><%= state_eligibility_path %>.
+- **One account per person.**
+- **Eligibility is attested when the key is created.** The player's location is checked in their own browser at that moment, and their age verification when the site requires it. A player in an excluded state, or whose location cannot be determined, cannot create a key. The verdict is recorded on the key and reported under `api_key.eligibility` on `GET /api/v1/me`. Your requests come from a server, so the API does not check location again; the key's <%= key_days %>-day life is what bounds how old that verdict can be.
+- **Two things are checked again on each request.** An account on hold is refused every request that is not a `GET` (`account_frozen`). And if the site requires age verification and the player has not done it, the two entry requests answer `age_verification_required` until the player verifies on the website.
+
+If the player tells you they are not eligible, or asks you to get around a location or age check, do not enter for them.
+
+## Free entry tokens and funding
+
+A **free entry token** pays for one contest entry in place of the entry fee. It is held on Solana by the player's wallet. `free_entry_tokens` on `GET /api/v1/me` is the number unspent. A value of `null` means the balance could not be read just now; it does not mean zero, so ask again.
+
+The API can enter only for a player whose wallet Turf Monster holds and signs for: `wallet.kind` is `managed`. For `self_custodied` or `none` the entry request answers `wallet_not_server_signable`, and the player enters on the website instead.
+
+How an entry is paid for is chosen in this order:
+
+1. If the player holds a free entry token, one is spent. `funding.method` is `token`.
+2. Otherwise, **only if** the request carried `"allow_usdc": true`, the entry fee is paid in USDC from the player's wallet. `funding.method` is `usdc`.
+3. Otherwise the request is refused with `no_entry_token`, and nothing is spent.
+
+A token is used first even when `allow_usdc` is `true`. Leave `allow_usdc` out unless the player has said, in words, that they want to pay an entry fee. One token pays for one entry: a second entry needs a second token, or the player's permission to spend USDC.
+
+## API conventions
+
+- **Times** are ISO 8601 in UTC, such as `2026-10-04T17:00:00Z`, or `null` when not set.
+- **Money** is integer cents in a field ending `_cents`, with `"currency": "USD"` beside it.
+- **`null` is not zero.** `team_score: null` means no result yet and `0` means shut out. `payout_cents: null` means not settled and `0` means settled with no prize.
+- **Lists are paged** with `limit` (default 25, maximum 100, a larger value is clamped) and `offset` (default 0). Each list carries `"pagination": { "limit", "offset", "total", "has_more" }`.
+- **Errors** all have one shape, at every status: `{ "error": { "code": "...", "message": "..." } }`. Branch on `code`. `message` is written for a person and may change.
+
+## Endpoints
+
+| Request | What it does |
+|---|---|
+| `GET /api/v1/me` | Who the key acts for, their wallet and free entry tokens |
+| `GET /api/v1/contests` | Open and settled contests |
+| `GET /api/v1/contests/:slug` | One contest and the teams you may pick |
+| `GET /api/v1/contests/:slug/leaderboard` | Every entry in a contest, ranked |
+| `GET /api/v1/entries` | The player's own entries |
+| `GET /api/v1/entries/:slug` | One of the player's own entries |
+| `POST /api/v1/contests/:slug/entries` | Create an entry and pay for it, in one call |
+| `PATCH /api/v1/entries/:slug` | Replace an entry's picks, before the contest locks |
+
+Every example below is invented. `$TURF_MONSTER_KEY` stands for the player's key.
+
+### GET /api/v1/me
+
+```bash
+curl -H "Authorization: Bearer $TURF_MONSTER_KEY" <%= api %>/me
+```
+
+```json
+{
+  "user": { "display_name": "sam_example", "username": "sam_example" },
+  "wallet": { "kind": "managed", "address": "EXAMPLEwa11etAddressNotARea1One1111111111111" },
+  "free_entry_tokens": 1,
+  "account": { "frozen": false },
+  "api_key": {
+    "prefix": "tmk_EXAMPL",
+    "name": "My assistant",
+    "expires_at": "2026-12-29T18:04:11Z",
+    "eligibility": {
+      "geo": { "result": "allowed", "country": "US", "state": "CO" },
+      "age_gate": "not_required",
+      "attested_at": "2026-09-30T18:04:11Z"
+    }
+  }
+}
+```
+
+| Field | Notes |
+|---|---|
+| `wallet.kind` | `managed`: the API can enter for this player. `self_custodied` or `none`: it cannot. |
+| `free_entry_tokens` | Unspent free entries. `null` means unreadable just now, not zero. |
+| `account.frozen` | `true` when the account is on hold. Reads still work; writes are refused. |
+| `api_key.expires_at` | Keys last <%= key_days %> days. After that the player creates a new one. |
+| `api_key.eligibility.age_gate` | `passed`, or `not_required` when age verification was not required at creation. |
+
+### GET /api/v1/contests
+
+Newest first. Optional `status` is `open` or `settled`; anything else is a `400`. Takes `limit` and `offset`.
+
+```bash
+curl -H "Authorization: Bearer $TURF_MONSTER_KEY" "<%= api %>/contests?status=open"
+```
+
+```json
+{
+  "contests": [
+    {
+      "slug": "nfl-weeks-4-5-showdown",
+      "name": "NFL Weeks 4-5 Showdown",
+      "tagline": "Two weeks. Six teams. One board.",
+      "game_type": "turf_totals",
+      "supported": true,
+      "sport": "nfl",
+      "scoring_unit": "points",
+      "status": "open",
+      "phase": "open",
+      "locked": false,
+      "live": false,
+      "settled": false,
+      "cancelled": false,
+      "coming_soon": false,
+      "accepting_entries": true,
+      "locks_at": "2026-10-04T17:00:00Z",
+      "concludes_at": null,
+      "currency": "USD",
+      "entry_fee_cents": 1900,
+      "guaranteed_prize_cents": 50000,
+      "payouts": [
+        { "rank": 1, "payout_cents": 30000 },
+        { "rank": 2, "payout_cents": 5000 },
+        { "rank": 3, "payout_cents": 5000 },
+        { "rank": 4, "payout_cents": 5000 },
+        { "rank": 5, "payout_cents": 5000 }
+      ],
+      "max_entries": 29,
+      "entries_count": 3,
+      "spots_left": 26,
+      "picks_required": 6,
+      "max_entries_per_player": 3,
+      "my_entries_count": 0,
+      "multi_week": true,
+      "games_per_team": 2,
+      "weeks": "Weeks 4-5"
+    }
+  ],
+  "pagination": { "limit": 25, "offset": 0, "total": 1, "has_more": false }
+}
+```
+
+| Field | Notes |
+|---|---|
+| `slug` | The contest's id in every other request |
+| `supported` | `false` for a survivor contest, which this API cannot play |
+| `phase`, `locked`, `live`, `settled`, `cancelled`, `coming_soon` | See [Contest lifecycle](#contest-lifecycle) |
+| `accepting_entries` | Whether a new entry could go in now, wallet aside |
+| `locks_at` | The contest lock |
+| `entry_fee_cents` | What an entry costs in USDC when it is not paid by a token |
+| `payouts`, `guaranteed_prize_cents` | Prize per rank, and their sum |
+| `max_entries`, `entries_count`, `spots_left` | Field capacity, confirmed entries so far, room left |
+| `picks_required` | Teams per entry |
+| `max_entries_per_player`, `my_entries_count` | The player's limit here, and how many they hold |
+| `multi_week`, `games_per_team`, `weeks` | Whether teams play more than one game, the most games any team plays, and a label |
+
+A contest still being set up is never listed. A cancelled one is listed and flagged.
+
+### GET /api/v1/contests/:slug
+
+The contest, in the shape above, plus `teams`: the rows a player may pick, rank 1 first. Only pickable rows are listed.
+
+```bash
+curl -H "Authorization: Bearer $TURF_MONSTER_KEY" <%= api %>/contests/nfl-weeks-4-5-showdown
+```
+
+```json
+{
+  "contest": { "slug": "nfl-weeks-4-5-showdown", "...": "as in the list" },
+  "teams": [
+    {
+      "matchup_id": 809431971,
+      "team": { "slug": "buffalo-bills", "name": "Buffalo Bills", "short_name": "BUF" },
+      "rank": 1,
+      "turf_score": 1.0,
+      "expected_team_score": 55.0,
+      "team_score": null,
+      "locked": false,
+      "games_count": 2,
+      "bye_weeks": [],
+      "games": [
+        {
+          "week": 4,
+          "opponent": { "slug": "miami-dolphins", "name": "Miami Dolphins", "short_name": "MIA" },
+          "home": true,
+          "kickoff_at": "2026-10-04T17:00:00Z",
+          "status": "scheduled",
+          "started": false,
+          "final": false,
+          "team_score": null
+        },
+        {
+          "week": 5,
+          "opponent": { "slug": "kansas-city-chiefs", "name": "Kansas City Chiefs", "short_name": "KC" },
+          "home": false,
+          "kickoff_at": "2026-10-11T17:00:00Z",
+          "status": "scheduled",
+          "started": false,
+          "final": false,
+          "team_score": null
+        }
+      ]
+    },
+    {
+      "matchup_id": 809431972,
+      "team": { "slug": "miami-dolphins", "name": "Miami Dolphins", "short_name": "MIA" },
+      "rank": 5,
+      "turf_score": <%= one.(example_bye_score) %>,
+      "expected_team_score": 21.5,
+      "team_score": null,
+      "locked": false,
+      "games_count": 1,
+      "bye_weeks": [5],
+      "games": [
+        {
+          "week": 4,
+          "opponent": { "slug": "buffalo-bills", "name": "Buffalo Bills", "short_name": "BUF" },
+          "home": false,
+          "kickoff_at": "2026-10-04T17:00:00Z",
+          "status": "scheduled",
+          "started": false,
+          "final": false,
+          "team_score": null
+        }
+      ]
+    }
+  ]
+}
+```
+
+The example is a small invented board of six teams, four of them omitted. Miami is rank 5 of 6, which prices at `1 + 4 / 5 = 1.8`, and it plays one game of the contest's two, so that is scaled by `2 ÷ 1` to <%= one.(example_bye_score) %>.
+
+| Field | Notes |
+|---|---|
+| `matchup_id` | The id you send to pick this team |
+| `rank` | 1 is the team expected to score most. `null` on a board that has not been ranked. |
+| `turf_score` | The multiplier. `null` on a board that has not been priced. |
+| `expected_team_score` | The board's projection for the team, summed over its games in the contest. `null` when the board carries no projections; World Cup boards carry none. |
+| `team_score` | What the team has scored so far across its games here. `null` until one game has a result. |
+| `locked` | `true` when the team can no longer be added or dropped |
+| `games_count`, `bye_weeks` | Games the team plays in this contest, and the weeks it sits out |
+| `games[].kickoff_at`, `games[].status` | The game's start, and `scheduled`, `in_progress` or `completed` |
+| `games[].started`, `games[].final` | The kickoff has passed; the game is over |
+| `games[].team_score` | This team's score in this game, or `null` |
+
+An unknown slug is a `404`.
+
+### GET /api/v1/contests/:slug/leaderboard
+
+Every confirmed entry, best first. Takes `limit` and `offset`. `rank` is the entry's rank in the whole contest, whatever page it is on.
+
+**Other players' picks are hidden until the contest locks.** Before the lock a rival's row has `"picks_visible": false` and `"picks": null`. The player's own rows always carry their picks. `picks_hidden_until_lock` says which state the board is in.
+
+```bash
+curl -H "Authorization: Bearer $TURF_MONSTER_KEY" "<%= api %>/contests/nfl-weeks-4-5-showdown/leaderboard?limit=2"
+```
+
+```json
+{
+  "contest": {
+    "slug": "nfl-weeks-4-5-showdown",
+    "name": "NFL Weeks 4-5 Showdown",
+    "game_type": "turf_totals",
+    "phase": "open",
+    "locked": false,
+    "live": false,
+    "settled": false,
+    "cancelled": false,
+    "locks_at": "2026-10-04T17:00:00Z"
+  },
+  "supported": true,
+  "picks_hidden_until_lock": true,
+  "entries": [
+    {
+      "display_name": "sam_example",
+      "mine": true,
+      "entry_slug": "sam_example-nfl-weeks-4-5-showdown-980190963",
+      "score": 0.0,
+      "rank": 1,
+      "payout_cents": null,
+      "currency": "USD",
+      "final": false,
+      "picks_visible": true,
+      "picks": [ { "matchup_id": 809431971, "...": "one per team, as in an entry" } ]
+    },
+    {
+      "display_name": "jordan_example",
+      "mine": false,
+      "entry_slug": null,
+      "score": 0.0,
+      "rank": 1,
+      "payout_cents": null,
+      "currency": "USD",
+      "final": false,
+      "picks_visible": false,
+      "picks": null
+    }
+  ],
+  "pagination": { "limit": 2, "offset": 0, "total": 3, "has_more": true }
+}
+```
+
+| Field | Notes |
+|---|---|
+| `mine` | This row is one of the calling player's entries |
+| `entry_slug` | Only on the player's own rows; `null` on a rival's |
+| `score` | Sum of the entry's pick points |
+| `rank` | Tied scores share a rank. While `final` is `false` it is the current standing and will move. |
+| `payout_cents` | `null` until the contest settles; then the amount won, `0` included |
+| `final` | `true` once the contest has settled |
+
+### GET /api/v1/entries
+
+The player's own submitted entries, newest first. Optional `contest` is a contest slug (an unknown one is a `404`). Takes `limit` and `offset`. A half-built lineup saved on the website is not an entry and is never returned.
+
+```bash
+curl -H "Authorization: Bearer $TURF_MONSTER_KEY" "<%= api %>/entries?contest=nfl-weeks-4-5-showdown"
+```
+
+```json
+{
+  "entries": [
+    {
+      "slug": "sam_example-nfl-weeks-4-5-showdown-980190963",
+      "contest": {
+        "slug": "nfl-weeks-4-5-showdown",
+        "name": "NFL Weeks 4-5 Showdown",
+        "game_type": "turf_totals",
+        "phase": "live",
+        "locked": true,
+        "live": true,
+        "settled": false,
+        "cancelled": false,
+        "locks_at": "2026-10-04T17:00:00Z"
+      },
+      "status": "active",
+      "entry_number": 0,
+      "submitted_at": "2026-10-01T15:00:00Z",
+      "tx_signature": "EXAMPLEtransactionSignatureNotARea1One1111111111111111111111111111111111111111111111111",
+      "editable": false,
+      "score": <%= one.(example_entry_score) %>,
+      "rank": 1,
+      "payout_cents": null,
+      "currency": "USD",
+      "final": false,
+      "picks_visible": true,
+      "picks": [
+        {
+          "matchup_id": 809431971,
+          "team": { "slug": "buffalo-bills", "name": "Buffalo Bills", "short_name": "BUF" },
+          "rank": 1,
+          "turf_score": 1.0,
+          "expected_team_score": 55.0,
+          "team_score": 31,
+          "locked": true,
+          "games_count": 2,
+          "bye_weeks": [],
+          "games": [ { "week": 4, "...": "as in the contest detail" } ],
+          "points": 31.0
+        },
+        {
+          "matchup_id": 809431972,
+          "team": { "slug": "miami-dolphins", "name": "Miami Dolphins", "short_name": "MIA" },
+          "rank": 5,
+          "turf_score": <%= one.(example_bye_score) %>,
+          "expected_team_score": 21.5,
+          "team_score": 17,
+          "locked": true,
+          "games_count": 1,
+          "bye_weeks": [5],
+          "games": [ { "week": 4, "...": "as in the contest detail" } ],
+          "points": <%= one.(example_bye_points) %>
+        }
+      ]
+    }
+  ],
+  "pagination": { "limit": 25, "offset": 0, "total": 1, "has_more": false }
+}
+```
+
+(Four more picks are omitted, and so is their share of the score. The two shown earn 31 × 1.0 = 31.0 and 17 × <%= one.(example_bye_score) %> = <%= one.(example_bye_points) %>.)
+
+| Field | Notes |
+|---|---|
+| `slug` | The entry's id |
+| `status` | `active` while its contest is not graded, `complete` once it is |
+| `tx_signature` | The Solana transaction that paid for the entry, or `null` |
+| `editable` | `true` while the picks can still be replaced: the contest is open and not locked |
+| `score`, `rank`, `payout_cents`, `final` | As on the leaderboard |
+| `picks[]` | One per team, each the team row from the contest detail plus `points` |
+| `picks[].points` | `team_score × turf_score`. `null` until the team has a result. |
+
+### GET /api/v1/entries/:slug
+
+One entry, in the same shape, under an `entry` key. Another player's entry is a `404`, the same answer as a slug that does not exist; read rivals through the leaderboard.
+
+```bash
+curl -H "Authorization: Bearer $TURF_MONSTER_KEY" <%= api %>/entries/sam_example-nfl-weeks-4-5-showdown-980190963
+```
+
+```json
+{ "entry": { "slug": "sam_example-nfl-weeks-4-5-showdown-980190963", "...": "as in the list" } }
+```
+
+### POST /api/v1/contests/:slug/entries
+
+Creates an entry and pays for it in one call. There is no cart: the entry is created whole, or not at all. The player's unfinished lineup on the website is never read or changed.
+
+| Field | Where | Notes |
+|---|---|---|
+| `Idempotency-Key` | header | Required. A value you make up for this entry: 1 to 255 printable characters with no spaces. A UUID is ideal. |
+| `matchup_ids` | body | Required. Exactly `picks_required` different ids, each a `teams[].matchup_id` of this contest. Order does not matter. |
+| `allow_usdc` | body | Optional, default `false`. See [Free entry tokens and funding](#free-entry-tokens-and-funding). |
+
+```bash
+curl -X POST <%= api %>/contests/nfl-weeks-4-5-showdown/entries \
+  -H "Authorization: Bearer $TURF_MONSTER_KEY" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: 7f0c1b9e-3c1d-4a55-9d53-0f2a6a1f7c11" \
+  -d '{"matchup_ids": [809431971, 809431972, 809431973, 809431974, 809431975, 809431976]}'
+```
+
+`201 Created`:
+
+```json
+{
+  "entry": {
+    "slug": "sam_example-nfl-weeks-4-5-showdown-980190984",
+    "contest": { "slug": "nfl-weeks-4-5-showdown", "phase": "open", "locked": false, "...": "as in an entry" },
+    "status": "active",
+    "entry_number": 0,
+    "submitted_at": "2026-10-01T15:00:00Z",
+    "tx_signature": "EXAMPLEtransactionSignatureNotARea1One1111111111111111111111111111111111111111111111111",
+    "editable": true,
+    "score": 0.0,
+    "rank": 1,
+    "payout_cents": null,
+    "currency": "USD",
+    "final": false,
+    "picks_visible": true,
+    "picks": [ { "matchup_id": 809431971, "...": "one per team" } ]
+  },
+  "funding": { "method": "token", "token_consumed": true }
+}
+```
+
+| Field | Notes |
+|---|---|
+| `entry` | The new entry, as `GET /api/v1/entries/:slug` returns it |
+| `funding.method` | `token`: a free entry token was spent. `usdc`: the fee was paid in USDC. `free`: the contest has no entry fee. `unknown`: the entry was recovered after a lost response on a request that allowed USDC, and which of the two paid was not recorded. |
+| `funding.token_consumed` | `true`, `false`, or `null` when `method` is `unknown` |
+
+**`202 Accepted` means paid and not yet visible.** Rarely the payment lands and the step that marks the entry active fails. The entry is paid for and will be completed:
+
+```json
+{ "entry": null, "funding": { "method": "token", "token_consumed": true }, "pending": true, "retry_after": 5 }
+```
+
+Send the same request with the same `Idempotency-Key` after `retry_after` seconds. It returns `201` with the entry and spends nothing more.
+
+### PATCH /api/v1/entries/:slug
+
+Replaces all of an entry's picks. Nothing is spent, and no `Idempotency-Key` is needed: sending the same picks twice leaves the same entry.
+
+| Field | Where | Notes |
+|---|---|---|
+| `matchup_ids` | body | Required. The full new lineup: exactly `picks_required` different ids from the contest's `teams[].matchup_id`. |
+
+Allowed only while the entry's `editable` is `true`. A team whose `locked` is `true` can be neither added nor dropped. The new lineup may not match another entry the player holds in the same contest.
+
+```bash
+curl -X PATCH <%= api %>/entries/sam_example-nfl-weeks-4-5-showdown-980190984 \
+  -H "Authorization: Bearer $TURF_MONSTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"matchup_ids": [809431971, 809431972, 809431973, 809431974, 809431975, 809431977]}'
+```
+
+`200 OK`:
+
+```json
+{ "entry": { "slug": "sam_example-nfl-weeks-4-5-showdown-980190984", "editable": true, "...": "the entry, with its new picks" } }
+```
+
+## Errors
+
+Every error is `{ "error": { "code": "...", "message": "..." } }`. **Unless a row says otherwise, nothing was spent.** "Idempotency key" below means the `Idempotency-Key` header, not the API key.
+
+```json
+{ "error": { "code": "no_entry_token", "message": "This account holds no free entry token, and USDC was not allowed. Nothing was spent. Send allow_usdc: true to pay the entry fee in USDC instead." } }
+```
+
+### Every error code
+
+| Status | Code | Meaning | What to do |
+|---|---|---|---|
+| 400 | `bad_request` | A parameter or header is missing or has the wrong form, or the body is not JSON | Fix the request. It was not recorded, so the same idempotency key is still unused. |
+| 401 | `missing_api_key` | No `Authorization: Bearer` header | Send the header. |
+| 401 | `invalid_api_key` | The key is malformed or unknown | Ask the player to check the key they pasted. |
+| 401 | `revoked_api_key` | The player revoked this key | Stop. Ask the player for a new key if they still want you to act. |
+| 401 | `expired_api_key` | The key is past its <%= key_days %> days | Ask the player to create a new key. |
+| 403 | `account_frozen` | The account is on hold. Reads work; writes are refused. | Stop. Tell the player to contact support. |
+| 403 | `age_verification_required` | The site requires age verification and the player has not done it | Tell the player to verify their date of birth on the website. The same key then works. |
+| 404 | `not_found` | No such contest, or no such entry among the player's own | Re-read the contests or the player's entries. |
+| 409 | `idempotency_key_reused` | This idempotency key was already used with different picks, another contest or another `allow_usdc` | A different entry needs a new key. If you meant to retry, send the original body. |
+| 409 | `idempotency_in_progress` | A request to enter this contest is still running for this player | Wait `retry_after` seconds and send the same request again. Do not switch keys. |
+| 422 | `contest_not_open` | The contest is settled or not ready for entries | Choose another contest. |
+| 422 | `contest_locked` | The lock time has passed | Nothing. Entries and edits are closed. |
+| 422 | `contest_cancelled` | The contest was cancelled | Choose another contest. |
+| 422 | `coming_soon` | The contest is advertised and not open yet | Try again when `coming_soon` is `false`. |
+| 422 | `unsupported_contest` | A survivor contest | Send the player to the website. |
+| 422 | `contest_full` | No spots left | Choose another contest. |
+| 422 | `entry_limit_reached` | The player already holds `max_entries_per_player` entries here | Replace the picks of an existing entry instead. |
+| 422 | `invalid_picks` | Not exactly `picks_required` different ids, or an id that is not one of this contest's `teams[].matchup_id` | Re-read the contest and rebuild the lineup. For a new entry, send it with a new idempotency key. |
+| 422 | `duplicate_lineup` | The player already holds an entry with exactly these teams here | Change at least one team. For a new entry, use a new idempotency key. |
+| 422 | `team_locked` | A team in a new entry has kicked off, or an edit adds or drops one that has | Use teams whose `locked` is `false`. For a new entry, use a new idempotency key. |
+| 422 | `no_entry_token` | No free entry token, and USDC was not allowed or is not available | Tell the player. Only if they say so, retry with `allow_usdc: true` and a new idempotency key, because the body changed. |
+| 422 | `insufficient_funds` | `allow_usdc` was `true`, there is no token, and the wallet lacks the entry fee | Tell the player to add funds. The same idempotency key works once they have. |
+| 422 | `wallet_not_server_signable` | The player's wallet signs its own entries, or there is no wallet | Send the player to the website. The API cannot enter for this account. |
+| 429 | `rate_limited` | Too many requests | Wait `retry_after` seconds (also in the `Retry-After` header), then continue more slowly. |
+| 500 | `internal_error` | A fault on the server | Retry shortly. For a new entry, with the same idempotency key. |
+| 503 | `chain_unavailable` | Solana could not be read, or did not confirm the payment in time. **The payment may or may not have landed.** | Wait `retry_after` seconds and send the same request with the same idempotency key. It will not pay twice. |
+
+A `401` also carries `WWW-Authenticate: Bearer realm="Turf Monster API"`. `idempotency_in_progress`, `chain_unavailable` and a `202` carry `retry_after` in the body and a `Retry-After` header.
+
+## Retries and idempotency
+
+The rule: **one entry, one `Idempotency-Key`, and never change the key because a request failed.** Make the key when you decide to enter, keep it until you hold a `201` or a `422`, and send it on every attempt in between.
+
+The same key with the same contest, the same teams in any order and the same `allow_usdc` is the same request. A key belongs to the player and does not expire.
+
+| What you got | What it means | What to send next |
+|---|---|---|
+| `201` | The entry exists | Nothing. Sending it again returns the same `201` with the header `Idempotent-Replayed: true`. It is the first response and does not reflect later edits. |
+| `202` | Paid, being confirmed | The same request, same key, after `retry_after` |
+| `409 idempotency_in_progress` | An earlier request is still running | The same request, same key, after `retry_after` |
+| `503 chain_unavailable` | Unknown. The payment may have landed. | The same request, same key, after `retry_after`. If it landed, you get the entry it paid for. If not, the server waits until the payment can no longer land before trying again, so more `503`s for a few minutes are normal. |
+| No response (timeout, dropped connection) | Unknown | The same request, same key. This is the case the key exists for. |
+| `422` | Refused, nothing spent | If the cause can clear without changing the body (a spot opens, funds arrive), the same key works. If you change the picks or `allow_usdc`, use a new key. |
+| `400`, `401`, `403`, `404` | Not recorded | Fix the cause. The key is still unused. |
+| `500` | A fault on the server | The same request, same key |
+
+Giving up on a key after a `503` and sending a new one is not a way around this. Before any request for a contest may spend, an earlier unresolved one for the same player and contest is settled first, and only one request per player and contest runs at a time.
+
+`PATCH` needs none of this. Repeat it freely.
+
+## Rate limits
+
+| Limit | Keyed on |
+|---|---|
+| <%= key_throttle.limit %> requests per <%= key_throttle.period.to_i %> seconds | The API key |
+| <%= ip_throttle.limit %> requests per <%= ip_throttle.period.to_i %> seconds | The calling IP address |
+
+Both cover every path under `/api/`. Past a limit the answer is `429 rate_limited` with `retry_after`. A full read of a contest is one request, so a careful session needs a few dozen requests, not hundreds. Do not poll the leaderboard in a tight loop; scores change when games do.
+
+## Results and payouts
+
+- **Scores move during the games.** Re-read the leaderboard or the entry to see the standing. Until the contest settles, `rank` is provisional and `final` is `false`.
+- **Grading is a manual step taken by the operators.** It does not happen automatically at the final whistle. When it has happened, the contest reads `settled: true` and every entry has a final `rank` and a `payout_cents`.
+- **Paying prizes is a second manual step**, signed by more than one operator. `payout_cents` is the amount the entry won; it is not proof that the money has arrived.
+- **Prizes are paid in USDC to the player's wallet**, the one in `wallet.address`.
+- **Promise no timing.** You cannot know when a contest will be graded or paid. Tell the player what the API shows and that settlement is done by hand. For anything overdue, they contact support at the address on <%= base %><%= contact_path %>.
+
+Report results as they are. If the entry finished out of the prizes, say so.
+
+## What the API cannot do yet
+
+- **Survivor contests.** World Cup Survivor (`game_type: "world_cup_survivor"`) is listed with `"supported": false` and a `note`, an empty `teams` list and an empty leaderboard. It is played on the website.
+- **Wallet-signed entries.** A player whose own wallet must sign (`wallet.kind` of `self_custodied`, or no wallet) cannot enter through the API.
+- **Anything about money beyond the entry.** The API does not deposit, withdraw, buy tokens or move funds.
+- **Withdraw or cancel an entry.** Once created, an entry can have its picks replaced before the lock. It cannot be removed, and what paid for it is not returned by this API.
+- **Create an account or a key.** A person does both on the website.
+
+## How to win
+
+Nothing here guarantees a win. A contest is decided by real games, and a good lineup loses often. What follows is how to reason from the scoring rule and from the fields the API returns. Where it depends on an assumption, the assumption is named, and the judgement is yours.
+
+### 1. Price every team: projected value
+
+For each team on the board:
+
+```
+projected value = expected_team_score × turf_score
+```
+
+`expected_team_score` is already summed over the team's games in the contest, so it needs no adjustment for `games_count`. The projected score of a lineup is the sum of its picks' projected values. Sorting the board by projected value is the baseline every other consideration departs from.
+
+Two cautions. `expected_team_score` is the board's own projection, made when the board was ranked; it is an estimate, and it can be stale. And it is `null` on boards without projections (World Cup boards), where `rank` and `turf_score` are all the board tells you and any estimate of scoring has to be your own.
+
+### 2. Is the multiplier fair to favourites? Measure it on the board in front of you
+
+On an NFL board the multiplier depends only on a team's **rank**, not on how far apart the projections are. The curve runs evenly from <%= one.(nfl.(1)) %> at rank 1 to <%= one.(nfl.(team_count)) %> at the last rank. For every team to have the same projected value, the projections would have to fall away exactly as the curve rises: the last-ranked team projected at half of the top team, the middle team at about two thirds.
+
+Real boards are not shaped exactly like that, so projected value is not flat, and which end of the board is favoured is a fact about that board:
+
+- Where the projections are **closer together** than the curve assumes, the higher multipliers overpay, and lower-ranked teams have the higher projected value.
+- Where they are **further apart**, the favourites keep the higher projected value despite the low multiplier.
+
+So do not carry a rule such as "always take underdogs" from one contest to the next. Compute the product for all teams and look.
+
+Three finer points, all from the way the multiplier is built:
+
+- **Rounding makes steps.** The multiplier is rounded to one decimal, so several neighbouring ranks share one value (see the table under [Scoring](#scoring)). Within a group that shares a multiplier and plays the same number of games, the better-ranked team has the higher projection and so the higher projected value. The first rank of the next group gets a full 0.1 more for almost the same projection.
+- **Byes are priced to be neutral, then rounded.** A team playing fewer games has its multiplier scaled by exactly the ratio of games, so on projected value a bye neither helps nor hurts. What changes is that the same expected total rides on fewer games.
+- **A hand-set multiplier breaks the pattern.** If a team's `turf_score` does not match its `rank`, the product still tells you what it is worth.
+
+### 3. Your estimate against the board's
+
+The multiplier is fixed on the board; the truth about a team is not. If you have a reasoned estimate of a team's scoring that differs from `expected_team_score`, then your projected value is `your estimate × turf_score`, and the teams where your estimate is higher than the board's are where an edge can come from. Information that arrived after the board was ranked (a starting quarterback ruled out, a forecast, a changed line) is the usual source. If you have no better estimate than the board's, say so, and use the board's.
+
+Do not invent numbers. If you could not look something up, tell the player it is your judgement and not data.
+
+### 4. Variance comes with the multiplier
+
+A pick's points are `team_score × turf_score`, so the multiplier scales the swings as well as the average. If two teams' raw scores vary by a similar amount from game to game (an assumption, and yours to check), the one with the higher multiplier adds more spread to the entry's score. A team concentrated into fewer games (`games_count` below `games_per_team`) has the same expected total riding on fewer outcomes, which also widens the spread.
+
+Two picks whose teams play each other, or one team picked across several weeks, tie part of the entry to the same games. Whether that helps depends on what you think of those games.
+
+Whether you want spread is decided by the prizes.
+
+### 5. Read the prize table and the field
+
+From `payouts`, `max_entries` and `entries_count`:
+
+- **Top-heavy prizes** (one prize, or a first prize several times the rest): finishing first is most of the value, and finishing second in a field of many is worth little or nothing. A lineup that maximises only the projected score tends to land in the middle of similar lineups. Accepting more variance to raise the chance of the very top score is rational here.
+- **Flat prizes** (several ranks paying the same): the aim is to finish inside the paid ranks. Projected score matters more, extra variance less.
+- **Field size.** Beating two rivals needs a good score; beating ninety needs an exceptional one. The larger `max_entries` is against the number of paid ranks, the more a lineup has to stand apart to win.
+- **Short fields.** Only ranks that exist are paid. If the number of entries at the lock is no more than the number of paid ranks, every entry finishes in a paid rank. `entries_count` before the lock is a floor, not the final number: entries can arrive until `locks_at`.
+
+A free entry token is already the stake. Once the player has decided to use it, there is nothing further to protect by playing safe, except as safety bears on finishing in a paid rank.
+
+### 6. When to be contrarian
+
+Before the lock, rivals' picks are hidden, so you cannot measure who holds which team. What you do know is that every rival sees the same board, the same multipliers and the same projections, and the teams with the highest projected value are visible to all of them.
+
+An entry that holds only those teams rises and falls with the rivals who hold them too, and an identical score splits the prize. To finish alone at the top, a lineup needs at least one team that the entries around it do not have, and it needs that team to outscore its projection. That costs some projected value, and is worth more the larger the field and the more top-heavy the prizes. In a small field with flat prizes it is rarely worth much.
+
+Being different is a means, not a goal. A pick you have no reason to like is not improved by being unpopular.
+
+After the lock every lineup is visible on the leaderboard. Nothing can be changed then; it is useful for telling the player where they stand and what they need.
+
+### 7. Up to <%= max_per_player %> distinct lineups
+
+A player may hold up to `max_entries_per_player` entries in a contest, and no two may be the same set of teams. Each entry is paid for separately: one free entry token each, or the entry fee in USDC if the player has said yes to that. With one token, there is one entry. Do not suggest spending money to add more; if the player raises it, the reasoning is:
+
+- Lineups that share five of six teams finish close together. They cover little more ground than one.
+- With top-heavy prizes, keep a core you believe in and vary the high-multiplier picks across lineups, so that different upsets help different entries.
+- Your own entries compete with each other for the same prizes.
+
+### 8. Time your moves around the locks
+
+- **Creating an entry secures the spot; editing it is free.** `POST` takes a spot in the field and spends the token. `PATCH` replaces the picks at no cost until the lock. So when a contest may fill, the player can enter with the best lineup known now and you can refine it as information arrives, with their agreement to each change.
+- **Check again before the lock.** Re-read the contest for changed `turf_score` values, `locked` teams and late news, and edit if the reasoning has changed.
+- **Mind the per-team lock.** If `locks_at` is later than some kickoffs, each team freezes at its own first kickoff. Settle the early teams first; you can still change later ones afterwards.
+- **In a multi-week contest everything is final at the lock**, including the later weeks. Nothing learned after the first week can be used, and less is known about the later games when you choose.
+- **Leave time.** A submission needs a Solana transaction. Close to the lock a slow confirmation can mean `contest_locked`.
+
+### 9. Talking to the player
+
+Show the lineup before submitting: each team, its multiplier, its projected value, and the reason it is there. Say what you assumed and what you could not check. Do not claim an expected win rate you have not calculated, and do not describe a lineup as safe. Afterwards, report the standing as the API gives it.
