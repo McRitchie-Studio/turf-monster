@@ -212,20 +212,23 @@ class ApiKeysSectionTest < ActionView::TestCase
 
   # --- the one-time reveal -----------------------------------------------------
 
-  test "a new key is handed to the engine copy button, with a ready curl line" do
+  test "a new key is printed once and handed to the engine copy button, with a ready curl line" do
     key = mint
     doc = render_section(new_key: key)
     created = doc.at_css("[data-api-key-created]")
     secret = created.at_css("[data-api-key-secret]")
 
+    assert_equal key.raw_token, secret.at_css("[data-api-key-value]").text
     assert_equal key.raw_token, secret.at_css("button[data-copy-text]")["data-copy-text"]
-    assert_equal key.raw_token, secret.at_css("code").text
+    # A 44-character key has to wrap on a phone, in an element of its own, or it
+    # pushes the Copy button off screen.
+    assert_includes secret.at_css("[data-api-key-value]")["class"].split, "break-all"
 
-    curl = created.css("button[data-copy-text]").map { |b| b["data-copy-text"] }.find { |t| t.start_with?("curl") }
-    assert_includes curl, %(Authorization: Bearer #{key.raw_token})
-    assert curl.end_with?("/api/v1/me")
-    # The visible curl line shows the prefix only; the full key is on screen once.
+    curl = created.at_css("[data-api-key-curl] button[data-copy-text]")["data-copy-text"]
+    assert_equal %(curl -H "Authorization: Bearer #{key.raw_token}" http://test.host/api/v1/me), curl
+    # The full key is printed exactly once; everything else shows the prefix.
     assert_equal 1, created.css("code").count { |code| code.text.include?(key.raw_token) }
+    assert_includes created.at_css("[data-api-key-curl] code").text, "Bearer #{key.prefix}…"
   end
 
   test "while a new key is on screen the list shows it and no form competes" do

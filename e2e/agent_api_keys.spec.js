@@ -56,7 +56,7 @@ async function createKey(page, name) {
   await card.getByRole("button", { name: "Create key" }).click();
   const secret = card.locator("[data-api-key-secret]");
   await expect(secret).toBeVisible();
-  return (await secret.locator("code").innerText()).trim();
+  return (await secret.locator("[data-api-key-value]").innerText()).trim();
 }
 
 // The seeded admin starts every spec verified, whatever a failed run left behind.

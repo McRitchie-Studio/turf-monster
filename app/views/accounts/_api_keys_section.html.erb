@@ -44,15 +44,21 @@
         We store only a fingerprint of it, so if you lose it, revoke it and create another.
       </p>
 
-      <div class="overflow-x-auto mb-4" data-api-key-secret>
-        <%= render "components/copy_button", text: new_key.raw_token %>
+      <%# The key is printed in a block of its own so it can wrap on a phone;
+          the engine copy button beside it carries the full value and shows
+          only the prefix, which keeps Copy on screen at any width. %>
+      <div class="mb-4" data-api-key-secret>
+        <code class="block bg-surface-alt border border-subtle rounded px-3 py-2 mb-2 text-primary font-mono text-sm break-all"
+              data-api-key-value><%= new_key.raw_token %></code>
+        <%= render "components/copy_button", text: new_key.raw_token, display: "#{new_key.prefix}…" %>
       </div>
 
       <p class="text-sm font-bold text-heading mb-2">Check that it works</p>
-      <div class="overflow-x-auto mb-4">
+      <div class="mb-4" data-api-key-curl>
+        <code class="block bg-surface-alt border border-subtle rounded px-3 py-2 mb-2 text-secondary font-mono text-xs break-all">curl -H "Authorization: Bearer <%= new_key.prefix %>…" <%= root_url %>api/v1/me</code>
         <%= render "components/copy_button",
               text: %(curl -H "Authorization: Bearer #{new_key.raw_token}" #{root_url}api/v1/me),
-              display: %(curl -H "Authorization: Bearer #{new_key.prefix}…" #{root_url}api/v1/me) %>
+              display: "curl with your key" %>
       </div>
 
       <%= link_to "I've copied it", account_api_keys_path, class: "btn btn-primary btn-sm" %>

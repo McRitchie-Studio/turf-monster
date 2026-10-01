@@ -150,7 +150,7 @@ class ApiKeysControllerTest < ActionDispatch::IntegrationTest
     assert_response :created
     assert_equal 1, page.css("turbo-frame#api_keys_card").size
     assert page.at_css("turbo-frame#api_keys_card [data-api-key-created]")
-    assert_equal shown_key, page.at_css("[data-api-key-secret] code").text
+    assert_equal shown_key, page.at_css("[data-api-key-secret] [data-api-key-value]").text
     assert_nil page.at_css("nav"), "a frame request must not carry the site layout"
     assert_nil page.at_css("form[data-api-key-form]"), "no second form while the key is on screen"
   end
