@@ -821,7 +821,7 @@ class ContestsController < ApplicationController
     # was a fail-CLOSED gate, so deleting it outright would have let a web3
     # session walk into the server-signing path with no check at all. It used to
     # still fail, but only incidentally: a phantom-only account has no
-    # web2_solana_address, so resolve_web2_entry_funding! raised "Managed wallet
+    # web2_solana_address, so Entries::ManagedEntry#fund! raised "Managed wallet
     # missing keypair" — an accident of another guard rather than a decision.
     # THAT ACCIDENT IS NOW A DECISION, and it is the guard directly below this
     # one; a player reached it before anyone converted it (QA, 2026-09-07).
@@ -849,7 +849,7 @@ class ContestsController < ApplicationController
     # `self_custodied?` is false (that column marks a deliberate EXPORT, not the
     # mere holding of a wallet); and `wallet_kind` is :phantom, not :none, so the
     # no-wallet refusal has nothing to say. So the request fell all the way
-    # through to #resolve_web2_entry_funding!, which raised "Managed wallet
+    # through to Entries::ManagedEntry#fund!, which raised "Managed wallet
     # missing keypair (cannot sign entry)" — the accident the comment above
     # already named, now arriving as a red card on a player's screen with the
     # step-up card sitting underneath it saying the right thing.
@@ -863,7 +863,7 @@ class ContestsController < ApplicationController
     #
     # AND WHY IT IS NOT THE POLICY ALONE. The policy's verdict is ADVISORY by
     # construction: a COMBO account (managed + linked wallet) owes a step-up and
-    # can still enter, because #resolve_web2_entry_funding! deliberately signs
+    # can still enter, because Entries::ManagedEntry#fund! deliberately signs
     # and spends from the custodial address for exactly that account. What makes
     # the refusal a REFUSAL here is the second clause — there is no keypair to
     # sign with — which is the precondition of the raise, stated as a decision.
@@ -949,7 +949,7 @@ class ContestsController < ApplicationController
   # eligibilityBlocker (which fails OPEN on null) — so a $0 user would submit
   # and hit a doomed on-chain entry that fails with "custom program error: 0x1"
   # (SPL insufficient funds), a cryptic sim error instead of the Top Up Wallet.
-  # This endpoint + the #resolve_web2_entry_funding! safety net close that gap.
+  # This endpoint + the Entries::ManagedEntry#fund! safety net close that gap.
   #
   # JSON contract: { fundable: bool, reason: "no_funding"|null,
   #                  method: "token"|"usdc"|"usdt"|null }. Fail-CLOSED — any read
@@ -1070,7 +1070,7 @@ class ContestsController < ApplicationController
 
       # FUNDING PRIORITY — entry token first, then the currency transfer. Same
       # order the web2 path has used since the unified-funding spec (see
-      # #resolve_web2_entry_funding!); until this task the Phantom path skipped
+      # Entries::ManagedEntry#fund!); until this task the Phantom path skipped
       # straight to the transfer, so a Phantom wallet holding a token was charged
       # USDC anyway and the token sat unspent.
       #
@@ -1934,7 +1934,7 @@ class ContestsController < ApplicationController
   #     entry path and the auth path cannot drift into two answers; and
   #   - it fires only when there is NO custodial keypair to sign with. A COMBO
   #     account (managed + linked wallet) owes an advisory step-up and still
-  #     enters — #resolve_web2_entry_funding! deliberately signs and spends from
+  #     enters — Entries::ManagedEntry#fund! deliberately signs and spends from
   #     the wallet the server holds — and a FREE contest signs nothing at all.
   # RPC-FREE (Web3StepUpPolicy reads columns and a session flag), so it is safe
   # to ask on either path and costs nothing to ask twice.
@@ -1948,14 +1948,14 @@ class ContestsController < ApplicationController
 
   # Authoritative funding capability for #check_funding — returns
   # [fundable_bool, method] where method is "token" | "usdc" | "usdt" | nil.
-  # Mirrors the entry funding priority (#resolve_web2_entry_funding! for web2,
+  # Mirrors the entry funding priority (Entries::ManagedEntry#fund! for web2,
   # #prepare_entry for web3): entry token first, then USDC, then — web3 only —
   # USDT. Reads BALANCES FRESH off-chain (Solana::Vault#fetch_wallet_balances is
   # always a live RPC; the 60s navbar cache is deliberately NOT trusted here),
   # and the token read is fresh too (the caller busts the entry-tokens cache).
   #   - SIGNER address: web3 (Phantom) session funds from web3_solana_address;
   #     web2 / managed funds from web2_solana_address (the SAME address the
-  #     server signs the entry with — see #resolve_web2_entry_funding!).
+  #     server signs the entry with — see Entries::ManagedEntry#fund!).
   #   - USDC: web3 always; web2 only behind the ENABLE_WEB2_USDC_ENTRY flag.
   #   - USDT: web3 only, and only on an accepts_usdt contest (web2 never holds
   #     USDT — payouts are USDC).

@@ -49,7 +49,7 @@ class HoldFreeEntryLabelTest < ActionDispatch::IntegrationTest
 
   # Acceptance criterion 2 — "shown whenever the wallet holds an unconsumed entry
   # token". WHENEVER is the whole claim: no mode test. Both entry paths spend a
-  # token now (managed via #resolve_web2_entry_funding!, Phantom via
+  # token now (managed via Entries::ManagedEntry#fund!, Phantom via
   # #prepare_entry), so narrowing this back to one mode would make the CTA lie to
   # the other — which is exactly the direction this task was blocked over. If that
   # narrowing is ever deliberate, the criterion moves first and this test with it.

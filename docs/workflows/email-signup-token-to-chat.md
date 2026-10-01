@@ -5,13 +5,13 @@
 > resets at each `##` heading. The number is bookkeeping; the SYMBOL beside it is
 > the claim, and `test/docs/workflow_citation_docs_test.rb` reddens when a
 > citation stops landing inside the definition its prose names.
-> That symbol check reaches **149 of the 179 citations** here. The other **30**
+> That symbol check reaches **150 of the 179 citations** here. The other **29**
 > sit in code with no enclosing definition the guard can derive, and they are not
-> all checked alike. **6 of those 30** are `config/routes.rb` entries, which get a
+> all checked alike. **6 of those 29** are `config/routes.rb` entries, which get a
 > stricter check: each must OPEN on the line that carries its route, not merely
 > quote a word found somewhere in its span. That catches most one-line drift, not
 > all of it — [the workflows README](README.md) has the measurement. The rest —
-> ERB markup in the four view partials, one comment block, the `PACKS` constant,
+> ERB markup in the four view partials, the `PACKS` constant,
 > and the class-body `before_action` / `skip_before_action` /
 > `after_create` / `after_commit` / `include` declarations in
 > `app/models/user.rb`, `app/models/message.rb`, `app/models/stripe_purchase.rb`,

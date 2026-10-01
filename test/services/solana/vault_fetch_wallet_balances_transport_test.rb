@@ -10,7 +10,7 @@ require "test_helper"
 # (lib/solana/client.rb#call); it never wraps ECONNREFUSED or SocketError. Left
 # raw, that error escapes fetch_wallet_balances (get_balance used to sit OUTSIDE
 # any rescue) and walks straight past the funding-decision callers'
-# `rescue Solana::Client::RpcError` (ContestsController#resolve_web2_entry_funding!
+# `rescue Solana::Client::RpcError` (Entries::ManagedEntry#fund!
 # / #entry_funding_status) → a 500 / false-block on the entry path while the
 # documented fail-open never fires.
 #

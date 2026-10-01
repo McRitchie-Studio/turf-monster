@@ -30,7 +30,7 @@ module Solana
       end
 
       # A SELF-CUSTODY ACCOUNT ON A WEB2 SESSION, reaching a path that needs a
-      # custodial keypair it does not have. #resolve_web2_entry_funding! raises
+      # custodial keypair it does not have. Entries::ManagedEntry#fund! raises
       # "Managed wallet missing keypair (cannot sign entry)" for exactly this
       # shape, and until 2026-09-07 that RAISE STRING WAS THE USER-FACING COPY:
       # a player who signed in with Google got a red card reading it, stacked
@@ -54,7 +54,7 @@ module Solana
 
       # web2 — managed wallet can't fund the entry by ANY enabled method
       # (no entry token, and USDC entry off or insufficient). Server-side raise
-      # from ContestsController#resolve_web2_entry_funding! when the flag is off
+      # from Entries::ManagedEntry#fund! when the flag is off
       # / token-only. Maps to the no_funding blocker.
       #
       # WHERE THAT BLOCKER SENDS THE PLAYER, because this comment used to name a
@@ -87,7 +87,7 @@ module Solana
 
       # web2 / managed USDC entry underfunded. Two shapes reach here, both
       # meaning "the managed wallet can't cover the USDC entry fee":
-      #   1. the #resolve_web2_entry_funding! pre-check raise ("Not enough USDC
+      #   1. the Entries::ManagedEntry#fund! pre-check raise ("Not enough USDC
       #      …"), which validates the balance BEFORE the irreversible on-chain
       #      enter (the funding-preflight safety net, 2026-06-13); and
       #   2. the raw SPL token-program insufficient-funds error ("custom program

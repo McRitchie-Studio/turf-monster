@@ -10,7 +10,7 @@ require "test_helper"
 #   web2 session, on an
 #   account whose ONLY
 #   wallet is self-custody -> NOT REFUSED. It fell all the way through to
-#                            #resolve_web2_entry_funding!, which raised
+#                            Entries::ManagedEntry#fund!, which raised
 #                            "Managed wallet missing keypair (cannot sign
 #                            entry)" because there is no custodial address to
 #                            sign with. The controller's own comment called that
@@ -29,7 +29,7 @@ require "test_helper"
 #     the entry path and the auth path cannot drift into two answers; and
 #   - it fires only when there is NO custodial keypair to sign with. A COMBO
 #     account (managed + linked wallet) owes an advisory step-up but can still
-#     fund an entry from the wallet the server holds — #resolve_web2_entry_funding!
+#     fund an entry from the wallet the server holds — Entries::ManagedEntry#fund!
 #     deliberately spends from the web2 address for exactly that account — and a
 #     FREE contest signs nothing at all, so neither is refused.
 class Web3StepUpEntryGuardTest < ActionDispatch::IntegrationTest
@@ -215,7 +215,7 @@ class Web3StepUpEntryGuardTest < ActionDispatch::IntegrationTest
   # ── The two narrowing clauses ─────────────────────────────────────────────
 
   # A guard that only ever refuses is not a guard. A COMBO account holds a
-  # custodial keypair, and #resolve_web2_entry_funding! deliberately signs and
+  # custodial keypair, and Entries::ManagedEntry#fund! deliberately signs and
   # spends from it — so this session has a real way to enter and must keep it.
   test "a combo account still enters through its custodial keypair" do
     combo = User.create!(
@@ -424,7 +424,7 @@ class Web3StepUpEntryGuardTest < ActionDispatch::IntegrationTest
   end
 
   # THE SECOND CLAUSE, ON THE PRE-CHECK. A COMBO account owes an advisory
-  # step-up and can still enter — #resolve_web2_entry_funding! deliberately
+  # step-up and can still enter — Entries::ManagedEntry#fund! deliberately
   # signs and spends from the custodial wallet — so the short-circuit must not
   # swallow its balance read. Without the managed_wallet? clause this goes red
   # on the balance_calls assertion, not merely on the verdict.

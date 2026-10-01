@@ -96,7 +96,7 @@ module Cdp
     # User#solana_address UNCONDITIONALLY, and that method prefers web3
     # (user.rb). A COMBO account — managed wallet plus a linked Phantom — signed
     # in with Google or a magic link is a WEB2 session, and
-    # ContestsController#resolve_web2_entry_funding! spends its web2 address:
+    # Entries::ManagedEntry#fund! spends its web2 address:
     # its own comment warns "a managed+phantom combo account signs with — and
     # spends from — the custodial wallet the server holds, never the web3
     # address (which #solana_address would otherwise prefer and desync from the

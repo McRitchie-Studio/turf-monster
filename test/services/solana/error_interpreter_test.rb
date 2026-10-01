@@ -40,7 +40,7 @@ class Solana::ErrorInterpreterTest < ActiveSupport::TestCase
     assert_equal "insufficient_balance", r[:blocker][:reason]
   end
 
-  # Funding-preflight safety net (2026-06-13): the #resolve_web2_entry_funding!
+  # Funding-preflight safety net (2026-06-13): the Entries::ManagedEntry#fund!
   # pre-check raise ("Not enough USDC …") maps to the no_funding/web2 blocker so
   # the board can route the player through selectionBoard#showFundsNeeded — Get
   # USDC (modals/_buy_usdc), or Buy an Entry Token (modals/_buy_entry_token) for
