@@ -22,7 +22,7 @@ modal, never a silent no-op), built so the mechanism can be lifted into
 
 ## Current state (what exists today)
 
-`config/initializers/rack_attack.rb` (OPSEC-019, rack-attack 6.8.0). **27**
+`config/initializers/rack_attack.rb` (OPSEC-019, rack-attack 6.8.0). **31**
 `throttle` blocks, no safelists/blocklists, a custom 429 responder, and a
 `throttle.rack_attack` WARN logger.
 
@@ -57,6 +57,7 @@ grep -n '^  throttle("' config/initializers/rack_attack.rb
 | Money | `coinflow_checkout/ip` | 10 / min | ip (`/tokens/coinflow_order`) |
 | Money | `aeropay_checkout/ip` | 10 / min | ip (`/tokens/aeropay_order`) |
 | Money | `cdp_sessions/user` | 10 / min | session user id (`/cdp/onramp_sessions` + `/cdp/offramp_sessions`) |
+| Money | `cdp_offramp_send/user` | 10 / min | session user id (`/cdp/offramp/cosign_send` + `/cdp/offramp/prepare_send`) |
 | Money | `wallet_withdraw/ip` | 5 / min | ip |
 | Money | `webhooks/stripe` | 100 / min | ip |
 | Money | `webhooks/paypal` | 100 / min | ip |
@@ -67,6 +68,9 @@ grep -n '^  throttle("' config/initializers/rack_attack.rb
 | Interactive | `check_funding/ip` | 30 / min | ip (regex `/contests/:id/check_funding`) |
 | Interactive | `update_username/ip` | 10 / min | ip |
 | Interactive | `general/ip` | 90 / 60s | ip (tier-1 limiter — toggle_selection / enter / clear_picks) |
+| Agent API | `api/key` | 120 / min | SHA-256 digest of the bearer key (every path under `/api/`, any verb) |
+| Agent API | `api/ip` | 600 / min | ip (every path under `/api/`; flood backstop, loose because agents share cloud egress) |
+| Agent API | `api_key_mint/ip` | 10 / hour | ip (`POST /account/api_keys`) |
 
 Key facts that constrain the design:
 
@@ -176,6 +180,22 @@ JSON body:
 - **`reset_at` is an absolute epoch** so the client countdown is correct across
   a page reload (computes `reset_at - now`, not a relative `Retry-After` that a
   reload would restart at 5:00).
+
+### The agent API answers in its own envelope
+
+A 429 on any path under `/api/` is not a browser response and does not use the
+shape above. It carries the one error shape every agent API response uses
+(`docs/AGENT_API.md`), `Retry-After`, and no `X-RateLimit-Tier` (that header
+exists to open the browser's wait modal):
+
+```json
+{ "error": { "code": "rate_limited", "message": "Too many requests. Retry after 60 seconds." },
+  "retry_after": 60 }
+```
+
+The `/api/` tier is also the one **prefix** rule in the initializer. Every
+other throttle is an allowlist of paths, so a new route is exempt until someone
+adds it; an endpoint added under `/api/` is throttled the day it ships.
 
 ## Client UX
 

@@ -104,6 +104,16 @@ class TestController < ApplicationController
       Rails.logger.warn "[reseed] non-core user cleanup failed: #{e.class}: #{e.message[0,160]}"
     end
 
+    # Agent API keys minted by a prior spec. The core users are never wiped, so
+    # a key made for the seeded admin would otherwise still be listed — and
+    # still count toward ApiKey::MAX_ACTIVE_PER_USER — in every later spec.
+    begin
+      api_key_count = ApiKey.delete_all
+      cleared << "api_keys(#{api_key_count})" if api_key_count > 0
+    rescue => e
+      Rails.logger.warn "[reseed] api key cleanup failed: #{e.class}: #{e.message[0,160]}"
+    end
+
     # Wipe core users' entries too — survivor.spec.js's "logged-in user
     # can enter and make a round-1 pick" logs in as mason (core, id=3)
     # and POSTs /contests/world-cup-survivor/enter. A prior run's entry
@@ -385,6 +395,28 @@ class TestController < ApplicationController
   #
   # Mints its own keypair rather than calling User#generate_managed_wallet!,
   # which deliberately early-returns while the flag is on.
+
+  # Put the signed-in user on one side of the entry age gate.
+  #
+  # e2e/seed.rb stamps every seeded user as age-verified so the dozen specs that
+  # enter contests are not each stopped by a date-of-birth card. A spec whose
+  # SUBJECT is what the gate withholds (e2e/agent_api_keys.spec.js: no key until
+  # the gate is passed) has to state the opposite premise, and there is no way
+  # back to "unverified" through the UI — verification is one-way by design.
+  #
+  # `verified: false` clears the stamp; anything else restores it. The spec then
+  # passes the gate through the real birthday card, which is the behaviour under
+  # test; this only arranges the starting state.
+  def set_age_verified
+    return render json: { error: "not logged in" }, status: :unauthorized unless current_user
+
+    verified = params[:verified].to_s != "false"
+    current_user.update_columns(
+      age_attested_at: verified ? Time.current : nil,
+      date_of_birth: verified ? Date.new(1990, 1, 1) : nil
+    )
+    render json: { ok: true, slug: current_user.slug, age_verified: current_user.age_attested_at.present? }
+  end
 
   def grant_managed_wallet
     return render json: { error: "not logged in" }, status: :unauthorized unless current_user

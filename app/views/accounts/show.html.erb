@@ -183,6 +183,14 @@
     <%= render "accounts/newsletter_section", user: current_user %>
   </div>
 
+  <%# -- Agent API keys -- mint and revoke the bearer keys an AI agent plays
+      with (docs/AGENT_API.md). The blocker is computed here, from the request,
+      and handed down so the partial itself needs no request. %>
+  <div class="card shadow p-6 mb-6">
+    <h2 class="text-lg font-bold text-heading mb-4">Agent API keys</h2>
+    <%= render "accounts/api_keys_section", user: @user, blocked_reason: api_key_mint_blocker %>
+  </div>
+
   <%# -- Quests progress -- The CHROME lives here because each call site owns its
       own; the profile row gets its card and heading from the engine's wrapper. %>
   <div class="card shadow p-6 mb-6">
