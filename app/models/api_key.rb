@@ -39,7 +39,9 @@ class ApiKey < ApplicationRecord
 
   validates :token_digest, presence: true, uniqueness: true
   validates :prefix, :expires_at, :eligibility_attested_at, presence: true
-  validates :name, length: { maximum: NAME_MAX_LENGTH }
+  # Required: the name is how a player tells "the key I gave Claude" from "the
+  # key in that script" when one of them has to be revoked.
+  validates :name, presence: true, length: { maximum: NAME_MAX_LENGTH }
   validates :eligibility_geo_result, inclusion: { in: GEO_RESULTS }
   validates :eligibility_age_result, inclusion: { in: AGE_RESULTS }
 
@@ -66,7 +68,7 @@ class ApiKey < ApplicationRecord
   #
   # The per-user cap is checked under a row lock on the user so two concurrent
   # mints cannot both pass a count of four.
-  def self.mint!(user:, geo_country:, geo_state:, age_result:, name: nil, now: Time.current)
+  def self.mint!(user:, name:, geo_country:, geo_state:, age_result:, now: Time.current)
     raw = TOKEN_PREFIX + SecureRandom.alphanumeric(TOKEN_LENGTH)
 
     transaction do

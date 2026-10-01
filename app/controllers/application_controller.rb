@@ -147,11 +147,20 @@ class ApplicationController < ActionController::Base
   end
   helper_method :age_gate_required?, :age_verification_pending?
 
-  # Why THIS request cannot mint an agent API key, or nil when it can — the
-  # view-side mirror of ApiKeysController's before_actions, in the same order,
-  # so the account page explains the refusal the server would give. Display
-  # only: the controller re-runs every check on the POST.
+  # Why THIS request cannot mint an agent API key, or nil when it can.
+  #
+  # ONE answer, read twice: ApiKeysController#create refuses on it, and the
+  # keys card (accounts/_api_keys_section) explains it. Both go through here so
+  # the page can never offer a form the server would refuse, or the reverse.
+  #
+  #   :impersonating — OPSEC-046. A key minted mid-impersonation would be
+  #                    PERSISTENT access to the target that survives "Return".
+  #   :frozen        — OPSEC-048, the account hold.
+  #   :geo           — the engine's policy on this request's own location,
+  #                    fail-closed on an unplaceable visitor (Studio::GeoSetting).
+  #   :age           — ENABLE_AGE_GATE is on and no date of birth is verified.
   def api_key_mint_blocker
+    return :impersonating if impersonating?
     return :frozen if current_user&.frozen?
     return :geo if geo_blocked?
     return :age if age_verification_pending?

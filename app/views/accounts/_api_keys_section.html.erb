@@ -1,26 +1,63 @@
-<%# The agent API keys card's BODY: the player's keys, and the form that mints
-    one. docs/AGENT_API.md.
+<%# The agent API keys card's BODY: the player's keys, the form that mints one,
+    and the one-time reveal of a key just minted. docs/AGENT_API.md.
 
-    Locals: user (required); blocked_reason (nil, :frozen, :geo or :age) — why
-    this player cannot mint right now, decided by the caller from the request
-    (AccountsHelper#api_key_mint_blocker). A local and not a helper call in
-    here, so the partial renders without a request.
+    Locals:
+      user           (required)
+      blocked_reason nil, or why this player cannot mint right now
+                     (ApplicationController#api_key_mint_blocker). A local and
+                     not a helper call in here, so the partial renders without a
+                     request.
+      new_key        the ApiKey just minted, still carrying its raw_token. Only
+                     ApiKeysController#create passes it.
+      form_error     a refusal to show under the name field
+      form_name      what the player typed, so a refused form keeps it
 
     BODY ONLY, like its siblings: the call site owns the card and the heading.
 
-    THE FORM IS A COURTESY, NOT THE GATE. ApiKeysController re-runs every check
-    on the POST; hiding the button only saves an eligible-looking dead end.
+    IT IS A TURBO FRAME, and that is how the card updates in place. Every
+    ApiKeysController response carries this same frame, so a form submitted
+    inside it (create, revoke) swaps only the card. Nothing here reloads the
+    page.
 
-    turbo: false on the mint form is load-bearing. The response to that POST is
-    the one page that shows the key, rendered directly rather than redirected
-    to, and Turbo refuses to render a non-redirect success for a form
-    submission. %>
-<% keys = user.api_keys.where(revoked_at: nil).newest_first.to_a %>
-<div data-api-keys>
+    THE BLOCKER IS A SERVER FACT. Whether this player may mint is decided from
+    the request, so when it changes under the page — the birthday card reports
+    age-verified — the frame re-fetches itself rather than guessing client-side.
+
+    THE FORM IS A COURTESY, NOT THE GATE. ApiKeysController#create re-asks the
+    same question on the POST. %>
+<% new_key    = local_assigns[:new_key] %>
+<% form_error = local_assigns[:form_error] %>
+<% form_name  = local_assigns[:form_name] %>
+<% keys       = user.api_keys.where(revoked_at: nil).newest_first.to_a %>
+<% at_limit   = keys.count(&:active?) >= ApiKey::MAX_ACTIVE_PER_USER %>
+<%= turbo_frame_tag "api_keys_card", data: { api_keys: true } do %>
   <p class="text-secondary text-sm mb-4">
     An API key lets an AI agent play for you: read contests, spend your free entry, check your score.
     Treat it like a password. Keys expire after <%= ApiKey::LIFETIME.in_days.to_i %> days.
   </p>
+
+  <% if new_key&.raw_token.present? %>
+    <%# Shown once: this block exists only in the response to the create POST. %>
+    <div class="bg-inset rounded-lg p-4 mb-4" data-api-key-created>
+      <p class="text-body font-semibold mb-1">Copy your new key now. We can't show it again.</p>
+      <p class="text-secondary text-sm mb-4">
+        We store only a fingerprint of it, so if you lose it, revoke it and create another.
+      </p>
+
+      <div class="overflow-x-auto mb-4" data-api-key-secret>
+        <%= render "components/copy_button", text: new_key.raw_token %>
+      </div>
+
+      <p class="text-sm font-bold text-heading mb-2">Check that it works</p>
+      <div class="overflow-x-auto mb-4">
+        <%= render "components/copy_button",
+              text: %(curl -H "Authorization: Bearer #{new_key.raw_token}" #{root_url}api/v1/me),
+              display: %(curl -H "Authorization: Bearer #{new_key.prefix}…" #{root_url}api/v1/me) %>
+      </div>
+
+      <%= link_to "I've copied it", account_api_keys_path, class: "btn btn-primary btn-sm" %>
+    </div>
+  <% end %>
 
   <% if keys.any? %>
     <ul class="mb-4" data-api-key-list>
@@ -28,10 +65,8 @@
         <li class="py-3 border-b border-subtle flex items-center justify-between gap-3 flex-wrap" data-api-key-row="<%= key.id %>">
           <div class="min-w-0">
             <div class="flex items-center gap-2 flex-wrap">
+              <span class="text-body text-sm font-semibold truncate"><%= key.name %></span>
               <code class="bg-inset rounded px-2 py-1 text-primary font-mono text-xs"><%= key.prefix %>…</code>
-              <% if key.name.present? %>
-                <span class="text-body text-sm font-semibold truncate"><%= key.name %></span>
-              <% end %>
               <% if key.expired? %>
                 <span class="text-xs font-bold text-muted uppercase">Expired</span>
               <% end %>
@@ -42,47 +77,86 @@
               <%= key.last_used_at ? "Last used #{time_ago_in_words(key.last_used_at)} ago" : "Never used" %>
             </p>
           </div>
-          <%= button_to "Revoke", account_api_key_path(key), method: :delete,
+          <%# busy follows Turbo's own submit events, not the click: submit-start
+              fires only after the confirm is accepted, so declining it never
+              leaves a spinner behind. %>
+          <%= button_to account_api_key_path(key), method: :delete,
                 class: "btn btn-danger btn-sm flex-shrink-0",
-                form: { data: { turbo_confirm: "Revoke this key? Any agent using it stops working immediately." } } %>
+                form: { "x-data" => "{ busy: false }",
+                        "@turbo:submit-start" => "busy = true",
+                        "@turbo:submit-end" => "busy = false",
+                        data: { turbo_confirm: "Revoke this key? Any agent using it stops working immediately." } } do %>
+            <span x-show="!busy">Revoke</span>
+            <span x-show="busy" x-cloak class="inline-flex items-center justify-center gap-2">
+              <span class="cta-spinner" aria-hidden="true"></span>Revoking…
+            </span>
+          <% end %>
         </li>
       <% end %>
     </ul>
   <% end %>
 
-  <% case blocked_reason %>
-  <% when :frozen %>
+  <% if new_key&.raw_token.present? %>
+    <%# Nothing else to offer until the key has been copied. %>
+  <% elsif blocked_reason == :impersonating %>
+    <p class="text-sm text-secondary" data-api-key-blocked="impersonating">
+      API keys can't be created while acting as another user.
+    </p>
+  <% elsif blocked_reason == :frozen %>
     <p class="text-sm text-secondary" data-api-key-blocked="frozen">
       New keys are unavailable while your account is on hold.
     </p>
-  <% when :geo %>
+  <% elsif blocked_reason == :geo %>
     <p class="text-sm text-secondary" data-api-key-blocked="geo">
       API keys aren't available where you are, because contests aren't either.
     </p>
-  <% when :age %>
-    <%# The birthday card dispatches age-verified on success and closes. The
-        blocker was decided server-side, so reload to get the form. %>
+  <% elsif blocked_reason == :age %>
+    <%# The birthday card dispatches age-verified on success. Re-fetch the frame
+        so the server, which decides the blocker, renders the form. %>
     <div class="flex items-center justify-between gap-3 flex-wrap" data-api-key-blocked="age"
-         x-data @age-verified.window="window.location.reload()">
+         x-data
+         @age-verified.window="(frame => frame.src ? frame.reload() : (frame.src = '<%= account_api_keys_path %>'))($el.closest('turbo-frame'))">
       <p class="text-sm text-secondary min-w-0">Verify your age to create an API key.</p>
       <button type="button" @click="$store.modals.open('birthday', {})" class="btn btn-primary btn-sm flex-shrink-0">
         Verify age
       </button>
     </div>
+  <% elsif at_limit %>
+    <p class="text-sm text-secondary" data-api-key-blocked="limit">
+      You have <%= ApiKey::MAX_ACTIVE_PER_USER %> active keys, the most an account can hold. Revoke one to create another.
+    </p>
   <% else %>
-    <% if keys.count(&:active?) >= ApiKey::MAX_ACTIVE_PER_USER %>
-      <p class="text-sm text-secondary" data-api-key-blocked="limit">
-        You have <%= ApiKey::MAX_ACTIVE_PER_USER %> active keys, the most an account can hold. Revoke one to create another.
-      </p>
-    <% else %>
-      <%= form_with url: account_api_keys_path, method: :post, data: { turbo: false, api_key_form: true } do %>
-        <label for="api_key_name" class="block text-sm font-bold text-heading mb-2">Label <span class="text-muted font-normal">(optional)</span></label>
-        <div class="flex gap-2">
-          <input type="text" name="name" id="api_key_name" maxlength="<%= ApiKey::NAME_MAX_LENGTH %>"
-                 class="input-field flex-1 min-w-0" placeholder="e.g. Claude" autocomplete="off">
-          <button type="submit" class="btn btn-primary flex-shrink-0">Create key</button>
-        </div>
+    <%# With no keys the form is the card. With keys it waits behind a link, and
+        a refused submit comes back with it open. %>
+    <div x-data="{ adding: <%= keys.empty? || form_error.present? %>, busy: false }">
+      <% if keys.any? %>
+        <button type="button" x-show="!adding" @click="adding = true; $nextTick(() => $refs.name.focus())"
+                class="text-sm font-semibold text-primary hover:underline underline-offset-2" data-api-key-add>
+          Add another API key
+        </button>
       <% end %>
-    <% end %>
+
+      <%= form_with url: account_api_keys_path, method: :post,
+            data: { api_key_form: true },
+            html: { "x-show" => "adding", "x-cloak" => true,
+                    "@turbo:submit-start" => "busy = true", "@turbo:submit-end" => "busy = false" } do %>
+        <label for="api_key_name" class="block text-sm font-bold text-heading mb-2">Name</label>
+        <div class="flex gap-2">
+          <input type="text" name="name" id="api_key_name" x-ref="name" required
+                 maxlength="<%= ApiKey::NAME_MAX_LENGTH %>" value="<%= form_name %>"
+                 class="input-field flex-1 min-w-0" placeholder="e.g. Claude" autocomplete="off"
+                 <% if form_error.present? %>aria-invalid="true" aria-describedby="api_key_name_error"<% end %>>
+          <button type="submit" class="btn btn-primary flex-shrink-0" :disabled="busy">
+            <span x-show="!busy">Create key</span>
+            <span x-show="busy" x-cloak class="inline-flex items-center justify-center gap-2">
+              <span class="cta-spinner" aria-hidden="true"></span>Creating…
+            </span>
+          </button>
+        </div>
+        <% if form_error.present? %>
+          <p id="api_key_name_error" role="alert" class="text-xs mt-2 text-danger-ink" data-api-key-error><%= form_error %></p>
+        <% end %>
+      <% end %>
+    </div>
   <% end %>
-</div>
+<% end %>

@@ -4,8 +4,8 @@ require "test_helper"
 class ApiKeyTest < ActiveSupport::TestCase
   setup { @user = users(:jordan) }
 
-  def mint(user: @user, **attrs)
-    ApiKey.mint!(user: user, geo_country: "US", geo_state: "CO", age_result: "not_required", **attrs)
+  def mint(user: @user, name: "Claude", **attrs)
+    ApiKey.mint!(user: user, name: name, geo_country: "US", geo_state: "CO", age_result: "not_required", **attrs)
   end
 
   # --- mint --------------------------------------------------------------------
@@ -51,7 +51,7 @@ class ApiKeyTest < ActiveSupport::TestCase
 
   test "mint stamps the eligibility it was given" do
     now = Time.utc(2026, 10, 1, 12)
-    key = ApiKey.mint!(user: @user, geo_country: "US", geo_state: "CO", age_result: "passed", now: now)
+    key = ApiKey.mint!(user: @user, name: "Claude", geo_country: "US", geo_state: "CO", age_result: "passed", now: now)
 
     assert_equal(
       { geo: { result: "allowed", country: "US", state: "CO" }, age_gate: "passed", attested_at: now.iso8601 },
@@ -61,14 +61,22 @@ class ApiKeyTest < ActiveSupport::TestCase
 
   test "mint refuses an age verdict outside the known vocabulary" do
     assert_raises(ActiveRecord::RecordInvalid) do
-      ApiKey.mint!(user: @user, geo_country: "US", geo_state: "CO", age_result: "pending")
+      ApiKey.mint!(user: @user, name: "Claude", geo_country: "US", geo_state: "CO", age_result: "pending")
     end
     assert_equal 0, @user.api_keys.count
   end
 
-  test "a blank label is stored as nil and an over-long one is refused" do
-    assert_nil mint(name: "   ").name
+  test "a name is required: blank, whitespace and nil are all refused and mint nothing" do
+    ["", "   ", nil].each do |blank|
+      error = assert_raises(ActiveRecord::RecordInvalid) { mint(name: blank) }
+      assert_equal ["Name can't be blank"], error.record.errors.full_messages
+    end
+    assert_equal 0, @user.api_keys.count
+  end
+
+  test "a name is trimmed, and an over-long one is refused" do
     assert_equal "Claude", mint(name: " Claude ").name
+    assert_nothing_raised { mint(name: "x" * ApiKey::NAME_MAX_LENGTH) }
     assert_raises(ActiveRecord::RecordInvalid) { mint(name: "x" * (ApiKey::NAME_MAX_LENGTH + 1)) }
   end
 

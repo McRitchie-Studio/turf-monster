@@ -31,7 +31,7 @@ class ApiKeyAuthenticationTest < ActionDispatch::IntegrationTest
 
   setup do
     @user = users(:jordan)
-    @key = ApiKey.mint!(user: @user, geo_country: "US", geo_state: "CO", age_result: "not_required")
+    @key = ApiKey.mint!(user: @user, name: "Claude", geo_country: "US", geo_state: "CO", age_result: "not_required")
   end
 
   # with_routing restores the real routes — and drops the response — when its

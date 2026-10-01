@@ -1,31 +1,47 @@
 require "test_helper"
 
-# [component] The agent API keys card on /account, and the page that shows a
-# new key once.
+# [component] The agent API keys card: every state it renders, and the wiring
+# that lets it update in place.
 class ApiKeysSectionTest < ActionView::TestCase
   setup { @user = users(:jordan) }
 
-  def mint(**attrs)
-    ApiKey.mint!(user: @user, geo_country: "US", geo_state: "CO", age_result: "not_required", **attrs)
+  def mint(name: "Claude")
+    ApiKey.mint!(user: @user, name: name, geo_country: "US", geo_state: "CO", age_result: "not_required")
   end
 
   # ActionView::TestCase#rendered ACCUMULATES across calls, so read the return
   # value: a refute against `rendered` would be judged on the union.
-  def render_section(blocked_reason: nil)
-    html = render(partial: "accounts/api_keys_section", locals: { user: @user, blocked_reason: blocked_reason })
+  def render_section(blocked_reason: nil, **locals)
+    html = render(partial: "accounts/api_keys_section",
+                  locals: { user: @user, blocked_reason: blocked_reason, **locals })
     Nokogiri::HTML5.fragment(html)
+  end
+
+  def form(doc)
+    doc.at_css("form[data-api-key-form]")
+  end
+
+  # --- the frame ---------------------------------------------------------------
+
+  test "the card is one turbo frame, the id every card response answers with" do
+    doc = render_section
+
+    assert_equal 1, doc.element_children.size
+    assert_equal "turbo-frame", doc.element_children.first.name
+    assert_equal "api_keys_card", doc.element_children.first["id"]
   end
 
   # --- the list ----------------------------------------------------------------
 
-  test "with no keys there is no list, only the form" do
+  test "with no keys there is no list and the form is open, with no add-another link" do
     doc = render_section
 
     assert_nil doc.at_css("[data-api-key-list]")
-    assert doc.at_css("form[data-api-key-form]")
+    assert_nil doc.at_css("[data-api-key-add]")
+    assert_match(/adding: true/, form(doc).parent["x-data"])
   end
 
-  test "a key is listed by prefix and label, never by its secret" do
+  test "a key is listed by name and prefix, never by its secret" do
     key = mint(name: "Claude")
     html = render_section.to_html
 
@@ -35,17 +51,6 @@ class ApiKeysSectionTest < ActionView::TestCase
     assert_not_includes html, key.raw_token
     assert_not_includes html, key.raw_token[ApiKey::PREFIX_LENGTH..]
     assert_not_includes html, key.token_digest
-  end
-
-  test "each listed key has a revoke control that DELETEs that key, behind a confirm" do
-    key = mint
-    row = render_section.at_css(%([data-api-key-row="#{key.id}"]))
-    form = row.at_css("form")
-
-    assert_equal account_api_key_path(key), form["action"]
-    assert_equal "delete", form.at_css('input[name="_method"]')["value"]
-    assert form["data-turbo-confirm"].present?
-    assert_equal "Revoke", form.at_css("button").text.strip
   end
 
   test "a revoked key is not listed and an expired one is marked" do
@@ -66,36 +71,128 @@ class ApiKeysSectionTest < ActionView::TestCase
     assert_match(/Last used about 3 hours ago/, render_section.text)
   end
 
-  # --- the mint form -----------------------------------------------------------
+  # --- revoke ------------------------------------------------------------------
 
-  test "the mint form posts to the mint route as a full page load" do
-    form = render_section.at_css("form[data-api-key-form]")
+  test "revoke DELETEs that key through the frame, behind a confirm" do
+    key = mint
+    revoke = render_section.at_css(%([data-api-key-row="#{key.id}"] form))
 
-    assert_equal account_api_keys_path, form["action"]
-    assert_equal "post", form["method"]
-    # Turbo will not render a non-redirect success for a form submission, and
-    # the response to this POST is the page that shows the key.
-    assert_equal "false", form["data-turbo"]
-    assert_equal ApiKey::NAME_MAX_LENGTH.to_s, form.at_css('input[name="name"]')["maxlength"]
+    assert_equal account_api_key_path(key), revoke["action"]
+    assert_equal "delete", revoke.at_css('input[name="_method"]')["value"]
+    assert revoke["data-turbo-confirm"].present?
+    # Inside the frame and not opted out of Turbo: that is what makes the
+    # response swap the card instead of loading a page.
+    assert revoke.ancestors("turbo-frame").any?
+    assert_nil revoke["data-turbo"]
+    assert_nil revoke["target"]
   end
 
+  test "the revoke button swaps to a spinner on Turbo's submit events, not on click" do
+    mint
+    revoke = render_section.at_css("[data-api-key-row] form")
+    button = revoke.at_css("button")
+
+    assert_match(/busy: false/, revoke["x-data"])
+    assert_equal "busy = true", revoke["@turbo:submit-start"]
+    assert_equal "busy = false", revoke["@turbo:submit-end"]
+    assert_nil button["@click"], "a click handler would spin even when the confirm is declined"
+
+    idle, working = button.css("> span")
+    assert_equal "!busy", idle["x-show"]
+    assert_equal "Revoke", idle.text.strip
+    assert_equal "busy", working["x-show"]
+    assert working.key?("x-cloak")
+    assert working.at_css(".cta-spinner")
+    assert_match(/Revoking/, working.text)
+  end
+
+  # --- the create form ---------------------------------------------------------
+
+  test "the form posts through the frame and requires a name" do
+    create = form(render_section)
+    input = create.at_css('input[name="name"]')
+
+    assert_equal account_api_keys_path, create["action"]
+    assert_equal "post", create["method"]
+    assert create.ancestors("turbo-frame").any?
+    assert_nil create["data-turbo"]
+    assert_equal "Name", create.at_css('label[for="api_key_name"]').text.strip
+    assert input.key?("required")
+    assert_equal ApiKey::NAME_MAX_LENGTH.to_s, input["maxlength"]
+    assert_no_match(/optional|label/i, create.text)
+  end
+
+  test "the create button shows a spinner while the request runs" do
+    create = form(render_section)
+    idle, working = create.at_css('button[type="submit"]').css("> span")
+
+    assert_match(/busy: false/, create.parent["x-data"])
+    assert_equal "busy = true", create["@turbo:submit-start"]
+    assert_equal "busy = false", create["@turbo:submit-end"]
+    assert_equal "Create key", idle.text.strip
+    assert working.at_css(".cta-spinner")
+    assert_match(/Creating/, working.text)
+  end
+
+  test "with keys the form waits, closed, behind an add-another link" do
+    mint
+    doc = render_section
+    link = doc.at_css("[data-api-key-add]")
+
+    assert_equal "Add another API key", link.text.strip
+    assert_equal "!adding", link["x-show"]
+    assert_match(/adding = true/, link["@click"])
+    assert_match(/adding: false/, form(doc).parent["x-data"])
+    assert_equal "adding", form(doc)["x-show"]
+    assert form(doc).key?("x-cloak"), "x-show owns display; cloak covers the first paint"
+    # The link and the form share one Alpine scope, or the toggle cannot reach it.
+    assert_equal link.parent, form(doc).parent
+  end
+
+  test "a refused submit comes back open, with the error, the typed name, and no key on screen" do
+    mint
+    doc = render_section(form_error: "Name can't be blank", form_name: "typed")
+    error = doc.at_css("[data-api-key-error]")
+    input = doc.at_css('input[name="name"]')
+
+    assert_match(/adding: true/, form(doc).parent["x-data"])
+    assert_equal "Name can't be blank", error.text
+    assert_equal "alert", error["role"]
+    assert_equal "true", input["aria-invalid"]
+    assert_equal error["id"], input["aria-describedby"]
+    assert_equal "typed", input["value"]
+    assert_nil doc.at_css("[data-api-key-created]")
+  end
+
+  test "an untouched form carries no error markup" do
+    doc = render_section
+
+    assert_nil doc.at_css("[data-api-key-error]")
+    assert_nil doc.at_css('input[name="name"]')["aria-invalid"]
+  end
+
+  # --- blockers ----------------------------------------------------------------
+
   test "each blocker replaces the form with its own explanation" do
-    { frozen: /on hold/, geo: /aren't available where you are/, age: /Verify your age/ }.each do |reason, copy|
+    { impersonating: /acting as another user/, frozen: /on hold/,
+      geo: /aren't available where you are/, age: /Verify your age/ }.each do |reason, copy|
       doc = render_section(blocked_reason: reason)
 
-      assert_nil doc.at_css("form[data-api-key-form]"), "#{reason} must not offer the form"
+      assert_nil form(doc), "#{reason} must not offer the form"
+      assert_nil doc.at_css("[data-api-key-add]"), "#{reason} must not offer add-another"
       assert_match copy, doc.at_css(%([data-api-key-blocked="#{reason}"])).text
     end
   end
 
-  test "the age blocker offers the birthday modal" do
-    button = render_section(blocked_reason: :age).at_css('[data-api-key-blocked="age"] button')
+  test "the age blocker opens the birthday card and re-fetches the frame when it reports success" do
+    blocked = render_section(blocked_reason: :age).at_css('[data-api-key-blocked="age"]')
+    handler = blocked["@age-verified.window"]
 
-    assert_includes button["@click"], "open('birthday'"
-    # ...and reloads once the card reports success, since the blocker is
-    # decided server-side.
-    assert_includes render_section(blocked_reason: :age).at_css('[data-api-key-blocked="age"]')["@age-verified.window"],
-                    "reload"
+    assert_includes blocked.at_css("button")["@click"], "open('birthday'"
+    assert blocked.key?("x-data"), "without a component the listener is never bound"
+    assert_includes handler, "closest('turbo-frame')"
+    assert_includes handler, account_api_keys_path
+    assert_no_match(/location|Turbo\.visit/, handler, "the card updates in place; the page does not reload")
   end
 
   test "a blocked player still sees and can revoke the keys they hold" do
@@ -108,24 +205,47 @@ class ApiKeysSectionTest < ActionView::TestCase
     ApiKey::MAX_ACTIVE_PER_USER.times { mint }
     doc = render_section
 
-    assert_nil doc.at_css("form[data-api-key-form]")
+    assert_nil form(doc)
+    assert_nil doc.at_css("[data-api-key-add]")
     assert doc.at_css('[data-api-key-blocked="limit"]')
   end
 
-  # --- the reveal page ---------------------------------------------------------
+  # --- the one-time reveal -----------------------------------------------------
 
-  test "the reveal page hands the raw key to the engine copy button and a ready curl line" do
-    @api_key = mint
-    html = render(template: "api_keys/create")
-    doc = Nokogiri::HTML5.fragment(html)
+  test "a new key is handed to the engine copy button, with a ready curl line" do
+    key = mint
+    doc = render_section(new_key: key)
+    created = doc.at_css("[data-api-key-created]")
+    secret = created.at_css("[data-api-key-secret]")
 
-    secret = doc.at_css("[data-api-key-secret]")
-    assert_equal @api_key.raw_token, secret.at_css("button[data-copy-text]")["data-copy-text"]
-    assert_equal @api_key.raw_token, secret.at_css("code").text
+    assert_equal key.raw_token, secret.at_css("button[data-copy-text]")["data-copy-text"]
+    assert_equal key.raw_token, secret.at_css("code").text
 
-    curl = doc.css("button[data-copy-text]").map { |b| b["data-copy-text"] }.find { |t| t.start_with?("curl") }
-    assert_includes curl, %(Authorization: Bearer #{@api_key.raw_token})
+    curl = created.css("button[data-copy-text]").map { |b| b["data-copy-text"] }.find { |t| t.start_with?("curl") }
+    assert_includes curl, %(Authorization: Bearer #{key.raw_token})
     assert curl.end_with?("/api/v1/me")
-    assert_equal account_path, doc.at_css("[data-api-key-created] a.btn")["href"]
+    # The visible curl line shows the prefix only; the full key is on screen once.
+    assert_equal 1, created.css("code").count { |code| code.text.include?(key.raw_token) }
+  end
+
+  test "while a new key is on screen the list shows it and no form competes" do
+    key = mint
+    doc = render_section(new_key: key)
+
+    assert doc.at_css(%([data-api-key-row="#{key.id}"]))
+    assert_nil form(doc)
+    assert_nil doc.at_css("[data-api-key-add]")
+    # Dismissing is a frame navigation back to the plain card.
+    done = doc.at_css("[data-api-key-created] a.btn")
+    assert_equal account_api_keys_path, done["href"]
+    assert_nil done["data-turbo-frame"]
+  end
+
+  test "a key reloaded from the database reveals nothing" do
+    key = mint
+    doc = render_section(new_key: ApiKey.find(key.id))
+
+    assert_nil doc.at_css("[data-api-key-created]")
+    assert_not_includes doc.to_html, key.raw_token
   end
 end

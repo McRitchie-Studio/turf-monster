@@ -285,7 +285,10 @@ Rails.application.routes.draw do
 
   # Agent API keys (docs/AGENT_API.md). Minted and revoked from /account by the
   # signed-in player; the key itself authenticates the /api/v1 routes below.
-  post   "account/api_keys",     to: "api_keys#create",  as: :account_api_keys
+  # GET is the keys card by itself — what the card's Turbo Frame re-fetches to
+  # refresh in place.
+  get    "account/api_keys",     to: "api_keys#index",   as: :account_api_keys
+  post   "account/api_keys",     to: "api_keys#create"
   delete "account/api_keys/:id", to: "api_keys#destroy", as: :account_api_key
 
   # The agent API. Bearer-key authenticated (Api::V1::BaseController) — no
@@ -681,6 +684,7 @@ Rails.application.routes.draw do
     post "test/magic_link_token",         to: "test#magic_link_token"
     get  "test/user_info/:slug",          to: "test#user_info"
     post "test/warm_entry_tokens",        to: "test#warm_entry_tokens"
+    post "test/set_age_verified",         to: "test#set_age_verified"
   end
 
   # The quest walkthrough — a DEV-ONLY page for walking the gear sidebar's

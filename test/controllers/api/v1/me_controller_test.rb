@@ -25,7 +25,7 @@ class Api::V1::MeControllerTest < ActionDispatch::IntegrationTest
   end
 
   def mint_key(user, **attrs)
-    ApiKey.mint!(user: user, geo_country: "US", geo_state: "CO", age_result: "not_required", **attrs)
+    ApiKey.mint!(user: user, name: "Claude", geo_country: "US", geo_state: "CO", age_result: "not_required", **attrs)
   end
 
   def get_me(token: @key.raw_token, authorization: nil, headers: {})
