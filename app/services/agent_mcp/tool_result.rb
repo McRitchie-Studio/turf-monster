@@ -18,7 +18,7 @@
 # do, because the status line that tells a REST client is not something a model
 # sees:
 #
-#   202 pending   not an error. The entry is PAID and still being confirmed.
+#   202 pending   not an error and not yet an entry: PAID, still being confirmed.
 #   a retry_after an error that is cured by calling again with the same key
 #                 (idempotency_in_progress, chain_unavailable).
 module AgentMcp
@@ -47,9 +47,13 @@ module AgentMcp
     def self.guidance(outcome)
       seconds = outcome.retry_after
       if !outcome.error? && outcome.status == :accepted
-        "PENDING, NOT A FAILURE. The entry is paid for and is still being confirmed. Call submit_entry again " \
-          "in #{seconds} seconds with the SAME idempotency_key and the same arguments to receive the entry. " \
-          "Do not use a new idempotency_key, and do not tell the player the entry failed."
+        "PENDING: PAID, NOT YET ENTERED. The entry is paid for and is still being confirmed. This is not a " \
+          "failure and it is not yet an entry: do not tell the player it failed, and do not tell them they are " \
+          "entered until a call returns an entry. Call submit_entry again in #{seconds} seconds with the SAME " \
+          "idempotency_key and the same arguments, and keep doing so while the answer is pending. Never use a " \
+          "new idempotency_key for this entry. If it is still pending after a few minutes, stop and tell the " \
+          "player the entry was paid for but is not showing as entered, and to contact " \
+          "support@turfmonster.media with the contest name."
       elsif outcome.error? && seconds
         "RETRY. Call the same tool again in #{seconds} seconds with the SAME idempotency_key and the same " \
           "arguments. Do not use a new idempotency_key: the server looks for the first payment before it pays again."

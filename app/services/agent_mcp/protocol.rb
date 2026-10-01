@@ -53,8 +53,10 @@ module AgentMcp
     # Capability and UnsupportedProtocolVersion. This server must not emit them.
     MODERN_ERROR_CODES = [-32_020, -32_021, -32_022].freeze
 
-    # One POST may carry this many messages (2025-03-26 only). A batch counts
-    # once against the rate limit, so it may not be a way around it.
+    # One POST may carry this many messages (2025-03-26 only). The throttle sees
+    # a batch as one request, so McpController charges the rest of its messages
+    # to the key (Rack::Attack.mcp_charge_batch): a batch is no way around the
+    # per-key limit.
     MAX_BATCH = 10
 
     def self.supported?(version)

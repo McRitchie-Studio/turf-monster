@@ -172,7 +172,8 @@ module AgentMcp
 
       result(id, ToolResult.render(@run_tool.call(tool, arguments), version: version))
     rescue ToolCrashed
-      error(id, INTERNAL_ERROR, "Something went wrong on our side. For submit_entry, retry with the same idempotency_key.")
+      error(id, INTERNAL_ERROR, "Something went wrong on our side. For submit_entry, retry with the same " \
+                                "idempotency_key and the same arguments; do not make a new key.")
     end
 
     def result(id, value)

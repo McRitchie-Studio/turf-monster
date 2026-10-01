@@ -9,8 +9,8 @@ rate-limit tier, the read endpoints for contests, leaderboards and the player's
 entries, and the two writes: [create an entry](#post-apiv1contestsslugentries)
 and [replace its picks](#patch-apiv1entriesslug), and [the agent
 pages](#the-agent-pages) (`/agents`, `/agents/guide`, its Markdown twin and
-`/llms.txt`). An MCP endpoint is a later piece of the same epic and builds on
-what is here.
+`/llms.txt`), and [an MCP endpoint](#mcp) (`POST /mcp`) that serves the same
+operations as tools.
 
 ## The key
 
@@ -1031,7 +1031,7 @@ Three answers from `submit_entry` are worth knowing by sight:
 
 | REST | As a tool result | What to do |
 |------|------------------|------------|
-| `202`, `"pending": true` | `isError: false`, the same body, and a second text block that begins `PENDING, NOT A FAILURE` | The entry is paid. Call again with the same `idempotency_key` after `retry_after` seconds to receive it. |
+| `202`, `"pending": true` | `isError: false`, the same body, and a second text block that begins `PENDING: PAID, NOT YET ENTERED` | The entry is paid but not confirmed. Call again with the same `idempotency_key` after `retry_after` seconds. Do not tell the player they are entered until a call returns an entry; after a few minutes of `pending`, stop and send them to support. |
 | `409 idempotency_in_progress` | `isError: true`, a second text block that begins `RETRY` | Call again with the same key after `retry_after` seconds. |
 | `503 chain_unavailable` | `isError: true`, a second text block that begins `RETRY` | The same. Never switch keys. |
 
@@ -1046,7 +1046,7 @@ Some failures are not tool results, because they are not about a tool:
 | A method other than the four above | JSON-RPC error `-32601` |
 | An unknown tool, or `arguments` that is not an object | JSON-RPC error `-32602` |
 | A crash on our side | JSON-RPC error `-32603`. For `submit_entry`, retry with the same key. |
-| `GET`, `DELETE`, `PUT` or `PATCH /mcp` | HTTP `405`, `Allow: POST` |
+| `GET`, `DELETE`, `PUT` or `PATCH /mcp` | HTTP `405`, `Allow: POST`, JSON-RPC error `-32600` |
 | A request with an `Origin` header that is not this site's (a web page calling) | HTTP `403` |
 
 An argument of the wrong type is a tool result (`isError: true`, code
@@ -1059,12 +1059,15 @@ writing tools answer `account_frozen` or `age_verification_required`.
 
 | Limit | Keyed on |
 |-------|----------|
-| 120 requests per minute | The API key. Separate from the key's 120 on `/api/`. |
-| 600 requests per minute | The calling IP address, for requests that carry a key. **Not applied to Anthropic's connector addresses**, which every claude.ai player shares. |
-| 30 requests per minute | The calling IP address, for requests with no key |
+| 120 requests per minute | The API key. Separate from the key's 120 on `/api/`. A JSON-RPC batch counts once per message. |
+| 30 requests per minute (300 from Anthropic's connector addresses) | The calling IP address, for requests with no key, **or with a key that has not yet authenticated here**. A key's first successful request takes it out of this limit for 24 hours. |
 
-Also: a request body is at most 64 KB; a JSON-RPC batch (revision `2025-03-26`
-only) holds at most 10 messages and counts as one request. Detail and the
+A player is never limited by the address they call from, only by their key, so
+claude.ai players who share Anthropic's addresses cannot lock each other out.
+
+Also: a request body is at most 64 KB, and a JSON-RPC batch (revision
+`2025-03-26` only) holds at most 10 messages. A batch that would take the key
+past its 120 is refused whole with a `429` and runs nothing. Detail and the
 reasoning: [`RATE_LIMITING.md`](RATE_LIMITING.md).
 
 ### Protocol notes
@@ -1123,7 +1126,8 @@ connectors](https://claude.com/docs/connectors/building/authentication).
 | The `401` | Claude starts sign-in from a `401` whose header points at metadata: `WWW-Authenticate: Bearer resource_metadata="https://turfmonster.media/.well-known/oauth-protected-resource"`. Today's header names only a realm. |
 | Discovery | `/.well-known/oauth-protected-resource` (RFC 9728; `resource` must equal the `/mcp` URL exactly) and authorization server metadata (RFC 8414). |
 | The authorization server | Authorization code with PKCE `S256`; a client identity for Claude (a Client ID Metadata Document, or Dynamic Client Registration); the redirect URI `https://claude.ai/api/mcp/auth_callback`, and a loopback redirect on any port for Claude Code; a token endpoint that takes form-encoded bodies and rotates refresh tokens. |
-| Rate limits | Nothing: `mcp/key` is keyed on a digest of whatever bearer value is sent. |
+| Rate limits | `mcp/key` is keyed on a digest of whatever bearer value is sent, so nothing there. The per-address limit lifts for a credential once it has authenticated (`Rack::Attack.mcp_mark_verified`, called from the controller), which an access token would get the same way. |
+| The `Origin` check | `McpController#refuse_foreign_origin` answers `403` to every `Origin` but this site's own, `https://claude.ai` included. Claude's connector calls from Anthropic's servers and sends no `Origin`, so this does not block it; but an OAuth consent or callback page, or any browser-side client, that posts to `/mcp` from another origin will be refused until that origin is allowed there. |
 | The tools | Nothing. |
 
 ### For developers: the MCP endpoint
@@ -1137,7 +1141,8 @@ connectors](https://claude.com/docs/connectors/building/authentication).
 | An operation's outcome as a tool result | `app/services/agent_mcp/tool_result.rb` |
 | The `instructions` text | `app/services/agent_mcp/instructions.rb` |
 | The work, shared with `/api/v1` | `app/services/api/v1/operations/` |
-| Throttles | `config/initializers/rack_attack.rb` (`mcp/key`, `mcp/ip`, `mcp/anon_ip`) |
+| Throttles | `config/initializers/rack_attack.rb` (`mcp/key`, `mcp/unverified_ip`) |
+| Which header names the client address | `config/initializers/forwarded_headers.rb` |
 
 A tool holds no rule of the game. To add one, write the operation, call it from
 a REST action, and add a `Tool` to the registry that names it. A tool that
@@ -1248,8 +1253,9 @@ button. It names production's canonical host (`TurfMonster::HostConfig::DEFAULT_
 on every environment, so a prompt copied from a desk never sends an agent to
 localhost.
 
-**What the pages do not say.** They name no MCP or connector address (none is
-built), render no key-shaped string, promise no grading or payout timing, and
+**What the pages do not say.** They name no MCP or connector address (the
+[MCP endpoint](#mcp) exists, but most claude.ai accounts cannot connect to it
+until it has OAuth, and naming it on the public pages is a later decision), render no key-shaped string, promise no grading or payout timing, and
 say nothing about what the Terms allow an AI agent to do: only that the player
 is responsible for what their agent does on their account, with a link to the
 Terms. `test/controllers/agents_controller_test.rb` holds each of those.

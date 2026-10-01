@@ -70,9 +70,8 @@ grep -n '^  throttle("' config/initializers/rack_attack.rb
 | Interactive | `general/ip` | 90 / 60s | ip (tier-1 limiter — toggle_selection / enter / clear_picks) |
 | Agent API | `api/key` | 120 / min | SHA-256 digest of the bearer key (every path under `/api/`, any verb) |
 | Agent API | `api/ip` | 600 / min | ip (every path under `/api/`; flood backstop, loose because agents share cloud egress) |
-| Agent API (MCP) | `mcp/key` | 120 / min | SHA-256 digest of the bearer key (`/mcp`, any verb). Its own bucket: `/api/` traffic on the same key does not spend it. |
-| Agent API (MCP) | `mcp/ip` | 600 / min | ip, for `/mcp` requests that carry a bearer key. **Skipped for Anthropic's outbound range `160.79.104.0/21`.** |
-| Agent API (MCP) | `mcp/anon_ip` | 30 / min | ip, for `/mcp` requests with no bearer key (answered 401 or 405) |
+| Agent API (MCP) | `mcp/key` | 120 / min | SHA-256 digest of the bearer key (`/mcp`, any verb). Its own bucket: `/api/` traffic on the same key does not spend it. A JSON-RPC batch is charged once per message. |
+| Agent API (MCP) | `mcp/unverified_ip` | 30 / min (300 inside Anthropic's outbound range `160.79.104.0/21`) | ip, for `/mcp` requests with no bearer key or with a key that has not authenticated here in the last 24 hours |
 | Agent API | `api_key_mint/ip` | 10 / hour | ip (`POST /account/api_keys`, in every spelling the router sends to the mint: `.html`, any other format, a trailing slash). The 429 is JSON with no keys card in it, so the card's form reads the status and shows its own message. |
 
 Key facts that constrain the design:
@@ -203,7 +202,7 @@ adds it; an endpoint added under `/api/` is throttled the day it ships.
 ### The MCP endpoint and shared egress
 
 `/mcp` is outside `/api/`, so the prefix rule above does not reach it; it has
-three throttles of its own, matched on the path in every spelling the router
+two throttles of its own, matched on the path in every spelling the router
 accepts. Its 429 is the agent API's envelope, as its 401 is: both are HTTP,
 below JSON-RPC.
 
@@ -220,14 +219,51 @@ Anthropic's own API, and is not traffic this app receives.
 
 | Throttle | Why it is shaped this way |
 |----------|---------------------------|
-| `mcp/key` | The real limit. One player, one key, wherever the request comes from. |
-| `mcp/ip` | The backstop `api/ip` is: a script that sends a different made-up key on every request lands each in an empty `mcp/key` bucket. 600 a minute per address caps that. It is **skipped inside Anthropic's range**, where one address carries many players and a shared cap would let one of them lock out the rest (five keys at 120 a minute is already 600). A made-up-key flood from inside that range would have to be driven through claude.ai. |
-| `mcp/anon_ip` | A request with no bearer key is never a player. It is refused at once, so a tight cap costs nobody anything, and it applies everywhere, Anthropic's range included. |
+| `mcp/key` | The limit for a player. One player, one key, wherever the request comes from. A JSON-RPC batch reaches the app as one request, so `McpController` charges the other messages to the same bucket (`Rack::Attack.mcp_charge_batch`) and refuses the batch whole if that crosses the limit. |
+| `mcp/unverified_ip` | For a request that has not shown it is a player: no bearer key, or a key this app has not seen authenticate. A bearer-shaped string proves nothing, and a script can send a different made-up one on every request, each a fresh `mcp/key` bucket and each a key lookup. 30 a minute per address; 300 inside Anthropic's range, where one address carries many people making their first request. |
 
-If Anthropic adds a range, its addresses get the `mcp/ip` backstop until the
-range is added to `MCP_SHARED_EGRESS`: looser protection for nobody, a shared
-cap for those players until it is listed. A JSON-RPC batch is one request to
-these throttles; `AgentMcp::Protocol::MAX_BATCH` (10) bounds what it can carry.
+**No per-address limit is put on a player**, inside Anthropic's range or
+outside it. That is what makes the tier safe on shared egress: there is no cap
+that strangers share.
+
+**How the throttle knows a key is a player's without a database read.** When a
+key authenticates, the controller writes a mark for its digest into the
+throttle's own cache (`Rack::Attack.mcp_mark_verified`, kept 24 hours and
+renewed when it lapses). The throttle reads the mark: one cache read. A marked
+key skips `mcp/unverified_ip`; an unmarked one counts against its address until
+its first request succeeds, which costs a real player one request of the 30. A
+revoked or expired key keeps its mark until it lapses, which buys it 120 `401`s
+a minute and nothing else.
+
+**What this does not stop.** Anthropic's range is not only claude.ai. Anyone
+with an Anthropic API key can point the API's MCP connector at this endpoint
+with any token, so made-up keys can arrive from that range without a claude.ai
+account. They are held to 300 a minute per address. While such a flood lasts, a
+player whose key is not yet marked, and whose request happens to leave through
+the same address, gets a `429` on first contact; players already marked are
+untouched. If Anthropic adds a range, its addresses get 30 instead of 300 until
+the range is added to `MCP_SHARED_EGRESS`.
+
+### Whose address a request is counted against
+
+Every per-IP throttle on this page reads `req.ip`, and geo detection reads
+`request.remote_ip`. Both come from the same Rack method, which by default
+prefers the standard `Forwarded` header to `X-Forwarded-For`. The Heroku router
+neither sets nor strips `Forwarded`, so a caller who sent
+`Forwarded: for=<any address>` was counted, and located, as that address: a
+fresh bucket on every request for every `/ip` throttle above, and for `/mcp` an
+address inside Anthropic's range.
+
+`config/initializers/forwarded_headers.rb` sets
+`Rack::Request.forwarded_priority = [:x_forwarded]`. `X-Forwarded-For` is the
+header the router controls: it appends the address it saw to the right of
+whatever the client sent
+([Heroku HTTP routing](https://devcenter.heroku.com/articles/http-routing)), and
+Rack and Rails both read that list from the right, stopping at the first
+address that is not private. A request with no `Forwarded` header, which is
+every legitimate one, is read exactly as before.
+`test/integration/client_ip_spoof_test.rb` holds it, in the shape production
+requests have (a private `REMOTE_ADDR`, the real client in `X-Forwarded-For`).
 
 ## Client UX
 

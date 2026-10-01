@@ -42,12 +42,18 @@ module AgentMcp
         no_entry_token, tell the player and ask; do not turn allow_usdc on yourself.
       PARAGRAPH
       <<~PARAGRAPH,
-        The retry rule: one entry, one idempotency_key. If submit_entry times out,
-        fails with chain_unavailable, idempotency_in_progress or internal_error, or
-        answers pending, call it again with the SAME idempotency_key and the same
-        arguments; the server then returns the one entry instead of paying twice.
-        Use a new key only for a different entry, or after changing the picks or
-        allow_usdc.
+        The retry rule has exactly two cases. (a) No definite answer yet: if
+        submit_entry times out, errors without a result, fails with
+        chain_unavailable or idempotency_in_progress, or answers pending, call it
+        again with the SAME idempotency_key and the SAME arguments, as many times
+        as it takes. Do not change the picks and do not make a new key: a new key
+        here is the one move that can pay for a second entry. Do not tell the
+        player they are entered until a call returns an entry. (b) A definite
+        refusal: only after the server has refused the request with an error that
+        says nothing was spent (invalid_picks, team_locked, duplicate_lineup,
+        no_entry_token and the like) may you change the request, and the changed
+        request takes a new idempotency_key. If you are unsure which case you are
+        in, call list_my_entries before doing anything else.
       PARAGRAPH
       <<~PARAGRAPH
         A tool result is JSON. A failure has isError true and

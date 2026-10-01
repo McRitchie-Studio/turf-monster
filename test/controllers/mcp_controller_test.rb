@@ -343,7 +343,7 @@ class McpControllerTest < ActionDispatch::IntegrationTest
     assert_equal({ "entry" => nil, "funding" => { "method" => "token", "token_consumed" => true },
                    "pending" => true, "retry_after" => 5 }, tool_json(pending))
     assert_equal({ "turfmonster.media/http_status" => 202, "turfmonster.media/retry_after" => 5 }, pending["_meta"])
-    assert_match(/PENDING, NOT A FAILURE/, pending["content"].second["text"])
+    assert_match(/PENDING: PAID, NOT YET ENTERED/, pending["content"].second["text"])
 
     done = submit(key: "paid")
 

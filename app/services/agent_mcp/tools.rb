@@ -115,11 +115,13 @@ module AgentMcp
           token (or USDC, only if allow_usdc is true) and cannot be undone, so confirm the exact lineup
           with the player first. Returns the new entry and funding (how it was paid).
           idempotency_key is required: make up one value (a UUID) for this entry and send the SAME
-          value on every retry. If the call times out, fails with chain_unavailable,
-          idempotency_in_progress or internal_error, or returns "pending": true, call again with the
-          same key and the same arguments; you get the one entry and nothing is paid twice. Use a new
-          key only for a different entry or after changing matchup_ids or allow_usdc. On any other
-          error nothing was spent: read error.code (no_entry_token, team_locked, invalid_picks,
+          value on every retry. If the call times out, errors without a result, fails with
+          chain_unavailable or idempotency_in_progress, or returns "pending": true, call again with
+          the same key and the SAME arguments; you get the one entry and nothing is paid twice. Do
+          not change the picks or make a new key until you hold a definite answer: a new key before
+          then can pay for a second entry. The player is not entered until a call returns an entry.
+          Only after a definite refusal may you change matchup_ids or allow_usdc, with a new key. On
+          such a refusal nothing was spent: read error.code (no_entry_token, team_locked, invalid_picks,
           duplicate_lineup, contest_locked, entry_limit_reached, wallet_not_server_signable and others)
           and error.message.
         TEXT

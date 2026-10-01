@@ -73,7 +73,15 @@ class AgentMcp::ServerTest < ActiveSupport::TestCase
     assert_operator text.index("get_contest"), :<, text.index("submit_entry")
     assert_match(/CONFIRM IT WITH THE PLAYER before submitting/, text)
     assert_match(/leave allow_usdc false unless the player has told you/, text)
-    assert_match(/SAME idempotency_key/, text)
+    assert_match(/SAME idempotency_key and the SAME arguments/, text)
+    # The two-case rule: a new key only for a changed request after a definite
+    # refusal. "A new key after changing the picks", said bare, buys a second
+    # entry when it follows a timeout or a pending answer.
+    assert_match(/exactly two cases/, text)
+    assert_match(/Do not change the picks and do not make a new key/, text)
+    assert_match(/only after the server has refused the request/, text)
+    assert_no_match(/new key only for a different entry, or after changing the picks/i, text)
+    assert_match(/Do not tell the player they are entered until a call returns an entry/, text)
     assert_match(/turf_score/, text)
   end
 
@@ -253,7 +261,13 @@ class AgentMcp::ServerTest < ActiveSupport::TestCase
     assert_equal false, result[:isError]
     assert_equal body, result[:structuredContent]
     assert_equal body, JSON.parse(result[:content].first[:text])
-    assert_match(/PENDING, NOT A FAILURE.*paid.*in 5 seconds.*SAME idempotency_key/, result[:content].second[:text])
+    note = result[:content].second[:text]
+    assert_match(/PENDING: PAID, NOT YET ENTERED.*in 5 seconds.*SAME idempotency_key/, note)
+    # Both halves: it did not fail, and it has not succeeded.
+    assert_match(/do not tell the player it failed/, note)
+    assert_match(/do not tell them they are entered until a call returns an entry/, note)
+    assert_match(/Never use a new idempotency_key/, note)
+    assert_match(/after a few minutes.*support@turfmonster\.media/, note)
     assert_equal({ "turfmonster.media/http_status" => 202, "turfmonster.media/retry_after" => 5 }, result[:_meta])
   end
 
