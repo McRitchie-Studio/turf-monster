@@ -91,7 +91,7 @@ Server-side chains: controller → job → external → DB / on-chain.
 
 | Workflow | Entrypoint | One-liner |
 |---|---|---|
-| [live-scoring](live-scoring.md) | `bin/nfl-live-poll` | Poll ESPN → write Goals → re-score open contests → broadcast. |
+| [live-scoring](live-scoring.md) | `nfl_live_poll` cron (`bin/nfl-live-poll` by hand) | Poll ESPN → write Goals → re-score open contests → broadcast. Refuses a slot whose contest has SETTLED; `nfl_silent_gap_check` trips on a slot final at the source with zero goals here. |
 
 ## Operator / admin processes
 

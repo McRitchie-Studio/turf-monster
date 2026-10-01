@@ -29,6 +29,46 @@
 # `bin/rails solana:reconcile_contest CONTEST=<slug>` — Solana::Reconciler
 # service kept for that purpose.
 
+nfl_live_poll:
+  cron: "*/5 * * * *"    # every 5 minutes, all week, unconditionally
+  class: Nfl::LivePollJob
+  active_job: true
+  description: >-
+    ONE ESPN polling cycle, so production contests re-score without a human.
+    Until 2026-09-30 nothing in this file named the poller and bin/nfl-live-poll
+    was its only non-test caller, so contests re-scored only when an agent
+    happened to run live-score-watch — and regular-season week 2 silently
+    vanished when nobody did for six days: 16 games Final at ESPN, 16 held at
+    status=scheduled with zero goals, a contest with 7 paid entries scoring on
+    two weeks out of three. NO GAME WINDOW ON PURPOSE. A window would be derived
+    from the very data this job maintains, so a missing slate or stale kickoffs
+    would close the gate permanently and silently — the same defect in a
+    cleverer costume. One scoreboard request per tick covers the whole slot; a
+    per-game summary is spent only when a score moved (under one per cycle
+    across a full Sunday). The cycle is idempotent (plays keyed on ESPN's play
+    id under a unique index) and SKIPS any game whose every contest has
+    settled — per game, so one graded tier cannot stop the open tier beside
+    it from scoring.
+  queue: default
+
+nfl_silent_gap_check:
+  cron: "37 */6 * * *"   # every 6 hours at :37 (offset from the sweepers below)
+  class: Nfl::SilentGapCheckJob
+  active_job: true
+  description: >-
+    THE TRIPWIRE FOR A POLLER THAT STOPPED. Detects a slot whose games are FINAL
+    at ESPN but carry ZERO scoring events here — the shape of the week-2
+    incident, which raised no error, no anomaly and no degraded_feed, and would
+    have been found by a customer. A scheduled job fails silently too: on
+    2026-08-25 a merge dropped active_job: true from every entry in this file
+    and nothing ran for a day with all dashboards green, which is why this does
+    not trust nfl_live_poll's health to check it. Costs ZERO network requests on
+    a healthy week (the candidate set is one indexed query over our own
+    goal-less games). Pages through ErrorLog with the exact repair command in
+    the message; deliberately not deduplicated, so an unrepaired gap nags four
+    times a day.
+  queue: default
+
 outbound_request_sweeper:
   cron: "17 4 * * *"     # daily at 04:17 UTC (off-peak)
   class: OutboundRequestSweeperJob
