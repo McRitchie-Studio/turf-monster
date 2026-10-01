@@ -42,7 +42,7 @@ class TestController < ApplicationController
     # and the swap is PROCESS-WIDE and permanent — the e2e lane runs one shared
     # server with workers:1, so every spec file ordered after the warming one
     # would otherwise run against a live cache the test env never intended
-    # (SiteSetting 1h, board data 1h, VAULT_STATE 1m, seasons 60s, Cdp::Catalog
+    # (the site identity 1h, board data 1h, VAULT_STATE 1m, seasons 60s, Cdp::Catalog
     # 12h all persist across specs). That is an order-dependent flake, and the
     # kind that reads as "spec 40 is flaky" rather than "spec 4 changed the
     # world". reseed already runs in beforeEach across the lane, so restoring the

@@ -6,8 +6,8 @@
   # Twitter: passing `text` + `url` as separate params makes the tweet
   # composer render the URL on its own line beneath the title.
   twitter_url = "https://twitter.com/intent/tweet?text=#{encoded_title}&url=#{encoded_url}"
-  # Facebook share dialog only accepts a URL — pulls og:title/og:description
-  # from the destination page.
+  # Facebook share dialog only accepts a URL — pulls the link-preview title and
+  # description from the destination page.
   facebook_url = "https://www.facebook.com/sharer/sharer.php?u=#{encoded_url}"
   # WhatsApp takes a single text blob — newline-separate the title and link
   # so the link gets its own line in the chat message.

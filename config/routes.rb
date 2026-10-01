@@ -482,18 +482,14 @@ Rails.application.routes.draw do
     post   "impersonations/:user_slug", to: "impersonations#create",  as: :impersonate
     delete "impersonations",            to: "impersonations#destroy", as: :stop_impersonating
 
-    # Site-wide singleton config — the main_contest pointer (SeasonConfig) plus
-    # the link-preview (og:image) defaults (SiteSetting). The canonical home for
-    # any global setting that doesn't fit on a per-record edit form.
+    # Site-wide singleton config — the main_contest pointer (SeasonConfig). The
+    # canonical home for any global setting that doesn't fit on a per-record
+    # edit form. The link-preview defaults moved to studio-engine's
+    # /admin/link_preview (Studio::SiteIdentity), drawn by Studio.routes.
     get   "dashboard", to: "dashboard#show",   as: :dashboard
     patch "dashboard", to: "dashboard#update"
     get "models", to: "models#index", as: :models
     get "models/:key", to: "models#show", as: :model
-    # Link-preview (og:image) defaults — SiteSetting singleton. Text fields
-    # save via the normal patch; the image is an immediate cropper save (its
-    # own multipart endpoint, mirroring the contest banner flow).
-    patch "dashboard/link_preview",       to: "dashboard#update_link_preview",       as: :dashboard_link_preview
-    patch "dashboard/link_preview_image", to: "dashboard#update_link_preview_image", as: :dashboard_link_preview_image
 
     # NFL week board — the operator's focus-game priority list for the /live
     # scoreboard. Namespaced under `nfl` because the ranking is read through a

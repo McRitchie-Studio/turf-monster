@@ -41,6 +41,12 @@ module Nfl
       # settles a contest on a wrong score.
       Anomaly = Data.define(:kind, :detail)
 
+      # What the settled-contest guard decided about ONE row: whether to skip it,
+      # and the anomaly to report either way. A pair rather than a bare string,
+      # so "report it" and "do not write it" can be answered independently —
+      # conflating them is what made the guard veto a whole slot.
+      Verdict = Data.define(:skip, :anomaly)
+
       Result = Data.define(:slot, :games_seen, :changes, :anomalies) do
         def to_h
           {
@@ -64,9 +70,13 @@ module Nfl
 
       def self.call(...) = new(...).call
 
-      def initialize(slot: nil, client: Espn::Client.new)
+      # `allow_settled` is the deliberate override for the one case the guard
+      # below refuses. It is false everywhere except an operator who has read
+      # the seam and decided anyway — never on a schedule.
+      def initialize(slot: nil, client: Espn::Client.new, allow_settled: false)
         @slot = slot
         @client = client
+        @allow_settled = allow_settled
         @changes = []
         @anomalies = []
       end
@@ -74,11 +84,20 @@ module Nfl
       def call
         payload = fetch_scoreboard
         rows = Espn::Scoreboard.rows_from(payload)
+        slot = @slot || slot_from(rows)
 
-        rows.each { |row| process(row) }
+        verdicts = @allow_settled ? {} : settled_verdicts(rows)
+
+        rows.each do |row|
+          verdict = verdicts[row.external_id]
+          @anomalies << verdict.anomaly if verdict
+          next if verdict&.skip
+
+          process(row)
+        end
 
         Result.new(
-          slot: @slot || slot_from(rows),
+          slot: slot,
           games_seen: rows.length,
           changes: @changes,
           anomalies: @anomalies
@@ -86,6 +105,157 @@ module Nfl
       end
 
       private
+
+      # GRADING AND SETTLEMENT ARE SEPARATE ACTS, AND THIS IS THE SEAM.
+      #
+      # A cycle is idempotent about SCORING EVENTS — every play is keyed on
+      # ESPN's own id under a unique partial index, so running it twice writes
+      # nothing the second time. It is NOT idempotent about consequences: a
+      # single new or withdrawn play re-sums the game, rewrites every
+      # SlateMatchup#goals the game feeds, and re-scores every OPEN contest on
+      # those slates.
+      #
+      # So the refusal is explicit, and it is here rather than in the scheduled
+      # job, because the job is not the only caller — `bin/nfl-live-poll` is what
+      # an operator reaches for when repairing a historical slot, which is
+      # precisely when a settled contest is most likely to be in range.
+      #
+      # `status` IS THE SEAM, NOT `onchain_settled`. A contest is settled in the
+      # database the moment `grade!` finishes; the on-chain settle is attempted
+      # after and can legitimately still be pending, so a contest routinely
+      # reads `settled` with `onchain_settled` false. Keying on the on-chain flag
+      # would let a cycle walk straight through a graded, paid-out contest.
+      #
+      # ── IT IS DECIDED PER GAME, FROM THE CONTEST POPULATION ────────────────
+      #
+      # This used to be ONE question per cycle, answered before `rows.each`, and
+      # that was a reachable regression that re-created the original bug.
+      # `Slate has_many :contests` and `contests.slate_id` is not unique, so one
+      # slate carries several tiers. An admin grades tier A on Sunday evening;
+      # tier B is still open with paid entries; Monday Night Football is on the
+      # same slate. Every tick thereafter found A, refused, and wrote NOTHING —
+      # so MNF was never scored for anyone, and the games kept null slot columns,
+      # which is what the tripwire used to need to see the gap the veto had just
+      # created. The fix blinded its own alarm to itself.
+      #
+      # THE RULE, once: a game is skipped only when EVERY contest that renders it
+      # is settled. Three outcomes, and the middle one is the whole point:
+      #
+      #   no contest in range          -> process. Nobody's settlement.
+      #   settled only                 -> SKIP, one anomaly naming the game.
+      #   settled AND open             -> process, and REPORT it.
+      #
+      # The third case is not a loophole, it is a choice between two harms, and
+      # it is forced: the two tiers SHARE their SlateMatchup rows, and one row
+      # cannot be both frozen for A and current for B. Refusing costs tier B the
+      # original incident — a live paid contest scoring short forever. Proceeding
+      # costs tier A's pick-detail view a correction toward the truth, while what
+      # its money stands on does NOT move: `Game#score_affected_contests!` scopes
+      # to `status: [:open]`, so a settled contest's stored `entries.score` and
+      # `selections.points` are never recomputed. Scoring the live contest is
+      # strictly the smaller harm, and the anomaly makes the trade visible.
+      #
+      # `open` is the same vocabulary `score_affected_contests!` uses on purpose:
+      # the poller writes to OPEN contests, so it refuses exactly when there is a
+      # settled contest to protect and no open contest to serve. A `pending` tier
+      # is not scored either, so it cannot unblock a settled one.
+      #
+      # THE LONGER FUSE IS LARGELY DEFUSED BY THIS SHAPE. `Game#name_slug` for a
+      # regular-season game is bare "<home>-vs-<away>" with no year or week, so a
+      # 2026 settled contest's matchup slug is matched by a 2027 scoreboard row.
+      # Under the per-cycle veto that poisoned the whole slot. Now it can only
+      # skip a game on a slate with NO open contest — i.e. one nobody is playing,
+      # where there is nothing to score. The bare slug is pre-existing and is
+      # left alone deliberately: narrowing it is a slug migration across
+      # SlateMatchup, Selection and every settled contest's stored rows.
+      #
+      # Returns `external_id => Verdict`, with the anomaly already built, so the
+      # loop in `call` stays a loop.
+      def settled_verdicts(rows)
+        rows.each_with_object({}) do |row, verdicts|
+          # Resolved ONCE per row and handed to every lookup below. They used to
+          # be looked up up to four times per row, every five minutes, through an
+          # uncached `Team.nfl.find_by` — see #team_for.
+          home = team_for(row.home_abbr)
+          away = team_for(row.away_abbr)
+
+          slate_ids = slate_ids_for(row, home: home, away: away)
+          next if slate_ids.empty?
+
+          contests = Contest.where(slate_id: slate_ids)
+          # `.order(:slug)` because `pick` is otherwise unordered, and an anomaly
+          # naming a different contest on each tick is one an operator cannot grep.
+          settled = contests.settled.order(:slug).pick(:slug)
+          next if settled.nil?
+
+          label = GameLookup.slug_for(row, home: home, away: away) || row.external_id
+          verdicts[row.external_id] =
+            if contests.open.exists?
+              coscored(label, settled)
+            else
+              refusal(label, settled)
+            end
+        end
+      end
+
+      # Which slates this row's game is rendered on — BOTH HANDLES, unioned.
+      #
+      # The Game row we already hold is the blast radius this cycle will actually
+      # rewrite; the slug the row WOULD take is what a SlateMatchup references,
+      # and a matchup can name a slug before any Game row exists for it. Asking
+      # only the first question would walk past a settled contest whose matchup
+      # we hold and whose game we do not.
+      def slate_ids_for(row, home:, away:)
+        slugs = [
+          GameLookup.find(row, home: home, away: away)&.slug,
+          GameLookup.slug_for(row, home: home, away: away)
+        ].compact.uniq
+        return [] if slugs.empty?
+
+        SlateMatchup.where(game_slug: slugs).pluck(:slate_id).uniq
+      end
+
+      # THE GAME IS WRITTEN, AND THE TRADE IS REPORTED. Reported as an anomaly
+      # rather than raised: the CLI already prints anomalies and already treats
+      # them as non-fatal, so it lands in the watch log where an operator is
+      # looking. Not deduplicated across cycles for the same reason the refusal
+      # never was — a settled contest's matchups moving is worth saying twice.
+      def coscored(label, contest_slug)
+        Verdict.new(skip: false, anomaly: Anomaly.new(
+          kind: "settled_contest_coscored",
+          detail: "#{label}: scored for an OPEN contest on this slate, which settled contest " \
+                  "#{contest_slug} shares — so its matchup goals moved too. Its own entry " \
+                  "scores, ranks and payouts were NOT recomputed; refusing instead would leave " \
+                  "the open contest scoring short forever."
+        ))
+      end
+
+      # NOTHING IS WRITTEN FOR THIS GAME. `games_seen` stays the honest count —
+      # the scoreboard WAS read — and the other games on the slot are unaffected.
+      def refusal(label, contest_slug)
+        Verdict.new(skip: true, anomaly: Anomaly.new(
+          kind: "settled_contest",
+          detail: "#{label}: every contest on this game's slate is settled (#{contest_slug}) — " \
+                  "refusing to rewrite a graded contest's matchups. Its ranks and payouts are " \
+                  "final, and `Contest#grade!` cannot repair a disagreement: it raises on a " \
+                  "settled contest by design. Override deliberately with " \
+                  "bin/nfl-live-poll --allow-settled."
+        ))
+      end
+
+      # MEMOIZED FOR THE CYCLE. `Espn::TeamMap.team_for` is an uncached
+      # `Team.nfl.find_by`, and a 16-game slate asks for the same 32
+      # abbreviations from the settled check, the upsert, the possession write and
+      # every scoring play — every five minutes, forever. `key?` rather than `||=`
+      # so a genuinely unmapped abbreviation is remembered as nil instead of
+      # re-queried on each ask.
+      def team_for(abbreviation)
+        @team_cache ||= {}
+        key = abbreviation.to_s
+        return @team_cache[key] if @team_cache.key?(key)
+
+        @team_cache[key] = Espn::TeamMap.team_for(key)
+      end
 
       attr_reader :client
 
@@ -189,11 +359,11 @@ module Nfl
       # poller would build a parallel set of games that no contest points at,
       # and scores would update nothing.
       def upsert_game(row)
-        home = Espn::TeamMap.team_for(row.home_abbr)
-        away = Espn::TeamMap.team_for(row.away_abbr)
+        home = team_for(row.home_abbr)
+        away = team_for(row.away_abbr)
 
         unless home && away
-          missing = [row.home_abbr, row.away_abbr].reject { |a| Espn::TeamMap.team_for(a) }
+          missing = [row.home_abbr, row.away_abbr].reject { |a| team_for(a) }
           @anomalies << Anomaly.new(kind: "unknown_team", detail: missing.join(", "))
           return nil
         end
@@ -228,22 +398,15 @@ module Nfl
       def possession_slug_for(row)
         return nil if row.possession_abbr.blank?
 
-        Espn::TeamMap.team_for(row.possession_abbr)&.slug
+        team_for(row.possession_abbr)&.slug
       end
 
-      # Lookup order matters and is shared by `process` and `upsert_game`:
-      # `external_id` first because it is collision-proof, then the computed
-      # slug so an odds-CSV game is adopted rather than duplicated.
-      def find_game(row)
-        by_id = Game.find_by(external_id: row.external_id)
-        return by_id if by_id
-
-        home = Espn::TeamMap.team_for(row.home_abbr)
-        away = Espn::TeamMap.team_for(row.away_abbr)
-        return nil unless home && away
-
-        Game.find_by(slug: slug_for(row, home, away))
-      end
+      # Lookup order matters and is shared by `process`, `upsert_game` and
+      # `slate_ids_for`. It lives in `GameLookup` because
+      # `SilentGapCheck` asks the same question from outside this class, and a
+      # copy that lost the slug fallback would silently answer "no such game"
+      # about exactly the rows the 2026 week-2 incident was made of.
+      def find_game(row) = GameLookup.find(row, home: team_for(row.home_abbr), away: team_for(row.away_abbr))
 
       # GAME STATE ONLY MOVES FORWARD.
       #
@@ -269,12 +432,9 @@ module Nfl
         game.status
       end
 
-      def slug_for(row, home, away)
-        Game.new(
-          home_team_slug: home.slug, away_team_slug: away.slug,
-          season_type: row.season_type, week: row.week
-        ).name_slug
-      end
+      # Both teams are already resolved by the one caller left, so they are
+      # handed in rather than looked up a second time.
+      def slug_for(row, home, away) = GameLookup.slug_for(row, home: home, away: away)
 
       def score_disagrees?(game, row)
         return false unless scores_known?(row)
@@ -375,7 +535,7 @@ module Nfl
       end
 
       def record_play(game, row, play)
-        team = Espn::TeamMap.team_for(play.team_abbr)
+        team = team_for(play.team_abbr)
         unless team
           @anomalies << Anomaly.new(kind: "unknown_team", detail: play.team_abbr.to_s)
           return

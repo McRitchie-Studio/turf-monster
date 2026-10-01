@@ -4,34 +4,47 @@ const path = require("path");
 
 const OG_IMAGE = path.join(__dirname, "..", "test", "fixtures", "files", "banner_wide.png");
 
-// Admin link-preview (og:image) uploader on /admin/dashboard (the shared
-// admin/shared/_og_image_uploader partial). Same crop-photo flow as the contest
-// banner: "Edit image" opens the modal, the file drops in, "Crop & Save" saves
-// immediately (update_link_preview_image) then toasts + refreshes the preview
-// via Turbo Stream. In test the image lands on the Disk service
+// The site-wide link-preview image, set at /admin/link_preview (studio-engine's
+// site identity page, linked from this app's admin menu since
+// /tasks/turf-adopts-link-preview; it replaced the uploader that lived on
+// /admin/dashboard). Same crop-photo flow as the contest banner: the upload
+// button opens the modal, the file drops in, "Crop & Save" submits the page's
+// own multipart form. In test the image lands on the Disk service
 // (OgImageAttachable::PUBLIC_OG_SERVICE = :test) — no S3.
 test.beforeEach(async ({ request }) => await reseed(request));
 
-test.describe("Admin link-preview (og:image) uploader", () => {
-  test("admin crops + saves the default og:image and the preview refreshes", async ({ page }) => {
+test.describe("Admin link-preview default image", () => {
+  test("admin crops + saves the default image, and an unbannered page unfurls with it", async ({ page, browser }) => {
     await loginAdmin(page);
     await page.goto("/admin/dashboard");
+    await page.getByRole("link", { name: "Edit link preview" }).click();
+    await expect(page).toHaveURL(/\/admin\/link_preview$/);
 
-    await page.getByRole("button", { name: "Edit image" }).click();
+    await page.locator("[data-link-preview-upload]").click();
     await page.locator('input[type="file"][accept="image/*"]').setInputFiles(OG_IMAGE);
     await expect(page.locator(".cropper-container")).toBeVisible();
 
-    // Crop & Save -> loading card -> Turbo upload response -> success toast -> refreshed preview <img>.
     const imageSave = page.waitForResponse((response) =>
       ["PATCH", "POST"].includes(response.request().method()) &&
-      response.url().includes("/admin/dashboard/link_preview_image")
+      new URL(response.url()).pathname === "/admin/link_preview"
     );
     await page.getByRole("button", { name: /Crop.*Save/ }).click();
-    await expect(page.getByText("Saving image")).toBeVisible();
     const imageResponse = await imageSave;
-    expect(imageResponse.ok()).toBeTruthy();
-    await expect(page.getByText("Image updated")).toBeVisible({ timeout: 15_000 });
-    await expect(page.locator("#default-og-image-preview img")).toBeVisible();
+    expect(imageResponse.status()).toBeLessThan(400);
+    // The live card now draws the uploaded picture.
+    await expect(page.locator("[data-link-preview-card-image]")).toBeVisible({ timeout: 15_000 });
+
+    // READ A PAGE AS AN UNFURLER DOES: signed out, in a fresh context, on a
+    // page that sets no image of its own.
+    const visitor = await browser.newContext();
+    const visitorPage = await visitor.newPage();
+    await visitorPage.goto("/terms");
+    const ogImage = await visitorPage.locator('meta[property="og:image"]').getAttribute("content");
+    expect(ogImage).not.toContain("/og.png");
+    const picture = await visitorPage.request.get(ogImage);
+    expect(picture.status()).toBe(200);
+    expect(picture.headers()["content-type"]).toMatch(/^image\//);
+    await visitor.close();
   });
 });
 

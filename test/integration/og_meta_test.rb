@@ -1,15 +1,24 @@
 require "test_helper"
 
-# End-to-end wiring: the og:image/title/description that OgHelper resolves
-# actually reach the rendered <head> in BOTH layouts (application + landing).
+# End-to-end wiring: the link-preview image, title and description resolved by
+# studio-engine (the page override, then Studio::SiteIdentity, then the drafted
+# copy and the static /og.png) actually reach the rendered <head> in BOTH
+# layouts (application + landing), exactly once.
 class OgMetaTest < ActionDispatch::IntegrationTest
   setup do
-    SiteSetting.instance.update!(default_og_title: nil, default_og_description: nil)
-    SiteSetting.instance.default_og_image.purge if SiteSetting.instance.default_og_image.attached?
+    Studio::SiteIdentity.delete_all
   end
 
   def og_image_content
-    css_select("meta[property='og:image']").first["content"]
+    tags = css_select("meta[property='og:image']")
+    assert_equal 1, tags.size, "expected exactly one og:image tag, got #{tags.size}"
+    tags.first["content"]
+  end
+
+  def attach_site_image(filename = "site-og.png")
+    Studio::SiteIdentity.current!.image.attach(
+      io: file_fixture("banner.png").open, filename: filename, content_type: "image/png"
+    )
   end
 
   # --- application layout (faucet is a public GET on the app layout) ---
@@ -17,26 +26,22 @@ class OgMetaTest < ActionDispatch::IntegrationTest
   test "application layout falls back to the static og.png by default" do
     get faucet_path
     assert_response :success
+    assert og_image_content.start_with?("http"), "og:image must be absolute, got #{og_image_content}"
     assert og_image_content.end_with?("/og.png"), "expected static fallback, got #{og_image_content}"
-    # Static fallback is the only case that emits fixed dimensions.
-    assert_select "meta[property='og:image:width'][content='1200']"
+    # With nothing saved, the drafted copy in the studio initializer answers.
+    assert_select "meta[property='og:description'][content=?]", Studio.site_description
   end
 
-  test "application layout uses the SiteSetting default image when one is uploaded" do
-    SiteSetting.instance.default_og_image.attach(
-      io: file_fixture("banner.png").open, filename: "site-og.png", content_type: "image/png"
-    )
+  test "application layout uses the site identity image when one is uploaded" do
+    attach_site_image
     get faucet_path
     assert_response :success
-    assert_not og_image_content.end_with?("/og.png"), "expected the uploaded default, got the static fallback"
-    # Uploaded images have unknown dimensions — no fixed width/height emitted.
-    assert_select "meta[property='og:image:width']", count: 0
+    assert og_image_content.start_with?("http"), "og:image must be absolute, got #{og_image_content}"
+    assert_includes og_image_content, "site-og.png"
   end
 
-  test "admin-set default description fills in; a page's own title still wins" do
-    SiteSetting.instance.update!(
-      default_og_title: "Admin Title", default_og_description: "Admin Description"
-    )
+  test "operator-set default description fills in; a page's own title still wins" do
+    Studio::SiteIdentity.current!.update!(title: "Admin Title", description: "Admin Description")
     get faucet_path
     assert_response :success
     # Faucet sets its own title (page-specific wins over the site default) but
@@ -68,9 +73,7 @@ class OgMetaTest < ActionDispatch::IntegrationTest
   end
 
   test "a contest unfurls with its own banner, composed into the card" do
-    SiteSetting.instance.default_og_image.attach(
-      io: file_fixture("banner.png").open, filename: "site-og.png", content_type: "image/png"
-    )
+    attach_site_image
     contest = attach_banner(contests(:one), "contest-banner.png")
 
     get contest_path(contest)
@@ -79,11 +82,19 @@ class OgMetaTest < ActionDispatch::IntegrationTest
     # route — not the site default, and not the raw blob.
     assert_includes og_image_content, "/representations/proxy/"
     assert_not_includes og_image_content, "site-og.png"
-    # An upload of composed size must not claim the static default's dimensions.
-    assert_select "meta[property='og:image:width']", count: 0
   end
 
-  test "a contest with no banner still falls back to the site default" do
+  test "a contest with no banner falls back to the site identity image" do
+    attach_site_image
+    get contest_path(contests(:one))
+    assert_response :success
+    assert_includes og_image_content, "site-og.png",
+                    "an unbannered contest must unfurl with the site identity's image"
+    # ...while keeping its own words.
+    assert_select "meta[property='og:title'][content=?]", "#{contests(:one).name} — Turf Monster"
+  end
+
+  test "a contest with no banner and no site image keeps the static fallback" do
     get contest_path(contests(:one))
     assert_response :success
     assert og_image_content.end_with?("/og.png"),
@@ -129,9 +140,7 @@ class OgMetaTest < ActionDispatch::IntegrationTest
   # --- landing layout (per-page override wins) ---
 
   test "landing layout uses the per-page og image over the site default" do
-    SiteSetting.instance.default_og_image.attach(
-      io: file_fixture("banner.png").open, filename: "site-og.png", content_type: "image/png"
-    )
+    attach_site_image
     lp = landing_pages(:launch)
     lp.og_image.attach(
       io: file_fixture("banner_wide.png").open, filename: "page-og.png", content_type: "image/png"
@@ -146,9 +155,29 @@ class OgMetaTest < ActionDispatch::IntegrationTest
     assert_not_includes og_image_content, "site-og.png"
   end
 
+  test "landing layout falls back to the site identity image when the page has none" do
+    attach_site_image
+    get landing_page_path(landing_pages(:launch))
+    assert_response :success
+    assert_includes og_image_content, "site-og.png"
+  end
+
   test "landing layout falls back to the static og.png when nothing is uploaded" do
     get landing_page_path(landing_pages(:launch))
     assert_response :success
     assert og_image_content.end_with?("/og.png")
+  end
+
+  # --- pages that used to write their own tags now override through the engine ---
+
+  test "the contract page unfurls with its own description and the site image" do
+    get contract_path
+    assert_response :success
+    assert_select "meta[property='og:title'][content='The Contract — Turf Monster']"
+    assert_select "meta[property='og:description']" do |tags|
+      assert_equal 1, tags.size
+      assert_includes tags.first["content"], "The exact smart contract"
+    end
+    assert og_image_content.end_with?("/og.png"), "the 1.3 MB /logo.png is no longer the card"
   end
 end

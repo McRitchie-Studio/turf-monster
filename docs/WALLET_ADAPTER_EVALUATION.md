@@ -342,8 +342,8 @@ device with Phantom or Solflare.
 **This app's JS setup, for reference:** importmap-rails with 20 local pins and
 no CDN pins (`config/importmap.rb`). `@solana/web3.js@1.98.4` and
 `tweetnacl@1.0.3` load as SRI-pinned IIFE tags
-(`app/views/layouts/application.html.erb:52-57`). The gem's transport files load
-through sprockets, one `javascript_include_tag` each (`:81-84`). There is no bundler:
+(`app/views/layouts/application.html.erb:37-42`). The gem's transport files load
+through sprockets, one `javascript_include_tag` each (`:66-69`). There is no bundler:
 `package.json` holds Playwright, tweetnacl (dev) and Tailwind only.
 
 ---

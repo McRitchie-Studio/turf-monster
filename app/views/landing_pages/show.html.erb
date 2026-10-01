@@ -1,9 +1,9 @@
 <% page_title = @landing_page.headline.presence || @landing_page.name %>
 <% content_for :title, "#{page_title} — Turf Monster" %>
-<%# Drive the unfurl metadata through the layout's canonical og/twitter tags
-    (title from :title, description from :meta_description, image from the
-    default landscape og.png with width/height). Emitting og:title/og:type/
-    og:image here too would duplicate those tags and pin a stale image. %>
+<%# The unfurl reads its title from :title and its description from
+    :meta_description; layouts/landing passes the page's own preview image.
+    Writing preview tags here too would duplicate the engine's and pin a stale
+    image. %>
 <% content_for :meta_description, @landing_page.subheadline if @landing_page.subheadline.present? %>
 
 <%= render "landing_pages/backgrounds/#{@landing_page.background_partial}" %>

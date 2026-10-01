@@ -4,7 +4,9 @@ require "test_helper"
 # with WebKit 102 "Frame load interrupted", and a production contest page was
 # 1,224,381 bytes, so contest links never previewed in Messages. Preview bots
 # now get a slim document of just the identity/og tags; people keep the full
-# page. See LinkPreviewBot and layouts/_link_preview_document.
+# page. The slim page is studio-engine's (Studio::LinkPreviewBots, included in
+# ApplicationController), built from the rendered page's own head, so the
+# contest's overrides and the site identity both reach it.
 class LinkPreviewSlimPageTest < ActionDispatch::IntegrationTest
   LINK_PRESENTATION_LIMIT = 1_048_576 # measured: 1,048,000 bytes previews, 1,049,000 fails
 
@@ -19,9 +21,14 @@ class LinkPreviewSlimPageTest < ActionDispatch::IntegrationTest
   FULL_PAGE_MARKER = 'id="session-context"'.freeze
 
   setup do
-    SiteSetting.instance.update!(default_og_title: nil, default_og_description: nil)
-    SiteSetting.instance.default_og_image.purge if SiteSetting.instance.default_og_image.attached?
+    Studio::SiteIdentity.delete_all
     @contest = contests(:one)
+  end
+
+  def attach_site_image
+    Studio::SiteIdentity.current!.image.attach(
+      io: file_fixture("banner.png").open, filename: "site-og.png", content_type: "image/png"
+    )
   end
 
   def get_contest_as(user_agent, contest = @contest)
@@ -49,6 +56,13 @@ class LinkPreviewSlimPageTest < ActionDispatch::IntegrationTest
     assert_select "body h1", text: "#{@contest.name} — Turf Monster"
     assert_select "script", count: 0
     assert_select "template", count: 0
+    assert_select "style", count: 0
+    assert_equal "slim", response.headers["X-Studio-Link-Preview"]
+    assert_includes response.headers["Vary"].to_s, "User-Agent"
+    # Each preview tag exactly once: the app writes none of its own any more.
+    %w[og:title og:image og:description].each do |property|
+      assert_select "meta[property='#{property}']", count: 1
+    end
   end
 
   test "the slim page is a small fraction of the full page a person gets for the same contest" do
@@ -70,21 +84,46 @@ class LinkPreviewSlimPageTest < ActionDispatch::IntegrationTest
     assert_select "meta[property='og:title'][content=?]", "#{@contest.name} — Turf Monster"
   end
 
-  test "a bannered contest gives the slim page its own banner, not the site default" do
-    SiteSetting.instance.default_og_image.attach(
-      io: file_fixture("banner.png").open, filename: "site-og.png", content_type: "image/png"
-    )
+  test "a bannered contest gives the slim page its own banner and title, not the site default" do
+    attach_site_image
     @contest.contest_image.attach(
       io: file_fixture("banner_wide.png").open, filename: "contest-banner.png", content_type: "image/png"
     )
 
+    body = get_contest_as(IMESSAGE)
+
+    assert_operator body.bytesize, :<, LINK_PRESENTATION_LIMIT
+    assert_not_includes body, FULL_PAGE_MARKER
+    assert_equal "slim", response.headers["X-Studio-Link-Preview"]
+    assert_select "meta[property='og:title'][content=?]", "#{@contest.name} — Turf Monster"
+    assert_select "meta[property='og:image']", count: 1 do |tags|
+      assert_includes tags.first["content"], "/representations/proxy/"
+      assert_not_includes tags.first["content"], "site-og.png"
+    end
+    assert_select "meta[name='twitter:image']" do |tags|
+      assert_includes tags.first["content"], "/representations/proxy/"
+    end
+  end
+
+  test "a contest without a banner gives the slim page the site identity image" do
+    attach_site_image
+
     body = get_contest_as(DISCORD)
 
     assert_not_includes body, FULL_PAGE_MARKER
-    assert_select "meta[property='og:image']" do |tags|
-      assert_includes tags.first["content"], "/representations/proxy/"
+    assert_select "meta[property='og:title'][content=?]", "#{@contest.name} — Turf Monster"
+    assert_select "meta[property='og:image']", count: 1 do |tags|
+      assert tags.first["content"].start_with?("http"), "og:image must be absolute"
+      assert_includes tags.first["content"], "site-og.png"
     end
-    assert_select "meta[property='og:image:width']", count: 0
+  end
+
+  test "an in-app browser is a person, not a preview bot" do
+    facebook_in_app = "#{IPHONE} [FBAN/FBIOS;FBAV/450.0.0.0]"
+    body = get_contest_as(facebook_in_app)
+
+    assert_includes body, FULL_PAGE_MARKER
+    assert_nil response.headers["X-Studio-Link-Preview"]
   end
 
   test "the root redirect lands a preview bot on the slim contest page" do

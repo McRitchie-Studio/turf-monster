@@ -10,10 +10,11 @@
   edit_mode = @edit_entry.present?
 %>
 
-<%# Link preview (og:image): this contest's own banner, composed into the
-    1200x630 card. The application layout reads content_for(:og_image) as its
-    page-level override, so nil here — a contest with no banner — falls through
-    to the admin default and then to /og.png exactly as before.
+<%# Link preview image: this contest's own banner, composed into the
+    1200x630 card. studio-engine's link preview reads content_for(:og_image) as
+    the page-level override, so nil here — a contest with no banner — falls
+    through to the site identity's image (/admin/link_preview) and then to
+    /og.png exactly as before.
 
     THE ROOT URL INHERITS THIS, which is why "/" needs no tags of its own:
     ContestsController#world_cup 302s to Contest.featured (the contest pinned at
