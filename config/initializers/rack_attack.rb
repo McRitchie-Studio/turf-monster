@@ -310,8 +310,9 @@ class Rack::Attack
   # reads the mark: one cache read, no database. A marked key is a player and
   # is limited by mcp/key alone. An unmarked one counts against the address
   # until its first request succeeds, which costs a real player one request of
-  # the 30. A revoked or expired key keeps its mark until it lapses; all that
-  # buys is 120 401s a minute.
+  # the 30. A marked key that then FAILS authentication (revoked, expired,
+  # deleted) has its mark removed by that 401 (mcp_clear_verified), so from its
+  # next request it is an unknown key again and counts against its address.
   #
   # WHAT THIS DOES NOT STOP. Anthropic's range is not only claude.ai: anyone
   # with an Anthropic API key can point the API's MCP connector at this
@@ -370,6 +371,19 @@ class Rack::Attack
     cache.write(mcp_verified_cache_key(digest), 1, MCP_VERIFIED_TTL) if digest
   rescue StandardError => e
     Rails.logger.warn("[rack-attack] mcp verified mark failed: #{e.class}")
+  end
+
+  # Called by McpController when a bearer key fails authentication. A cache
+  # delete only when this request read a mark, so a made-up key costs nothing.
+  def self.mcp_clear_verified(req)
+    return unless enabled
+    return unless req.env["mcp.key_verified"]
+
+    digest = api_key_discriminator(req)
+    cache.delete(mcp_verified_cache_key(digest)) if digest
+    req.env["mcp.key_verified"] = false
+  rescue StandardError => e
+    Rails.logger.warn("[rack-attack] mcp verified clear failed: #{e.class}")
   end
 
   # A batch reached the app as ONE request and was counted once. Charge the

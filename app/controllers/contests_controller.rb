@@ -1048,7 +1048,7 @@ class ContestsController < ApplicationController
       active_count = @contest.entries.where(status: [:active, :complete]).count
       raise "Contest is full" if @contest.max_entries && active_count >= @contest.max_entries
 
-      # Validate selections
+      entry.assert_selections_pickable! # validate selections: a legacy cart's later-week row is refused HERE, before the wallet prompt
       raise "Exactly #{@contest.picks_required} selections required" unless entry.selections.count == @contest.picks_required
       entry.selections.includes(slate_matchup: :game).each do |s|
         raise "#{s.slate_matchup.team.name}'s game has already started" if s.slate_matchup.locked?

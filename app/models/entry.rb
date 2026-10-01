@@ -53,9 +53,9 @@ class Entry < ApplicationRecord
     elsif selections.count < contest.picks_required
       selections.create!(slate_matchup: slate_matchup)
     else
-      # Replace oldest selection
-      selections.order(created_at: :asc).first.destroy!
-      selections.create!(slate_matchup: slate_matchup)
+      # Replace the oldest selection, or change nothing: one transaction, so a
+      # refused create does not cost the player the pick it was to replace.
+      replace_oldest_selection!(slate_matchup)
     end
 
     reload
@@ -423,5 +423,26 @@ class Entry < ApplicationRecord
 
       raise Refusal.new(:invalid_picks, "#{slate_matchup.team.name} is not a pickable matchup in this contest")
     end
+  end
+
+  # #toggle_selection!'s replace branch. The create can still be refused after
+  # #assert_pickable! has passed: a cart built before that gate can hold a team
+  # by a later-week row, and the team's pickable row then breaks
+  # Selection#team_unique_within_entry. Destroy-then-create outside a
+  # transaction left that cart one pick short.
+  def replace_oldest_selection!(slate_matchup)
+    transaction do
+      selections.order(created_at: :asc).first.destroy!
+      selections.create!(slate_matchup: slate_matchup)
+    end
+  end
+
+  public
+
+  # The pickable-row gate of #assert_enterable!, on its own, for a caller that
+  # runs its own pre-flight instead of that method: ContestsController#prepare_entry
+  # (the wallet path), which must refuse before it builds a transaction.
+  def assert_selections_pickable!
+    assert_pickable!(*selections.includes(:slate_matchup).map(&:slate_matchup))
   end
 end

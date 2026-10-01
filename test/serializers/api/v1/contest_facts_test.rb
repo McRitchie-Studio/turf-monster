@@ -60,6 +60,32 @@ class Api::V1::ContestFactsTest < ActiveSupport::TestCase
     assert_equal 6, facts_for(@contest).picks_required(@contest)
   end
 
+  # A pick is a TEAM. A span slate with fewer than six teams has more ROWS than
+  # teams, and counting rows asked for picks nobody could make.
+  test "agrees with the model on a span slate with fewer than six teams: one pick per team" do
+    build_span_contest!(@contest)
+    @contest.slate.slate_matchups.where(team_slug: %w[team-e team-f]).destroy_all
+    assert_equal [8, 4], [@contest.matchups.count, @contest.pickable_matchup_ids.size]
+
+    assert_agrees_with_model(@contest, "four-team span")
+    assert_equal 4, Contest.find(@contest.id).picks_required
+    assert_equal 4, facts_for(@contest).picks_required(@contest)
+  end
+
+  # No shape that exists today changes its number: rows and teams differ only
+  # on a span, and a span of six or more teams is capped at six either way.
+  test "picks_required is unchanged for every shape counted by rows before" do
+    assert_equal 6, Contest.find(@contest.id).picks_required, "single week, six teams"
+
+    extra_matchups
+    assert_equal 6, Contest.find(@contest.id).picks_required, "single week, eight teams"
+
+    build_span_contest!(@contest)
+    assert_equal 6, Contest.find(@contest.id).picks_required, "span, six teams"
+    span_row(@contest, "team-a", week: 2).destroy!
+    assert_equal 6, Contest.find(@contest.id).picks_required, "span with a bye"
+  end
+
   test "with no starts_at the lock is the slate's first kickoff, as the model says" do
     build_span_contest!(@contest, week_one_kickoff: 2.days.from_now)
     @contest.update!(starts_at: nil)
