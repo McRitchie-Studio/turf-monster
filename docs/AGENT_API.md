@@ -11,7 +11,7 @@ endpoint are later pieces of the same epic and build on what is here.
 ## The key
 
 A player creates a key on their account page (`/account`, the **Agent API keys**
-card) and hands it to their agent.
+card), gives it a name, and hands it to their agent.
 
 | Property | Value |
 |----------|-------|
@@ -19,6 +19,7 @@ card) and hands it to their agent.
 | Shown | Once, on the page that answers the create request. It cannot be recovered. |
 | Stored | A SHA-256 digest and the first 10 characters (the display prefix). Never the key. |
 | Lifetime | 90 days from creation |
+| Name | Required, up to 40 characters. It is how the player tells their keys apart. |
 | Limit | 5 active keys per player |
 | Revoke | Any time, from the same card. Takes effect on the next request. |
 
@@ -132,8 +133,9 @@ This endpoint is read-only, so it answers for a frozen account.
 | Key model | `app/models/api_key.rb` |
 | Bearer authentication, the error envelope, the freeze gate | `app/controllers/concerns/api_key_authentication.rb` |
 | API base controller | `app/controllers/api/v1/base_controller.rb` |
-| Create and revoke (the eligibility gates) | `app/controllers/api_keys_controller.rb` |
-| Account card | `app/views/accounts/_api_keys_section.html.erb` |
+| Create and revoke | `app/controllers/api_keys_controller.rb` |
+| The eligibility gates, one answer for the card and the server | `ApplicationController#api_key_mint_blocker` |
+| Account card (a Turbo Frame; every `ApiKeysController` response carries it, so create, revoke and passing the age gate update the card in place) | `app/views/accounts/_api_keys_section.html.erb` |
 | Throttles | `config/initializers/rack_attack.rb` (`api/key`, `api/ip`, `api_key_mint/ip`) |
 
 To add an endpoint, subclass `Api::V1::BaseController` and add the route inside
