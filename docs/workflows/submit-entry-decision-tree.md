@@ -7,17 +7,19 @@
 > stops landing inside the definition its prose names. The ASCII trees stay
 > uncited so they remain readable; the table under each one carries the citations
 > for its branches.
-> That symbol check reaches **64 of the 67 citations** here. The other **3** sit in
+> That symbol check reaches **77 of the 80 citations** here. The other **3** sit in
 > code with no enclosing definition the guard can derive: one
 > `lib/tasks/entries.rake` task body, plus **All 2 citations on
 > `app/javascript/solana_utils.js`** — a `.js` file, where the guard reads no
 > definitions at all because it parses only `.rb` and inline JS in `.erb`. Those ride
 > the weaker LITERAL fallback: it proves the words the prose quotes are present in
 > the cited lines, not that the code is. The symbol branch here is also WIDE in
-> places: every row of the §2 and §3 tables lands inside one long action
-> (`#enter` is 223 lines, `#prepare_entry` 148, `#confirm_onchain_entry` 119), so a
+> places: the `#enter` rows of §2 and every row of §3 land inside one long action
+> (`#enter` is 176 lines, `#prepare_entry` 163, `#confirm_onchain_entry` 140), so a
 > green row proves the number is inside the right action, not that it is on the
-> right line — each was read against the code by hand on 2026-09-09.
+> right line — each was read against the code by hand on 2026-09-09, and the
+> `Entries::ManagedEntry` and `Entries::ApiSubmission` rows (§2, §2a) on
+> 2026-10-01, when that code was lifted out of `#enter`.
 >
 > **Cited since 2026-09-09.** Until then this document named its symbols and pointed
 > at none of them, which made it invisible to the guard rather than weakly checked.
@@ -26,7 +28,9 @@
 
 Written 2026-06-11, the day the full web3 path was proven on mainnet (three
 prod-only blockers fixed the same morning — see "Mainnet-only behaviors" at the
-bottom). Source of truth: `ContestsController#enter`, `#prepare_entry`,
+bottom). Source of truth: `ContestsController#enter`, `Entries::ManagedEntry`
+(the gate-fund-confirm path `#enter` and the agent API share, since
+2026-10-01), `Entries::ApiSubmission`, `#prepare_entry`,
 `#confirm_onchain_entry`, `#recover_pending_entry`, `Solana::Vault`
 (`cosign_expectation`, `cosign_and_broadcast_entry`), `Solana::Cosign::Expectation`,
 `Entries::OnchainReconcileJob` / `OnchainReconciler`.
@@ -66,7 +70,7 @@ Currency pick (web3): USDC-first, USDT only when the contest's `accepts_usdt`
 is true (contests created before 2026-06-11 are USDC-only forever — their
 on-chain `entry_fee_by_currency[1]` is zero and immutable).
 `ContestsController#prepare_entry` enforces it server-side
-(`app/controllers/contests_controller.rb:1055-1065`).
+(`app/controllers/contests_controller.rb:1008-1018`).
 
 ## 2. Web2 / managed path — `POST enter` (server signs, synchronous)
 
@@ -78,7 +82,8 @@ enter
 ├─ onchain_session?              → 422 "use prepare_entry" (a wallet session
 │                                   never enters here — it signs its own tx)
 ├─ self-custody account, web2 session? → 422 + web3_step_up_required blocker
-└─ contest.with_lock              (serialized per contest)
+└─ Entries::ManagedEntry#call    (the SAME path the agent API takes — §2a)
+   contest.with_lock              (serialized per contest)
     ├─ assert_enterable!          ← ALL read-only gates BEFORE any spend:
     │     picks == 6, no started games, lock time, contest full,
     │     per-user entry limit, duplicate combo
@@ -88,14 +93,15 @@ enter
         ├─ managed wallet + has unconsumed token
         │    → enter_contest_with_token   ★ IRREVERSIBLE: atomic consume + entry + seeds
         │      (no USDC moves — the token IS the payment; cache busted after)
-        ├─ managed wallet, no token, AppFlags.web2_usdc_entry? on
+        ├─ managed wallet, no token, USDC allowed by the caller (the browser:
+        │  AppFlags.web2_usdc_entry? on; the API: that AND allow_usdc)
         │    → balance pre-check, then enter_contest_with_usdc (server signs
         │      with the encrypted keypair)   ★ IRREVERSIBLE: USDC transfer
         │      (USDT in the web2 path is a phase-2 task — web3 only today)
         └─ neither → raise "No entry tokens. Buy at /tokens/buy"
 ─ durable capture (OUTSIDE the lock): entry.update!(onchain_tx_signature,
   onchain_entry_id) — the paid-proof survives anything that fails after this
-─ finalize_managed_entry! → Entry#confirm! (re-runs the same gates as backstop)
+─ ManagedEntry#finalize! → Entry#confirm! (re-runs the same gates as backstop)
     ├─ success → entry active, chat announce, seeds/token client fanout
     └─ TRANSIENT failure after the spend → entry stays `cart` WITH signature
          → Entries::OnchainReconcileJob.perform_later(entry.id)   (§5.2)
@@ -108,30 +114,91 @@ the no-token branch as an unconditional `enter_contest` USDC transfer; that bran
 is `enter_contest_with_usdc`, gated behind a flag, and with the flag off the path
 raises "No entry tokens" instead.
 
-| Branch | Where — each row names its owner; `ContestsController#enter` is `app/controllers/contests_controller.rb:763-985` |
+| Branch | Where — each row names its owner; `ContestsController#enter` is `app/controllers/contests_controller.rb:763-938` |
 |---|---|
 | contest cancelled → 422 | `#enter` at `:767-770` |
 | self-custodied → 422 + `self_custodied` | `#enter` at `:792-798` |
 | cart entry; survivor auto-creates | `#enter` at `:800-804` |
 | `onchain_session?` → 422 "use prepare_entry" | `#enter` at `:834-840` |
 | self-custody account in a web2 session → `web3_step_up_required` | `#enter` at `:885-892` |
-| `@contest.with_lock` | `#enter` at `:917` |
-| `assert_enterable!` pre-flight — `Entry#assert_enterable!` | `#enter` at `:920`; definition `app/models/entry.rb:125-159` |
-| season configured? | `#enter` at `app/controllers/contests_controller.rb:925-928` |
-| paid contest with no on-chain PDA → refuse | `#enter` at `:934-936` |
-| payment branch — `ContestsController#resolve_web2_entry_funding!` | `:1996-2068` |
-| token → `Solana::Vault#enter_contest_with_token` | `#resolve_web2_entry_funding!` at `:2013-2024` |
-| no token, `AppFlags.web2_usdc_entry?` → `Solana::Vault#enter_contest_with_usdc` | `#resolve_web2_entry_funding!` at `:2025-2064` |
-| neither → "No entry tokens" | `#resolve_web2_entry_funding!` at `:2066` |
-| durable capture, OUTSIDE the lock | `#enter` at `:954` |
-| `ContestsController#finalize_managed_entry!` → `Entry#confirm!` | `:2167-2193` |
-| transient failure after the spend → `Entries::OnchainReconcileJob.perform_later` | `#finalize_managed_entry!` at `:2192` |
+| hand-off to `Entries::ManagedEntry#call`, inside `rescue_and_log` | `#enter` at `:909` |
+| `@contest.with_lock` — `Entries::ManagedEntry#call` is `app/services/entries/managed_entry.rb:67-118` | `#call` at `:77` |
+| `assert_enterable!` pre-flight — `Entry#assert_enterable!` | `Entries::ManagedEntry#call` at `:82`; definition `app/models/entry.rb:125-159` |
+| season configured? | `Entries::ManagedEntry#call` at `app/services/entries/managed_entry.rb:87-92` |
+| paid contest with no on-chain PDA → refuse | `#call` at `:98-100` |
+| payment branch — `Entries::ManagedEntry#fund!` | `:150-229` |
+| token → `Solana::Vault#enter_contest_with_token` | `#fund!` at `:169-184` |
+| no token, USDC allowed → `Solana::Vault#enter_contest_with_usdc` | `#fund!` at `:185-222` |
+| neither → "No entry tokens" | `#fund!` at `:224` |
+| durable capture, OUTSIDE the lock | `#call` at `:112` |
+| `Entries::ManagedEntry#finalize!` → `Entry#confirm!` | `:240-266` |
+| transient failure after the spend → `Entries::OnchainReconcileJob.perform_later` | `#finalize!` at `:265` |
 
 **Why the gate ordering is sacred:** incident 2026-06-08 — the consume ran
 before a validation gate; the gate then failed and the user was paid-on-chain
 but `cart` in the app. A reconciler cannot heal a *genuine* validation failure
 (re-running hits the same gate), so all reversible gates run BEFORE the spend,
 and only *transient* post-spend failures are left for the reconciler.
+
+## 2a. Agent API — `POST /api/v1/contests/:slug/entries` (same path, no cart, one spend per key)
+
+The contract an agent sees is in [`docs/AGENT_API.md`](../AGENT_API.md). This is
+what it does to the tree above.
+
+```
+create (Api::V1::EntriesController)
+├─ frozen account → 403 · age gate on, unverified → 403        (before anything)
+├─ no / malformed Idempotency-Key, matchup_ids, allow_usdc → 400 (nothing recorded)
+└─ Entries::ApiSubmission#call
+    ├─ acquire, under the PLAYER row lock: one ApiEntryRequest per (player, key)
+    │    same key, different body        → 409 idempotency_key_reused
+    │    succeeded                       → replay the stored 201, run nothing
+    │    a request of this player's for this contest is in flight → 409
+    ├─ a doubt left by an earlier attempt is settled FIRST (never spend past it)
+    │    entry row on file               → finish confirming it (reconciler)
+    │    paid ticket on chain, no row    → build the entry on it (adopt)
+    │    transaction could still land    → 503, spend nothing
+    ├─ gates that need no entry row: survivor, cancelled, coming soon, not open,
+    │    locked, picks not six pickable ids, wallet the server cannot sign for
+    ├─ token read, authoritative: no token and no allow_usdc → no_entry_token
+    │    (an unreadable chain is 503, never "no token")
+    └─ Entries::ManagedEntry#call { build the entry INSIDE the contest lock }
+         first, inside the lock, what its previous holder may have left:
+           this attempt no longer owns the key  → stop, 409, spend nothing
+           the key's entry was committed        → finish that one instead
+           a spend is still in doubt            → 503
+           a paid ticket with no entry row      → build the entry on it
+         then §2 from contest.with_lock down, with the ownership check
+         repeated immediately before the chain call. The row exists only if
+         the spend commits; the player's web cart is never read or written.
+─ confirmed → 201 {entry, funding}, stored for replay
+─ paid, confirm failed → 202 pending; the same key (or the reconcile job) finishes it
+─ chain call failed → `failed` ONLY for a failure that proves nothing landed
+  (the program refusing the instruction); anything else, "simulation failed:
+  already been processed" included, → 503 and the key is `uncertain`
+```
+
+| Branch | Where — `Entries::ApiSubmission` is `app/services/entries/api_submission.rb` |
+|---|---|
+| the action — `Api::V1::EntriesController#create` | `app/controllers/api/v1/entries_controller.rb:48-73` |
+| one record per (player, key), one live request per player and contest — `Entries::ApiSubmission#acquire` | `app/services/entries/api_submission.rb:207-231` |
+| settle an earlier doubt before spending — `Entries::ApiSubmission#run` | `:246-277` |
+| the fence: this attempt still owns the key, checked inside the contest lock — `Entries::ApiSubmission#fence!` | `:293-299` |
+| the gates that need no row — `Entries::ApiSubmission#assert_submittable!` | `:351-367` |
+| token only by default, on a read that cannot lie — `Entries::ApiSubmission#assert_token_or_usdc!` | `:384-396` |
+| the entry built inside the contest lock — `Entries::ApiSubmission#build_entry` | `:325-343` |
+| a paid ticket no entry row holds — `Entries::ApiSubmission#find_orphan` | `:605-635` |
+| what a failure means for the key — `Entries::ApiSubmission#settle_failure` | `:493-528` |
+| the allow-list of failures that prove nothing landed — `Entries::ApiSubmission#proven_unlanded?` | `:532-537` |
+| the states and the two clocks — `ApiEntryRequest#uncertain_since` | `app/models/api_entry_request.rb:73-78` |
+
+**The web cart and the API coexist by never sharing a row.** The browser's
+cart is the `cart` entry `ContestsController#toggle_selection` builds; `#enter`
+submits that row. The API creates its own row inside the contest lock's
+transaction, so it is visible to nobody until the spend has committed, and then
+only for the instant before `Entry#confirm!` makes it `active`. The one time it
+lingers as `cart` is the strand of §4 case 4 (paid, confirm failed): the same
+shape, carrying its signature, healed by the same reconciler.
 
 ## 3. Web3 / Phantom path — Phantom-FIRST, three requests
 
@@ -155,23 +222,23 @@ prepare_entry
     → returns serialized_tx + ptx_slug to the client
 ```
 
-| Branch | Where — each row names its owner; `ContestsController#prepare_entry` is `app/controllers/contests_controller.rb:1048-1210` |
+| Branch | Where — each row names its owner; `ContestsController#prepare_entry` is `app/controllers/contests_controller.rb:1001-1163` |
 |---|---|
-| not an `onchain_session?` → 403 | `#prepare_entry` at `:1071` |
-| full / wrong pick count / started game | `#prepare_entry` at `:1095-1102` |
-| `Entry#assign_onchain_entry_number!` | `#prepare_entry` at `:1111`; definition `app/models/entry.rb:307-322` |
-| `Solana::Vault#ensure_user_account` | `#prepare_entry` at `app/controllers/contests_controller.rb:1116` |
+| not an `onchain_session?` → 403 | `#prepare_entry` at `:1024` |
+| full / wrong pick count / started game | `#prepare_entry` at `:1048-1055` |
+| `Entry#assign_onchain_entry_number!` | `#prepare_entry` at `:1064`; definition `app/models/entry.rb:307-322` |
+| `Solana::Vault#ensure_user_account` | `#prepare_entry` at `app/controllers/contests_controller.rb:1069` |
 | username codes 6020-6022 → friendly message, in `Solana::ErrorInterpreter.interpret` | `app/services/solana/error_interpreter.rb:184-196` |
-| ATA for the SELECTED currency — `Solana::Vault#ensure_ata` | `#prepare_entry` at `app/controllers/contests_controller.rb:1146` |
+| ATA for the SELECTED currency — `Solana::Vault#ensure_ata` | `#prepare_entry` at `app/controllers/contests_controller.rb:1099` |
 | unsigned tx on a FRESH blockhash — `Solana::Vault#build_enter_contest` sets no durable nonce | `app/services/solana/vault.rb:2172-2260` |
-| `PendingTransaction` created, no signature | `#prepare_entry` at `app/controllers/contests_controller.rb:1167-1187` |
+| `PendingTransaction` created, no signature | `#prepare_entry` at `app/controllers/contests_controller.rb:1120-1140` |
 
 ### 3b. Phantom signs (client)
 
 - User can dismiss or Phantom can invalidate the request → the client POSTs
   `discard_prepared_entry`. `ContestsController#discard_prepared_entry`
-  (`app/controllers/contests_controller.rb:1218-1252`) checks ownership
-  (`:1225-1231`) and expires only this user's signatureless PT (`:1244-1246`).
+  (`app/controllers/contests_controller.rb:1171-1205`) checks ownership
+  (`:1178-1184`) and expires only this user's signatureless PT (`:1197-1199`).
   The error card offers **Try Again**; that user click refreshes the session
   snapshot and returns to §3a for new wire bytes and a fresh blockhash without
   reloading the page. Signed PTs cannot be discarded through this endpoint.
@@ -214,15 +281,15 @@ confirm_onchain_entry
 └─ PT confirmed, chat announce, seeds fanout, success modal
 ```
 
-| Branch | Where — each row names its owner; `ContestsController#confirm_onchain_entry` is `app/controllers/contests_controller.rb:1395-1534` |
+| Branch | Where — each row names its owner; `ContestsController#confirm_onchain_entry` is `app/controllers/contests_controller.rb:1348-1487` |
 |---|---|
-| `assert_enterable!` PRE-FLIGHT | `#confirm_onchain_entry` at `:1419` |
-| build the expectation — `Solana::Vault#cosign_expectation` | `#confirm_onchain_entry` at `:1448-1452`; definition `app/services/solana/vault.rb:3405-3448` |
+| `assert_enterable!` PRE-FLIGHT | `#confirm_onchain_entry` at `:1372` |
+| build the expectation — `Solana::Vault#cosign_expectation` | `#confirm_onchain_entry` at `:1401-1405`; definition `app/services/solana/vault.rb:3405-3448` |
 | C1 cosign guard — `Solana::Cosign::Expectation#verify!` | invoked inside `#cosign_and_broadcast_entry` below; definition `solana-studio lib/solana/cosign/expectation.rb` |
-| cosign + simulate + broadcast — `Solana::Vault#cosign_and_broadcast_entry` | `#confirm_onchain_entry` at `app/controllers/contests_controller.rb:1470-1474`; definition `app/services/solana/vault.rb:3529-3532` |
-| PT stamped with `tx_signature` immediately, BEFORE broadcast (`before_send:`) | `#confirm_onchain_entry` at `app/controllers/contests_controller.rb:1473` |
-| `ContestsController#verify_and_confirm_onchain_entry!` | `#confirm_onchain_entry` at `:1480-1483`; definition `:2789-2805` |
-| PT confirmed | `#confirm_onchain_entry` at `:1485` |
+| cosign + simulate + broadcast — `Solana::Vault#cosign_and_broadcast_entry` | `#confirm_onchain_entry` at `app/controllers/contests_controller.rb:1423-1427`; definition `app/services/solana/vault.rb:3529-3532` |
+| PT stamped with `tx_signature` immediately, BEFORE broadcast (`before_send:`) | `#confirm_onchain_entry` at `app/controllers/contests_controller.rb:1426` |
+| `ContestsController#verify_and_confirm_onchain_entry!` | `#confirm_onchain_entry` at `:1433-1436`; definition `:2571-2587` |
+| PT confirmed | `#confirm_onchain_entry` at `:1438` |
 
 ## 4. Can funds be taken without an entry? (the full inventory)
 
@@ -234,6 +301,7 @@ confirm_onchain_entry
 | 4 | Web2 token: consume OK, `confirm!` transient failure | Token **consumed**, entry on-chain, app `cart` | entry row carries `onchain_tx_signature` (durable capture) | Auto: `Entries::OnchainReconcileJob` enqueued inline; also healed by the no-arg sweep |
 | 5 | Web2 USDC: transfer OK, `confirm!` transient failure | USDC **paid** | same durable capture | Same reconciler |
 | 6 | Web3 paid (case 2) but the user never returns to the contest page | Paid, entry on-chain, app `cart` | stamped PT sits `submitted` | **Gap**: no scheduled PT sweeper today — `config/schedule.yml` schedules the deposit and CONTEST reconcilers but not `Entries::OnchainReconcileJob`, so heal requires the user's visit or an operator running the reconcile rake. Recommended follow-up: schedule `Entries::OnchainReconcileJob` (no-arg sweep) + extend the sweep to poll stamped PTs |
+| 8 | Agent API: the chain call's outcome is unknown (confirmation timeout, dropped connection), or the process died mid-request | Token/USDC **may be** spent; no entry row (the lock transaction rolled back) | the `ApiEntryRequest` row, `uncertain` (or `executing` and stale) | The next request for that player and contest, same key or new: adopts the paid ticket if one is on chain, answers 503 while the transaction could still land, and only then lets a spend through (§2a). The window is wall-clock (150s), not the transaction's own `lastValidBlockHeight`. **Gap**: a process killed in the middle of its chain call, after outliving both clocks, while a retry of the same key already waits on the contest lock, is not seen by that retry. **Gap**: nothing sweeps these rows, so an agent that never comes back leaves a paid ticket unclaimed until an operator looks |
 | 7 | Contest cancelled after entries | Prize pool refunded to creator on-chain; **entry fees stay operator revenue** | — | Operator playbook: `mint_entry_token` goodwill credits to affected entrants |
 
 A failed/rejected on-chain transaction **never** moves funds — Solana txs are
@@ -246,25 +314,25 @@ and every such case except #6 self-heals automatically.
 - **Trigger**: automatic, on contest-page load, ONLY when the viewer has a
   pending/submitted PT **with a tx_signature** (= broadcast actually happened;
   money may have moved) — `ContestsController#find_pending_recovery_ptx`
-  (`app/controllers/contests_controller.rb:2901-2921`) returns only a signed one
-  (`:2920`). Signatureless PTs trigger nothing — stale ones
+  (`app/controllers/contests_controller.rb:2683-2703`) returns only a signed one
+  (`:2702`). Signatureless PTs trigger nothing — stale ones
   (>10 min, never racing a mid-confirm tab) are silently expired.
 - **Logic**, in `ContestsController#recover_pending_entry`
-  (`app/controllers/contests_controller.rb:1284-1382`): entry already active →
-  confirm PT, done (`:1305`). Signature blank → PT failed, user retries (`:1324-1326`). Signature present → `getSignatureStatuses` poll:
+  (`app/controllers/contests_controller.rb:1237-1335`): entry already active →
+  confirm PT, done (`:1258`). Signature blank → PT failed, user retries (`:1277-1279`). Signature present → `getSignatureStatuses` poll:
   landed clean → full verify → promote to `active` (no re-charge); on-chain
-  err → PT failed, retry is safe (`:1339-1341`); still propagating →
-  "processing", client keeps polling (`:1335-1337`, ~30s budget). A landed
-  signature runs the full `verify_and_confirm_onchain_entry!` (`:1357-1359`).
+  err → PT failed, retry is safe (`:1292-1294`); still propagating →
+  "processing", client keeps polling (`:1288-1290`, ~30s budget). A landed
+  signature runs the full `verify_and_confirm_onchain_entry!` (`:1310-1312`).
 - **Safety**: `ContestsController#recover_pending_entry` double-checks ownership —
-  initiator address (`app/controllers/contests_controller.rb:1288`) AND
-  `entry.user_id` (`:1297`), Lazarus #1; a retry never collides because `assign_onchain_entry_number!`
+  initiator address (`app/controllers/contests_controller.rb:1241`) AND
+  `entry.user_id` (`:1250`), Lazarus #1; a retry never collides because `assign_onchain_entry_number!`
   probes the chain for a free slot.
 
 ### 5.2 `Entries::OnchainReconcileJob` / `OnchainReconciler` (web2)
-- **Triggers**: (a) enqueued inline by `ContestsController#finalize_managed_entry!`
+- **Triggers**: (a) enqueued inline by `Entries::ManagedEntry#finalize!`
   when `confirm!` fails after a successful consume/transfer
-  (`app/controllers/contests_controller.rb:2192`); (b) a no-arg sweep over all
+  (`app/services/entries/managed_entry.rb:265`), for the browser and the agent API alike; (b) a no-arg sweep over all
   eligible open contests via the `reconcile_onchain` task
   (`lib/tasks/entries.rake:33`) or `Entries::OnchainReconcileJob#perform` with no id
   (`app/jobs/entries/onchain_reconcile_job.rb:13-42`, sweep branch at `:26`), which
@@ -289,7 +357,7 @@ and every such case except #6 self-heals automatically.
 ### 5.3 Page-load stale-PT expiry (web3 hygiene)
 Signatureless pending PTs older than 10 minutes are flipped to `expired`
 during contest-page load, inside `ContestsController#find_pending_recovery_ptx`
-(`app/controllers/contests_controller.rb:2916-2918`). Pure cleanup; never touches
+(`app/controllers/contests_controller.rb:2698-2700`). Pure cleanup; never touches
 a PT with a signature.
 
 ### 5.4 Operator surfaces (manual)

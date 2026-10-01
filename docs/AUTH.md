@@ -911,7 +911,7 @@ Rules worth knowing:
   account has nothing to sign the entry with, so proceeding could only fail. The
   second clause is what keeps it narrow: a **combo** account (managed + linked
   wallet) gets the same `true` and enters anyway, from the custodial wallet
-  `#resolve_web2_entry_funding!` deliberately spends from; and a **free** contest
+  `Entries::ManagedEntry#fund!` deliberately spends from; and a **free** contest
   signs nothing, so it is never refused. Before this guard existed the same
   request fell through to that method's `raise "Managed wallet missing keypair
   (cannot sign entry)"`, and a player on QA read that exception text on a red

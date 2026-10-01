@@ -5,9 +5,10 @@ browser. This page is the contract for what is shipped. It supersedes the
 authentication design in [`BOT_API.md`](BOT_API.md).
 
 **Shipped so far:** API keys, bearer authentication, `GET /api/v1/me`, the
-rate-limit tier, and the read endpoints for contests, leaderboards and the
-player's entries. Entry writes, the `/agents` pages and an MCP endpoint are later
-pieces of the same epic and build on what is here.
+rate-limit tier, the read endpoints for contests, leaderboards and the player's
+entries, and the two writes: [create an entry](#post-apiv1contestsslugentries)
+and [replace its picks](#patch-apiv1entriesslug). The `/agents` pages and an MCP
+endpoint are later pieces of the same epic and build on what is here.
 
 ## The key
 
@@ -59,7 +60,7 @@ answer for them:
   created while the age gate was off. If the gate is turned on later, the stamp
   does not excuse the player: the endpoint checks the player's own verification
   and refuses with `age_verification_required` until they verify on the site.
-  No shipped endpoint asks yet; the entry endpoints will.
+  Both entry writes ask.
 
 ## Authentication
 
@@ -94,12 +95,15 @@ Branch on `code`. `message` is written for a person and may change.
 | 401 | `expired_api_key` | The key is past its 90 days |
 | 403 | `account_frozen` | The account is on hold. Every request that is not a `GET` or `HEAD` is refused. Reads still work. |
 | 403 | `age_verification_required` | The age gate is on and the player has not verified their date of birth. The player verifies on the site; the same key then works. Returned only by endpoints that enter a contest. |
-| 400 | `bad_request` | A required parameter is missing |
-| 404 | `not_found` | No such resource |
+| 400 | `bad_request` | A required parameter or header is missing, a value is not the type the endpoint takes, or the body is not valid JSON |
+| 404 | `not_found` | No such resource. Also `/api` itself and any path under it that is not an endpoint, on any method. |
 | 429 | `rate_limited` | Too many requests. The body also carries `retry_after` (seconds), and so does the `Retry-After` header. |
 | 500 | `internal_error` | Our fault. Retry shortly. |
 
 A 401 also carries `WWW-Authenticate: Bearer realm="Turf Monster API"`.
+
+The entry writes add their own codes: see [Errors from the entry
+endpoints](#errors-from-the-entry-endpoints).
 
 ## Rate limits
 
@@ -178,7 +182,10 @@ None of them changes anything, so all of them answer for a frozen account.
   (default 0). A limit above the maximum is clamped, not refused. Every list
   carries `"pagination": { "limit", "offset", "total", "has_more" }`.
 - **An invalid parameter value** is a `400` with code `bad_request`, as a missing
-  one is.
+  one is: a `status` that is not `open` or `settled`, or a `limit` or `offset`
+  that is not a whole number (a word, a negative number, a `limit` of 0, a list,
+  or more than nine digits). A blank value is treated as absent. A **slug** is
+  different: one that names nothing, or cannot name anything, is a `404`.
 
 ### How the game is scored
 
@@ -263,11 +270,11 @@ Open and settled contests, newest first. A contest that is still being created
 | `settled` | Graded. Ranks and payouts are final. |
 | `cancelled` | The contest was cancelled. It keeps `status: "open"`, so this flag is the only tell. |
 | `coming_soon` | Advertised but not ready to play |
-| `accepting_entries` | The one-field answer to "could a new entry go in now": open, not locked, not cancelled, not coming soon, a spot left, and the player under their own limit. It says nothing about the player's wallet or account. |
+| `accepting_entries` | The one-field answer to "would `POST .../entries` get past its gates now": a contest this API can enter (`supported`), open, not locked, not cancelled, not coming soon, a spot left, the player under their own limit, and an account that may write (not on hold; age verified when the age gate is on). It says nothing about the wallet: read `wallet.kind` and `free_entry_tokens` on `GET /api/v1/me` for that. |
 | `locks_at` | When the contest locks. Every pick in every entry is final from this moment, including picks whose own game starts later. `null` means no lock is scheduled. |
 | `concludes_at` | When results are scheduled to be final, if set |
 | `guaranteed_prize_cents` | The sum of `payouts` |
-| `payouts` | Prize per finishing rank. Ranks not listed win nothing. Tied entries pool the prizes of the places they cover and split them: two entries tied for first share first and second prize. |
+| `payouts` | Prize per finishing rank. Ranks not listed win nothing. Tied entries pool the prizes of the places they cover and split them: two entries tied for first share first and second prize. **A paid rank nobody finishes in is not paid.** In a contest that pays five places and has three entries, fourth and fifth prize are not awarded and are not shared among the three. |
 | `max_entries`, `entries_count`, `spots_left` | The field's capacity, confirmed entries so far, and the room left (never negative) |
 | `picks_required` | Teams per entry |
 | `max_entries_per_player` | Entries one player may hold in this contest |
@@ -321,7 +328,7 @@ built from.
       "matchup_id": 809431972,
       "team": { "slug": "miami-dolphins", "name": "Miami Dolphins", "short_name": "MIA" },
       "rank": 5,
-      "turf_score": 2.7,
+      "turf_score": 3.6,
       "expected_team_score": 21.5,
       "team_score": null,
       "locked": false,
@@ -438,7 +445,7 @@ While the games are played (`?limit=2`):
       "display_name": "sam_test",
       "mine": true,
       "entry_slug": "sam_test-nfl-weeks-4-5-showdown-980190963",
-      "score": 215.9,
+      "score": 231.2,
       "rank": 1,
       "payout_cents": null,
       "currency": "USD",
@@ -450,7 +457,7 @@ While the games are played (`?limit=2`):
       "display_name": "casey_test",
       "mine": false,
       "entry_slug": null,
-      "score": 215.9,
+      "score": 231.2,
       "rank": 1,
       "payout_cents": null,
       "currency": "USD",
@@ -510,7 +517,7 @@ an abandoned one are not entries and are never returned, here or by slug.
       "submitted_at": "2026-10-01T15:00:00Z",
       "tx_signature": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi5Yq1mCQXxkzLkzTTDxvQyhU2r8PZs2cRUXAMPLE",
       "editable": false,
-      "score": 215.9,
+      "score": 231.2,
       "rank": 1,
       "payout_cents": null,
       "currency": "USD",
@@ -555,14 +562,14 @@ an abandoned one are not entries and are never returned, here or by slug.
           "matchup_id": 809431972,
           "team": { "slug": "miami-dolphins", "name": "Miami Dolphins", "short_name": "MIA" },
           "rank": 5,
-          "turf_score": 2.7,
+          "turf_score": 3.6,
           "expected_team_score": 21.5,
           "team_score": 17,
           "locked": true,
           "games_count": 1,
           "bye_weeks": [5],
           "games": [ { "week": 4, "...": "as above" } ],
-          "points": 45.9
+          "points": 61.2
         }
       ]
     }
@@ -582,7 +589,7 @@ reads while its contest is live.)
 | `entry_number` | The index of the player's slot in this contest that the entry holds on chain. `null` if it has none. |
 | `submitted_at` | When the entry was created |
 | `tx_signature` | The Solana transaction that paid for the entry, or `null` |
-| `editable` | `true` while the entry's picks can still be replaced: the entry is active and its contest is open and not locked. Even then, a pick whose own `locked` is `true` cannot be swapped out, and a locked team cannot be swapped in. |
+| `editable` | `true` while `PATCH /api/v1/entries/:slug` would be accepted: the entry is active, its contest is open, not cancelled and not locked, and the account may write (not on hold; age verified when the age gate is on). Even then, a pick whose own `locked` is `true` cannot be swapped out, and a locked team cannot be swapped in. |
 | `score`, `rank`, `payout_cents`, `final` | As on the leaderboard |
 | `picks` | One per team picked, best rank first. Each is the team row from the contest detail plus `points`. |
 | `picks[].points` | What the pick has earned: `team_score × turf_score`. `null` until the team has a result. |
@@ -614,9 +621,9 @@ can play:
 
 | Status | `code` | When |
 |--------|--------|------|
-| 400 | `bad_request` | `status` is not `open` or `settled` |
+| 400 | `bad_request` | `status` is not `open` or `settled`; `limit` or `offset` is not a whole number |
 | 401 | the four key errors above | No key, or a bad, revoked or expired one |
-| 404 | `not_found` | Unknown contest or entry slug; a `pending` contest; another player's entry; a cart or abandoned entry |
+| 404 | `not_found` | Unknown contest or entry slug; a `pending` contest; another player's entry; a cart or abandoned entry; a path that is not an endpoint |
 | 429 | `rate_limited` | The limits above apply to every route here |
 
 ```json
@@ -640,6 +647,267 @@ can play:
 
 The serializers are plain objects that return hashes, so another surface (the
 MCP endpoint) can return the same shapes without going through a controller.
+
+## Entering a contest
+
+Two endpoints. One creates an entry and pays for it; the other replaces the
+picks of an entry the player already holds.
+
+| Route | What it does |
+|-------|--------------|
+| `POST /api/v1/contests/:slug/entries` | Create an entry from six teams and pay for it, in one call |
+| `PATCH /api/v1/entries/:slug` | Replace the picks of one of the player's entries, before the contest locks |
+
+Both take a JSON body (`Content-Type: application/json`) and both are refused
+for an account on hold (`403 account_frozen`) and, when the age gate is on, for
+a player who has not verified their date of birth (`403
+age_verification_required`).
+
+**An entry spends something that cannot be given back.** A free entry token is
+consumed on Solana, or USDC is transferred, in the same call that creates the
+entry. Read [Retrying safely](#retrying-safely) before you write a retry loop.
+
+**Who can enter through the API.** A player whose wallet Turf Monster holds and
+signs for: `wallet.kind` is `managed` on `GET /api/v1/me`. A self-custodied
+wallet, an account with a Phantom wallet linked, and an account with no wallet
+are refused with `wallet_not_server_signable`; those players enter on the
+website, where their own wallet signs.
+
+**There is no cart.** The website saves a lineup one tap at a time and submits
+it later. The API does neither: an entry is created whole and paid for in one
+call, or it is not created. The player's unfinished lineup on the website is
+never read, changed or submitted by an API call, and an API entry does not pass
+through the website's cart.
+
+### `POST /api/v1/contests/:slug/entries`
+
+| Field | Where | Notes |
+|-------|-------|-------|
+| `Idempotency-Key` | header | **Required.** A value you make up for this entry, 1 to 255 printable characters with no spaces (a UUID is ideal). Send the same value on every retry of the same entry. |
+| `matchup_ids` | body | **Required.** A list of exactly `picks_required` different ids, each a `teams[].matchup_id` from `GET /api/v1/contests/:slug`. Order does not matter. |
+| `allow_usdc` | body | Optional, default `false`. A JSON boolean: `true` or `false`. The strings `"true"` and `"false"` are a `400`. See below. |
+
+**Token only, unless you say otherwise.** By default an entry is paid for with
+one of the player's free entry tokens, and if the player has none the request
+is refused with `no_entry_token` and nothing is spent. Send `"allow_usdc": true`
+to let the entry fee be paid in USDC from the player's wallet when there is no
+token. A token is still used first when there is one. Only send it when the
+player has told you to spend money.
+
+```bash
+curl -X POST https://turfmonster.media/api/v1/contests/nfl-weeks-4-5-showdown/entries \
+  -H "Authorization: Bearer $TURF_MONSTER_KEY" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: 7f0c1b9e-3c1d-4a55-9d53-0f2a6a1f7c11" \
+  -d '{"matchup_ids": [809431971, 809431972, 809431973, 809431974, 809431975, 809431976]}'
+```
+
+`201 Created`:
+
+```json
+{
+  "entry": {
+    "slug": "sam_test-nfl-weeks-4-5-showdown-980190984",
+    "contest": {
+      "slug": "nfl-weeks-4-5-showdown",
+      "name": "NFL Weeks 4-5 Showdown",
+      "game_type": "turf_totals",
+      "phase": "open",
+      "locked": false,
+      "live": false,
+      "settled": false,
+      "cancelled": false,
+      "locks_at": "2026-10-04T17:00:00Z"
+    },
+    "status": "active",
+    "entry_number": 0,
+    "submitted_at": "2026-10-01T15:00:00Z",
+    "tx_signature": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi5Yq1mCQXxkzLkzTTDxvQyhU2r8PZs2cRUXAMPLE",
+    "editable": true,
+    "score": 0.0,
+    "rank": 3,
+    "payout_cents": null,
+    "currency": "USD",
+    "final": false,
+    "picks_visible": true,
+    "picks": [ { "matchup_id": 809431971, "...": "six picks, as in GET /api/v1/entries" } ]
+  },
+  "funding": { "method": "token", "token_consumed": true }
+}
+```
+
+| Field | Notes |
+|-------|-------|
+| `entry` | The new entry, exactly as `GET /api/v1/entries/:slug` returns it |
+| `funding.method` | `token`: a free entry token was spent. `usdc`: the entry fee was paid in USDC. `free`: the contest has no entry fee. `unknown`: the entry was recovered after a lost response (see below) on a request that allowed USDC, so which of the two paid was not recorded; read the wallet to tell. |
+| `funding.token_consumed` | `true` when a token was spent, `false` when not, `null` when `method` is `unknown` |
+
+**`202 Accepted` means paid and not yet visible.** Rarely, the payment lands on
+Solana and the write that marks the entry active fails. The entry is paid for
+and will be completed; it is not listed yet.
+
+```json
+{ "entry": null, "funding": { "method": "token", "token_consumed": true }, "pending": true, "retry_after": 5 }
+```
+
+Send the same request with the same `Idempotency-Key` after `retry_after`
+seconds. It returns `201` with the entry and spends nothing more. Do not send a
+new key: the entry already exists.
+
+**A `202` can persist.** If the reason the entry could not be marked active is a
+rule rather than a hiccup (the contest locked or filled in the seconds the
+payment took), every retry answers `202` and nothing completes it on its own.
+After a few minutes of `202`s, stop retrying and tell the player plainly: the
+entry was paid for, it is not showing as entered, and they should contact
+support@turfmonster.media with the contest name. Do not enter again with a new
+key.
+
+### `PATCH /api/v1/entries/:slug`
+
+Replaces all of the entry's picks. It is not a spend: nothing moves on Solana,
+and no `Idempotency-Key` is needed, because sending the same picks twice leaves
+the same entry.
+
+| Field | Where | Notes |
+|-------|-------|-------|
+| `matchup_ids` | body | **Required.** The full new lineup: exactly `picks_required` different ids from the contest's `teams[].matchup_id`. |
+
+Allowed only while the entry's `editable` is `true`: before the contest locks.
+Within that, **a team whose first game has kicked off can be neither added nor
+dropped** (its `locked` is `true`). A locked team already in the lineup may stay,
+and the other picks may still change around it. The new lineup may not match
+another entry the player holds in the same contest.
+
+```bash
+curl -X PATCH https://turfmonster.media/api/v1/entries/sam_test-nfl-weeks-4-5-showdown-980190984 \
+  -H "Authorization: Bearer $TURF_MONSTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"matchup_ids": [809431971, 809431972, 809431973, 809431974, 809431975, 809431977]}'
+```
+
+`200 OK`:
+
+```json
+{ "entry": { "slug": "sam_test-nfl-weeks-4-5-showdown-980190984", "editable": true, "...": "the entry, with its new picks" } }
+```
+
+### Errors from the entry endpoints
+
+Every one is in the usual envelope. `message` says what happened in words; for
+`team_locked`, `invalid_picks`, `entry_limit_reached` and `contest_full` it
+names the team or the number. **Unless a row says otherwise, nothing was
+spent.**
+
+```json
+{ "error": { "code": "no_entry_token", "message": "This account holds no free entry token, and USDC was not allowed. Nothing was spent. Send allow_usdc: true to pay the entry fee in USDC instead." } }
+```
+
+| Status | `code` | From | Meaning | What the agent should do |
+|--------|--------|------|---------|--------------------------|
+| 400 | `bad_request` | both | No `Idempotency-Key` (POST), a key that is too long or has spaces, `matchup_ids` missing or not a list of ids, `allow_usdc` not a JSON `true` or `false`, a body that is not JSON | Fix the request. It was not recorded, so the same key is still unused. |
+| 401 | the four key errors | both | No key, or a bad, revoked or expired one | Ask the player for a working key. |
+| 403 | `account_frozen` | both | The account is on hold | Stop. Tell the player to contact support. |
+| 403 | `age_verification_required` | both | The age gate is on and the player has not verified | Tell the player to verify their date of birth on the website, then retry with the same key. |
+| 404 | `not_found` | both | No such contest (POST), or no such entry among the player's own (PATCH) | Re-read `GET /api/v1/contests` or `GET /api/v1/entries`. |
+| 409 | `idempotency_key_reused` | POST | This key was already used with different picks, a different contest or a different `allow_usdc` | A different entry needs a new key. If you meant to retry, send the original body. |
+| 409 | `idempotency_in_progress` | POST | A request to enter this contest is still running for this player: this key's first request, or another key's | Wait `retry_after` seconds and send the same request again. Do not switch keys. |
+| 422 | `contest_not_open` | both | The contest is settled, or is not ready to take entries | Pick another contest. |
+| 422 | `contest_locked` | both | The lock time has passed | Nothing to do; entries and edits are closed. |
+| 422 | `contest_cancelled` | both | The contest was cancelled | Pick another contest. |
+| 422 | `coming_soon` | POST | The contest is advertised but not open for entries yet | Try again when `coming_soon` is `false`. |
+| 422 | `unsupported_contest` | both | A survivor contest (`supported: false`) | Send the player to the website. |
+| 422 | `contest_full` | POST | No spots left | Pick another contest. |
+| 422 | `entry_limit_reached` | POST | The player already holds `max_entries_per_player` entries here | Edit an existing entry instead. |
+| 422 | `invalid_picks` | both | Not exactly `picks_required` different ids, or an id that is not one of this contest's `teams[].matchup_id` | Re-read the contest and rebuild the lineup. For POST, send it with a **new** key (the old key is tied to the old picks). |
+| 422 | `duplicate_lineup` | both | The player already holds an entry with exactly these teams in this contest | Change at least one team. For POST, with a new key. |
+| 422 | `team_locked` | both | A team in the request has kicked off (POST), or the edit adds or drops one that has (PATCH) | Choose teams whose `locked` is `false`. For POST, with a new key. |
+| 422 | `no_entry_token` | POST | No free entry token, and `allow_usdc` was not `true` (or USDC entry is switched off) | Tell the player. Only with their say-so, retry with `allow_usdc: true`, which needs a new key because the body changed. |
+| 422 | `insufficient_funds` | POST | `allow_usdc` was `true`, there is no token, and the wallet does not hold the entry fee in USDC | Tell the player to add funds. The same key works once they have. |
+| 422 | `wallet_not_server_signable` | POST | The wallet is self-custodied or Phantom-linked, or there is no wallet | Send the player to the website. The API cannot enter for this account. |
+| 503 | `chain_unavailable` | POST | Solana could not be read, or did not confirm the payment in time. **The payment may or may not have landed.** | Wait `retry_after` seconds and send the same request with the **same** key. The server looks for the payment before it pays again; see [Retrying safely](#retrying-safely) for exactly what that covers. |
+| 500 | `internal_error` | both | Our fault | Retry with the same key. |
+
+`idempotency_in_progress`, `503` and `202` responses carry `retry_after`
+(seconds) in the body and as a `Retry-After` header.
+
+### Retrying safely
+
+The rule: **one entry, one `Idempotency-Key`, and never change the key because
+a request failed.** Make the key when you decide to enter, keep it until you
+hold a `201` or a `422`, and reuse it on every attempt in between.
+
+A key belongs to the player, not to the API key, and it does not expire. The
+same key with the same contest, the same teams (in any order) and the same
+`allow_usdc` is the same request.
+
+| What you got | What it means | What to send next |
+|--------------|---------------|-------------------|
+| `201` | The entry exists | Nothing. Sending the request again returns the same `201`, byte for byte, with the header `Idempotent-Replayed: true`. It is the first response: it does not reflect later edits. |
+| `202` | Paid, being confirmed | The same request, same key, after `retry_after`. |
+| `409 idempotency_in_progress` | Your first request is still running | The same request, same key, after `retry_after`. |
+| `503 chain_unavailable` | Unknown: the payment may have landed | The same request, same key, after `retry_after`. If it landed, you get the entry it paid for. If it did not, the server waits until it no longer can before paying again, so you may see more `503`s for up to about five minutes. |
+| No response at all (timeout, dropped connection) | Unknown | The same request, same key. This is the case the key exists for. |
+| `422` | Refused, nothing spent | If the cause can change without changing the body (a token arrives, funds are added, a spot opens), the same key works. If you change the picks or `allow_usdc`, use a new key. |
+| `400`, `401`, `403`, `404` | Not recorded | Fix the cause. The key is still unused. |
+| `500` | Our fault | The same request, same key. |
+
+Giving up on a key after a `503` and sending a new one does not get around
+this, and is not a way to pay twice: before any request for a contest is allowed
+to spend, an earlier unresolved one for the same player and contest is settled
+first. While the earlier payment is still unknown the new request answers `503`
+too. If the earlier payment turns out to have landed, it becomes the earlier
+key's entry, and a new request for the same teams is then a `duplicate_lineup`.
+
+**What this guarantees, and the one thing it does not.** A retry with the same
+key replays a finished entry, waits on one in progress, and looks on Solana for
+a paid entry before it pays. It does not pay again unless the earlier payment
+was refused by the program, or 150 seconds have passed with no trace of it on
+chain. The case it cannot see: a server process killed in the middle of sending
+a payment, more than four minutes into a request, while a retry of the same key
+is already waiting behind it. That needs a stalled network and a crash at the
+same moment; it is why this page says "looks before it pays" and not "can never
+pay twice".
+
+`PATCH` needs none of this. Repeat it freely.
+
+#### What the server keeps
+
+One record per player and key, in one of five states. This is what the table
+above is a view of.
+
+| State | Meaning | A request with this key |
+|-------|---------|-------------------------|
+| `executing` | A request is running now | `409 idempotency_in_progress`. After two minutes with no result the request is taken to have died, and the key is treated as `uncertain`. A request that is in fact still alive past that point checks, immediately before it pays, that it still owns the key, and stops if a retry has taken over. |
+| `failed` | The last attempt ended and spent nothing, with certainty. Either it was refused before the payment was sent, or the payment was sent and the Turf Monster program itself refused it (a failed simulation naming a program error, or a transaction that landed and failed). No other failure after the payment is sent counts: a timeout, a dropped connection, and a node answering "already been processed" or "already in use" are all `uncertain`. | Runs again from the top. Even then it looks on Solana for a paid entry before building a new one. |
+| `uncertain` | The payment was sent and its outcome is not known | Looks on Solana first. A paid entry found there becomes this key's entry (`201`). Otherwise `503` for 150 seconds after the attempt ended, and only then runs again. The 150 seconds is a wall-clock margin over the 60 to 90 seconds a Solana transaction stays valid; it is not read from the transaction's own expiry. |
+| `confirming` | Paid; the entry is on file and not yet active | Finishes it and returns `201`, or `202` again. A background job finishes it too, so the entry appears even if the agent never returns. |
+| `succeeded` | Done | Replays the stored `201`. |
+
+Only one request per player and contest runs at a time, whatever its key.
+
+### For developers: the entry endpoints
+
+| Piece | Where |
+|-------|-------|
+| Routes | `config/routes/api_v1.rb` |
+| The two actions, the header and body checks | `app/controllers/api/v1/entries_controller.rb` |
+| Strict parameter readers (a wrong shape is a 400, not a 500) | `app/controllers/api/v1/strict_params.rb` |
+| Create, at most once per key: the claim, settling a doubt, the gates that need no entry, the response | `app/services/entries/api_submission.rb` |
+| The idempotency record, its states and its two clocks | `app/models/api_entry_request.rb` |
+| Gate, pay, confirm: the path the website's Enter button also takes | `app/services/entries/managed_entry.rb` |
+| A refusal with a code (`Entry::Refusal`) | `app/models/entry/refusal.rb`, raised by `Entry#assert_enterable!` and `#update_picks!` |
+| Seeds, level-up and navbar caches after a confirmed entry | `app/services/entries/post_entry_effects.rb` |
+| Converging a paid entry that did not finish | `Entries::OnchainReconcileJob`, `Entries::OnchainReconciler` |
+| The 404 for an unknown `/api/` path | `app/controllers/api/v1/errors_controller.rb`, the last route in the `namespace :api` block |
+| The decision tree, with the browser's path beside it | [`docs/workflows/submit-entry-decision-tree.md`](workflows/submit-entry-decision-tree.md) §2 and §2a |
+
+`Entries::ApiSubmission` takes a player, a contest, picks and a key and returns
+a status and a body, so another surface (the MCP endpoint) can create an entry
+through the same record without going through this controller.
+
+Known gap: nothing sweeps `uncertain` records. A payment that landed for a
+request whose agent never came back stays an unclaimed ticket until the same
+player sends another request for that contest, or an operator looks.
 
 ## For developers
 

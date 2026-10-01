@@ -26,7 +26,7 @@
   #
   # BOTH MODES, AND TRUE IN BOTH. The label follows the wallet's token with no
   # mode test because BOTH entry paths now spend one: the managed path through
-  # ContestsController#resolve_web2_entry_funding!, and the Phantom path through
+  # Entries::ManagedEntry#fund!, and the Phantom path through
   # #prepare_entry, which builds enter_contest_with_token when the signing wallet
   # holds an unconsumed token. It shipped mode-blind one review earlier while the
   # Phantom path still charged USDC, and Carl blocked it for exactly that — the
@@ -1491,7 +1491,7 @@ window.selectionBoard = function() {
     // alone on purpose: it keeps its sync-blocker fail-open + on-chain
     // authority, and the endpoint is fail-CLOSED on an RPC flake — gating web3
     // on it would wrongly block a funded Phantom user (regressing fail-open-on-
-    // flake). The server safety-net (resolve_web2_entry_funding!) is web2-only
+    // flake). The server safety-net (Entries::ManagedEntry#fund!) is web2-only
     // too, so the two layers line up.
     beginFundingCheck() {
       // Reset every hold-start so a stale promise from a released-early hold
@@ -1602,7 +1602,7 @@ window.selectionBoard = function() {
       // opener since showWalletTopup lost its last caller.
       //
       // Fail-OPEN by design — proceed (and rely on the server safety-net
-      // resolve_web2_entry_funding!, which pre-checks USDC and returns
+      // Entries::ManagedEntry#fund!, which pre-checks USDC and returns
       // no_funding → that same dispatcher) when the check is: absent (non-hold auto-
       // enter, or web3 — beginFundingCheck no-ops there), null (401/flake/non-
       // OK), still unresolved at hold-end, or stale from an earlier flow (the

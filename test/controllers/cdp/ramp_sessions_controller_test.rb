@@ -327,7 +327,7 @@ class Cdp::RampSessionsControllerTest < ActionDispatch::IntegrationTest
 
   # REBOUND, and it PINNED THE DEFECT. This asserted that a COMBO account on an
   # EMAIL login — a web2 session — was credited at its Phantom address. That is
-  # the bug: ContestsController#resolve_web2_entry_funding! charges such a
+  # the bug: Entries::ManagedEntry#fund! charges such a
   # session's entry to the MANAGED wallet, so the deposit landed where the entry
   # could not spend it and the user stayed blocked after paying. The offramp test
   # directly below has always asserted the correct shape for the identical setup;
