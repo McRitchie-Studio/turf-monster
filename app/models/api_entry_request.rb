@@ -21,7 +21,13 @@
 #   confirming  Paid: the entry row exists and carries its payment. It is not
 #               `active` yet because the confirming write failed. A retry
 #               finishes it; so does Entries::OnchainReconcileJob.
-#   succeeded   Done. The stored response is replayed for every later request.
+#   succeeded   Done. The stored response is replayed for every later request,
+#               for as long as the entry it describes exists.
+#   void        The contest was reset (Contest#reset!) after this request had
+#               settled. Its entry row is gone, so the row holds no response
+#               and no entry, and the key answers 409 idempotency_key_reused
+#               for good. It never runs again: a retry is not a request the
+#               player made after the reset, and it must not buy an entry.
 #
 # THE TWO CLOCKS.
 #
@@ -36,7 +42,17 @@
 #                      seconds. Past the window a transaction that has not
 #                      landed never will, so spending again is safe.
 class ApiEntryRequest < ApplicationRecord
-  STATES = %w[executing failed uncertain confirming succeeded].freeze
+  STATES = %w[executing failed uncertain confirming succeeded void].freeze
+  # The states a reset voids: the ones with nothing left in flight. `succeeded`
+  # holds the 201 that would otherwise be replayed for a deleted entry.
+  # `confirming` is paid and landed; its entry row is deleted with the rest.
+  #
+  # NOT `executing` or `uncertain`: such a request may have a transaction that
+  # has not landed yet, and its row (with its clock) is what makes every later
+  # request for the contest wait for it (Entries::ApiSubmission#settle_others!).
+  # It holds no response to replay. NOT `failed` either: it spent nothing,
+  # holds no response, and its retry is the request the player never got.
+  VOIDED_BY_RESET = %w[succeeded confirming].freeze
   IN_FLIGHT_TIMEOUT = 120.seconds
   SETTLE_WINDOW = 150.seconds
 
@@ -60,6 +76,14 @@ class ApiEntryRequest < ApplicationRecord
   # the same six teams are the same lineup.
   def self.fingerprint(contest:, matchup_ids:, allow_usdc:)
     Digest::SHA256.hexdigest(JSON.generate([contest.slug, matchup_ids.map(&:to_i).sort, allow_usdc ? true : false]))
+  end
+
+  # Contest#reset! calls this inside its transaction, with the entry rows.
+  # One statement, no callbacks: the rows have none.
+  def self.void_for_reset!(contest)
+    where(contest_id: contest.id, state: VOIDED_BY_RESET)
+      .update_all(state: "void", entry_id: nil, response_status: nil, response_body: nil,
+                  spend_uncertain_at: nil, last_error_code: "contest_reset", updated_at: Time.current)
   end
 
   # A live request holds this key right now.

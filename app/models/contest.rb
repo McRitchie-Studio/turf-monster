@@ -536,10 +536,9 @@ class Contest < ApplicationRecord
   def reset!
     transaction do
       entries.destroy_all
+      ApiEntryRequest.void_for_reset!(self) # no agent key replays a 201 for an entry deleted above
       matchups.update_all(goals: nil, status: "pending")
-      matchups.includes(:game).find_each do |matchup|
-        matchup.game&.update!(home_score: nil, away_score: nil, status: "scheduled")
-      end
+      matchups.includes(:game).find_each { |m| m.game&.update!(home_score: nil, away_score: nil, status: "scheduled") }
       update!(status: :open)
     end
   end

@@ -183,7 +183,7 @@ create (Api::V1::EntriesController)
 | Branch | Where — `Entries::ApiSubmission` is `app/services/entries/api_submission.rb` |
 |---|---|
 | the operation both surfaces run (the REST action and the MCP tool `submit_entry`) — `Api::V1::Operations::SubmitEntry#call` | `app/services/api/v1/operations/submit_entry.rb:24-38` |
-| one record per (player, key), one live request per player and contest — `Entries::ApiSubmission#acquire` | `app/services/entries/api_submission.rb:207-231` |
+| one record per (player, key), one live request per player and contest — `Entries::ApiSubmission#acquire` | `app/services/entries/api_submission.rb:211-235` |
 | settle an earlier doubt before spending — `Entries::ApiSubmission#run` | `:246-277` |
 | the fence: this attempt still owns the key, checked inside the contest lock — `Entries::ApiSubmission#fence!` | `:293-299` |
 | the gates that need no row — `Entries::ApiSubmission#assert_submittable!` | `:351-367` |
