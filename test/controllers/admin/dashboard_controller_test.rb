@@ -126,61 +126,23 @@ class Admin::DashboardControllerTest < ActionDispatch::IntegrationTest
     assert_nil SeasonConfig.main_contest_explicit
   end
 
-  # --- Link-preview (og:image) defaults ---
+  # --- Link-preview defaults (moved to the engine's /admin/link_preview) ---
 
-  test "show renders the link-preview defaults section" do
+  test "show points the link-preview card at /admin/link_preview" do
     log_in_as(@admin)
     get admin_dashboard_path
     assert_response :success
-    assert_select "h2", text: "Link Preview Defaults"
-    assert_select "#default-og-image-preview"
+    assert_select "[data-test='dashboard-link-preview']" do
+      assert_select "h2", text: "Link Preview Defaults"
+      assert_select "a[href=?]", admin_link_preview_path, text: "Edit link preview"
+    end
+    # The old in-dashboard uploader and its form are gone.
+    assert_select "#default-og-image-preview", count: 0
+    assert_select "input[name^='site_setting']", count: 0
   end
 
-  test "update_link_preview saves the default title and description" do
-    log_in_as(@admin)
-    patch admin_dashboard_link_preview_path, params: {
-      site_setting: { default_og_title: "Custom Title", default_og_description: "Custom Desc" }
-    }
-    assert_redirected_to admin_dashboard_path
-    assert_equal "Custom Title", SiteSetting.instance.default_og_title
-    assert_equal "Custom Desc",  SiteSetting.instance.default_og_description
-  end
-
-  test "update_link_preview rejects non-admin" do
-    log_in_as(@user)
-    patch admin_dashboard_link_preview_path, params: {
-      site_setting: { default_og_title: "Nope" }
-    }
-    assert_response :redirect
-    assert_nil SiteSetting.instance.default_og_title
-  end
-
-  test "update_link_preview_image attaches the default og image" do
-    log_in_as(@admin)
-    assert_not SiteSetting.instance.default_og_image.attached?
-
-    patch admin_dashboard_link_preview_image_path,
-      params: { site_setting: { default_og_image: fixture_file_upload("banner.png", "image/png") } },
-      as: :turbo_stream
-
-    assert_response :success
-    assert SiteSetting.instance.reload.default_og_image.attached?
-    assert_match "default-og-image-preview", response.body
-  end
-
-  test "update_link_preview_image rejects a non-image file" do
-    log_in_as(@admin)
-    patch admin_dashboard_link_preview_image_path,
-      params: { site_setting: { default_og_image: fixture_file_upload("not_an_image.txt", "text/plain") } }
-    assert_response :redirect
-    assert_not SiteSetting.instance.reload.default_og_image.attached?
-  end
-
-  test "update_link_preview_image rejects non-admin" do
-    log_in_as(@user)
-    patch admin_dashboard_link_preview_image_path,
-      params: { site_setting: { default_og_image: fixture_file_upload("banner.png", "image/png") } }
-    assert_response :redirect
-    assert_not SiteSetting.instance.reload.default_og_image.attached?
+  test "the retired dashboard link-preview routes are no longer drawn" do
+    assert_not Rails.application.routes.url_helpers.respond_to?(:admin_dashboard_link_preview_path)
+    assert_not Rails.application.routes.url_helpers.respond_to?(:admin_dashboard_link_preview_image_path)
   end
 end

@@ -76,10 +76,11 @@ class CopySiteSettingIntoSiteIdentity < ActiveRecord::Migration[8.1]
     return existing if existing
 
     now = quote(Time.current)
-    select_value(<<~SQL.squish)
+    # `insert` (not select_value with RETURNING) so a query cache, if one is
+    # on, is cleared by the write.
+    connection.insert(<<~SQL.squish, "SiteIdentity Insert", "id")
       INSERT INTO studio_site_identities (app_name, slug, created_at, updated_at)
       VALUES (#{quote(APP_NAME)}, #{quote(IDENTITY_SLUG)}, #{now}, #{now})
-      RETURNING id
     SQL
   end
 
