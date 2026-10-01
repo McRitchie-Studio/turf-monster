@@ -136,6 +136,37 @@ class McpControllerTest < ActionDispatch::IntegrationTest
     assert_equal(-32_600, json.dig("error", "code"))
   end
 
+  # Revision 2026-07-28 has no handshake. A client that speaks it and the older
+  # revisions (Claude Code 2.1.286) opens with this exact probe, and falls back
+  # to `initialize` only when the 400 it gets is NOT one of the modern error
+  # codes. Answer with one of those and the client stops falling back.
+  test "a 2026-07-28 probe is refused in a way that makes a dual-era client fall back to initialize" do
+    probe = { jsonrpc: "2.0", id: "server-discover-probe-1", method: "server/discover",
+              params: { _meta: { "io.modelcontextprotocol/protocolVersion" => "2026-07-28",
+                                 "io.modelcontextprotocol/clientInfo" => { name: "claude-code", version: "2.1.286" },
+                                 "io.modelcontextprotocol/clientCapabilities" => {} } } }
+
+    post "/mcp", params: JSON.generate(probe),
+                 headers: mcp_headers(version: "2026-07-28").merge("Mcp-Method" => "server/discover")
+
+    assert_response :bad_request
+    assert_not_includes AgentMcp::Protocol::MODERN_ERROR_CODES, json.dig("error", "code")
+    assert_equal(-32_600, json.dig("error", "code"))
+    assert_equal %w[2025-03-26 2025-06-18 2025-11-25], json.dig("error", "data", "supported")
+
+    # …and the fallback it then makes works, whichever revision it names.
+    %w[2026-07-28 2025-11-25].each do |version|
+      rpc("initialize", { protocolVersion: version, capabilities: {}, clientInfo: { name: "claude-code", version: "2.1.286" } },
+          version: nil)
+      assert_response :ok
+      assert_equal "2025-11-25", json.dig("result", "protocolVersion")
+    end
+
+    # Without the header the probe is an unknown method, also not a modern error.
+    mcp_post(probe, version: nil)
+    assert_equal(-32_601, json.dig("error", "code"))
+  end
+
   # ── every read tool returns what REST returns ─────────────────────────────
 
   test "get_me is GET /api/v1/me" do

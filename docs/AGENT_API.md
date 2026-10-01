@@ -922,7 +922,7 @@ holds for the tools as written.
 |---|---|
 | Endpoint | `POST https://turfmonster.media/mcp` |
 | Transport | MCP Streamable HTTP. Every request is answered with one `application/json` body. No event stream, no session. |
-| Protocol revisions | `2025-03-26`, `2025-06-18`, `2025-11-25` |
+| Protocol revisions | `2025-03-26`, `2025-06-18`, `2025-11-25`. Not `2026-07-28`, the current one: see [Protocol notes](#protocol-notes). |
 | Authentication | `Authorization: Bearer tmk_...` on every request, `initialize` included |
 | Methods | `initialize`, `ping`, `tools/list`, `tools/call`, and any notification |
 
@@ -1074,6 +1074,16 @@ reasoning: [`RATE_LIMITING.md`](RATE_LIMITING.md).
 - **Version negotiation.** `initialize` answers with the client's revision when
   it is one of the three, and with `2025-11-25` otherwise. Any other value in
   the `MCP-Protocol-Version` header of a later request is a `400`.
+- **Revision `2026-07-28` is not spoken.** It is the current revision and it
+  removes the `initialize` handshake: every request carries its version in
+  `params._meta`, and a server answers `server/discover`. A client that speaks
+  both eras tries that first and falls back to `initialize` when it gets a `400`
+  that is not one of the new error codes (`-32020` to `-32022`). That is what
+  this server returns, and the fallback is what Claude Code does against it
+  (see [Clients tested](#clients-tested)); it costs one extra request per
+  connection. A client that speaks **only** `2026-07-28` cannot connect. Serving
+  it natively is a small piece of work, because this server is already
+  stateless, and has not been done.
 - **Batches** are accepted at `2025-03-26` only. `2025-06-18` removed them from
   the protocol. `initialize` may not be part of one.
 - **Capabilities:** `tools` only. No resources, prompts, logging or completions.
@@ -1084,7 +1094,18 @@ reasoning: [`RATE_LIMITING.md`](RATE_LIMITING.md).
 
 ### Clients tested
 
-CLIENTS_TESTED_PLACEHOLDER
+Run against a local stack on 2026-10-01, with a real key.
+
+| Client | Result |
+|--------|--------|
+| **Claude Code 2.1.286**, headless (`claude -p --mcp-config`), with the `.mcp.json` shape above and the key from an environment variable | Connected, listed all eight tools, and called `get_me`, `list_contests` and `get_contest`, answering from their results. Its first request was a `server/discover` probe at revision `2026-07-28`; it got the `400` and fell back to `initialize` at `2025-11-25`. Its `GET /mcp` got the `405` and it carried on. |
+| **MCP Inspector 2.9.0**, command line (`npx @modelcontextprotocol/inspector --cli … --header "Authorization: Bearer …"`) | `tools/list --strict` reported no schema portability problems. `tools/call` returned `structuredContent` and the text block for `get_me` and `get_contest`; a wrong argument name came back as `isError: true` with `bad_request`. Without a key it read the `401` as "sign in with OAuth", which this server does not offer. |
+| `curl` | `initialize`, `tools/call`, the `401` and the `405` |
+| claude.ai, Claude Desktop, Claude mobile | **Not tested.** They need a public HTTPS address, and either OAuth or the request-headers beta. |
+
+Not exercised against a live server by any client: `submit_entry` and
+`edit_entry` succeeding. A local stack has no Solana program to pay, so those
+are covered by the test suite, against the same vault double the REST tests use.
 
 ### What OAuth would need
 
