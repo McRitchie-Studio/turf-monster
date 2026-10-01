@@ -891,69 +891,22 @@ class ContestsController < ApplicationController
       }, status: :unprocessable_entity
     end
 
-    # Declared here so the durable-capture write + confirm! + respond_to below
-    # (all OUTSIDE the with_lock transaction) can reference them. The on-chain
-    # signature/PDA MUST outlive a confirm! failure — see the durable-capture
-    # block after with_lock (incident 2026-06-08).
-    token_consumed = false
-    tx_signature = nil
-    onchain_entry_id = nil
+    # Gate, fund and activate through Entries::ManagedEntry — the one path the
+    # agent API's entry endpoint (Entries::ApiSubmission) also takes. It runs
+    # every read-only gate under the contest row lock BEFORE the irreversible
+    # on-chain consume/transfer, durably captures the signature outside the
+    # lock, then confirms; a confirm! failure after a spend is swallowed there
+    # and handed to Entries::OnchainReconcileJob (incident 2026-06-08).
+    #
+    # Funding priority is the web's (operator spec 2026-06-13): entry token
+    # first, then USDC behind ENABLE_WEB2_USDC_ENTRY, else refuse. web3
+    # (Phantom) sessions never reach here — they were turned away above and
+    # fund via prepare_entry / confirm_onchain_entry.
+    managed = Entries::ManagedEntry.new(contest: @contest, user: current_user,
+                                        usdc_allowed: AppFlags.web2_usdc_entry?)
 
     rescue_and_log(target: entry, parent: @contest) do
-      # DB-side gates (eligibility, season, on-chain backing) + entry-slot
-      # reservation, serialized under the contest row lock. The IRREVERSIBLE
-      # on-chain consume/transfer runs inside this block too — so EVERY
-      # read-only eligibility gate (selection count, lock time, started games,
-      # sybil, per-user limit, contest-full) MUST run BEFORE it (entry.
-      # assert_enterable! below). Incident 2026-06-08: the consume ran first and
-      # the gate-running confirm! raised AFTER the consume, stranding the user
-      # (paid + entered on-chain, app showed `cart`). A reconciler can't heal a
-      # genuine validation failure — re-running confirm! fails the same gate —
-      # so the only correct fix is to validate BEFORE the irreversible side
-      # effect (backend discipline #2). confirm! (hoisted out below) re-runs the
-      # SAME assert_enterable! as its serialized backstop, and the durable
-      # capture covers a TRANSIENT post-broadcast failure (RPC/DB), which the
-      # reconciler then heals.
-      @contest.with_lock do
-        # PRE-FLIGHT: run the read-only eligibility gates BEFORE any consume.
-        # Raises here → token stays unconsumed, entry stays `cart`, fail loudly.
-        entry.assert_enterable!
-
-        # On-chain entries require a configured season (seed_schedule lives on its PDA).
-        # Catch the missing-season case early with a clear error instead of a cryptic
-        # Anchor AccountNotInitialized further down.
-        if @contest.onchain?
-          current_sid = SeasonConfig.current_season_id
-          raise "No active season configured. Set one at /admin/seasons before users can enter on-chain contests." if current_sid.to_i.zero?
-        end
-
-        # A paid contest must be backed by an on-chain Contest PDA — that PDA is
-        # where the entry token / USDC payment is recorded. An off-chain paid
-        # contest has no payment rail, so refuse rather than create a free entry.
-        # (Entry#confirm! enforces the same gate as a model-level backstop.)
-        if @contest.entry_fee_cents.to_i.positive? && !@contest.onchain?
-          raise "This contest isn't on-chain yet — paid entry is unavailable."
-        end
-
-        if @contest.onchain? && @contest.entry_fee_cents > 0 && !onchain_session?
-          # Web2 / managed-wallet (server-signed) entry funding. Unified priority
-          # (operator spec 2026-06-13): entry token first, then USDC (flag-gated),
-          # else block. web3 (Phantom) sessions never reach here — they fund via
-          # prepare_entry / confirm_onchain_entry. See #resolve_web2_entry_funding!.
-          tx_signature, onchain_entry_id, token_consumed = resolve_web2_entry_funding!(entry)
-        end
-      end
-
-      # Durable capture (incident 2026-06-08). The on-chain consume/transfer
-      # above is IRREVERSIBLE — the token is spent + the Entry PDA exists on
-      # chain. Persist that proof onto the (still-`cart`) entry NOW, in a write
-      # that has already left the with_lock transaction, so the gate-running
-      # confirm! below can fail without erasing the fact that the user paid.
-      # A strand is then a recoverable row (`cart` + onchain_tx_signature) that
-      # self-heals via Entries::OnchainReconcileJob / `rake entries:reconcile_onchain`.
-      entry.update!(onchain_tx_signature: tx_signature, onchain_entry_id: onchain_entry_id) if tx_signature
-
-      finalize_managed_entry!(entry, tx_signature: tx_signature, onchain_entry_id: onchain_entry_id)
+      managed.call(entry)
 
       # Announce the join in chat once — only when the entry actually went
       # active. A post-broadcast confirm failure (reconcile pending) skips this;
@@ -966,7 +919,7 @@ class ContestsController < ApplicationController
           seeds = post_entry_seeds_payload(entry,
                                           path: "managed",
                                           tx_signature: entry.onchain_tx_signature,
-                                          token_consumed: token_consumed)
+                                          token_consumed: managed.token_consumed?)
           render json: {
             success: true,
             redirect: contest_path(@contest),
@@ -974,7 +927,7 @@ class ContestsController < ApplicationController
             # Flag for the client: true iff this entry was paid for by
             # an on-chain EntryTokenAccount consumption. Drives the
             # navbar 🎟️ punch animation (animateFreeEntryBadge).
-            token_consumed: token_consumed,
+            token_consumed: managed.token_consumed?,
             **seeds
           }
         }
@@ -1964,109 +1917,6 @@ class ContestsController < ApplicationController
     Message.announce_join!(contest: @contest, user: entry.user)
   end
 
-  # Flip the cart entry to `active` now that payment has settled (on-chain
-  # consume/transfer done, or a free contest). For an on-chain-paid entry whose
-  # proof we already durably captured, a confirm! failure must NOT strand the
-  # user or invite a double-spend retry: the token/USDC is already gone on chain
-  # and the Entry PDA exists, so the entry IS valid — we schedule the reconciler
-  # to converge the Rails row to active out-of-band and let the success response
-  # stand (the durable onchain_tx_signature keeps the row recoverable). A free /
-  # off-chain entry has nothing to recover, so its confirm! failure re-raises as
-  # a normal error. (Incident 2026-06-08.)
-  # Web2 / managed-wallet entry funding — runs INSIDE #enter's @contest.with_lock
-  # (after entry.assert_enterable!) for a non-onchain session on a paid on-chain
-  # contest. Unified funding priority (operator spec 2026-06-13):
-  #   1. ENTRY TOKEN (incl. seed-earned free entries) — atomic on-chain consume
-  #      via enter_contest_with_token (no USDC transfer; token IS the payment).
-  #   2. USDC, only when ENABLE_WEB2_USDC_ENTRY is on — the server signs the
-  #      existing enter_contest (USDC) instruction with the managed keypair
-  #      (Solana::Vault#enter_contest_with_usdc). This is what lets a USDC
-  #      contest payout fund the next entry.
-  #   3. else block ("No entry tokens") — flag-off token-only fallback (today's
-  #      behavior). Solana::ErrorInterpreter maps the raise to the no_funding
-  #      blocker so the board opens the Top Up Wallet modal.
-  # USDT is deliberately NOT offered to web2 (payouts are USDC).
-  #
-  # Everything derives from the managed (web2) address so a managed+phantom
-  # combo account signs with — and spends from — the custodial wallet the server
-  # holds, never the web3 address (which #solana_address would otherwise prefer
-  # and desync from the keypair). Returns [tx_signature, onchain_entry_id,
-  # token_consumed]; the IRREVERSIBLE consume/transfer is durably captured by
-  # the caller immediately after with_lock (incident 2026-06-08).
-  def resolve_web2_entry_funding!(entry)
-    address = current_user.web2_solana_address
-    raise "Managed wallet missing keypair (cannot sign entry)" if address.blank?
-
-    vault = Solana::Vault.new
-    # Probe the chain for a free entry slot (handles orphaned PDAs left by a
-    # contest Reset). See Entry#assign_onchain_entry_number!.
-    entry.assign_onchain_entry_number!(address, vault)
-
-    # Token detection MUST be scoped to the SAME web2 `address` we sign with.
-    # #next_unconsumed_entry_token reads #solana_address (web3-preferred for a
-    # combo account), so for a managed+phantom account it would surface a
-    # web3-OWNED token the managed keypair can't consume (doomed owner != signer)
-    # AND mask an available USDC fallback — a confusing hard wall. Scoping to the
-    # web2 address makes the token sub-path derive from the same wallet the USDC
-    # sub-path's signer guard already pins. (Avi review 2026-06-13.)
-    token = current_user.next_unconsumed_entry_token_for(address)
-    if token
-      vault.ensure_user_account(address, username: current_user.username) if current_user.solana_connected?
-      # OPSEC-004: the token owner (managed keypair) must sign the consume.
-      result = vault.enter_contest_with_token(
-        address, @contest.slug, entry.entry_number, token[:pda],
-        user_keypair: current_user.solana_keypair, season_id: @contest.season_id
-      )
-      # The on-chain EntryTokenAccount.consumed flag just flipped to true. Bust
-      # the 60s entry-tokens cache so a follow-up entry within the same TTL
-      # doesn't re-pick this token and trip 0x177f (EntryTokenAlreadyConsumed).
-      current_user.bust_entry_tokens_cache!
-      [result[:signature], result[:entry_pda], true]
-    elsif AppFlags.web2_usdc_entry?
-      # SAFETY NET (2026-06-13): pre-check the USDC balance BEFORE the
-      # irreversible on-chain enter. A fresh managed wallet with no USDC ATA
-      # reads `null` client-side, slips past the hold-time eligibilityBlocker
-      # (which fails OPEN on null), and would otherwise attempt a doomed SPL
-      # transfer that fails with "custom program error: 0x1" (insufficient
-      # funds) — a cryptic sim error, not the Top Up Wallet. Validate before the
-      # side effect (backend discipline #2): underfunded → raise no_funding
-      # (Solana::ErrorInterpreter maps "not enough usdc" + web2 mode to the
-      # no_funding/web2 blocker → board opens the Top Up Wallet), never broadcast
-      # a doomed entry. FRESH authoritative read — the 60s navbar cache is not
-      # trusted here.
-      #
-      # FAIL-OPEN ON A READ FAILURE (Avi review 2026-06-13): read with
-      # raise_on_read_error so a transient getTokenAccountsByOwner flake RAISES
-      # rather than masquerading as $0 — a confirmed-zero must block, but a
-      # FLAKED read must NOT false-block a funded user (whose atomic SPL transfer
-      # would have succeeded). On a read failure, fall through to the atomic
-      # enter and let it be the authority: it succeeds for a funded wallet, and
-      # fails 0x1 for a genuine $0 — which ErrorInterpreter ALREADY backstops to
-      # no_funding/web2 (Top Up Wallet). Only a CONFIRMED-insufficient balance
-      # raises the pre-check no_funding here.
-      fee_cents = @contest.entry_fee_cents.to_i
-      begin
-        usdc_cents = dollars_to_cents(vault.fetch_wallet_balances(address, raise_on_read_error: true)[:usdc])
-        if usdc_cents < fee_cents
-          raise "Not enough USDC to enter this contest — top up your wallet and try again."
-        end
-      rescue Solana::Client::RpcError
-        # Balance read flaked — defer to the self-protecting atomic enter below.
-      end
-
-      # enter_contest_with_usdc encapsulates the web2-address/keypair/username
-      # resolution + ensure_user_account + ensure_ata(USDC) preamble, so the
-      # signer/ATA-desync footgun can't reach the call site. Atomic SPL transfer
-      # + entry-PDA init — an underfunded ATA fails the whole TX (no strand).
-      result = vault.enter_contest_with_usdc(
-        user: current_user, contest: @contest, entry_num: entry.entry_number
-      )
-      [result[:signature], result[:entry_pda], false]
-    else
-      raise "No entry tokens. Buy at /tokens/buy"
-    end
-  end
-
   # Does this session owe a WALLET SIGNATURE before a paid on-chain entry can be
   # signed at all? Returns the Web3StepUpPolicy (so a caller can render its
   # payload) or nil.
@@ -2160,83 +2010,15 @@ class ContestsController < ApplicationController
   # drift; nil (mint unconfigured / no ATA) → 0, and we FLOOR — both fail closed
   # so a missing or sub-cent balance can never read as enough to fund.
   def dollars_to_cents(dollars)
-    return 0 if dollars.nil?
-    (BigDecimal(dollars.to_s) * 100).floor
+    Entries::ManagedEntry.dollars_to_cents(dollars)
   end
 
-  def finalize_managed_entry!(entry, tx_signature:, onchain_entry_id:)
-    entry.confirm!(tx_signature: tx_signature, onchain_entry_id: onchain_entry_id)
-  rescue StandardError => e
-    raise e if tx_signature.blank?
-
-    Rails.logger.error(
-      "[entry][post-broadcast-confirm-failed] entry_id=#{entry.id} " \
-      "contest=#{@contest.slug} user_id=#{entry.user_id} " \
-      "tx=#{tx_signature.to_s.first(8)}... #{e.class}: #{e.message} — " \
-      "scheduling reconcile (token already consumed on-chain)"
-    )
-
-    # This branch SWALLOWS the exception (the on-chain payment already settled, so
-    # the entry is valid and reconciles out-of-band) — which means the outer
-    # rescue_and_log never sees it. Persist an ErrorLog ourselves, with the same
-    # target/parent context rescue_and_log would attach, so a stranded entry is
-    # diagnosable in seconds (this exact failure class is what incident #133 was
-    # reconstructed from log scraping). Capture BEFORE the enqueue.
-    error_log = ErrorLog.capture!(e)
-    error_log.target = entry
-    error_log.target_name = entry.slug
-    error_log.parent = @contest
-    error_log.parent_name = @contest.slug
-    error_log.save!
-
-    Entries::OnchainReconcileJob.perform_later(entry.id)
-  end
-
+  # The seeds triple for a success response, plus the side effects of a
+  # confirmed entry (level-up nudge, log line, navbar cache drop). The work is
+  # Entries::PostEntryEffects, shared with the agent API's entry endpoint.
   def post_entry_seeds_payload(entry, path:, tx_signature:, token_consumed: nil)
-    seeds_earned = 0
-    seeds_total  = 0
-    seeds_level  = 0
-    verified_seeds_total = nil
-
-    if entry.onchain_tx_signature.present? && entry.entry_number.present?
-      begin
-        seeds_earned = Solana::Vault.new.seeds_for_entry(entry.entry_number)
-      rescue => e
-        Rails.logger.warn "Failed to read seeds_for_entry: #{e.message}"
-      end
-      if current_user.solana_connected?
-        begin
-          onchain = Solana::Vault.new.sync_balance(current_user.solana_address)
-          verified_seeds_total = onchain&.dig(:seeds)
-          seeds_total = verified_seeds_total || 0
-        rescue => e
-          Rails.logger.warn "Failed to read seeds after entry: #{e.message}"
-        end
-      end
-      seeds_level = User.level_for(seeds_total)
-      LevelUpTokenMintJob.nudge(current_user, seeds_total: verified_seeds_total) if verified_seeds_total
-    end
-
-    tx_prefix = tx_signature.to_s.first(8)
-    token_part = token_consumed.nil? ? "" : " token_consumed=#{token_consumed}"
-    Rails.logger.info(
-      "[entry][confirmed] path=#{path} user_id=#{current_user.id} " \
-      "entry_id=#{entry.id} contest=#{@contest.slug} tx=#{tx_prefix}... " \
-      "seeds_earned=#{seeds_earned} seeds_total=#{seeds_total} " \
-      "seeds_level=#{seeds_level}#{token_part}"
-    )
-
-    if current_user.solana_connected?
-      invalidate_seeds_cache
-      # BOTH balance keys, not just USDC: see #invalidate_wallet_balance_cache.
-      # #confirm_onchain_entry reaches here after a spend that may have been
-      # USDT (#prepare_entry maps currency "usdt" to currency_idx 1 /
-      # Config::USDT_MINT), in which case the one-key drop cleared the key that
-      # did NOT move and kept the stale pre-spend balance that did.
-      invalidate_wallet_balance_cache
-    end
-
-    { seeds_earned: seeds_earned, seeds_total: seeds_total, seeds_level: seeds_level }
+    Entries::PostEntryEffects.call(entry: entry, user: current_user, contest: @contest, path: path,
+                                   tx_signature: tx_signature, token_consumed: token_consumed)
   end
 
   # Renders the JSON error response for every entry-flow endpoint (enter,
