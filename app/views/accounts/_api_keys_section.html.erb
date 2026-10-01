@@ -1,0 +1,85 @@
+<%# The agent API keys card's BODY: the player's keys, and the form that mints
+    one. docs/AGENT_API.md.
+
+    Locals: user (required); blocked_reason (nil, :frozen, :geo or :age) — why
+    this player cannot mint right now, decided by the caller from the request
+    (AccountsHelper#api_key_mint_blocker). A local and not a helper call in
+    here, so the partial renders without a request.
+
+    BODY ONLY, like its siblings: the call site owns the card and the heading.
+
+    THE FORM IS A COURTESY, NOT THE GATE. ApiKeysController re-runs every check
+    on the POST; hiding the button only saves an eligible-looking dead end.
+
+    turbo: false on the mint form is load-bearing. The response to that POST is
+    the one page that shows the key, rendered directly rather than redirected
+    to, and Turbo refuses to render a non-redirect success for a form
+    submission. %>
+<% keys = user.api_keys.where(revoked_at: nil).newest_first.to_a %>
+<div data-api-keys>
+  <p class="text-secondary text-sm mb-4">
+    An API key lets an AI agent play for you: read contests, spend your free entry, check your score.
+    Treat it like a password. Keys expire after <%= ApiKey::LIFETIME.in_days.to_i %> days.
+  </p>
+
+  <% if keys.any? %>
+    <ul class="mb-4" data-api-key-list>
+      <% keys.each do |key| %>
+        <li class="py-3 border-b border-subtle flex items-center justify-between gap-3 flex-wrap" data-api-key-row="<%= key.id %>">
+          <div class="min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <code class="bg-inset rounded px-2 py-1 text-primary font-mono text-xs"><%= key.prefix %>…</code>
+              <% if key.name.present? %>
+                <span class="text-body text-sm font-semibold truncate"><%= key.name %></span>
+              <% end %>
+              <% if key.expired? %>
+                <span class="text-xs font-bold text-muted uppercase">Expired</span>
+              <% end %>
+            </div>
+            <p class="text-xs text-muted mt-1">
+              <%= key.expired? ? "Expired" : "Expires" %> <%= key.expires_at.strftime("%b %-d, %Y") %>
+              ·
+              <%= key.last_used_at ? "Last used #{time_ago_in_words(key.last_used_at)} ago" : "Never used" %>
+            </p>
+          </div>
+          <%= button_to "Revoke", account_api_key_path(key), method: :delete,
+                class: "btn btn-danger btn-sm flex-shrink-0",
+                form: { data: { turbo_confirm: "Revoke this key? Any agent using it stops working immediately." } } %>
+        </li>
+      <% end %>
+    </ul>
+  <% end %>
+
+  <% case blocked_reason %>
+  <% when :frozen %>
+    <p class="text-sm text-secondary" data-api-key-blocked="frozen">
+      New keys are unavailable while your account is on hold.
+    </p>
+  <% when :geo %>
+    <p class="text-sm text-secondary" data-api-key-blocked="geo">
+      API keys aren't available where you are, because contests aren't either.
+    </p>
+  <% when :age %>
+    <div class="flex items-center justify-between gap-3 flex-wrap" data-api-key-blocked="age">
+      <p class="text-sm text-secondary min-w-0">Verify your age to create an API key.</p>
+      <button type="button" @click="$store.modals.open('birthday', {})" class="btn btn-primary btn-sm flex-shrink-0">
+        Verify age
+      </button>
+    </div>
+  <% else %>
+    <% if keys.count(&:active?) >= ApiKey::MAX_ACTIVE_PER_USER %>
+      <p class="text-sm text-secondary" data-api-key-blocked="limit">
+        You have <%= ApiKey::MAX_ACTIVE_PER_USER %> active keys, the most an account can hold. Revoke one to create another.
+      </p>
+    <% else %>
+      <%= form_with url: account_api_keys_path, method: :post, data: { turbo: false, api_key_form: true } do %>
+        <label for="api_key_name" class="block text-sm font-bold text-heading mb-2">Label <span class="text-muted font-normal">(optional)</span></label>
+        <div class="flex gap-2">
+          <input type="text" name="name" id="api_key_name" maxlength="<%= ApiKey::NAME_MAX_LENGTH %>"
+                 class="input-field flex-1 min-w-0" placeholder="e.g. Claude" autocomplete="off">
+          <button type="submit" class="btn btn-primary flex-shrink-0">Create key</button>
+        </div>
+      <% end %>
+    <% end %>
+  <% end %>
+</div>

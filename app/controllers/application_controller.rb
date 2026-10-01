@@ -147,6 +147,19 @@ class ApplicationController < ActionController::Base
   end
   helper_method :age_gate_required?, :age_verification_pending?
 
+  # Why THIS request cannot mint an agent API key, or nil when it can — the
+  # view-side mirror of ApiKeysController's before_actions, in the same order,
+  # so the account page explains the refusal the server would give. Display
+  # only: the controller re-runs every check on the POST.
+  def api_key_mint_blocker
+    return :frozen if current_user&.frozen?
+    return :geo if geo_blocked?
+    return :age if age_verification_pending?
+
+    nil
+  end
+  helper_method :api_key_mint_blocker
+
   # ── Wallet setup (web3-only onboarding, 2026-08) ───────────────────────────
   # Two session keys, doing two different jobs:
   #

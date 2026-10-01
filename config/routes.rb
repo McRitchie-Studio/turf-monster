@@ -283,6 +283,20 @@ Rails.application.routes.draw do
   post "account/wallet/export/:token/complete", to: "wallet_exports#complete", as: :complete_wallet_export,
        constraints: { token: %r{[^/]+} }, format: false
 
+  # Agent API keys (docs/AGENT_API.md). Minted and revoked from /account by the
+  # signed-in player; the key itself authenticates the /api/v1 routes below.
+  post   "account/api_keys",     to: "api_keys#create",  as: :account_api_keys
+  delete "account/api_keys/:id", to: "api_keys#destroy", as: :account_api_key
+
+  # The agent API. Bearer-key authenticated (Api::V1::BaseController) — no
+  # cookie, no CSRF. JSON only: `format: false` so a trailing ".html" is a 404
+  # rather than a second spelling of the same endpoint.
+  namespace :api, defaults: { format: :json } do
+    namespace :v1 do
+      get "me", to: "me#show", format: false
+    end
+  end
+
   # Newsletter / quest mission 2 — authed one-click join (+ web3 email capture)
   # and unsubscribe. First-ever join mints 40 seeds on-chain (Vault#grant_seeds).
   post "account/newsletter/subscribe",   to: "newsletter#subscribe",   as: :newsletter_subscribe
