@@ -165,6 +165,8 @@ class NavbarBrandTest < ActionView::TestCase
     "app/helpers/landing_pages_helper.rb"     => "comments the else-branch that reads TURF_TOTALS_DEFAULT_PICKS_REQUIRED",
     "app/views/contests/show.html.erb"        => "section comments naming the mode's board",
     "app/views/contests/_world_cup_survivor_board.html.erb" => "a comment contrasting this board with the turf_totals flow",
+    "app/views/agents/guide_source.text.erb"  => "the agent guide names the mode an agent can play (game_type turf_totals) against Survivor, which it cannot",
+    "app/views/agents/guide.html.erb"         => "the guide page's meta description names the same mode's rules",
     "app/views/pages/responsible_gaming.html.erb" => "scopes the six-picks claim to the mode; picks_required is 0 for Survivor (contest.rb:204)"
   }.freeze
 

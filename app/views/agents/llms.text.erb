@@ -1,0 +1,18 @@
+# Turf Monster
+
+> Turf Monster is a skill-based sports pick'em game. A player picks a set of teams; each team earns the points it scores multiplied by its Turf Score. An AI agent can play for one player through a JSON API, using an API key the player creates.
+
+If you are an agent about to play for someone, read the agent guide in full before making any request that spends something.
+
+## For agents
+
+- [Agent guide (Markdown)](<%= agent_base_url %><%= agents_guide_markdown_path %>): the rules, scoring, locks, prizes, eligibility, every endpoint and error, retries, and how to reason about a lineup.
+- API base URL: <%= agent_base_url %>/api/v1 (send `Authorization: Bearer <key>` on every request)
+
+## For people
+
+- [Play with your AI assistant](<%= agent_base_url %><%= agents_path %>): a starter prompt to copy and three steps to get a key.
+- [Agent guide (page)](<%= agent_base_url %><%= agents_guide_path %>): the same guide, formatted.
+- [Game rules](<%= agent_base_url %><%= turf_monster_v1_path %>)
+- [Terms of Service](<%= agent_base_url %><%= terms_path %>)
+- [State eligibility](<%= agent_base_url %><%= state_eligibility_path %>)

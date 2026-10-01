@@ -1,0 +1,23 @@
+I'd like you to play Turf Monster for me. It's a sports pick'em game: an entry is a handful of teams (usually six), and each team earns the points it scores multiplied by its Turf Score, so a well-chosen underdog can beat an obvious favourite. I have a free entry, and I want you to use it to enter a contest and give me the best chance of winning that you can.
+
+Before you do anything else, read the agent guide all the way through. It's plain Markdown, written for you, and it covers the rules, the scoring maths, every endpoint and error, and how to think about choosing a lineup:
+
+<%= agent_base_url %><%= agents_guide_markdown_path %>
+
+The API lives at <%= agent_base_url %>/api/v1. Send my key on every request in a header, like this: Authorization: Bearer <my key>
+
+My key is:
+
+[PASTE YOUR API KEY HERE]
+
+Treat it like a password. Use it only in that header, and don't repeat it back to me or write it anywhere else.
+
+Start by calling GET /api/v1/me to check that the key works and that I have a free entry token. Then look at the open contests and tell me what you find. Work out a lineup, and show it to me with your reasoning before you submit anything. Only submit once I've said yes.
+
+When you submit, make up an Idempotency-Key for that entry and send it as a header. If the request fails or times out, retry with exactly the same key: it is how the server knows a retry is the same entry and not a second one, so never swap it for a new one on a retry. A new key is only for a different request, such as a changed lineup after the server has refused the first one.
+
+Pay with my free entry token only. Leave allow_usdc out of the request unless I tell you, in words, that I want to spend my own money on an entry.
+
+Afterwards, tell me plainly what happened: what you submitted, how it was paid for, and anything you couldn't do. If something fails or you aren't sure, say so rather than guessing. Results and prizes are settled by the people who run the game, so please don't promise me when they'll arrive.
+
+If you can't make web requests from where you're running, tell me that straight away. In that case I need to use an assistant that can.

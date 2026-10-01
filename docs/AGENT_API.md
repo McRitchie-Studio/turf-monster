@@ -7,8 +7,10 @@ authentication design in [`BOT_API.md`](BOT_API.md).
 **Shipped so far:** API keys, bearer authentication, `GET /api/v1/me`, the
 rate-limit tier, the read endpoints for contests, leaderboards and the player's
 entries, and the two writes: [create an entry](#post-apiv1contestsslugentries)
-and [replace its picks](#patch-apiv1entriesslug). The `/agents` pages and an MCP
-endpoint are later pieces of the same epic and build on what is here.
+and [replace its picks](#patch-apiv1entriesslug), and [the agent
+pages](#the-agent-pages) (`/agents`, `/agents/guide`, its Markdown twin and
+`/llms.txt`). An MCP endpoint is a later piece of the same epic and builds on
+what is here.
 
 ## The key
 
@@ -1204,3 +1206,59 @@ The API base controller is `ActionController::API`, not `ApplicationController`,
 on purpose: the browser stack's `allow_browser` guard, CSRF check, session-token
 check, IP geo detection and profile-completion redirect do not apply to a bearer
 client, and a filter added there later cannot start applying here by accident.
+
+## The agent pages
+
+Four public URLs tell people and agents how to use this API. None needs a
+session, and none is behind the `allow_browser` guard, because an LLM's fetch
+tool and `curl` are who reads them.
+
+| URL | Reader | What it is |
+|-----|--------|------------|
+| `/agents` | A person | A starter prompt to copy, three steps to a key, a short endpoint table |
+| `/agents/guide` | An agent, or a developer | The agent guide as a page: rules, scoring, locks, prizes, eligibility, every endpoint and error, retries, and how to reason about a lineup |
+| `/agents/guide.md` | An agent | The same guide as plain Markdown, served `text/markdown` |
+| `/llms.txt` | An agent | A pointer to the Markdown guide |
+
+**This file is the contract; the guide is its public reading.** When an endpoint,
+a field or an error code changes here, change `guide_source.text.erb` in the
+same PR. `test/integration/agent_guide_guard_test.rb` fails if the guide names a
+route the app does not draw or an error code its source does not emit, and
+fails the other way round too: a new API route or refusal code with no row in
+the guide.
+
+**One source for the guide.** `app/views/agents/guide_source.text.erb` is
+Markdown with ERB. `/agents/guide.md` serves the rendered string as it is, and
+`/agents/guide` passes the same string through `MiniMarkdown`
+(`app/services/mini_markdown.rb`), a renderer for the subset the guide is
+written in: headings, paragraphs, one-level lists, fenced code, tables, inline
+code, bold and links. The app has no Markdown gem, and the renderer raises on
+anything outside that subset, so a construct it cannot render fails a test
+instead of reaching the page as literal text.
+
+**Numbers come from the code.** The guide reads the multiplier curve
+(`SlateMatchup.turf_score_for`), the bye factor, the worked example
+(`TurfMonsterRules`), prize splits (`Contest::FORMATS`), the key lifetime
+(`ApiKey::LIFETIME`), the rate limits (`Rack::Attack.throttles`), ages by state
+(`AgePolicy`) and the excluded states (`Studio::GeoSetting`). Do not type one in.
+
+**The starter prompt** is `app/views/agents/_starter_prompt.text.erb`, rendered
+once per request and handed to both the block a person reads and the copy
+button. It names production's canonical host (`TurfMonster::HostConfig::DEFAULT_APP_HOST`)
+on every environment, so a prompt copied from a desk never sends an agent to
+localhost.
+
+**What the pages do not say.** They name no MCP or connector address (none is
+built), render no key-shaped string, promise no grading or payout timing, and
+say nothing about what the Terms allow an AI agent to do: only that the player
+is responsible for what their agent does on their account, with a link to the
+Terms. `test/controllers/agents_controller_test.rb` holds each of those.
+
+| Piece | Where |
+|-------|-------|
+| Routes | `config/routes.rb`, below every line `docs/workflows` cites |
+| Controller | `app/controllers/agents_controller.rb` |
+| The human page | `app/views/agents/show.html.erb` |
+| The guide's one source | `app/views/agents/guide_source.text.erb` |
+| The Markdown subset renderer | `app/services/mini_markdown.rb` |
+| Browser checks at phone width | `e2e/agents_pages.spec.js` |
