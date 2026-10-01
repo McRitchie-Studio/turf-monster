@@ -7,8 +7,10 @@ authentication design in [`BOT_API.md`](BOT_API.md).
 **Shipped so far:** API keys, bearer authentication, `GET /api/v1/me`, the
 rate-limit tier, the read endpoints for contests, leaderboards and the player's
 entries, and the two writes: [create an entry](#post-apiv1contestsslugentries)
-and [replace its picks](#patch-apiv1entriesslug). The `/agents` pages and an MCP
-endpoint are later pieces of the same epic and build on what is here.
+and [replace its picks](#patch-apiv1entriesslug), and [the agent
+pages](#the-agent-pages) (`/agents`, `/agents/guide`, its Markdown twin and
+`/llms.txt`). An MCP endpoint is a later piece of the same epic and builds on
+what is here.
 
 ## The key
 

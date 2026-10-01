@@ -52,7 +52,7 @@ This guide is for an AI agent that will play Turf Monster for one player, and fo
 Three things matter more than the rest:
 
 - **An entry spends something that cannot be given back.** A free entry token is consumed, or USDC is transferred, in the same call that creates the entry. Show the player the lineup and get a yes before you submit.
-- **One entry, one `Idempotency-Key`.** Reuse the same key on every retry of the same entry. Never change it because a request failed.
+- **Same request, same `Idempotency-Key`. Changed request, new key.** When a submission fails, times out or is still pending, send it again unchanged with the key it already has. Use a new key only when you send something different, such as new picks after a refusal. See [Retries and idempotency](#retries-and-idempotency).
 - **Pay with the free entry token only.** Do not send `allow_usdc` unless the player has told you, in words, to spend their money.
 
 ## What Turf Monster is
@@ -201,7 +201,7 @@ If the player tells you they are not eligible, or asks you to get around a locat
 
 A **free entry token** pays for one contest entry in place of the entry fee. It is held on Solana by the player's wallet. `free_entry_tokens` on `GET /api/v1/me` is the number unspent. A value of `null` means the balance could not be read just now; it does not mean zero, so ask again.
 
-The API can enter only for a player whose wallet Turf Monster holds and signs for: `wallet.kind` is `managed`. For `self_custodied` or `none` the entry request answers `wallet_not_server_signable`, and the player enters on the website instead.
+The API can enter only for a player whose wallet Turf Monster holds and signs for: `wallet.kind` is `managed`. A self-custodied wallet, an account with a Phantom wallet linked, and an account with no wallet are all refused with `wallet_not_server_signable`, and the player enters on the website instead.
 
 How an entry is paid for is chosen in this order:
 
@@ -261,7 +261,7 @@ curl -H "Authorization: Bearer $TURF_MONSTER_KEY" <%= api %>/me
 
 | Field | Notes |
 |---|---|
-| `wallet.kind` | `managed`: the API can enter for this player. `self_custodied` or `none`: it cannot. |
+| `wallet.kind` | `managed`: Turf Monster holds the wallet and signs for the player, so the API can enter, unless a Phantom wallet is also linked to the account. `self_custodied` or `none`: it cannot. |
 | `free_entry_tokens` | Unspent free entries. `null` means unreadable just now, not zero. |
 | `account.frozen` | `true` when the account is on hold. Reads still work; writes are refused. |
 | `api_key.expires_at` | Keys last <%= key_days %> days. After that the player creates a new one. |
@@ -591,7 +591,7 @@ Creates an entry and pays for it in one call. There is no cart: the entry is cre
 |---|---|---|
 | `Idempotency-Key` | header | Required. A value you make up for this entry: 1 to 255 printable characters with no spaces. A UUID is ideal. |
 | `matchup_ids` | body | Required. Exactly `picks_required` different ids, each a `teams[].matchup_id` of this contest. Order does not matter. |
-| `allow_usdc` | body | Optional, default `false`. See [Free entry tokens and funding](#free-entry-tokens-and-funding). |
+| `allow_usdc` | body | Optional, default `false`. A JSON boolean, `true` or `false`; the strings `"true"` and `"false"` are a `400`. See [Free entry tokens and funding](#free-entry-tokens-and-funding). |
 
 ```bash
 curl -X POST <%= api %>/contests/nfl-weeks-4-5-showdown/entries \
@@ -628,7 +628,7 @@ curl -X POST <%= api %>/contests/nfl-weeks-4-5-showdown/entries \
 | Field | Notes |
 |---|---|
 | `entry` | The new entry, as `GET /api/v1/entries/:slug` returns it |
-| `funding.method` | `token`: a free entry token was spent. `usdc`: the fee was paid in USDC. `free`: the contest has no entry fee. `unknown`: the entry was recovered after a lost response on a request that allowed USDC, and which of the two paid was not recorded. |
+| `funding.method` | `token`: a free entry token was spent. `usdc`: the fee was paid in USDC. `free`: the contest has no entry fee. `unknown`: see below. |
 | `funding.token_consumed` | `true`, `false`, or `null` when `method` is `unknown` |
 
 **`202 Accepted` means paid and not yet visible.** Rarely the payment lands and the step that marks the entry active fails. The entry is paid for and will be completed:
@@ -637,7 +637,11 @@ curl -X POST <%= api %>/contests/nfl-weeks-4-5-showdown/entries \
 { "entry": null, "funding": { "method": "token", "token_consumed": true }, "pending": true, "retry_after": 5 }
 ```
 
-Send the same request with the same `Idempotency-Key` after `retry_after` seconds. It returns `201` with the entry and spends nothing more.
+Send the same request with the same `Idempotency-Key` after `retry_after` seconds. It returns `201` with the entry and spends nothing more. Do not send a new key: the entry already exists.
+
+**A `202` can persist.** If the entry could not be marked active because of a rule and not a hiccup (the contest locked or filled in the seconds the payment took), every retry answers `202` and nothing completes it on its own. After a few minutes of `202`s, stop retrying and tell the player plainly: the entry was paid for, it is not showing as entered, and they should contact support@turfmonster.media with the contest name. Do not enter again with a new key.
+
+**A `201` can be an entry that was already paid for.** When an earlier attempt's payment landed but its response was lost, a retry finds the paid entry on Solana and returns it as this key's `201`. How that entry was paid was not recorded by the attempt that was lost, so `funding.method` is `token` when the request did not allow USDC (a token is the only thing that could have paid), and `unknown`, with `token_consumed: null`, when it did. If it is `unknown`, tell the player you cannot say which of the two paid, and that their wallet balance will show it.
 
 ### PATCH /api/v1/entries/:slug
 
@@ -681,9 +685,9 @@ Every error is `{ "error": { "code": "...", "message": "..." } }`. **Unless a ro
 | 401 | `expired_api_key` | The key is past its <%= key_days %> days | Ask the player to create a new key. |
 | 403 | `account_frozen` | The account is on hold. Reads work; writes are refused. | Stop. Tell the player to contact support. |
 | 403 | `age_verification_required` | The site requires age verification and the player has not done it | Tell the player to verify their date of birth on the website. The same key then works. |
-| 404 | `not_found` | No such contest, or no such entry among the player's own | Re-read the contests or the player's entries. |
+| 404 | `not_found` | No such contest, or no such entry among the player's own. Also `/api`, `/api/` and any path under them that is not an endpoint, on any method. | Re-read the contests or the player's entries, and check the path. |
 | 409 | `idempotency_key_reused` | This idempotency key was already used with different picks, another contest or another `allow_usdc` | A different entry needs a new key. If you meant to retry, send the original body. |
-| 409 | `idempotency_in_progress` | A request to enter this contest is still running for this player | Wait `retry_after` seconds and send the same request again. Do not switch keys. |
+| 409 | `idempotency_in_progress` | A request to enter this contest is still running for this player: this key's earlier attempt, or another key's. It is also the answer given to a slow earlier attempt that one of your retries has taken over. | Wait `retry_after` seconds and send the same request again with the same idempotency key. Do not switch keys. |
 | 422 | `contest_not_open` | The contest is settled or not ready for entries | Choose another contest. |
 | 422 | `contest_locked` | The lock time has passed | Nothing. Entries and edits are closed. |
 | 422 | `contest_cancelled` | The contest was cancelled | Choose another contest. |
@@ -696,31 +700,40 @@ Every error is `{ "error": { "code": "...", "message": "..." } }`. **Unless a ro
 | 422 | `team_locked` | A team in a new entry has kicked off, or an edit adds or drops one that has | Use teams whose `locked` is `false`. For a new entry, use a new idempotency key. |
 | 422 | `no_entry_token` | No free entry token, and USDC was not allowed or is not available | Tell the player. Only if they say so, retry with `allow_usdc: true` and a new idempotency key, because the body changed. |
 | 422 | `insufficient_funds` | `allow_usdc` was `true`, there is no token, and the wallet lacks the entry fee | Tell the player to add funds. The same idempotency key works once they have. |
-| 422 | `wallet_not_server_signable` | The player's wallet signs its own entries, or there is no wallet | Send the player to the website. The API cannot enter for this account. |
+| 422 | `wallet_not_server_signable` | The wallet is self-custodied or linked to Phantom, or there is no wallet | Send the player to the website. The API cannot enter for this account. |
 | 429 | `rate_limited` | Too many requests | Wait `retry_after` seconds (also in the `Retry-After` header), then continue more slowly. |
-| 500 | `internal_error` | A fault on the server | Retry shortly. For a new entry, with the same idempotency key. |
-| 503 | `chain_unavailable` | Solana could not be read, or did not confirm the payment in time. **The payment may or may not have landed.** | Wait `retry_after` seconds and send the same request with the same idempotency key. It will not pay twice. |
+| 500 | `internal_error` | A fault on the server | Retry shortly. For a new entry, send the same request with the same idempotency key. |
+| 503 | `chain_unavailable` | Solana could not be read, or did not confirm the payment in time. **The payment may or may not have landed.** | Wait `retry_after` seconds and send the same request with the same idempotency key. The server looks for the payment before it pays again. Expect this answer to repeat for a few minutes. |
 
 A `401` also carries `WWW-Authenticate: Bearer realm="Turf Monster API"`. `idempotency_in_progress`, `chain_unavailable` and a `202` carry `retry_after` in the body and a `Retry-After` header.
 
 ## Retries and idempotency
 
-The rule: **one entry, one `Idempotency-Key`, and never change the key because a request failed.** Make the key when you decide to enter, keep it until you hold a `201` or a `422`, and send it on every attempt in between.
+This is the part of the API that agents get backwards, so it is stated twice: as a rule, then as a table.
 
-The same key with the same contest, the same teams in any order and the same `allow_usdc` is the same request. A key belongs to the player and does not expire.
+**The key names the request, not the player and not the contest.** The same key with the same contest, the same teams in any order and the same `allow_usdc` is the same request. There are exactly two cases:
+
+1. **You are sending the same request again**, because you got a `503`, a `500`, a timeout, no response, a `202`, or a `409 idempotency_in_progress`. **Keep the key.** However many times it takes. A new key here is the one move that can put a second payment in play.
+2. **You are sending a different request**, because the server refused the first with a `4xx` and you answer by changing it: other picks after `invalid_picks`, `duplicate_lineup` or `team_locked`, `allow_usdc: true` after `no_entry_token`, another contest after `contest_full`. **Make a new key.** The old key is tied to the old body, and reusing it answers `409 idempotency_key_reused`.
+
+So one key does not last a session. A second entry, or a corrected lineup, each gets its own. What never changes is the key of a request whose outcome you do not yet know.
+
+A key belongs to the player, not to the API key, and it does not expire.
 
 | What you got | What it means | What to send next |
 |---|---|---|
 | `201` | The entry exists | Nothing. Sending it again returns the same `201` with the header `Idempotent-Replayed: true`. It is the first response and does not reflect later edits. |
 | `202` | Paid, being confirmed | The same request, same key, after `retry_after` |
-| `409 idempotency_in_progress` | An earlier request is still running | The same request, same key, after `retry_after` |
-| `503 chain_unavailable` | Unknown. The payment may have landed. | The same request, same key, after `retry_after`. If it landed, you get the entry it paid for. If not, the server waits until the payment can no longer land before trying again, so more `503`s for a few minutes are normal. |
+| `409 idempotency_in_progress` | An earlier attempt is still running, or this attempt was overtaken by your own retry | The same request, same key, after `retry_after` |
+| `503 chain_unavailable` | Unknown. The payment may have landed. | The same request, same key, after `retry_after`. If it landed, you get the entry it paid for. If not, the server answers `503` for 150 seconds after the attempt ended before it will try again, and for up to about five minutes when the earlier request died without finishing. Repeated `503`s in that window are normal. Keep the key. |
 | No response (timeout, dropped connection) | Unknown | The same request, same key. This is the case the key exists for. |
-| `422` | Refused, nothing spent | If the cause can clear without changing the body (a spot opens, funds arrive), the same key works. If you change the picks or `allow_usdc`, use a new key. |
+| `422` | Refused, nothing spent | If the cause can clear without changing the body (a token arrives, funds are added, a spot opens), the same key works. If you change the picks or `allow_usdc`, that is a different request: use a new key. |
 | `400`, `401`, `403`, `404` | Not recorded | Fix the cause. The key is still unused. |
 | `500` | A fault on the server | The same request, same key |
 
-Giving up on a key after a `503` and sending a new one is not a way around this. Before any request for a contest may spend, an earlier unresolved one for the same player and contest is settled first, and only one request per player and contest runs at a time.
+Giving up on a key after a `503` and sending a new one does not get around the wait. Before any request for a contest may spend, an earlier unresolved one for the same player and contest is settled first, and only one request per player and contest runs at a time. While the earlier payment is still unknown the new request answers `503` too. If that payment turns out to have landed, it becomes the earlier key's entry, and a new request for the same teams is then a `duplicate_lineup`.
+
+**What the server does for a retry, and the one case it cannot see.** A retry with the same key replays a finished entry, waits on one in progress, and looks on Solana for a paid entry before it pays. It pays again only when the earlier payment was refused before it was sent, was refused by the Turf Monster program itself, or 150 seconds have passed with no trace of it on chain. Any other failure after a payment is sent (a timeout, a dropped connection) is treated as unknown, not as unpaid. The case the server cannot see is a server process killed in the middle of sending a payment, more than four minutes into a request, while a retry of the same key is already waiting behind it. That needs a stalled network and a crash at the same moment. It is why this guide says the server looks before it pays, and does not say a double payment is impossible. If a player's wallet ever shows two payments for one entry, tell them to contact support@turfmonster.media.
 
 `PATCH` needs none of this. Repeat it freely.
 
@@ -746,7 +759,7 @@ Report results as they are. If the entry finished out of the prizes, say so.
 ## What the API cannot do yet
 
 - **Survivor contests.** World Cup Survivor (`game_type: "world_cup_survivor"`) is listed with `"supported": false` and a `note`, an empty `teams` list and an empty leaderboard. It is played on the website.
-- **Wallet-signed entries.** A player whose own wallet must sign (`wallet.kind` of `self_custodied`, or no wallet) cannot enter through the API.
+- **Wallet-signed entries.** A player whose own wallet must sign (self-custodied, or with a Phantom wallet linked), and a player with no wallet, cannot enter through the API.
 - **Anything about money beyond the entry.** The API does not deposit, withdraw, buy tokens or move funds.
 - **Withdraw or cancel an entry.** Once created, an entry can have its picks replaced before the lock. It cannot be removed, and what paid for it is not returned by this API.
 - **Create an account or a key.** A person does both on the website.

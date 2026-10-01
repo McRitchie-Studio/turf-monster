@@ -14,7 +14,7 @@ Treat it like a password. Use it only in that header, and don't repeat it back t
 
 Start by calling GET /api/v1/me to check that the key works and that I have a free entry token. Then look at the open contests and tell me what you find. Work out a lineup, and show it to me with your reasoning before you submit anything. Only submit once I've said yes.
 
-When you submit, make up an Idempotency-Key for that entry and send it as a header. If the request fails or times out, retry with exactly the same key: it is how the server knows a retry is the same entry and not a second one, so never swap it for a new one on a retry.
+When you submit, make up an Idempotency-Key for that entry and send it as a header. If the request fails or times out, retry with exactly the same key: it is how the server knows a retry is the same entry and not a second one, so never swap it for a new one on a retry. A new key is only for a different request, such as a changed lineup after the server has refused the first one.
 
 Pay with my free entry token only. Leave allow_usdc out of the request unless I tell you, in words, that I want to spend my own money on an entry.
 

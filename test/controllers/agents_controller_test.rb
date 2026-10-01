@@ -80,6 +80,9 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
     assert_includes prompt, "Idempotency-Key"
     assert_includes prompt, "allow_usdc"
     assert_match(/before you submit anything/i, prompt)
+    # Same request, same key; a changed request, a new one. Not "one key forever".
+    assert_match(/retry with exactly the same key/, prompt)
+    assert_match(/A new key is only for a different request/, prompt)
     assert_no_match(/localhost|127\.0\.0\.1|example\.com/, prompt)
     # Prose to a colleague, not a wall of capitals: the only shouting allowed is
     # the placeholder and the names the API itself spells in capitals.
@@ -231,6 +234,28 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
       assert_no_match(/guaranteed? (to )?win|will win|sure to win/i, body)
       assert_no_match(/within \d+ (minutes|hours|days)|instant(ly)? paid|paid (out )?(instantly|immediately|automatically)/i, body)
     end
+  end
+
+  test "the guide states the retry rule both ways and never promises a payment cannot repeat" do
+    markdown = guide_markdown
+    retries = markdown[/^## Retries and idempotency\n(.*?)^## /m, 1]
+
+    assert_match(/\*\*Keep the key\.\*\*/, retries)
+    assert_match(/\*\*Make a new key\.\*\*/, retries)
+    assert_match(/looks on Solana for a paid entry before it pays/, retries)
+    assert_match(/150 seconds/, retries)
+    assert_match(/A `202` can persist/, markdown)
+    # The server looks before it pays. It does not promise more than that
+    # (docs/AGENT_API.md, "What this guarantees, and the one thing it does not").
+    get agents_path
+    [ markdown, page_text('[data-test="agents-page"]') ].each do |text|
+      assert_no_match(/(never|not|cannot|can't|won't) (\w+ )?pay(s)? (\w+ )?twice/i, text)
+      assert_no_match(/never (be )?(charged|spen[dt]) twice/i, text)
+    end
+  end
+
+  test "allow_usdc is documented as a JSON boolean" do
+    assert_match(/`allow_usdc` \| body \| Optional, default `false`\. A JSON boolean/, guide_markdown)
   end
 
   test "the stale copy elsewhere on the site is not repeated" do
