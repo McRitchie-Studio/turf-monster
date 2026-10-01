@@ -50,12 +50,16 @@ class Entry < ApplicationRecord
 
     if existing
       existing.destroy!
-    elsif selections.count < contest.picks_required
-      selections.create!(slate_matchup: slate_matchup)
     else
-      # Replace oldest selection
-      selections.order(created_at: :asc).first.destroy!
-      selections.create!(slate_matchup: slate_matchup)
+      # Only ADDING is gated: a row already in the cart can always be taken out.
+      assert_pickable!(slate_matchup)
+
+      # One transaction, so a refused create cannot cost the player the oldest
+      # pick the replace branch has already destroyed.
+      transaction do
+        selections.order(created_at: :asc).first.destroy! if selections.count >= contest.picks_required
+        selections.create!(slate_matchup: slate_matchup)
+      end
     end
 
     reload
@@ -85,6 +89,9 @@ class Entry < ApplicationRecord
 
     new_matchups = contest.slate.slate_matchups.where(id: new_ids).includes(:team, :game).to_a
     raise "Invalid matchup selection" unless new_matchups.size == contest.picks_required
+    # On the slate is not the same as pickable: a span slate also holds each
+    # team's later-week rows. See Contest#pickable_matchup_ids.
+    raise "Invalid matchup selection" unless (new_ids - contest.pickable_matchup_ids).empty?
 
     current_ids = selections.pluck(:slate_matchup_id)
     changed_ids = current_ids.to_set ^ new_ids.to_set
@@ -137,9 +144,13 @@ class Entry < ApplicationRecord
 
     raise "Exactly #{contest.picks_required} selections required" unless selections.count == contest.picks_required
 
-    # Check no locked games
+    # Check no locked games, and that every pick is a PICKABLE row. The second
+    # half is the backstop for a cart built before the pick writers checked it:
+    # nothing may be paid for on a row the board never offered.
+    pickable_ids = contest.pickable_matchup_ids
     selections.includes(slate_matchup: :game).each do |s|
       raise "#{s.slate_matchup.team.name}'s game has already started" if s.slate_matchup.locked?
+      raise not_pickable_message(s.slate_matchup) unless pickable_ids.include?(s.slate_matchup_id)
     end
 
     # Contest capacity. This entry is still `cart`, so it is not double-counted.
@@ -220,6 +231,24 @@ class Entry < ApplicationRecord
   end
 
   private
+
+  # A pick is a TEAM, anchored on the row Contest#pickable_matchups offers: on a
+  # span slate, the team's first game. Every later game of the span is a real
+  # SlateMatchup on the same slate, so a hand-built request can name one, and
+  # until this guard both pick writers accepted it. That let one team be named
+  # by a row the board never renders, whose own kickoff (the per-game lock) is
+  # weeks after the team's first game, and whose id differs from the anchor's,
+  # so the same six teams read as a different lineup to the duplicate-combo
+  # check in #assert_enterable!.
+  def assert_pickable!(slate_matchup)
+    return if contest.pickable_matchup_ids.include?(slate_matchup.id)
+
+    raise not_pickable_message(slate_matchup)
+  end
+
+  def not_pickable_message(slate_matchup)
+    "#{slate_matchup.team.name} is not a pickable matchup in this contest"
+  end
 
   def release_slot_if_abandoned
     return unless status_changed? && abandoned?

@@ -25,6 +25,17 @@ class SpanPickGuardTest < ActiveSupport::TestCase
     assert_equal 6, @contest.picks_required
   end
 
+  # Contest#pickable_matchup_ids is a one-read spelling of pickable_matchups, and
+  # every guard below leans on the two agreeing — on both slate shapes.
+  test "pickable_matchup_ids agrees with pickable_matchups on a span and a single week" do
+    assert_equal @contest.pickable_matchups.map(&:id).sort, @contest.pickable_matchup_ids.sort
+
+    single = contests(:one).tap { |c| c.update!(slate: slates(:one)) }
+    assert_not single.multi_week?
+    assert_equal single.matchups.pluck(:id).sort, single.pickable_matchup_ids.sort
+    assert_equal single.pickable_matchups.map(&:id).sort, single.pickable_matchup_ids.sort
+  end
+
   # --- toggle -------------------------------------------------------------
 
   test "toggle refuses a later-week row of a team" do
@@ -47,14 +58,14 @@ class SpanPickGuardTest < ActiveSupport::TestCase
   # the week-two row of the same team is still "unlocked" — so without the
   # pickable guard a team could be added after its first game was already live.
   test "toggle refuses a later-week row after the team's first game kicked off" do
-    contest = build_span_contest!(contests(:one), week_one_kickoff: 1.hour.ago, week_two_kickoff: 6.days.from_now)
-    contest.update_columns(starts_at: 5.days.from_now)
-    entry = contest.entries.create!(user: users(:sam), status: :cart)
-    row = span_row(contest, "team-a", week: 2)
+    Game.where(slug: @contest.matchups.where(week: 1).select(:game_slug)).update_all(kickoff_at: 1.hour.ago)
+    row = later("team-a")
 
+    assert anchor("team-a").locked?, "the team's first game is live"
     assert_not row.locked?, "the later row's own game has not started"
-    assert_raises(RuntimeError) { entry.toggle_selection!(row) }
-    assert_equal 0, Selection.where(entry_id: entry.id).count
+    assert @contest.locks_at > Time.current, "the contest-wide lock has not caught it either"
+    assert_raises(RuntimeError) { @entry.toggle_selection!(row) }
+    assert_equal 0, Selection.where(entry_id: @entry.id).count
   end
 
   test "toggle still accepts every pickable row" do
