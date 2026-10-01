@@ -4,7 +4,7 @@
 <div class="max-w-3xl mx-auto py-10 px-2 space-y-12">
   <header>
     <h1 class="text-4xl font-extrabold text-heading mb-2">Terms of Service</h1>
-    <p class="text-secondary text-sm">Last updated <%= Date.today.strftime("%B %d, %Y") %>.</p>
+    <p class="text-secondary text-sm">Last updated <%= Date.new(2026, 10, 1).strftime("%B %d, %Y") %>.</p>
   </header>
 
   <section class="space-y-4">
@@ -134,7 +134,11 @@
   <section class="space-y-4">
     <h2 class="text-2xl font-bold text-heading">Acceptable use</h2>
     <ul class="list-disc list-inside text-body space-y-2">
-      <li>Do not cheat, collude, exploit bugs, or use automated agents to gain an unfair advantage.</li>
+      <%# The two items below are the approved wording of 2026-10-01, verbatim.
+          The agent pages restate the second one; test/integration/
+          agent_terms_consistency_test.rb holds the two together. %>
+      <li data-test="terms-no-cheating">Do not cheat, collude, or exploit bugs.</li>
+      <li id="ai-agents" class="scroll-mt-24" data-test="terms-ai-agents">You may use an AI agent or other software to play through our official API, on your own account and with your own API key. You remain responsible for everything it does. Do not use automation to run more than one account, to coordinate entries with other players, or to reach the game by any route other than the official API.</li>
       <li>Do not attempt to access other users&rsquo; accounts or interfere with the game&rsquo;s operation.</li>
       <li>We may suspend or terminate accounts that violate these terms, and void affected entries.</li>
     </ul>

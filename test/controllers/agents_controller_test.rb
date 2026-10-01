@@ -9,6 +9,10 @@ require "test_helper"
 # the address is production's, the command on the page really authenticates
 # against /mcp, and no page promises the Claude chat app a way in.
 #
+# EXPECTATION FLIPPED, ON PURPOSE (task terms-permit-api-agents). The pages
+# were silent on what the Terms allow an agent to do, and a test held them
+# silent. They now state the rule; see the note on that test below.
+#
 # What a server test can hold: the pages are public, the prompt on the page is
 # the prompt the copy button carries, the two forms of the guide are one text,
 # and the things these pages must never say are not said. That a tap really
@@ -182,7 +186,7 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
     assert doc.at_css(%(a[href="#{account_path}"])), "the key step links to the account page"
     assert doc.at_css(%(a[href="#{agents_guide_path}"]))
     assert doc.at_css(%(a[href="#{agents_guide_markdown_path}"]))
-    assert doc.at_css(%(a[href="#{terms_path}"]))
+    assert doc.at_css(%(a[href="#{terms_path(anchor: "ai-agents")}"])), "links the Terms at the agent clause"
 
     rows = doc.css('[data-test="agents-endpoints"] tbody tr')
     assert_operator rows.size, :>=, 6
@@ -315,14 +319,18 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
     assert_equal expected, printed
   end
 
-  test "neither page says what the Terms allow an agent to do, or promises a result" do
+  # EXPECTATION FLIPPED, ON PURPOSE (task terms-permit-api-agents). This test
+  # used to hold that no page said what the Terms allow an agent to do. The
+  # Terms now say it (approved wording, 2026-10-01) and the pages repeat it;
+  # test/integration/agent_terms_consistency_test.rb holds the pages to the
+  # Terms. What stays here: the retired sentence is gone, and nothing is promised.
+  test "no page carries the retired Terms sentence, or promises a result" do
     [ agents_path, agents_guide_markdown_path, llms_txt_path ].each do |path|
       get path
       body = path == agents_path ? page_text('[data-test="agents-page"]') : response.body
 
-      assert_no_match(/terms (of service )?(permit|allow|let|forbid|prohibit)/i, body)
-      assert_no_match(/(permitted|allowed|prohibited) (by|under) (the|our) terms/i, body)
       assert_no_match(/unfair advantage/i, body)
+      assert_no_match(/automated agents/i, body)
       assert_no_match(/guaranteed? (to )?win|will win|sure to win/i, body)
       assert_no_match(/within \d+ (minutes|hours|days)|instant(ly)? paid|paid (out )?(instantly|immediately|automatically)/i, body)
     end

@@ -14,8 +14,12 @@
 
     NOT ON THIS PAGE, ON PURPOSE: any promise that the Claude chat app will be
     able to connect (it cannot take a personal key for most accounts, and
-    nothing that would change that is scheduled), and any statement about what
-    the Terms allow an AI agent to do. %>
+    nothing that would change that is scheduled).
+
+    THE TERMS RULE is stated once, under "What your key can and cannot do", in
+    the Terms' own words (terms.html.erb, "Acceptable use"). Do not widen or
+    narrow it here: test/integration/agent_terms_consistency_test.rb compares
+    the two. %>
 <% content_for :title, "Play with your AI assistant — Turf Monster" %>
 <% content_for :meta_description, "Hand Turf Monster to your AI assistant: copy the starter prompt or connect Claude Code, add your API key, and it can read contests, build a lineup and enter with your free entry." %>
 
@@ -110,8 +114,8 @@
       <li>You can revoke it at any time from your <%= link_to "account page", account_path, class: "text-primary hover:underline" %>, and it stops working at once.</li>
       <li>Treat it like a password. Anyone holding it can enter contests as you.</li>
     </ul>
-    <p class="text-secondary text-sm leading-relaxed">
-      You are responsible for what your assistant does on your account. See the <%= link_to "Terms of Service", terms_path, class: "text-primary hover:underline" %>.
+    <p class="text-secondary text-sm leading-relaxed" data-test="agents-terms-rule">
+      Our <%= link_to "Terms of Service", terms_path(anchor: "ai-agents"), class: "text-primary hover:underline" %> let you use an AI assistant to play through our official API, on your own account and with your own API key. The official API is what this page describes: the API at /api/v1 and the MCP endpoint that Claude Code connects to. You remain responsible for everything your assistant does. Do not use automation to run more than one account, to coordinate entries with other players, or to reach the game by any route other than the official API.
     </p>
   </section>
 
