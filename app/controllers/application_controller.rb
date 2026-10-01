@@ -1,4 +1,7 @@
 class ApplicationController < ActionController::Base
+  # Preview fetchers (iMessage, Slack, Discord, X...) get a slim page under
+  # Apple's 1 MiB limit. studio-engine docs/LINK_PREVIEW.md.
+  include Studio::LinkPreviewBots
   include Studio::ErrorHandling
   # Detection, the geo_* helpers, and require_geo_allowed all come from the
   # engine now (studio-engine >= 0.57, docs/GEO.md). This app keeps only the
