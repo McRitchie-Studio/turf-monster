@@ -183,16 +183,16 @@ create (Api::V1::EntriesController)
 | Branch | Where — `Entries::ApiSubmission` is `app/services/entries/api_submission.rb` |
 |---|---|
 | the operation both surfaces run (the REST action and the MCP tool `submit_entry`) — `Api::V1::Operations::SubmitEntry#call` | `app/services/api/v1/operations/submit_entry.rb:24-38` |
-| one record per (player, key), one live request per player and contest — `Entries::ApiSubmission#acquire` | `app/services/entries/api_submission.rb:207-231` |
-| settle an earlier doubt before spending — `Entries::ApiSubmission#run` | `:246-277` |
-| the fence: this attempt still owns the key, checked inside the contest lock — `Entries::ApiSubmission#fence!` | `:293-299` |
-| the gates that need no row — `Entries::ApiSubmission#assert_submittable!` | `:351-367` |
-| token only by default, on a read that cannot lie — `Entries::ApiSubmission#assert_token_or_usdc!` | `:384-396` |
-| the entry built inside the contest lock — `Entries::ApiSubmission#build_entry` | `:325-343` |
-| a paid ticket no entry row holds — `Entries::ApiSubmission#find_orphan` | `:605-635` |
-| what a failure means for the key — `Entries::ApiSubmission#settle_failure` | `:493-528` |
-| the allow-list of failures that prove nothing landed — `Entries::ApiSubmission#proven_unlanded?` | `:532-537` |
-| the states and the two clocks — `ApiEntryRequest#uncertain_since` | `app/models/api_entry_request.rb:73-78` |
+| one record per (player, key), one live request per player and contest — `Entries::ApiSubmission#acquire` | `app/services/entries/api_submission.rb:211-235` |
+| settle an earlier doubt before spending — `Entries::ApiSubmission#run` | `:250-281` |
+| the fence: this attempt still owns the key, checked inside the contest lock — `Entries::ApiSubmission#fence!` | `:297-303` |
+| the gates that need no row — `Entries::ApiSubmission#assert_submittable!` | `:355-371` |
+| token only by default, on a read that cannot lie — `Entries::ApiSubmission#assert_token_or_usdc!` | `:388-400` |
+| the entry built inside the contest lock — `Entries::ApiSubmission#build_entry` | `:329-347` |
+| a paid ticket no entry row holds — `Entries::ApiSubmission#find_orphan` | `:619-649` |
+| what a failure means for the key — `Entries::ApiSubmission#settle_failure` | `:507-542` |
+| the allow-list of failures that prove nothing landed — `Entries::ApiSubmission#proven_unlanded?` | `:546-551` |
+| the states and the two clocks — `ApiEntryRequest#uncertain_since` | `app/models/api_entry_request.rb:97-102` |
 
 **The web cart and the API coexist by never sharing a row.** The browser's
 cart is the `cart` entry `ContestsController#toggle_selection` builds; `#enter`

@@ -338,6 +338,27 @@ class Api::V1::EntryWritesTest < ActionDispatch::IntegrationTest
     assert_equal 1, my_entries.where(status: :active).count
   end
 
+  # The same thing through Contest#reset! itself, which is what a QA rehearsal
+  # runs. Here the request DID store its 201, and it must not come back.
+  test "POST after Contest#reset!: the old key is a 409, never the stale 201, and its request row holds no response" do
+    enter(idem: "reset-key")
+    assert_response :created
+    stale_slug = json.dig("entry", "slug")
+
+    @contest.reset!
+
+    @vault.grant_token("token-2")
+    2.times do
+      enter(idem: "reset-key")
+      assert_api_error :conflict, "idempotency_key_reused"
+      assert_match(/contest was reset.*Use a new key/i, json["error"]["message"])
+      assert_no_match(/#{stale_slug}/, response.body)
+    end
+    assert_empty my_entries
+    assert_equal 1, @vault.spent_tokens.size, "a retry of the old key spent nothing"
+    assert_equal ["void", nil], ApiEntryRequest.where(user: @user, idempotency_key: "reset-key").pick(:state, :response_body)
+  end
+
   test "POST idempotency_in_progress: a concurrent duplicate is a 409 with Retry-After and spends nothing" do
     duplicate = nil
     @vault.grant_token("token-2")

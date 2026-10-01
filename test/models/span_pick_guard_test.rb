@@ -85,6 +85,24 @@ class SpanPickGuardTest < ActiveSupport::TestCase
     assert_equal before, @entry.selections.reload.map(&:slate_matchup_id).sort
   end
 
+  # The same branch, refused one step later: the row IS pickable, so the gate
+  # above lets it through, and the create is what refuses it. A cart built
+  # before the pick writers were gated can hold a team by its later-week row;
+  # adding that team's anchor row then breaks one-team-per-entry
+  # (Selection#team_unique_within_entry) AFTER the oldest pick was destroyed.
+  test "a pick refused by the create on a full cart leaves the cart intact" do
+    (TEAMS - %w[team-a]).each { |team| @entry.selections.create!(slate_matchup: anchor(team)) }
+    @entry.selections.create!(slate_matchup: later("team-a")) # the legacy row, and the newest
+    before = @entry.selections.reload.map(&:slate_matchup_id).sort
+    assert_equal 6, before.size
+
+    error = assert_raises(ActiveRecord::RecordInvalid) { @entry.toggle_selection!(anchor("team-a")) }
+
+    assert_match(/already picked/i, error.message)
+    assert_equal before, Selection.where(entry_id: @entry.id).pluck(:slate_matchup_id).sort,
+                 "the oldest pick was destroyed for a pick that was then refused"
+  end
+
   # --- update_picks! ------------------------------------------------------
 
   test "update_picks refuses a set carrying a later-week row" do

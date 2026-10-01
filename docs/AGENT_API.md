@@ -811,7 +811,7 @@ spent.**
 | 403 | `account_frozen` | both | The account is on hold | Stop. Tell the player to contact support. |
 | 403 | `age_verification_required` | both | The age gate is on and the player has not verified | Tell the player to verify their date of birth on the website, then retry with the same key. |
 | 404 | `not_found` | both | No such contest (POST), or no such entry among the player's own (PATCH) | Re-read `GET /api/v1/contests` or `GET /api/v1/entries`. |
-| 409 | `idempotency_key_reused` | POST | This key is already tied to something else: a request with different picks, a different contest or a different `allow_usdc`, or an entry that has since been removed by a contest reset (`Entries::ApiSubmission#replay`: the request row outlives its entry and holds no stored response) | Stop sending this request with this key; the answer does not change. If the body was changed by mistake, send the original body once. If the body was already the original, the key is finished: read the player's entries, and make a new entry only with a new key and the player's yes, because it is paid for again. |
+| 409 | `idempotency_key_reused` | POST | This key is already tied to something else: a request with different picks, a different contest or a different `allow_usdc`, or an entry that no longer exists. A contest reset voids every finished key used on that contest (`Contest#reset!`, `ApiEntryRequest.void_for_reset!`), and `Entries::ApiSubmission#replay` refuses any key whose entry row is gone, so a stored `201` is never returned for a deleted entry. | Stop sending this request with this key; the answer does not change, and the key never enters again. If the body was changed by mistake, send the original body once. If the body was already the original, the key is finished: read the player's entries, and make a new entry only with a new key and the player's yes. See "After a contest reset" below for what that new entry costs. |
 | 409 | `idempotency_in_progress` | POST | A request to enter this contest is still running for this player: this key's first request, or another key's | Wait `retry_after` seconds and send the same request again. Do not switch keys. |
 | 422 | `contest_not_open` | both | The contest is settled, or is not ready to take entries | Pick another contest. |
 | 422 | `contest_locked` | both | The lock time has passed | Nothing to do; entries and edits are closed. |
@@ -844,7 +844,7 @@ same key with the same contest, the same teams (in any order) and the same
 
 | What you got | What it means | What to send next |
 |--------------|---------------|-------------------|
-| `201` | The entry exists | Nothing. Sending the request again returns the same `201`, byte for byte, with the header `Idempotent-Replayed: true`. It is the first response: it does not reflect later edits. |
+| `201` | The entry exists | Nothing. Sending the request again returns the same `201`, byte for byte, with the header `Idempotent-Replayed: true`, for as long as the entry exists. It is the first response: it does not reflect later edits. If the entry has been removed (a contest reset), the key answers `409 idempotency_key_reused` instead. |
 | `202` | Paid, being confirmed | The same request, same key, after `retry_after`. |
 | `409 idempotency_in_progress` | Your first request is still running | The same request, same key, after `retry_after`. |
 | `503 chain_unavailable` | Unknown: the payment may have landed | The same request, same key, after `retry_after`. If it landed, you get the entry it paid for. If it did not, the server waits until it no longer can before paying again, so you may see more `503`s for up to about five minutes. |
@@ -874,7 +874,7 @@ pay twice".
 
 #### What the server keeps
 
-One record per player and key, in one of five states. This is what the table
+One record per player and key, in one of six states. This is what the table
 above is a view of.
 
 | State | Meaning | A request with this key |
@@ -883,9 +883,39 @@ above is a view of.
 | `failed` | The last attempt ended and spent nothing, with certainty. Either it was refused before the payment was sent, or the payment was sent and the Turf Monster program itself refused it (a failed simulation naming a program error, or a transaction that landed and failed). No other failure after the payment is sent counts: a timeout, a dropped connection, and a node answering "already been processed" or "already in use" are all `uncertain`. | Runs again from the top. Even then it looks on Solana for a paid entry before building a new one. |
 | `uncertain` | The payment was sent and its outcome is not known | Looks on Solana first. A paid entry found there becomes this key's entry (`201`). Otherwise `503` for 150 seconds after the attempt ended, and only then runs again. The 150 seconds is a wall-clock margin over the 60 to 90 seconds a Solana transaction stays valid; it is not read from the transaction's own expiry. |
 | `confirming` | Paid; the entry is on file and not yet active | Finishes it and returns `201`, or `202` again. A background job finishes it too, so the entry appears even if the agent never returns. |
-| `succeeded` | Done | Replays the stored `201`. |
+| `succeeded` | Done | Replays the stored `201` while the entry exists. If the entry row has been deleted, `409 idempotency_key_reused`. |
+| `void` | The contest was reset after this request finished. The record holds no entry and no stored response. | `409 idempotency_key_reused`, every time, for any body. Nothing runs and nothing is spent. |
 
 Only one request per player and contest runs at a time, whatever its key.
+
+#### After a contest reset
+
+`Contest#reset!` (the admin Reset, and what a QA rehearsal runs between passes)
+deletes every entry row of the contest. It touches nothing on chain: each paid
+entry's ticket (its `ContestEntry` account) is still there, and a token it
+consumed stays consumed. Nothing is refunded.
+
+In the same transaction the reset voids the contest's finished requests:
+
+| State at reset | After | Why |
+|----------------|-------|-----|
+| `succeeded`, `confirming` | `void`, with the entry pointer and the stored response cleared | Both are paid and landed, and their entry rows were just deleted. A stored `201` would describe an entry that does not exist. |
+| `executing`, `uncertain` | Unchanged | A payment may still be in flight. The record and its clock are what make every later request for the contest wait for it. It holds no `201` to replay. |
+| `failed` | Unchanged | It spent nothing and holds no response. A retry is the request the player never got an entry for. |
+
+**The old key, afterwards: `409 idempotency_key_reused`, for good.** The
+alternatives were worse. Replaying the `201` tells the agent its player holds an
+entry that is gone. Deleting the record makes the old key a fresh request, so a
+retry loop still running from before the reset would enter the player again
+with nobody having asked. A void key runs nothing.
+
+**A new key, afterwards, is a new request.** Before it builds an entry it looks
+on Solana for a paid ticket of this player's that no entry row holds
+(`Entries::ApiSubmission#build_entry`), finds the one the reset left, and builds
+the new entry on it: no second token, no second fee. Only when no such ticket is
+found is the entry paid for again. One wrinkle, unchanged by this: the token
+check runs before that lookup, so an account with no unspent token and no
+`allow_usdc` is answered `no_entry_token` without the ticket being looked for.
 
 ### For developers: the entry endpoints
 

@@ -1101,6 +1101,53 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     assert_equal @user.web3_solana_address, ptx.initiator_address
   end
 
+  # A cart built before the pick writers were gated can hold a team by a
+  # later-week row. Entry#assert_enterable! refuses it at confirm; prepare must
+  # refuse it first, before a transaction is built and the wallet is prompted.
+  test "prepare_entry refuses a cart holding a non-pickable row before building anything" do
+    extend SpanContestBuilder
+    build_span_contest!(@contest)
+    @user.update!(web3_solana_address: "Web3SpanPrep#{SecureRandom.hex(4)}")
+    @contest.update!(onchain_contest_id: "onchain_span_prep", season_id: 1)
+    SeasonConfig.set_current!(1)
+
+    log_in_as_onchain(@user)
+    entry = @contest.entries.create!(user: @user, status: :cart)
+    %w[team-b team-c team-d team-e team-f].each { |team| entry.selections.create!(slate_matchup: span_row(@contest, team, week: 1)) }
+    entry.selections.create!(slate_matchup: span_row(@contest, "team-a", week: 2))
+
+    vault = FakeVault.new
+    assert_no_difference "PendingTransaction.count" do
+      Solana::Vault.stub :new, vault do
+        post prepare_entry_contest_path(@contest), as: :json
+      end
+    end
+
+    assert_response :unprocessable_entity
+    assert_match(/not a pickable matchup/i, JSON.parse(response.body)["error"])
+    assert_empty vault.enter_calls, "no transaction may be built for a cart that cannot be entered"
+    assert_nil entry.reload.entry_number, "no on-chain slot may be assigned"
+  end
+
+  test "prepare_entry still builds for a span cart of six pickable rows" do
+    extend SpanContestBuilder
+    build_span_contest!(@contest)
+    @user.update!(web3_solana_address: "Web3SpanOk#{SecureRandom.hex(4)}")
+    @contest.update!(onchain_contest_id: "onchain_span_ok", season_id: 1)
+    SeasonConfig.set_current!(1)
+
+    log_in_as_onchain(@user)
+    entry = @contest.entries.create!(user: @user, status: :cart)
+    %w[team-a team-b team-c team-d team-e team-f].each { |team| entry.selections.create!(slate_matchup: span_row(@contest, team, week: 1)) }
+
+    Solana::Vault.stub :new, FakeVault.new do
+      post prepare_entry_contest_path(@contest), as: :json
+    end
+
+    assert_response :success
+    assert JSON.parse(response.body)["success"]
+  end
+
   # --- prepare_entry funding priority (Phantom spends a token, 2026-08-21) -----
   #
   # Until this task the Phantom path went straight to the currency transfer, so a

@@ -10,8 +10,9 @@
 #
 # THE RULES ARE THE MODEL'S, NOT A SECOND COPY TO DRIFT. Each method names the
 # Contest method it mirrors, and test/serializers/api/v1/contest_facts_test.rb
-# asserts the two agree on a single-week slate, a span slate, a slate with a
-# bye, an empty slate, a contest with no starts_at and a survivor contest.
+# asserts the two agree on a single-week slate, a span slate, a span slate
+# with fewer than six teams, a slate with a bye, an empty slate, a contest with
+# no starts_at and a survivor contest.
 # Change a rule in Contest and that test is what tells you to change it here.
 #
 # Callers must load contests with `includes(:slate)`.
@@ -27,10 +28,10 @@ module Api
         slate_ids = contests.filter_map(&:slate_id).uniq
         games_per_team = slate_ids.empty? ? {} : SlateMatchup.where(slate_id: slate_ids).group(:slate_id, :team_slug).count
 
-        @matchup_rows = Hash.new(0)
+        @teams = Hash.new(0)
         @max_games = Hash.new(0)
         games_per_team.each do |(slate_id, _team_slug), games|
-          @matchup_rows[slate_id] += games
+          @teams[slate_id] += 1
           @max_games[slate_id] = games if games > @max_games[slate_id]
         end
 
@@ -39,14 +40,15 @@ module Api
       end
 
       # Contest#picks_required (Contest.picks_required_for_slate). It counts
-      # matchup ROWS, capped at six, so a span slate still asks for six.
+      # TEAMS, capped at six: a pick is a team, and a span slate holds several
+      # rows per team, so a four-team span asks for four, not six.
       def picks_required(contest)
         return 0 if contest.world_cup_survivor?
 
-        rows = @matchup_rows[contest.slate_id]
-        return Contest::TURF_TOTALS_DEFAULT_PICKS_REQUIRED if rows.zero?
+        teams = @teams[contest.slate_id]
+        return Contest::TURF_TOTALS_DEFAULT_PICKS_REQUIRED if teams.zero?
 
-        [rows, Contest::TURF_TOTALS_DEFAULT_PICKS_REQUIRED].min
+        [teams, Contest::TURF_TOTALS_DEFAULT_PICKS_REQUIRED].min
       end
 
       # Contest#weeks_count (Slate#games_per_team): the most games any one team

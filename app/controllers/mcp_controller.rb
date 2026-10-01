@@ -145,6 +145,13 @@ class McpController < ActionController::API
     Rack::Attack.mcp_mark_verified(request)
   end
 
+  # Every 401 passes through here (ApiKeyAuthentication). A key the throttle
+  # had marked as a player's and that no longer authenticates loses the mark.
+  def render_api_auth_error(code)
+    Rack::Attack.mcp_clear_verified(request)
+    super
+  end
+
   # A batch whose messages, charged one each, put the key over its limit. The
   # same answer the throttle itself gives, and nothing in the batch has run.
   def render_batch_over_limit

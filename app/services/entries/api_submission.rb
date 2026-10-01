@@ -19,7 +19,8 @@ module Entries
   # only one of a player's requests for a contest may be running at a time
   # (#acquire, under the player's row lock). For a retry of a key:
   #
-  #   succeeded   replay the stored response. Nothing runs.
+  #   succeeded   replay the stored response, while its entry exists. Nothing runs.
+  #   void        the contest was reset: 409, for good. Nothing runs (#replay).
   #   executing   another request holds the key: 409, come back shortly.
   #   failed      the last attempt spent nothing, with certainty: run again.
   #   confirming  the entry row exists and is paid: finish confirming it.
@@ -120,6 +121,9 @@ module Entries
                                   "to Phantom), or the account has no wallet. Enter on turfmonster.media instead.",
       idempotency_key_reused: "This Idempotency-Key was already used for a different request. " \
                               "Use a new key for a new request.",
+      contest_reset: "This contest was reset after this Idempotency-Key was used, and the entry it made " \
+                     "no longer exists. This key is finished and will not enter again. Use a new key.",
+      entry_gone: "This Idempotency-Key was used by an entry that no longer exists. Use a new key.",
       idempotency_in_progress: "A request to enter this contest is still running for this player. " \
                                "Nothing new was started. Retry with the same Idempotency-Key in a moment.",
       chain_unavailable: "The Solana network could not confirm this just now. Retry with the same " \
@@ -211,7 +215,7 @@ module Entries
 
         if record
           next [record, :reused] if record.fingerprint != fingerprint
-          next [record, :replay] if record.succeeded?
+          next [record, :replay] if record.succeeded? || record.void? # void: #replay refuses it, nothing runs
           next [record, :busy] if record.in_flight?(now)
         end
         next [record, :busy] if another_in_flight?(record, now)
@@ -437,16 +441,26 @@ module Entries
       Result.new(status: :accepted, body: body, retry_after: PENDING_RETRY_AFTER)
     end
 
+    # A 201 describes an entry, so it is replayed only while that entry exists.
+    #
+    #   void       the contest was reset after this request settled
+    #              (ApiEntryRequest.void_for_reset!).
+    #   no entry   the entry row was deleted some other way: the foreign key
+    #              nulls entry_id, and the stored response is no longer true.
+    #
+    # Either way the key is finished. It answers the same 409 every time and
+    # never runs again: a retry is the OLD request, and running it would enter
+    # the player a second time without anyone having asked.
     def replay(record)
+      return error(:idempotency_key_reused, MESSAGES[:contest_reset]) if record.void?
+
       entry = record.entry
+      return error(:idempotency_key_reused, MESSAGES[:entry_gone]) if entry.nil?
+
       # The stored text, parsed: key order survives, so a replay renders the
       # same bytes the first response did. Without one (the request died
       # between confirming and storing), the entry is described as it is now.
-      body = record.response_body ? JSON.parse(record.response_body) : (entry && success_body(record, entry))
-      # The entry was deleted since (a contest reset). The key is spent either
-      # way: it must not buy a second entry.
-      return error(:idempotency_key_reused, "This Idempotency-Key was used by an entry that no longer exists. Use a new key.") if body.nil?
-
+      body = record.response_body ? JSON.parse(record.response_body) : success_body(record, entry)
       Result.new(status: :created, body: body, replayed: true)
     end
 

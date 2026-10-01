@@ -339,11 +339,11 @@ class Contest < ApplicationRecord
     AppFlags.test_scaffolding? ? FORMATS : FORMATS.except(*TEST_FORMAT_KEYS)
   end
 
-  def self.picks_required_for_slate(slate)
-    matchup_count = slate&.slate_matchups&.count.to_i
-    return TURF_TOTALS_DEFAULT_PICKS_REQUIRED if matchup_count.zero?
+  def self.picks_required_for_slate(slate) # counts TEAMS, the pickable unit, not matchup rows (a span has several per team)
+    team_count = slate ? slate.slate_matchups.distinct.count(:team_slug) : 0
+    return TURF_TOTALS_DEFAULT_PICKS_REQUIRED if team_count.zero?
 
-    [matchup_count, TURF_TOTALS_DEFAULT_PICKS_REQUIRED].min
+    [team_count, TURF_TOTALS_DEFAULT_PICKS_REQUIRED].min
   end
 
   def format_config
@@ -536,10 +536,9 @@ class Contest < ApplicationRecord
   def reset!
     transaction do
       entries.destroy_all
+      ApiEntryRequest.void_for_reset!(self) # no agent key replays a 201 for an entry deleted above
       matchups.update_all(goals: nil, status: "pending")
-      matchups.includes(:game).find_each do |matchup|
-        matchup.game&.update!(home_score: nil, away_score: nil, status: "scheduled")
-      end
+      matchups.includes(:game).find_each { |m| m.game&.update!(home_score: nil, away_score: nil, status: "scheduled") }
       update!(status: :open)
     end
   end

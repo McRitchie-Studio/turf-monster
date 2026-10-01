@@ -114,6 +114,103 @@ class Entries::ApiSubmissionTest < ActiveSupport::TestCase
     assert_equal first.body, submit.body
   end
 
+  # ── an entry that no longer exists (agent-api-review-follow-ups) ──────────
+  #
+  # A stored 201 describes an entry. Once that entry row is gone the 201 is a
+  # lie about what the player holds, whoever removed the row.
+
+  test "succeeded: a key whose entry was destroyed never replays its 201" do
+    submit
+    entries.each(&:destroy!)
+    assert_not_nil record.response_body, "the stored 201 is still on the row"
+    @vault.grant_token("token-2")
+
+    2.times { assert_error submit, :idempotency_key_reused, :conflict }
+
+    assert_empty entries, "the old key bought nothing"
+    assert_equal 1, @vault.tickets.size
+    assert_equal 1, @vault.spent_tokens.size
+  end
+
+  test "reset: every settled request for the contest is void and holds no response" do
+    submit
+    @vault.grant_token("token-2")
+    with_failing_confirm { submit(key: "key-confirming", picks: other_lineup) } # 202, paid
+    assert_equal %w[confirming succeeded], [record("key-confirming").state, record.state].sort
+
+    Contest.find(@contest.id).reset!
+
+    [record, record("key-confirming")].each do |row|
+      assert_equal ["void", nil, nil, nil], [row.state, row.response_status, row.response_body, row.entry_id]
+    end
+    assert_equal 0, ApiEntryRequest.where(contest_id: @contest.id).where.not(response_body: nil).count
+  end
+
+  test "reset: the old key answers 409 every time and spends nothing, token or no token" do
+    submit
+    Contest.find(@contest.id).reset!
+
+    assert_error submit, :idempotency_key_reused, :conflict
+    @vault.grant_token("token-2")
+    result = submit
+
+    assert_error result, :idempotency_key_reused, :conflict
+    assert_match(/contest was reset/i, result.message)
+    assert_empty entries
+    assert_equal 1, @vault.tickets.size
+    assert_equal 1, @vault.spent_tokens.size
+    assert_equal "void", record.state, "a void key is never claimed"
+    assert_equal 1, record.attempts
+  end
+
+  test "reset: a void key is void for any body" do
+    submit
+    Contest.find(@contest.id).reset!
+
+    assert_error submit(picks: other_lineup), :idempotency_key_reused, :conflict
+  end
+
+  # What the reset left on chain: the ticket and the consumed token. A NEW key
+  # is a new request, and it is built on that ticket; no second token is spent.
+  test "reset: a new key builds its entry on the ticket the reset left behind" do
+    submit
+    Contest.find(@contest.id).reset!
+    @vault.grant_token("token-2")
+
+    result = submit(key: "key-2")
+
+    assert_equal :created, result.status
+    assert_equal @vault.tickets.sole[:signature], entries.sole.onchain_tx_signature
+    assert_equal 1, @vault.spent_tokens.size, "token-2 is untouched"
+  end
+
+  # A request still in doubt holds no response to replay, and its clock is what
+  # stops a second spend while its transaction could still land. Reset leaves it.
+  test "reset: a request still in doubt keeps its state and its clock" do
+    @vault.fail_next_enter = :lost
+    submit
+    doubt = record.spend_uncertain_at
+    assert_equal "uncertain", record.state
+
+    Contest.find(@contest.id).reset!
+
+    assert_equal ["uncertain", doubt], [record.state, record.spend_uncertain_at]
+  end
+
+  test "reset: another contest's requests are untouched" do
+    submit
+    other = Contest.create!(name: "Other #{SecureRandom.hex(3)}", slate: slates(:one), status: :open, starts_at: 2.days.from_now)
+
+    other.reset!
+
+    assert_equal "succeeded", record.state
+    assert submit.replayed
+  end
+
+  def other_lineup
+    @other_lineup ||= @picks.first(5) + [extra_matchups.first.id]
+  end
+
   test "the same picks in another order are the same request" do
     submit
     again = submit(picks: @picks.reverse)

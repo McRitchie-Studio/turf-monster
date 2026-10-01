@@ -201,6 +201,42 @@ class McpRateLimitTest < ActionDispatch::IntegrationTest
     end
   end
 
+  # The mark exempts a key from the per-address tier for 24 hours. A key that
+  # stops authenticating inside that time is no longer a player's.
+  { "revoked" => ->(key) { key.revoke! },
+    "expired" => ->(key) { key.update_columns(expires_at: 1.minute.ago) },
+    "deleted" => ->(key) { key.destroy! } }.each do |fate, undo|
+    test "a marked key that is #{fate} loses its mark on its first 401 and is back on the per-address tier" do
+      key = mint_api_key(users(:sam))
+      authorization = "Bearer #{key.raw_token}"
+      player = { "Authorization" => authorization, "REMOTE_ADDR" => ELSEWHERE }
+      mark = Rack::Attack.mcp_verified_cache_key(digest(authorization))
+
+      with_rack_attack do
+        ping(player)
+        assert_response :ok
+        assert Rack::Attack.cache.read(mark).present?
+
+        undo.call(key)
+        ping(player)
+
+        assert_response :unauthorized
+        assert_nil Rack::Attack.cache.read(mark), "the mark outlived the key"
+        assert_equal ELSEWHERE, discriminator("mcp/unverified_ip", request_for(authorization: authorization, ip: ELSEWHERE))
+
+        # The key's first request counted one against the address (it was not
+        # marked yet) and the 401 above passed as verified. From here each
+        # request counts, so the address tier's 30 runs out 29 requests on.
+        29.times do
+          ping(player)
+          assert_response :unauthorized
+        end
+        ping(player)
+        assert_response :too_many_requests
+      end
+    end
+  end
+
   test "a made-up key is never marked" do
     with_rack_attack do
       ping("Authorization" => bearer("m"), "REMOTE_ADDR" => ELSEWHERE)
