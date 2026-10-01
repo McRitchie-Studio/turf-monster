@@ -48,10 +48,15 @@ module Entries
 
     attr_reader :entry, :tx_signature, :onchain_entry_id, :funding_method
 
-    def initialize(contest:, user:, usdc_allowed:)
+    # before_spend: called with the entry inside the contest lock, immediately
+    # before each chain call that moves money. Raising there stops the
+    # submission having spent nothing. The API uses it to fence an attempt a
+    # retry has superseded; the browser passes none.
+    def initialize(contest:, user:, usdc_allowed:, before_spend: nil)
       @contest = contest
       @user = user
       @usdc_allowed = usdc_allowed
+      @before_spend = before_spend
       @spend_attempted = false
       @token_consumed = false
     end
@@ -165,6 +170,7 @@ module Entries
         vault.ensure_user_account(address, username: @user.username) if @user.solana_connected?
         keypair = @user.solana_keypair
         @funding_method = "token"
+        @before_spend&.call(entry)
         @spend_attempted = true
         # OPSEC-004: the token owner (managed keypair) must sign the consume.
         result = vault.enter_contest_with_token(
@@ -205,6 +211,7 @@ module Entries
         end
 
         @funding_method = "usdc"
+        @before_spend&.call(entry)
         @spend_attempted = true
         # enter_contest_with_usdc encapsulates the web2-address/keypair/username
         # resolution + ensure_user_account + ensure_ata(USDC) preamble, so the

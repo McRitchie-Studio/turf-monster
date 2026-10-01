@@ -59,15 +59,15 @@ module Api
         end
       end
 
-      # true, false, or absent (false). Nothing else: a typo must not read as
-      # either answer when the answer decides whether USDC is spent.
+      # JSON true, JSON false, or absent (false). Nothing else, the strings
+      # "true" and "false" included: the answer decides whether USDC is spent,
+      # so it is read only from the one type that cannot be a typo.
       def boolean_param(name)
         value = params[name]
         return false if value.nil?
         return value if [true, false].include?(value)
-        return value == "true" if %w[true false].include?(value)
 
-        bad_request!("#{name} must be true or false.")
+        bad_request!("#{name} must be the JSON boolean true or false.")
       end
     end
   end

@@ -7,7 +7,7 @@
 > stops landing inside the definition its prose names. The ASCII trees stay
 > uncited so they remain readable; the table under each one carries the citations
 > for its branches.
-> That symbol check reaches **75 of the 78 citations** here. The other **3** sit in
+> That symbol check reaches **77 of the 80 citations** here. The other **3** sit in
 > code with no enclosing definition the guard can derive: one
 > `lib/tasks/entries.rake` task body, plus **All 2 citations on
 > `app/javascript/solana_utils.js`** — a `.js` file, where the guard reads no
@@ -122,17 +122,17 @@ raises "No entry tokens" instead.
 | `onchain_session?` → 422 "use prepare_entry" | `#enter` at `:834-840` |
 | self-custody account in a web2 session → `web3_step_up_required` | `#enter` at `:885-892` |
 | hand-off to `Entries::ManagedEntry#call`, inside `rescue_and_log` | `#enter` at `:909` |
-| `@contest.with_lock` — `Entries::ManagedEntry#call` is `app/services/entries/managed_entry.rb:62-113` | `#call` at `:72` |
-| `assert_enterable!` pre-flight — `Entry#assert_enterable!` | `Entries::ManagedEntry#call` at `:77`; definition `app/models/entry.rb:125-159` |
-| season configured? | `Entries::ManagedEntry#call` at `app/services/entries/managed_entry.rb:82-87` |
-| paid contest with no on-chain PDA → refuse | `#call` at `:93-95` |
-| payment branch — `Entries::ManagedEntry#fund!` | `:145-222` |
-| token → `Solana::Vault#enter_contest_with_token` | `#fund!` at `:164-178` |
-| no token, USDC allowed → `Solana::Vault#enter_contest_with_usdc` | `#fund!` at `:179-215` |
-| neither → "No entry tokens" | `#fund!` at `:217` |
-| durable capture, OUTSIDE the lock | `#call` at `:107` |
-| `Entries::ManagedEntry#finalize!` → `Entry#confirm!` | `:233-259` |
-| transient failure after the spend → `Entries::OnchainReconcileJob.perform_later` | `#finalize!` at `:258` |
+| `@contest.with_lock` — `Entries::ManagedEntry#call` is `app/services/entries/managed_entry.rb:67-118` | `#call` at `:77` |
+| `assert_enterable!` pre-flight — `Entry#assert_enterable!` | `Entries::ManagedEntry#call` at `:82`; definition `app/models/entry.rb:125-159` |
+| season configured? | `Entries::ManagedEntry#call` at `app/services/entries/managed_entry.rb:87-92` |
+| paid contest with no on-chain PDA → refuse | `#call` at `:98-100` |
+| payment branch — `Entries::ManagedEntry#fund!` | `:150-229` |
+| token → `Solana::Vault#enter_contest_with_token` | `#fund!` at `:169-184` |
+| no token, USDC allowed → `Solana::Vault#enter_contest_with_usdc` | `#fund!` at `:185-222` |
+| neither → "No entry tokens" | `#fund!` at `:224` |
+| durable capture, OUTSIDE the lock | `#call` at `:112` |
+| `Entries::ManagedEntry#finalize!` → `Entry#confirm!` | `:240-266` |
+| transient failure after the spend → `Entries::OnchainReconcileJob.perform_later` | `#finalize!` at `:265` |
 
 **Why the gate ordering is sacred:** incident 2026-06-08 — the consume ran
 before a validation gate; the gate then failed and the user was paid-on-chain
@@ -163,23 +163,33 @@ create (Api::V1::EntriesController)
     ├─ token read, authoritative: no token and no allow_usdc → no_entry_token
     │    (an unreadable chain is 503, never "no token")
     └─ Entries::ManagedEntry#call { build the entry INSIDE the contest lock }
-         = §2 from contest.with_lock down. The row exists only if the spend
-           commits; the player's web cart is never read or written.
+         first, inside the lock, what its previous holder may have left:
+           this attempt no longer owns the key  → stop, 409, spend nothing
+           the key's entry was committed        → finish that one instead
+           a spend is still in doubt            → 503
+           a paid ticket with no entry row      → build the entry on it
+         then §2 from contest.with_lock down, with the ownership check
+         repeated immediately before the chain call. The row exists only if
+         the spend commits; the player's web cart is never read or written.
 ─ confirmed → 201 {entry, funding}, stored for replay
 ─ paid, confirm failed → 202 pending; the same key (or the reconcile job) finishes it
-─ chain call's outcome unknown → 503; the key is `uncertain` until settled
+─ chain call failed → `failed` ONLY for a failure that proves nothing landed
+  (the program refusing the instruction); anything else, "simulation failed:
+  already been processed" included, → 503 and the key is `uncertain`
 ```
 
 | Branch | Where — `Entries::ApiSubmission` is `app/services/entries/api_submission.rb` |
 |---|---|
 | the action — `Api::V1::EntriesController#create` | `app/controllers/api/v1/entries_controller.rb:48-73` |
-| one record per (player, key), one live request per player and contest — `Entries::ApiSubmission#acquire` | `app/services/entries/api_submission.rb:151-174` |
-| settle an earlier doubt before spending — `Entries::ApiSubmission#run` | `:189-212` |
-| the gates that need no row — `Entries::ApiSubmission#assert_submittable!` | `:249-265` |
-| token only by default, on a read that cannot lie — `Entries::ApiSubmission#assert_token_or_usdc!` | `:282-294` |
-| the entry built inside the contest lock — `Entries::ApiSubmission#build_entry` | `:234-241` |
-| a paid ticket no entry row holds — `Entries::ApiSubmission#find_orphan` | `:494-524` |
-| what a failure means for the key — `Entries::ApiSubmission#settle_failure` | `:391-422` |
+| one record per (player, key), one live request per player and contest — `Entries::ApiSubmission#acquire` | `app/services/entries/api_submission.rb:207-231` |
+| settle an earlier doubt before spending — `Entries::ApiSubmission#run` | `:246-277` |
+| the fence: this attempt still owns the key, checked inside the contest lock — `Entries::ApiSubmission#fence!` | `:293-299` |
+| the gates that need no row — `Entries::ApiSubmission#assert_submittable!` | `:351-367` |
+| token only by default, on a read that cannot lie — `Entries::ApiSubmission#assert_token_or_usdc!` | `:384-396` |
+| the entry built inside the contest lock — `Entries::ApiSubmission#build_entry` | `:325-343` |
+| a paid ticket no entry row holds — `Entries::ApiSubmission#find_orphan` | `:605-635` |
+| what a failure means for the key — `Entries::ApiSubmission#settle_failure` | `:493-528` |
+| the allow-list of failures that prove nothing landed — `Entries::ApiSubmission#proven_unlanded?` | `:532-537` |
 | the states and the two clocks — `ApiEntryRequest#uncertain_since` | `app/models/api_entry_request.rb:73-78` |
 
 **The web cart and the API coexist by never sharing a row.** The browser's
@@ -291,7 +301,7 @@ confirm_onchain_entry
 | 4 | Web2 token: consume OK, `confirm!` transient failure | Token **consumed**, entry on-chain, app `cart` | entry row carries `onchain_tx_signature` (durable capture) | Auto: `Entries::OnchainReconcileJob` enqueued inline; also healed by the no-arg sweep |
 | 5 | Web2 USDC: transfer OK, `confirm!` transient failure | USDC **paid** | same durable capture | Same reconciler |
 | 6 | Web3 paid (case 2) but the user never returns to the contest page | Paid, entry on-chain, app `cart` | stamped PT sits `submitted` | **Gap**: no scheduled PT sweeper today — `config/schedule.yml` schedules the deposit and CONTEST reconcilers but not `Entries::OnchainReconcileJob`, so heal requires the user's visit or an operator running the reconcile rake. Recommended follow-up: schedule `Entries::OnchainReconcileJob` (no-arg sweep) + extend the sweep to poll stamped PTs |
-| 8 | Agent API: the chain call's outcome is unknown (confirmation timeout, dropped connection), or the process died mid-request | Token/USDC **may be** spent; no entry row (the lock transaction rolled back) | the `ApiEntryRequest` row, `uncertain` (or `executing` and stale) | The next request for that player and contest, same key or new: adopts the paid ticket if one is on chain, answers 503 while the transaction could still land, and only then lets a spend through (§2a). **Gap**: nothing sweeps these rows, so an agent that never comes back leaves a paid ticket unclaimed until an operator looks |
+| 8 | Agent API: the chain call's outcome is unknown (confirmation timeout, dropped connection), or the process died mid-request | Token/USDC **may be** spent; no entry row (the lock transaction rolled back) | the `ApiEntryRequest` row, `uncertain` (or `executing` and stale) | The next request for that player and contest, same key or new: adopts the paid ticket if one is on chain, answers 503 while the transaction could still land, and only then lets a spend through (§2a). The window is wall-clock (150s), not the transaction's own `lastValidBlockHeight`. **Gap**: a process killed in the middle of its chain call, after outliving both clocks, while a retry of the same key already waits on the contest lock, is not seen by that retry. **Gap**: nothing sweeps these rows, so an agent that never comes back leaves a paid ticket unclaimed until an operator looks |
 | 7 | Contest cancelled after entries | Prize pool refunded to creator on-chain; **entry fees stay operator revenue** | — | Operator playbook: `mint_entry_token` goodwill credits to affected entrants |
 
 A failed/rejected on-chain transaction **never** moves funds — Solana txs are
@@ -322,7 +332,7 @@ and every such case except #6 self-heals automatically.
 ### 5.2 `Entries::OnchainReconcileJob` / `OnchainReconciler` (web2)
 - **Triggers**: (a) enqueued inline by `Entries::ManagedEntry#finalize!`
   when `confirm!` fails after a successful consume/transfer
-  (`app/services/entries/managed_entry.rb:258`), for the browser and the agent API alike; (b) a no-arg sweep over all
+  (`app/services/entries/managed_entry.rb:265`), for the browser and the agent API alike; (b) a no-arg sweep over all
   eligible open contests via the `reconcile_onchain` task
   (`lib/tasks/entries.rake:33`) or `Entries::OnchainReconcileJob#perform` with no id
   (`app/jobs/entries/onchain_reconcile_job.rb:13-42`, sweep branch at `:26`), which

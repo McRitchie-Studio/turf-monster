@@ -238,6 +238,137 @@ class Entries::ApiSubmissionTest < ActiveSupport::TestCase
     assert_equal 1, @vault.tickets.size
   end
 
+  # BLOCKER 1 (PR 846 review). solana-studio's Client#call re-posts the same
+  # sendTransaction after a read timeout. If the first post landed, the re-post
+  # is answered with a "simulation failed" that is PROOF OF A LANDING. It was
+  # read as a rejection, the key went `failed`, and the retry paid again.
+  %i[resent in_use].each do |mode|
+    test "a landing answered as a simulation failure (#{mode}) is never read as a rejection" do
+      @vault.fail_next_enter = mode
+      @vault.grant_token("token-2")
+
+      first = submit
+
+      assert_error first, :chain_unavailable, :service_unavailable
+      assert_equal 1, @vault.tickets.size, "the spend landed"
+      assert_equal "uncertain", record.state, "a landing must not be recorded as `failed`"
+
+      again = submit
+
+      assert_equal :created, again.status
+      assert_equal 1, @vault.tickets.size, "the retry must not buy a second ticket"
+      assert_equal 1, @vault.spent_tokens.size, "the retry must not spend a second token"
+      assert_equal @vault.tickets.sole[:signature], entries.sole.onchain_tx_signature
+    end
+  end
+
+  test "a failure that proves nothing landed is `failed`, and one that proves nothing is `uncertain`" do
+    proven = ["Transaction simulation failed: Error processing Instruction 0: custom program error: 0x1774",
+              "Transaction simulation failed: Error processing Instruction 2: custom program error: 0x1",
+              'Transaction failed: {"InstructionError"=>[0, {"Custom"=>6004}]}']
+    unproven = ["Transaction simulation failed: This transaction has already been processed",
+                "Transaction simulation failed: Error processing Instruction 0: custom program error: 0x0",
+                "Transaction simulation failed: Allocate: account already in use",
+                "Transaction simulation failed: Blockhash not found",
+                "Transaction confirmation timeout", "Network error: Net::ReadTimeout", "something new"]
+    service = Entries::ApiSubmission.allocate
+
+    proven.each { |message| assert service.send(:proven_unlanded?, Solana::Client::RpcError.new(message)), message }
+    unproven.each { |message| assert_not service.send(:proven_unlanded?, Solana::Client::RpcError.new(message)), message }
+  end
+
+  test "a key wrongly left `failed` over a landed ticket still finds it inside the lock and does not pay again" do
+    @vault.fail_next_enter = :lost
+    @vault.grant_token("token-2")
+    submit
+    record.update!(state: "failed", spend_uncertain_at: nil) # as a wrong classification would leave it
+
+    assert_equal :created, submit.status
+    assert_equal 1, @vault.tickets.size
+    assert_equal 1, @vault.spent_tokens.size
+  end
+
+  # BLOCKER 2 (PR 846 review). The in-flight timeout is an assumption about how
+  # long a request lives, not a limit on it. An attempt a retry has taken over
+  # must not spend.
+  test "an attempt that was superseded between its claim and its spend stops, having spent nothing" do
+    @vault.before_slot_probe = lambda do
+      record.update_columns(attempts: 2, attempted_at: Time.current) # a retry claimed the key
+    end
+
+    result = submit
+
+    assert_error result, :idempotency_in_progress, :conflict
+    assert_nothing_spent
+    assert_empty @vault.enter_calls, "the fence is before the chain call"
+    assert_equal ["executing", nil], [record.state, record.last_error_code], "the row is the retry's: this attempt wrote nothing to it"
+  end
+
+  test "a retry that was licensed while the first attempt was still alive does not spend behind it" do
+    @vault.grant_token("token-2")
+    first_attempt = nil
+    @vault.before_token_read = lambda do
+      # The first attempt, still alive, takes the contest lock ahead of this
+      # retry, pays, and commits its entry.
+      @vault.enter_contest_with_token(@user.web2_solana_address, @contest.slug, 0, "token-1",
+                                      user_keypair: "fake-keypair-object", season_id: 1)
+      first_attempt = enter!(@user, @contest, fixture_matchups, status: :cart)
+      first_attempt.update!(entry_number: 0, onchain_tx_signature: @vault.tickets.sole[:signature],
+                            onchain_entry_id: @vault.tickets.sole[:pda])
+      record.update_columns(entry_id: first_attempt.id)
+    end
+
+    result = submit
+
+    assert_equal :created, result.status
+    assert_equal 1, @vault.tickets.size, "the retry must not buy a second ticket"
+    assert_equal 1, @vault.spent_tokens.size
+    assert_equal [first_attempt.id], entries.pluck(:id)
+    assert first_attempt.reload.active?
+  end
+
+  test "a ticket that lands while a retry waits on the contest lock is adopted, not bought again" do
+    @vault.grant_token("token-2")
+    @vault.before_token_read = lambda do
+      # The first attempt's transaction lands; its process never commits a row.
+      @vault.enter_contest_with_token(@user.web2_solana_address, @contest.slug, 0, "token-1",
+                                      user_keypair: "fake-keypair-object", season_id: 1)
+    end
+
+    result = submit
+
+    assert_equal :created, result.status
+    assert_equal 1, @vault.tickets.size
+    assert_equal 1, @vault.spent_tokens.size
+    assert_equal @vault.tickets.sole[:signature], entries.sole.onchain_tx_signature
+  end
+
+  test "a retry does not spend while a superseded attempt's transaction could still land" do
+    @vault.grant_token("token-2")
+    @vault.before_token_read = lambda do
+      record.update_columns(spend_uncertain_at: Time.current)
+    end
+
+    result = submit
+
+    assert_error result, :chain_unavailable, :service_unavailable
+    assert_nothing_spent
+    assert_equal "uncertain", record.state
+  end
+
+  test "an adoption that collides with a web ticket is chain_unavailable with the row settled, not a 500" do
+    @vault.fail_next_enter = :lost
+    submit
+    web = @contest.entries.create!(user: users(:jordan), status: :cart, onchain_tx_signature: @vault.tickets.sole[:signature])
+
+    result = submit
+
+    assert_error result, :chain_unavailable, :service_unavailable
+    assert_equal "uncertain", record.state
+    assert_equal 1, @vault.tickets.size
+    assert web.reload.cart?
+  end
+
   test "uncertain: nothing landed yet, so the retry waits rather than spends" do
     @vault.fail_next_enter = :unlanded
 

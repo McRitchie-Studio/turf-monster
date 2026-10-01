@@ -330,7 +330,7 @@ Phantom must be installed in the browser or available via mobile deep link.
 - `cookies[:reference]` (write in step 1 — funnel-attribution stamp)
 - `contests` (read in steps 2, 3 and 9; the row is locked via `@contest.with_lock`
   for `ContestsController#enter`, inside `Entries::ManagedEntry#call`
-  (`app/services/entries/managed_entry.rb:72`), not in `#prepare_entry` or
+  (`app/services/entries/managed_entry.rb:77`), not in `#prepare_entry` or
   `#confirm_onchain_entry`)
 - `entries` (insert `:cart` in step 3; update to `:active` in step 9 via
   `Entry#confirm_onchain!`)
@@ -367,14 +367,14 @@ Phantom must be installed in the browser or available via mobile deep link.
 - **No on-chain Contest PDA.** Paid contests refuse free entry —
   `ContestsController#enter` refuses with `"This contest isn't on-chain yet — paid
   entry is unavailable."`, raised by `Entries::ManagedEntry#call`
-  (`app/services/entries/managed_entry.rb:93-95`).
+  (`app/services/entries/managed_entry.rb:98-100`).
   `Entry#confirm!` carries the model-level backstop for the same hole, with its
   own wording: `"Entry payment required — no entry token consumed or on-chain
   payment recorded"` (`app/models/entry.rb:185-187`). Always set the contest
   on-chain before publishing the landing page.
 - **No active season.** `#enter` refuses with `"No active season configured. Set one
   at /admin/seasons before users can enter on-chain contests."`, raised by
-  `Entries::ManagedEntry#call` (`app/services/entries/managed_entry.rb:82-87`) — the operator must call
+  `Entries::ManagedEntry#call` (`app/services/entries/managed_entry.rb:87-92`) — the operator must call
   `SeasonConfig.set_current!(season_id)` first. Caught before the user spends a
   Phantom signature.
 - **Wrong wallet connected.** `confirmEntry` declares the session address as

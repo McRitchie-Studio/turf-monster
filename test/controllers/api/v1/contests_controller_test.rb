@@ -159,7 +159,7 @@ class Api::V1::ContestsControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "a path under /api/ that no route claims is a 404 in the JSON envelope" do
-    ["/api/v1/nope", "/api/v1/contests/test-contest/nope", "/api/v2/me", "/api/nope", "/api/v1/me.html",
+    ["/api/v1/nope", "/api/v1/contests/test-contest/nope", "/api/v2/me", "/api/nope", "/api", "/api/", "/api/v1/me.html",
      "/api/v1/contests/test-contest.html"].each do |path|
       api_get path
       assert_api_error :not_found, "not_found"

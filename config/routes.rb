@@ -297,7 +297,7 @@ Rails.application.routes.draw do
   namespace :api, defaults: { format: :json } do
     namespace(:v1) { draw :api_v1 } # config/routes/api_v1.rb; kept out of this file so its cited line numbers hold
     # Last, so it sees only what nothing above claimed: a 404 in the API's JSON envelope, not the HTML page.
-    match "*unmatched", to: "v1/errors#not_found", via: :all, format: false
+    match "(*unmatched)", to: "v1/errors#not_found", via: :all, format: false
   end
 
   # Newsletter / quest mission 2 — authed one-click join (+ web3 email capture)

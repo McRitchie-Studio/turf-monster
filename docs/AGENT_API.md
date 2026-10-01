@@ -96,7 +96,7 @@ Branch on `code`. `message` is written for a person and may change.
 | 403 | `account_frozen` | The account is on hold. Every request that is not a `GET` or `HEAD` is refused. Reads still work. |
 | 403 | `age_verification_required` | The age gate is on and the player has not verified their date of birth. The player verifies on the site; the same key then works. Returned only by endpoints that enter a contest. |
 | 400 | `bad_request` | A required parameter or header is missing, a value is not the type the endpoint takes, or the body is not valid JSON |
-| 404 | `not_found` | No such resource. Also any path under `/api/` that is not an endpoint, on any method. |
+| 404 | `not_found` | No such resource. Also `/api` itself and any path under it that is not an endpoint, on any method. |
 | 429 | `rate_limited` | Too many requests. The body also carries `retry_after` (seconds), and so does the `Retry-After` header. |
 | 500 | `internal_error` | Our fault. Retry shortly. |
 
@@ -328,7 +328,7 @@ built from.
       "matchup_id": 809431972,
       "team": { "slug": "miami-dolphins", "name": "Miami Dolphins", "short_name": "MIA" },
       "rank": 5,
-      "turf_score": 2.7,
+      "turf_score": 3.6,
       "expected_team_score": 21.5,
       "team_score": null,
       "locked": false,
@@ -445,7 +445,7 @@ While the games are played (`?limit=2`):
       "display_name": "sam_test",
       "mine": true,
       "entry_slug": "sam_test-nfl-weeks-4-5-showdown-980190963",
-      "score": 215.9,
+      "score": 231.2,
       "rank": 1,
       "payout_cents": null,
       "currency": "USD",
@@ -457,7 +457,7 @@ While the games are played (`?limit=2`):
       "display_name": "casey_test",
       "mine": false,
       "entry_slug": null,
-      "score": 215.9,
+      "score": 231.2,
       "rank": 1,
       "payout_cents": null,
       "currency": "USD",
@@ -517,7 +517,7 @@ an abandoned one are not entries and are never returned, here or by slug.
       "submitted_at": "2026-10-01T15:00:00Z",
       "tx_signature": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi5Yq1mCQXxkzLkzTTDxvQyhU2r8PZs2cRUXAMPLE",
       "editable": false,
-      "score": 215.9,
+      "score": 231.2,
       "rank": 1,
       "payout_cents": null,
       "currency": "USD",
@@ -562,14 +562,14 @@ an abandoned one are not entries and are never returned, here or by slug.
           "matchup_id": 809431972,
           "team": { "slug": "miami-dolphins", "name": "Miami Dolphins", "short_name": "MIA" },
           "rank": 5,
-          "turf_score": 2.7,
+          "turf_score": 3.6,
           "expected_team_score": 21.5,
           "team_score": 17,
           "locked": true,
           "games_count": 1,
           "bye_weeks": [5],
           "games": [ { "week": 4, "...": "as above" } ],
-          "points": 45.9
+          "points": 61.2
         }
       ]
     }
@@ -685,7 +685,7 @@ through the website's cart.
 |-------|-------|-------|
 | `Idempotency-Key` | header | **Required.** A value you make up for this entry, 1 to 255 printable characters with no spaces (a UUID is ideal). Send the same value on every retry of the same entry. |
 | `matchup_ids` | body | **Required.** A list of exactly `picks_required` different ids, each a `teams[].matchup_id` from `GET /api/v1/contests/:slug`. Order does not matter. |
-| `allow_usdc` | body | Optional, default `false`. See below. |
+| `allow_usdc` | body | Optional, default `false`. A JSON boolean: `true` or `false`. The strings `"true"` and `"false"` are a `400`. See below. |
 
 **Token only, unless you say otherwise.** By default an entry is paid for with
 one of the player's free entry tokens, and if the player has none the request
@@ -754,6 +754,14 @@ Send the same request with the same `Idempotency-Key` after `retry_after`
 seconds. It returns `201` with the entry and spends nothing more. Do not send a
 new key: the entry already exists.
 
+**A `202` can persist.** If the reason the entry could not be marked active is a
+rule rather than a hiccup (the contest locked or filled in the seconds the
+payment took), every retry answers `202` and nothing completes it on its own.
+After a few minutes of `202`s, stop retrying and tell the player plainly: the
+entry was paid for, it is not showing as entered, and they should contact
+support@turfmonster.media with the contest name. Do not enter again with a new
+key.
+
 ### `PATCH /api/v1/entries/:slug`
 
 Replaces all of the entry's picks. It is not a spend: nothing moves on Solana,
@@ -796,7 +804,7 @@ spent.**
 
 | Status | `code` | From | Meaning | What the agent should do |
 |--------|--------|------|---------|--------------------------|
-| 400 | `bad_request` | both | No `Idempotency-Key` (POST), a key that is too long or has spaces, `matchup_ids` missing or not a list of ids, `allow_usdc` not `true` or `false`, a body that is not JSON | Fix the request. It was not recorded, so the same key is still unused. |
+| 400 | `bad_request` | both | No `Idempotency-Key` (POST), a key that is too long or has spaces, `matchup_ids` missing or not a list of ids, `allow_usdc` not a JSON `true` or `false`, a body that is not JSON | Fix the request. It was not recorded, so the same key is still unused. |
 | 401 | the four key errors | both | No key, or a bad, revoked or expired one | Ask the player for a working key. |
 | 403 | `account_frozen` | both | The account is on hold | Stop. Tell the player to contact support. |
 | 403 | `age_verification_required` | both | The age gate is on and the player has not verified | Tell the player to verify their date of birth on the website, then retry with the same key. |
@@ -816,8 +824,8 @@ spent.**
 | 422 | `no_entry_token` | POST | No free entry token, and `allow_usdc` was not `true` (or USDC entry is switched off) | Tell the player. Only with their say-so, retry with `allow_usdc: true`, which needs a new key because the body changed. |
 | 422 | `insufficient_funds` | POST | `allow_usdc` was `true`, there is no token, and the wallet does not hold the entry fee in USDC | Tell the player to add funds. The same key works once they have. |
 | 422 | `wallet_not_server_signable` | POST | The wallet is self-custodied or Phantom-linked, or there is no wallet | Send the player to the website. The API cannot enter for this account. |
-| 503 | `chain_unavailable` | POST | Solana could not be read, or did not confirm the payment in time. **The payment may or may not have landed.** | Wait `retry_after` seconds and send the same request with the **same** key. It will never pay twice. |
-| 500 | `internal_error` | both | Our fault | Retry with the same key. It will not pay twice. |
+| 503 | `chain_unavailable` | POST | Solana could not be read, or did not confirm the payment in time. **The payment may or may not have landed.** | Wait `retry_after` seconds and send the same request with the **same** key. The server looks for the payment before it pays again; see [Retrying safely](#retrying-safely) for exactly what that covers. |
+| 500 | `internal_error` | both | Our fault | Retry with the same key. |
 
 `idempotency_in_progress`, `503` and `202` responses carry `retry_after`
 (seconds) in the body and as a `Retry-After` header.
@@ -850,6 +858,16 @@ first. While the earlier payment is still unknown the new request answers `503`
 too. If the earlier payment turns out to have landed, it becomes the earlier
 key's entry, and a new request for the same teams is then a `duplicate_lineup`.
 
+**What this guarantees, and the one thing it does not.** A retry with the same
+key replays a finished entry, waits on one in progress, and looks on Solana for
+a paid entry before it pays. It does not pay again unless the earlier payment
+was refused by the program, or 150 seconds have passed with no trace of it on
+chain. The case it cannot see: a server process killed in the middle of sending
+a payment, more than four minutes into a request, while a retry of the same key
+is already waiting behind it. That needs a stalled network and a crash at the
+same moment; it is why this page says "looks before it pays" and not "can never
+pay twice".
+
 `PATCH` needs none of this. Repeat it freely.
 
 #### What the server keeps
@@ -859,9 +877,9 @@ above is a view of.
 
 | State | Meaning | A request with this key |
 |-------|---------|-------------------------|
-| `executing` | A request is running now | `409 idempotency_in_progress`. After two minutes with no result the request is taken to have died, and the key is treated as `uncertain`. |
-| `failed` | The last attempt ended and spent nothing, with certainty: it was refused before the payment was sent, or Solana rejected the transaction | Runs again from the top. |
-| `uncertain` | The payment was sent and its outcome is not known | Looks on Solana first. A paid entry found there becomes this key's entry (`201`). Otherwise `503` until the transaction can no longer land (about two and a half minutes after it was sent), and only then runs again. |
+| `executing` | A request is running now | `409 idempotency_in_progress`. After two minutes with no result the request is taken to have died, and the key is treated as `uncertain`. A request that is in fact still alive past that point checks, immediately before it pays, that it still owns the key, and stops if a retry has taken over. |
+| `failed` | The last attempt ended and spent nothing, with certainty. Either it was refused before the payment was sent, or the payment was sent and the Turf Monster program itself refused it (a failed simulation naming a program error, or a transaction that landed and failed). No other failure after the payment is sent counts: a timeout, a dropped connection, and a node answering "already been processed" or "already in use" are all `uncertain`. | Runs again from the top. Even then it looks on Solana for a paid entry before building a new one. |
+| `uncertain` | The payment was sent and its outcome is not known | Looks on Solana first. A paid entry found there becomes this key's entry (`201`). Otherwise `503` for 150 seconds after the attempt ended, and only then runs again. The 150 seconds is a wall-clock margin over the 60 to 90 seconds a Solana transaction stays valid; it is not read from the transaction's own expiry. |
 | `confirming` | Paid; the entry is on file and not yet active | Finishes it and returns `201`, or `202` again. A background job finishes it too, so the entry appears even if the agent never returns. |
 | `succeeded` | Done | Replays the stored `201`. |
 

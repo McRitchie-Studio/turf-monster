@@ -21,7 +21,7 @@ require_relative "fake_vault"
 #
 # THE SIGNATURES ARE THE REAL ONES. Every method the entry path calls is
 # defined here with the parameter list Solana::Vault declares, and
-# test/support/ledger_vault_signature_test.rb fails if they drift. A double
+# test/lib/ledger_vault_signature_test.rb fails if they drift. A double
 # that took `**kwargs` would accept a misspelt keyword the real method refuses.
 #
 # FAILURE INJECTION (`fail_next_enter`), each a different fact about the spend:
@@ -31,10 +31,20 @@ require_relative "fake_vault"
 #               moves, but the caller only sees a timeout.
 #   :lost       the transaction LANDS and the confirmation is lost: the same
 #               timeout, with the money gone. The case idempotency exists for.
+#   :resent     the transaction LANDS, the node's answer is lost, and the
+#               client's own re-post of the same wire is answered "simulation
+#               failed: This transaction has already been processed"
+#               (solana-studio Client#call retries a read timeout). It reads
+#               like a rejection and is proof of a landing.
+#   :in_use     the transaction LANDS and the re-post is answered by a node
+#               that simulated it against the new state: "already in use".
 class LedgerVault < FakeVault
   SIMULATION_FAILED = "Transaction simulation failed: Error processing Instruction 0: ".freeze
 
-  attr_accessor :fail_next_enter, :token_read_raises, :before_enter
+  # before_token_read and before_slot_probe let a test act BETWEEN the steps of
+  # one request: after the claim and before the contest lock, and inside the
+  # lock just before the spend.
+  attr_accessor :fail_next_enter, :token_read_raises, :before_enter, :before_token_read, :before_slot_probe
   attr_reader :tickets
 
   def initialize(tokens: [], usdc: 0.0, **options)
@@ -61,6 +71,8 @@ class LedgerVault < FakeVault
   def list_entry_tokens(wallet_address, commitment: "confirmed")
     raise Solana::Client::RpcError, "simulated getProgramAccounts failure" if token_read_raises
 
+    hook, self.before_token_read = before_token_read, nil
+    hook&.call
     super
   end
 
@@ -89,6 +101,8 @@ class LedgerVault < FakeVault
   end
 
   def next_free_entry_index(contest_slug, wallet_address, max:, skip: [])
+    hook, self.before_slot_probe = before_slot_probe, nil
+    hook&.call
     super
   end
 
@@ -130,6 +144,8 @@ class LedgerVault < FakeVault
     @ledger_signatures[pda] = [{ "signature" => signature, "err" => nil }]
     @tickets << { slot: slot, pda: pda, signature: signature, method: method }
     raise Solana::Client::RpcError, "Transaction confirmation timeout" if failure == :lost
+    raise Solana::Client::RpcError, "Transaction simulation failed: This transaction has already been processed" if failure == :resent
+    raise Solana::Client::RpcError, "#{SIMULATION_FAILED}Allocate: account already in use" if failure == :in_use
 
     { signature: signature, entry_pda: pda }
   end

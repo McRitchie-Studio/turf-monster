@@ -110,7 +110,8 @@ class Api::V1::EntryWritesTest < ActionDispatch::IntegrationTest
     bodies = [
       {}, { matchup_ids: "1,2,3" }, { matchup_ids: [] }, { matchup_ids: [1, "two"] }, { matchup_ids: { a: 1 } },
       { matchup_ids: [1, [2]] }, { matchup_ids: [-1] }, { matchup_ids: [10**30] },
-      { matchup_ids: @picks, allow_usdc: "yes" }, { matchup_ids: @picks, allow_usdc: 1 }
+      { matchup_ids: @picks, allow_usdc: "yes" }, { matchup_ids: @picks, allow_usdc: 1 },
+      { matchup_ids: @picks, allow_usdc: "true" }, { matchup_ids: @picks, allow_usdc: "false" }
     ]
 
     bodies.each do |body|
@@ -339,6 +340,20 @@ class Api::V1::EntryWritesTest < ActionDispatch::IntegrationTest
 
     assert_response :created
     assert_equal @vault.tickets.sole[:signature], json.dig("entry", "tx_signature")
+    assert_equal 1, @vault.tickets.size
+    assert_equal 1, @vault.spent_tokens.size
+    assert_equal 1, my_entries.count
+  end
+
+  test "POST chain_unavailable: a landing the node reports as 'already been processed' is one entry on retry" do
+    @vault.fail_next_enter = :resent
+    @vault.grant_token("token-2")
+
+    enter(idem: "resent")
+    assert_api_error :service_unavailable, "chain_unavailable"
+
+    enter(idem: "resent")
+    assert_response :created
     assert_equal 1, @vault.tickets.size
     assert_equal 1, @vault.spent_tokens.size
     assert_equal 1, my_entries.count

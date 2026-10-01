@@ -43,11 +43,38 @@ module Entries
   # never will. ApiEntryRequest::SETTLE_WINDOW is that bound with margin.
   #
   # WHAT COUNTS AS "SPENT NOTHING, WITH CERTAINTY". Anything raised before
-  # ManagedEntry#spend_attempted? turns true, and after it a failure the chain
-  # itself reported: a failed simulation or a landed-and-failed transaction.
-  # A Solana transaction is atomic, so those moved nothing. Everything else
-  # after the chain call (a confirmation timeout, a dropped connection) is
-  # `uncertain`.
+  # ManagedEntry#spend_attempted? turns true. After it, ONLY a failure on the
+  # short list in #proven_unlanded?: the program itself refusing the
+  # instruction, in simulation or in a landed-and-failed transaction. A Solana
+  # transaction is atomic, so those moved nothing. EVERYTHING ELSE after the
+  # chain call is `uncertain`, including messages that read like a rejection.
+  # The list is an allow-list on purpose: the Solana client re-posts the same
+  # transaction after a read timeout, and when the first post landed the
+  # re-post is answered "Transaction simulation failed: This transaction has
+  # already been processed". That is proof of a LANDING. Reading every
+  # "simulation failed" as a rejection recorded it `failed`, and the retry paid
+  # a second time (PR 846 review).
+  #
+  # AND A SECOND LINE BEHIND THAT ONE. Every paid request, in whatever state
+  # its key was left, looks for a paid ticket with no entry row INSIDE the
+  # contest lock before it builds an entry (#build_entry). A wrong
+  # classification therefore costs a lookup, not a second payment.
+  #
+  # A SUPERSEDED ATTEMPT DOES NOT SPEND. The in-flight timeout is an assumption
+  # about how long a request lives, not a limit on it: a slow RPC or a queue on
+  # the contest lock can keep an attempt alive after a retry has been licensed
+  # to take its key. So ownership is checked again INSIDE the contest lock
+  # (#fence!): before the entry is built, and once more immediately before the
+  # chain call. An attempt that no longer owns the row stops, having spent
+  # nothing. An attempt that does own it first looks at what the lock's
+  # previous holder left: a committed entry (finish that instead), a spend
+  # still in doubt (wait), a paid ticket (adopt it).
+  #
+  # WHAT THIS DOES NOT COVER. A process killed in the middle of its chain call,
+  # after outliving both clocks, while a retry of the same key is already
+  # waiting on the contest lock: the retry cannot see a transaction nobody
+  # lived to record. And the settle window is wall-clock, not the
+  # transaction's own lastValidBlockHeight.
   #
   # A NEW KEY DOES NOT ESCAPE AN OLD DOUBT. Before a request spends, every other
   # unsettled request this player has for the contest is settled first
@@ -96,7 +123,7 @@ module Entries
       idempotency_in_progress: "A request to enter this contest is still running for this player. " \
                                "Nothing new was started. Retry with the same Idempotency-Key in a moment.",
       chain_unavailable: "The Solana network could not confirm this just now. Retry with the same " \
-                         "Idempotency-Key: it will never pay twice."
+                         "Idempotency-Key: the server looks for the payment before it pays again."
     }.freeze
 
     # Solana::ErrorInterpreter's blocker reasons, as API codes.
@@ -108,9 +135,38 @@ module Entries
       "web3_step_up_required" => :wallet_not_server_signable
     }.freeze
 
-    # The chain said no: a simulation that failed, or a transaction that landed
-    # and failed. Either way nothing moved.
-    CHAIN_REJECTED = /transaction simulation failed|custom program error|transaction failed:|instructionerror|already in use/i
+    # THE ALLOW-LIST: the only failures after a chain call that prove nothing
+    # landed. Each is the PROGRAM refusing the instruction, which a transaction
+    # that landed cannot produce:
+    #
+    #   * a simulation that failed on a custom program error from turf-vault
+    #     (Anchor codes 6000 and up: 0x1770..0x17ff) or on SPL's insufficient
+    #     funds (0x1). Not 0x0: that is the System program's "already in use",
+    #     which is what a slot looks like when our own transaction just filled it.
+    #   * a transaction the cluster processed and reports as failed.
+    #
+    # "already been processed", "already in use", an expired blockhash, a
+    # timeout, and anything not written here are NOT on it.
+    PROGRAM_REFUSED_IN_SIMULATION =
+      /\ATransaction simulation failed: Error processing Instruction \d+: custom program error: 0x(?:1|17[0-9a-f]{2})\z/i
+    LANDED_AND_FAILED = /\ATransaction failed: /
+    NEVER_PROOF = /already been processed|already in use/i
+
+    # A signal from inside the contest lock that this attempt must not spend.
+    class Superseded < StandardError; end
+
+    # Another attempt committed this key's entry while this one waited.
+    class AlreadyEntered < StandardError; end
+
+    # A paid ticket with no entry row turned up inside the contest lock.
+    class TicketFound < StandardError
+      attr_reader :orphan
+
+      def initialize(orphan)
+        @orphan = orphan
+        super("a paid ticket is on chain")
+      end
+    end
 
     # Refusals whose own message names the team, the count or the limit.
     DETAILED_CODES = %i[invalid_picks team_locked entry_limit_reached duplicate_lineup contest_full].freeze
@@ -169,6 +225,7 @@ module Entries
         record ||= ApiEntryRequest.new(user: @user, contest: @contest, idempotency_key: @idempotency_key,
                                        fingerprint: fingerprint, matchup_ids: @matchup_ids, allow_usdc: @allow_usdc)
         record.update!(state: "executing", attempted_at: now, attempts: record.attempts + 1, api_key: @api_key)
+        @attempt = record.attempts
         [record, :run]
       end
     end
@@ -200,15 +257,45 @@ module Entries
 
       settle_others!(record)
       execute(record)
+    rescue Superseded
+      # Not ours any more: the row is the newer attempt's to write.
+      error(:idempotency_in_progress, retry_after: BUSY_RETRY_AFTER)
+    rescue AlreadyEntered
+      @committed_entry = nil
+      converge(record.reload)
+    rescue TicketFound => e
+      adopt(record, e.orphan)
     rescue ChainUnavailable => e
-      # Our own doubt is kept, with its original clock; a fresh request that
-      # merely had to wait spent nothing.
-      if @uncertain_since
-        mark(record, state: "uncertain", spend_uncertain_at: @uncertain_since, last_error_code: "chain_unavailable")
+      settle_doubt(record)
+      error(:chain_unavailable, retry_after: e.retry_after)
+    rescue ActiveRecord::RecordNotUnique, ActiveRecord::RecordInvalid => e
+      # An adoption that lost a race for the slot or the signature to another
+      # row (a web entry in mid-flight). Nothing was spent by this request.
+      log_error(e, record)
+      settle_doubt(record)
+      error(:chain_unavailable, retry_after: PENDING_RETRY_AFTER)
+    end
+
+    # Our own doubt is kept, with its original clock; a fresh request that
+    # merely had to wait spent nothing.
+    def settle_doubt(record)
+      since = @uncertain_since || record.class.where(id: record.id).pick(:spend_uncertain_at)
+      if since
+        mark(record, state: "uncertain", spend_uncertain_at: since, last_error_code: "chain_unavailable")
       else
         mark(record, state: "failed", last_error_code: "chain_unavailable")
       end
-      error(:chain_unavailable, retry_after: e.retry_after)
+    end
+
+    # THE FENCE. Called inside the contest lock, so it is serialized with every
+    # other managed spend on this contest and reads what the lock's previous
+    # holder committed. Raises unless this attempt still owns the key.
+    def fence!(record)
+      state, attempts, entry_id, doubt = ApiEntryRequest.where(id: record.id)
+                                                        .pick(:state, :attempts, :entry_id, :spend_uncertain_at)
+      raise Superseded unless state == "executing" && attempts == @attempt
+
+      [entry_id, doubt]
     end
 
     def execute(record)
@@ -217,12 +304,13 @@ module Entries
       assert_token_or_usdc! if paid_contest?
 
       managed = Entries::ManagedEntry.new(contest: @contest, user: @user,
-                                          usdc_allowed: @allow_usdc && AppFlags.web2_usdc_entry?)
+                                          usdc_allowed: @allow_usdc && AppFlags.web2_usdc_entry?,
+                                          before_spend: ->(_entry) { fence!(record) })
       outcome = managed.call { build_entry(record) }
 
       record.update!(funding_method: outcome.funding_method || "free", token_consumed: outcome.token_consumed)
       outcome.entry.active? ? succeed(record, outcome.entry) : pending(record)
-    rescue ChainUnavailable
+    rescue ChainUnavailable, Superseded, AlreadyEntered, TicketFound
       raise
     rescue StandardError => e
       settle_failure(record, managed, e)
@@ -231,7 +319,21 @@ module Entries
     # Built inside the contest lock's transaction (ManagedEntry#call yields
     # there), so the row and the record's pointer to it commit together with
     # the spend or not at all.
+    #
+    # First, what the lock's previous holder may have left for this key: an
+    # earlier attempt that was still alive when this one was licensed.
     def build_entry(record)
+      committed_id, doubt = fence!(record)
+      raise AlreadyEntered if committed_id && Entry.exists?(committed_id)
+
+      if paid_contest?
+        wait_for_settlement!(doubt) if doubt
+        # Leave the lock's transaction before building on it: #adopt writes
+        # rows that must not roll back with a spend that never happens.
+        orphan = find_orphan
+        raise TicketFound.new(orphan) if orphan
+      end
+
       entry = @contest.entries.create!(user: @user, status: :cart)
       picked_matchups.each { |matchup| entry.selections.create!(slate_matchup: matchup) }
       record.update!(entry: entry)
@@ -407,8 +509,12 @@ module Entries
         return pending(record)
       end
 
-      if spent && !chain_rejected?(exception)
-        mark(record, state: "uncertain", spend_uncertain_at: Time.current, last_error_code: "chain_unavailable")
+      if spent && !proven_unlanded?(exception)
+        # Written to the ROW first, not only through this attempt's claim: if a
+        # retry has taken the key meanwhile, its fence reads this clock.
+        now = Time.current
+        ApiEntryRequest.where(id: record.id).update_all(spend_uncertain_at: now)
+        mark(record, state: "uncertain", spend_uncertain_at: now, last_error_code: "chain_unavailable")
         return error(:chain_unavailable, retry_after: PENDING_RETRY_AFTER)
       end
 
@@ -421,8 +527,13 @@ module Entries
       error(code, message, retry_after: (PENDING_RETRY_AFTER if code == :chain_unavailable))
     end
 
-    def chain_rejected?(exception)
-      exception.is_a?(Entry::Refusal) || exception.message.to_s.match?(CHAIN_REJECTED)
+    # Whether a failure raised AFTER the chain call proves nothing landed.
+    # See PROGRAM_REFUSED_IN_SIMULATION: an allow-list, and the unknown is not on it.
+    def proven_unlanded?(exception)
+      message = exception.message.to_s.strip
+      return false if message.match?(NEVER_PROOF)
+
+      message.match?(PROGRAM_REFUSED_IN_SIMULATION) || message.match?(LANDED_AND_FAILED)
     end
 
     # [code, message], or [nil, nil] for a fault that is ours (the controller
@@ -448,8 +559,8 @@ module Entries
     end
 
     def chain_error?(exception)
-      exception.is_a?(Solana::Client::RpcError) || exception.message.to_s.match?(CHAIN_REJECTED) ||
-        exception.message.to_s.match?(/blockhash|timed out|timeout|connection (refused|reset)|network error/i)
+      exception.is_a?(Solana::Client::RpcError) ||
+        exception.message.to_s.match?(/simulation failed|custom program error|blockhash|timed out|timeout|connection (refused|reset)|network error/i)
     end
 
     # ── Settling a doubt ─────────────────────────────────────────────────────
@@ -527,7 +638,7 @@ module Entries
     # that created it (the rule Entries::OnchainReconciler#oldest_success_signature
     # applies). getSignaturesForAddress answers newest first.
     def creating_signature(vault, pda)
-      rows = vault.client.send(:call, "getSignaturesForAddress", [pda, { "limit" => 20 }])
+      rows = vault.client.send(:call, "getSignaturesForAddress", [pda, { "limit" => 20 }]) # private in the gem, as in OnchainReconciler
       hit = Array(rows).reverse.find { |row| row && row["err"].nil? }
       hit && hit["signature"]
     end
@@ -578,8 +689,10 @@ module Entries
 
     def log_error(exception, record)
       error_log = ErrorLog.capture!(exception)
-      error_log.target = @user
-      error_log.target_name = @user.slug if @user.respond_to?(:slug)
+      # The entry when there is one (the house rule), else the player.
+      target = (record&.entry_id && Entry.find_by(id: record.entry_id)) || @user
+      error_log.target = target
+      error_log.target_name = target.slug if target.respond_to?(:slug)
       error_log.parent = @contest
       error_log.parent_name = @contest.slug
       error_log.save!
