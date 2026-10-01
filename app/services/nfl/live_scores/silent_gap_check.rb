@@ -24,11 +24,12 @@ module Nfl
     # because a postponed game is legitimately unfinished and a 0-0 game is
     # legitimately unscored, and both look identical to a clock.
     #
-    # WHAT IT COSTS. Nothing, on a healthy week. The candidate set comes from a
-    # single indexed query against our OWN rows — slots holding a goal-less game
-    # whose kickoff is comfortably past — and a week we have scored produces no
-    # candidates and therefore no network request at all. Only a slot that
-    # already looks wrong is worth asking ESPN about.
+    # WHAT IT COSTS. Nothing, on a healthy week. One indexed query against our
+    # OWN rows finds the goal-less games whose kickoff is comfortably past, and a
+    # week we have scored produces NONE — so `SlotResolver` is handed an empty
+    # set, no slate is read, and no network request is made at all. Only once a
+    # game already looks wrong is a second query spent resolving which slot to
+    # ask ESPN about.
     #
     # WHAT IT DELIBERATELY DOES NOT DO: repair. The alert names the exact
     # command (`bin/nfl-live-poll --slot Y:T:W`) and stops there. Re-polling a
@@ -52,6 +53,13 @@ module Nfl
       # HOW FAR BACK IT LOOKS. Three weeks, so a gap survives the operator being
       # away for a fortnight — the incident ran ten days before anyone noticed —
       # while the candidate query stays bounded and cheap.
+      #
+      # IT IS A CLIFF, AND THE CLIFF IS DELIBERATE: an unrepaired gap pages four
+      # times a day for three weeks and then goes quiet, because the slot leaves
+      # the window. A gap nobody acted on in 21 days is not going to be fixed by a
+      # 22nd day of the same page, and an unbounded lookback would re-page every
+      # historical week forever on the first slate we never scored. The backstop
+      # for a page that was ignored is the ErrorLog itself, which does not expire.
       LOOKBACK = 21.days
 
       # One slot's worth of missing scoring. `games` are human-readable lines,
@@ -105,25 +113,33 @@ module Nfl
 
       # THE PREFILTER, and the reason a healthy week is free.
       #
-      # Our own rows, no network: NFL games carrying a full season slot, kicked
-      # off long enough ago to be over, holding no Goal at all. `where.missing`
-      # is a LEFT JOIN with a NULL test, so "holds no goals" is decided by the
-      # database rather than by loading every game in three weeks.
+      # Our own rows, no network: NFL games kicked off long enough ago to be
+      # over, holding no Goal at all. `where.missing` is a LEFT JOIN with a NULL
+      # test, so "holds no goals" is decided by the database rather than by
+      # loading every game in three weeks. A week we have scored produces no
+      # candidate games, so `SlotResolver` is handed an empty set, spends no
+      # slate query, and names no slot to ask ESPN about.
       #
-      # A null `season_year` is excluded because a slot is the unit ESPN serves
-      # and a null one cannot be asked for — every game predating the live feed
-      # carries one, and none of them is in a contest this check can protect.
+      # IT NO LONGER FILTERS ON THE SLOT COLUMNS, and that is the whole fix.
+      # Requiring `season_year`/`season_type`/`week` to be non-null meant only a
+      # slot the poller had ALREADY polled could ever become a candidate —
+      # `PollCycle#upsert_game` is their only non-test writer — so the one state
+      # this object exists to catch was the one state it could not see. Measured
+      # on a freshly seeded database: 272 NFL games, ZERO carrying season_year.
+      # The slot is resolved per game instead; see `SlotResolver`.
+      #
+      # `kickoff_at` STAYS the time bound, and it is the honest one: 256 of those
+      # 272 carry it, and the 16 that do not are all of week 18, whose slate
+      # carries no `starts_at` either. A game no source has placed in time cannot
+      # be given a six-hour grace window by any means, and no contest is played
+      # on that week. When the poller first reaches it, it stamps both.
       def candidate_slots
-        Game.nfl
-            .where.not(season_year: nil)
-            .where.not(season_type: nil)
-            .where.not(week: nil)
-            .where(kickoff_at: (now - LOOKBACK)..(now - SETTLE_GRACE))
-            .where.missing(:goals)
-            .distinct
-            .pluck(:season_year, :season_type, :week)
-            .sort
-            .map { |year, season_type, week| PollCycle::Slot.new(year: year, season_type: season_type, week: week) }
+        games = Game.nfl
+                    .where(kickoff_at: (now - LOOKBACK)..(now - SETTLE_GRACE))
+                    .where.missing(:goals)
+                    .to_a
+
+        SlotResolver.call(games).sort_by { |slot| [slot.year, slot.season_type, slot.week] }
       end
 
       # ONE scoreboard request per suspicious slot, and the source's own verdict
@@ -194,7 +210,8 @@ module Nfl
           "zero scoring events here, so every contest on this slot is scoring short. " \
           "#{gap.games.join(' | ')}. " \
           "Repair with: bin/nfl-live-poll --slot #{slot.year}:#{slot.season_type}:#{slot.week} " \
-          "(idempotent; refuses a slot whose contest has already settled)."
+          "(idempotent; skips a game whose every contest has SETTLED — add --allow-settled " \
+          "to rewrite a graded contest's matchups on purpose)."
         )
         ErrorLog.capture!(err)
         Rails.logger.error("[nfl_silent_gap_check][gap] #{slot_label(slot)} games=#{gap.games.length}")
