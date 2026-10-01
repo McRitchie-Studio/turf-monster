@@ -15,6 +15,8 @@
 # courtesy; the check in #create is the boundary.
 class ApiKeysController < ApplicationController
   GENERIC_FAILURE = "We couldn't create that key. Please try again.".freeze
+  REVOKE_MISSING  = "That key is no longer on your account. Nothing was changed.".freeze
+  REVOKE_FAILURE  = "We couldn't revoke that key. Please try again.".freeze
 
   def index
     render_card
@@ -56,12 +58,20 @@ class ApiKeysController < ApplicationController
 
   # Scoped through current_user, so another player's key id is a 404, not a
   # revoke. Allowed while impersonating: it only ever removes access.
+  #
+  # A refusal is answered WITH THE CARD, at the status it earned. The stock 404
+  # and 500 pages carry no frame, and the card would show Turbo's "Content
+  # missing" in their place.
   def destroy
-    api_key = current_user.api_keys.find(params[:id])
+    api_key = current_user.api_keys.find_by(id: params[:id])
+    return render_card(status: :not_found, card_error: REVOKE_MISSING) if api_key.nil?
+
     rescue_and_log(target: current_user) do
       api_key.revoke!
     end
     redirect_to account_api_keys_path, status: :see_other
+  rescue StandardError
+    render_card(status: :internal_server_error, card_error: REVOKE_FAILURE)
   end
 
   private

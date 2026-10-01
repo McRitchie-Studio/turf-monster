@@ -11,6 +11,7 @@
                      ApiKeysController#create passes it.
       form_error     a refusal to show under the name field
       form_name      what the player typed, so a refused form keeps it
+      card_error     a refusal that is not about the form: a revoke that failed
 
     BODY ONLY, like its siblings: the call site owns the card and the heading.
 
@@ -24,10 +25,24 @@
     age-verified — the frame re-fetches itself rather than guessing client-side.
 
     THE FORM IS A COURTESY, NOT THE GATE. ApiKeysController#create re-asks the
-    same question on the POST. %>
+    same question on the POST.
+
+    A REFUSAL IS ALWAYS SAID IN THE CARD. A frame that gets an answer without
+    this frame in it shows Turbo's "Content missing", and one that gets an
+    answer that is not HTML shows nothing at all. So the controller answers a
+    failed revoke with the card (card_error), and the one refusal that never
+    reaches the controller, the mint throttle's 429 from rack-attack, is read
+    off the response status by the form itself.
+
+    THE REVEAL IS data-turbo-temporary. Turbo snapshots the page when the
+    player follows a link, and Back restores that snapshot without asking the
+    server: without the attribute the raw key comes back on screen from the
+    browser's memory. Turbo drops temporary elements before it takes the
+    snapshot. The key row and the rest of the card are kept. %>
 <% new_key    = local_assigns[:new_key] %>
 <% form_error = local_assigns[:form_error] %>
 <% form_name  = local_assigns[:form_name] %>
+<% card_error = local_assigns[:card_error] %>
 <% keys       = user.api_keys.where(revoked_at: nil).newest_first.to_a %>
 <% at_limit   = keys.count(&:active?) >= ApiKey::MAX_ACTIVE_PER_USER %>
 <%= turbo_frame_tag "api_keys_card", data: { api_keys: true } do %>
@@ -38,7 +53,7 @@
 
   <% if new_key&.raw_token.present? %>
     <%# Shown once: this block exists only in the response to the create POST. %>
-    <div class="bg-inset rounded-lg p-4 mb-4" data-api-key-created>
+    <div class="bg-inset rounded-lg p-4 mb-4" data-api-key-created data-turbo-temporary>
       <p class="text-body font-semibold mb-1">Copy your new key now. We can't show it again.</p>
       <p class="text-secondary text-sm mb-4">
         We store only a fingerprint of it, so if you lose it, revoke it and create another.
@@ -63,6 +78,10 @@
 
       <%= link_to "I've copied it", account_api_keys_path, class: "btn btn-primary btn-sm" %>
     </div>
+  <% end %>
+
+  <% if card_error.present? %>
+    <p role="alert" class="text-sm mb-4 text-danger-ink" data-api-key-card-error><%= card_error %></p>
   <% end %>
 
   <% if keys.any? %>
@@ -134,7 +153,7 @@
   <% else %>
     <%# With no keys the form is the card. With keys it waits behind a link, and
         a refused submit comes back with it open. %>
-    <div x-data="{ adding: <%= keys.empty? || form_error.present? %>, busy: false }">
+    <div x-data="{ adding: <%= keys.empty? || form_error.present? %>, busy: false, throttled: false }">
       <% if keys.any? %>
         <button type="button" x-show="!adding" @click="adding = true; $nextTick(() => $refs.name.focus())"
                 class="text-sm font-semibold text-primary hover:underline underline-offset-2" data-api-key-add>
@@ -145,7 +164,8 @@
       <%= form_with url: account_api_keys_path, method: :post,
             data: { api_key_form: true },
             html: { "x-show" => "adding", "x-cloak" => true,
-                    "@turbo:submit-start" => "busy = true", "@turbo:submit-end" => "busy = false" } do %>
+                    "@turbo:submit-start" => "busy = true; throttled = false",
+                    "@turbo:submit-end" => "busy = false; throttled = $event.detail.fetchResponse?.response.status === 429" } do %>
         <label for="api_key_name" class="block text-sm font-bold text-heading mb-2">Name</label>
         <div class="flex gap-2">
           <input type="text" name="name" id="api_key_name" x-ref="name" required
@@ -162,6 +182,11 @@
         <% if form_error.present? %>
           <p id="api_key_name_error" role="alert" class="text-xs mt-2 text-danger-ink" data-api-key-error><%= form_error %></p>
         <% end %>
+        <%# The mint throttle answers from rack-attack, in JSON, before any
+            controller runs: there is no card in that response to swap in. %>
+        <p x-show="throttled" x-cloak role="alert" class="text-xs mt-2 text-danger-ink" data-api-key-throttled>
+          You've created too many keys in the last hour. Please wait a while and try again.
+        </p>
       <% end %>
     </div>
   <% end %>

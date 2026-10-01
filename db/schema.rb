@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_01_060000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_01_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -75,7 +75,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_060000) do
     t.string "eligibility_geo_state"
     t.datetime "expires_at", null: false
     t.datetime "last_used_at"
-    t.string "name"
+    t.string "name", null: false
     t.string "prefix", null: false
     t.datetime "revoked_at"
     t.string "token_digest", null: false

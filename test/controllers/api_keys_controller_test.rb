@@ -375,6 +375,50 @@ class ApiKeysControllerTest < ActionDispatch::IntegrationTest
     assert_not other_key.reload.revoked?
   end
 
+  # A 404 page has no frame in it, and a frame that gets no frame back shows
+  # Turbo's "Content missing". So the refusal is the card, saying what happened.
+  test "a revoke that finds no key answers with the card and a message, not a bare 404" do
+    mine = mint_for(@user, name: "Keeper")
+    other_key = mint_for(users(:sam))
+    log_in_as(@user)
+
+    [other_key.id, 0].each do |id|
+      delete account_api_key_path(id), headers: FRAME
+
+      assert_response :not_found
+      card = page.at_css("turbo-frame#api_keys_card")
+      assert card, "the 404 must carry the frame"
+      assert_equal ApiKeysController::REVOKE_MISSING, card.at_css("[data-api-key-card-error]").text
+      assert card.at_css(%([data-api-key-row="#{mine.id}"])), "the player's own keys are still listed"
+      assert_nil card.at_css(%([data-api-key-row="#{other_key.id}"])), "and nobody else's"
+      assert_nil page.at_css("nav")
+    end
+    assert_not other_key.reload.revoked?
+    assert_not mine.reload.revoked?
+  end
+
+  test "a revoke that fails answers with the card and a message, and is logged" do
+    key = mint_for(@user)
+    log_in_as(@user)
+
+    original = ApiKey.instance_method(:revoke!)
+    ApiKey.define_method(:revoke!) { |**| raise ActiveRecord::StatementInvalid, "connection lost" }
+    begin
+      assert_difference -> { ErrorLog.count }, 1 do
+        delete account_api_key_path(key), headers: FRAME
+      end
+    ensure
+      ApiKey.define_method(:revoke!, original)
+    end
+
+    assert_response :internal_server_error
+    card = page.at_css("turbo-frame#api_keys_card")
+    assert_equal ApiKeysController::REVOKE_FAILURE, card.at_css("[data-api-key-card-error]").text
+    assert card.at_css(%([data-api-key-row="#{key.id}"])), "the key was not revoked, so it is still listed"
+    assert_not_includes response.body, "connection lost"
+    assert_not key.reload.revoked?
+  end
+
   test "a signed-out visitor cannot revoke" do
     key = mint_for(@user)
 
