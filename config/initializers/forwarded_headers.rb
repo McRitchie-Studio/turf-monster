@@ -22,8 +22,13 @@
 # never reached. With `Forwarded` out of the list, the address every reader
 # gets is the one the router wrote.
 #
-# It also stops `Forwarded: host=…;proto=…` from setting request.host and
-# request.scheme, which read the same priority list. X-Forwarded-Proto and
+# It also stops `Forwarded: proto=…` from setting request.scheme (and so
+# `request.ssl?`), which Rails takes from Rack and Rack reads through the same
+# priority list. `request.host` was never exposed: Rails computes its own host
+# from X-Forwarded-Host or Host (ActionDispatch::Http::URL#raw_host_with_port)
+# and has never read `Forwarded`. What `Forwarded: host=…` did reach is Rack's
+# own Rack::Request#host and #authority, for any middleware that builds a
+# Rack::Request instead of asking Rails. X-Forwarded-Proto and
 # X-Forwarded-Port, which the router sets, are unaffected.
 #
 # A request with no `Forwarded` header, which is every browser and every
