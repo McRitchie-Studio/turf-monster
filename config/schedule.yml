@@ -46,7 +46,9 @@ nfl_live_poll:
     cleverer costume. One scoreboard request per tick covers the whole slot; a
     per-game summary is spent only when a score moved (under one per cycle
     across a full Sunday). The cycle is idempotent (plays keyed on ESPN's play
-    id under a unique index) and REFUSES a slot whose contest has settled.
+    id under a unique index) and SKIPS any game whose every contest has
+    settled — per game, so one graded tier cannot stop the open tier beside
+    it from scoring.
   queue: default
 
 nfl_silent_gap_check:

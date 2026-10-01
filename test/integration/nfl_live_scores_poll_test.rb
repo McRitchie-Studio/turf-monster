@@ -627,7 +627,7 @@ class NflLiveScoresPollTest < ActionDispatch::IntegrationTest
   # for when repairing a historical week, which is exactly when a settled contest
   # is most likely to be in range.
 
-  test "refuses a slot whose contest has already settled, before writing anything" do
+  test "refuses a game whose every contest has already settled, before writing anything" do
     settled_contest_on("team-a-vs-team-b-pre4")
     client = StubClient.new(scoreboard: scoreboard(home: 10, away: 7), summaries: { "EV1" => summary })
 
@@ -646,14 +646,14 @@ class NflLiveScoresPollTest < ActionDispatch::IntegrationTest
   # THE CONTROL. Without it the test above passes just as well against a cycle
   # that refuses every slot, which would stop all live scoring — the defect, in a
   # new costume.
-  test "still polls a slot whose contest is merely open" do
+  test "still polls a game whose contest is merely open" do
     matchup_on("team-a-vs-team-b-pre4")
     assert_predicate contests(:one).reload, :open?
     client = StubClient.new(scoreboard: scoreboard(home: 10, away: 7), summaries: { "EV1" => summary })
 
     result = Nfl::LiveScores::PollCycle.call(slot: @slot, client: client)
 
-    assert_empty result.anomalies, "an open contest is not a reason to refuse a slot"
+    assert_empty result.anomalies, "an open contest is not a reason to refuse anything"
     assert_equal 3, Game.find_by(external_id: "EV1").goals.count
   end
 
@@ -807,7 +807,7 @@ class NflLiveScoresPollTest < ActionDispatch::IntegrationTest
 
   # A slot no contest touches is nobody's settlement, so the guard must not be a
   # blanket "is anything settled anywhere" check.
-  test "a settled contest on an unrelated slate does not block the slot" do
+  test "a settled contest on an unrelated slate does not block the game" do
     settled_contest_on("some-other-game-entirely")
     client = StubClient.new(scoreboard: scoreboard(home: 10, away: 7), summaries: { "EV1" => summary })
 

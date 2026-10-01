@@ -402,7 +402,7 @@ module Nfl
       end
 
       # Lookup order matters and is shared by `process`, `upsert_game` and
-      # `settled_contest_slug`. It lives in `GameLookup` because
+      # `slate_ids_for`. It lives in `GameLookup` because
       # `SilentGapCheck` asks the same question from outside this class, and a
       # copy that lost the slug fallback would silently answer "no such game"
       # about exactly the rows the 2026 week-2 incident was made of.

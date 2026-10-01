@@ -27,13 +27,25 @@
 #   bin/nfl-live-poll --quiet          # print nothing when nothing changed
 #   bin/nfl-live-poll --allow-settled  # override the settled-contest refusal
 #
-# THE SETTLED-CONTEST REFUSAL. The cycle refuses a slot whose contest has already
-# settled, and reports a `settled_contest` anomaly instead of writing. Grading
-# and settlement are separate acts: a settled contest's ranks and payouts are
-# final, `Contest#grade!` raises rather than regrade it, and a cycle that rewrote
-# its matchups would leave the standings disagreeing with the money paid out.
-# `--allow-settled` is for an operator who has read that seam and decided anyway.
-# Nothing on a schedule passes it.
+# THE SETTLED-CONTEST REFUSAL, AND ITS EXACT GRAIN. Grading and settlement are
+# separate acts: a settled contest's ranks and payouts are final, `Contest#grade!`
+# raises rather than regrade it, and a cycle that rewrote its matchups would leave
+# the standings disagreeing with the money paid out.
+#
+# So the cycle SKIPS A GAME — not the slot — when EVERY contest on that game's
+# slate is settled, and reports one `settled_contest` anomaly naming it. The other
+# games on the slot are polled as usual.
+#
+# A settled contest sharing a slate with an OPEN one does NOT stop the cycle. The
+# two tiers share their `SlateMatchup` rows and one row cannot be both frozen and
+# current, so refusing would leave the live paid contest scoring short forever —
+# the larger harm by far. The settled tier's own entry scores, ranks and payouts
+# are untouched either way (`Game#score_affected_contests!` scopes to open
+# contests), and the cycle reports a `settled_contest_coscored` anomaly so the
+# trade is visible rather than silent.
+#
+# `--allow-settled` is for an operator who has read that seam and decided anyway:
+# it suppresses both verdicts and polls every row. Nothing on a schedule passes it.
 #
 # Exit status: 0 when the cycle completed (whether or not anything changed),
 # 1 only when the cycle itself could not run. Anomalies are REPORTED, not fatal:
