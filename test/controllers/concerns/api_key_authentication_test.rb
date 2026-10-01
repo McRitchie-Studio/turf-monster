@@ -252,13 +252,17 @@ class ApiKeyAuthenticationTest < ActionDispatch::IntegrationTest
     assert_equal 200, @status
   end
 
-  test "the shipped read endpoint is untouched by either gate" do
+  test "the shipped read endpoints are untouched by either gate" do
     freeze_account
     @user.update_columns(age_attested_at: nil)
 
-    with_age_gate { get api_v1_me_path, headers: { "Authorization" => "Bearer #{@key.raw_token}" } }
+    with_age_gate do
+      [api_v1_me_path, api_v1_contests_path, api_v1_entries_path].each do |path|
+        get path, headers: { "Authorization" => "Bearer #{@key.raw_token}" }
 
-    assert_response :success
+        assert_response :success, "GET #{path} must stay open to a frozen, unverified player"
+      end
+    end
   end
 
   test "an unexpected error is a 500 envelope that hides the message and writes an ErrorLog for the user" do

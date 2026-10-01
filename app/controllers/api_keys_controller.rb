@@ -18,8 +18,11 @@ class ApiKeysController < ApplicationController
   REVOKE_MISSING  = "That key is no longer on your account. Nothing was changed.".freeze
   REVOKE_FAILURE  = "We couldn't revoke that key. Please try again.".freeze
 
+  # `adding` asks for the form already open: the link a card restored by Back
+  # offers (accounts/_api_keys_section). It changes what is shown, never what
+  # is allowed; a blocked or capped player still gets the explanation.
   def index
-    render_card
+    render_card(form_open: params[:adding].present?)
   end
 
   # The 201 response is the ONE place the raw key appears. It is not put in the

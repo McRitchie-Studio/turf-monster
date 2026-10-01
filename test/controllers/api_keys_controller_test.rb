@@ -170,6 +170,22 @@ class ApiKeysControllerTest < ActionDispatch::IntegrationTest
     assert page.at_css("nav")
   end
 
+  test "the card can be asked for with its form open, and a blocker still wins" do
+    mint_for(@user)
+    log_in_as(@user)
+
+    get account_api_keys_path, headers: FRAME
+    assert_match(/adding: false/, page.at_css("form[data-api-key-form]").parent["x-data"])
+
+    get account_api_keys_path(adding: 1), headers: FRAME
+    assert_match(/adding: true/, page.at_css("form[data-api-key-form]").parent["x-data"])
+
+    @user.freeze_for_payment_risk!(reason: "test")
+    get account_api_keys_path(adding: 1), headers: FRAME
+    assert_nil page.at_css("form[data-api-key-form]")
+    assert page.at_css('[data-api-key-blocked="frozen"]')
+  end
+
   test "the account page carries the same frame the card endpoints answer with" do
     log_in_as(@user)
 

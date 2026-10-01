@@ -334,6 +334,20 @@ test.describe("Agent API keys", () => {
     await expect(card.locator("[data-api-key-created]")).toHaveCount(0);
     await expect(card.locator("[data-api-key-secret]")).toHaveCount(0);
     expect(await page.content()).not.toContain(key);
+
+    // The reveal took its only exit ("I've copied it") with it, so the restored
+    // card offers its own way on: one click, in place, to the open form.
+    const after = card.locator("[data-api-key-add-after-reveal]");
+    await expect(after).toBeVisible();
+    await after.getByRole("link", { name: "Add another API key" }).click();
+    await expect(card.getByLabel("Name")).toBeVisible();
+    await expect(card.locator("[data-api-key-add-after-reveal]")).toHaveCount(0);
+    await expectNoReload(page);
+    await expect(page).toHaveURL(/\/account$/);
+    const second = await createKey(page, "After Back");
+    expect(second).toMatch(KEY_FORMAT);
+    // And while a reveal IS on screen, that link stays out of the way.
+    await expect(card.locator("[data-api-key-add-after-reveal]")).toBeHidden();
   });
 
   // The mint throttle is rack-attack's, and rack-attack is off in the e2e
@@ -370,6 +384,18 @@ test.describe("Agent API keys", () => {
     await expect(card.getByLabel("Name")).toHaveValue("One too many");
     await expect(card).not.toContainText("Content missing");
     await expectNoReload(page);
+
+    // A refusal about the name, then a throttle: one message at a time. The
+    // 422 is the server's own; the 429 after it must not sit beside it.
+    throttle = false;
+    await card.getByLabel("Name").fill("   ");
+    await card.getByRole("button", { name: "Create key" }).click();
+    await expect(card.locator("[data-api-key-error]")).toHaveText("Name can't be blank");
+    throttle = true;
+    await card.getByLabel("Name").fill("One too many");
+    await card.getByRole("button", { name: "Create key" }).click();
+    await expect(card.locator("[data-api-key-throttled]")).toBeVisible();
+    await expect(card.locator("[data-api-key-error]")).toBeHidden();
 
     // Once the throttle lifts, the same form works and the message goes.
     throttle = false;

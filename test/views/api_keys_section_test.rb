@@ -240,6 +240,18 @@ class ApiKeysSectionTest < ActionView::TestCase
     assert doc.at_css(%([data-api-key-row="#{key.id}"]))
     assert_nil form(doc)
     assert_nil doc.at_css("[data-api-key-add]")
+    # The way on for a card restored without its reveal: outside the temporary
+    # block, hidden while the reveal is in the frame, a frame navigation.
+    after = doc.at_css("[data-api-key-add-after-reveal]")
+    assert_nil after.ancestors.find { |node| node.key?("data-turbo-temporary") }
+    assert after.key?("x-cloak")
+    assert_equal "!revealed", after["x-show"]
+    assert_match(/revealed: true/, after["x-data"])
+    assert_includes after["x-init"], "querySelector('[data-api-key-created]')"
+    link = after.at_css("a")
+    assert_equal "Add another API key", link.text
+    assert_equal account_api_keys_path(adding: 1), link["href"]
+    assert_nil link["data-turbo-frame"], "it must stay inside the card's frame"
     # Dismissing is a frame navigation back to the plain card.
     done = doc.at_css("[data-api-key-created] a.btn")
     assert_equal account_api_keys_path, done["href"]
@@ -293,6 +305,25 @@ class ApiKeysSectionTest < ActionView::TestCase
     assert_match(/throttled = \$event\.detail\.fetchResponse\?\.response\.status === 429/,
                  form(doc)["@turbo:submit-end"])
     assert_match(/busy = false/, form(doc)["@turbo:submit-end"])
+  end
+
+  test "outside the reveal there is no after-reveal link" do
+    mint
+
+    assert_nil render_section.at_css("[data-api-key-add-after-reveal]")
+  end
+
+  test "form_open renders the form open although keys exist" do
+    mint
+
+    assert_match(/adding: false/, form(render_section).parent["x-data"])
+    assert_match(/adding: true/, form(render_section(form_open: true)).parent["x-data"])
+  end
+
+  test "the name error stands down while the throttle message is up" do
+    doc = render_section(form_error: "Name can't be blank", form_name: " ")
+
+    assert_equal "!throttled", doc.at_css("[data-api-key-error]")["x-show"]
   end
 
   test "a key reloaded from the database reveals nothing" do
