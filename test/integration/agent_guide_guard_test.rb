@@ -12,7 +12,10 @@ require "test_helper"
 #     controller (the JSON 404 catch-all does not count as drawing one);
 #   * every API route the app draws is in the guide;
 #   * every error code in the guide's table is one the app's source emits;
-#   * every error code the app's API source emits is in the guide's table.
+#   * every error code the app's API source emits is in the guide's table;
+#   * every MCP tool the pages name is in the registry, every registry tool is
+#     in the guide, and the REST request the guide pairs a tool with is the one
+#     whose action runs that tool's operation.
 #
 # The code checks are SOURCE scans on purpose. The failure they exist for is a
 # new refusal appearing in the app with no row in the guide, and no request a
@@ -156,9 +159,9 @@ class AgentGuideGuardTest < ActionDispatch::IntegrationTest
 
   # /mcp answers in the SAME envelope codes as /api/v1 and adds none: its own
   # transport refusals (405, the Origin 403, a malformed message) are JSON-RPC
-  # errors with numeric codes, which is not this vocabulary. A new envelope
-  # code written in the MCP files would have no row in a guide that does not
-  # document /mcp, so it fails here first, by name.
+  # errors with numeric codes, which is not this vocabulary. The guide's MCP
+  # section says exactly that ("the same codes as the table under Errors"), so
+  # a new envelope code written in the MCP files fails here first, by name.
   test "the MCP surface emits no envelope code of its own" do
     mcp = %w[app/controllers/mcp_controller.rb app/services/agent_mcp/**/*.rb]
           .flat_map { |pattern| Dir.glob(Rails.root.join(pattern)) }
@@ -174,6 +177,80 @@ class AgentGuideGuardTest < ActionDispatch::IntegrationTest
     %w[invalid_api_key account_frozen not_found rate_limited].each do |code|
       assert_includes emitted_codes, code
     end
+  end
+
+  # ── The MCP tools ───────────────────────────────────────────────────────────
+
+  TOOL_NAME = /`((?:get|list|submit|edit|create|delete|update|cancel|withdraw)_[a-z_]+)`/
+
+  def registry_tools
+    AgentMcp::Tools::ALL.map(&:name)
+  end
+
+  def mcp_section
+    section = guide[/^## Playing through MCP\n(.*?)^## /m, 1]
+    assert section, "the guide lost its 'Playing through MCP' section"
+    section
+  end
+
+  # The rows of "The tools": [name, rest request, arguments cell].
+  def tool_rows
+    table = mcp_section[/^### The tools\n\n(.*?)\n\n/m, 1]
+    assert table, "the guide lost its tools table"
+    table.lines.drop(2).map { |row| row.split("|").map(&:strip)[1, 3] }
+  end
+
+  test "every MCP tool the pages name is in the registry" do
+    assert_operator registry_tools.size, :>=, 8
+    # Everywhere a tool-shaped name is written, by hand or by the template:
+    # the guide's prose, the human page, llms.txt.
+    named = [ guide, human_page, fetch(llms_txt_path) ].flat_map { |text| text.scan(TOOL_NAME).flatten }.uniq
+    assert_operator named.size, :>=, registry_tools.size, "the scan found too few tool names to be reading the guide"
+
+    assert_empty named - registry_tools, "the pages name MCP tools the registry does not have"
+  end
+
+  test "every MCP tool in the registry has a row in the guide, with its arguments" do
+    rows = tool_rows.to_h { |name, _rest, arguments| [ name.delete("`"), arguments ] }
+    assert_equal registry_tools, rows.keys, "the guide's tools table is not the registry, in order"
+
+    AgentMcp::Tools::ALL.each do |tool|
+      schema = tool.input_schema
+      required = rows.fetch(tool.name).scan(/\*\*`(\w+)`\*\*/).flatten
+      listed = rows.fetch(tool.name).scan(/`(\w+)`/).flatten
+      assert_equal schema[:required], required, "#{tool.name}: the bold arguments are not the required ones"
+      assert_equal schema[:properties].keys, listed, "#{tool.name}: the arguments listed are not the schema's"
+    end
+  end
+
+  # The one thing about a tool the guide TYPES: which REST request it stands
+  # for. Held to the code: that request's action is the one that runs the
+  # operation the tool runs.
+  test "the REST request beside each tool is the one that runs the tool's operation" do
+    tool_rows.each do |name, rest, _arguments|
+      tool = AgentMcp::Tools.find(name.delete("`"))
+      verb, path = rest.delete("`").split(" ", 2)
+      route = Rails.application.routes.recognize_path(path.gsub(/:\w+/, "example"), method: verb)
+      source = File.read(Rails.root.join("app/controllers/#{route[:controller]}_controller.rb"))
+      action = source[/^\s*def #{route[:action]}\n(.*?)^\s*end\n/m, 1]
+
+      assert action, "#{rest}: no action #{route[:controller]}##{route[:action]}"
+      assert_match(/\brun_operation Operations::#{tool.operation.name.demodulize}\b/, action,
+                   "#{name} is paired with #{rest}, whose action does not run #{tool.operation.name}")
+    end
+  end
+
+  # The two markers the guide quotes are the first words of the text blocks
+  # the server really adds; a model matches on them.
+  test "the PENDING and RETRY markers in the guide are the ones the server sends" do
+    outcome = Api::V1::Operations::Outcome
+    pending = AgentMcp::ToolResult.guidance(outcome.new(status: :accepted, body: {}, retry_after: 5))
+    retry_note = AgentMcp::ToolResult.guidance(outcome.error(:chain_unavailable, "x", status: :service_unavailable, retry_after: 5))
+
+    quoted = mcp_section.scan(/^- \*\*`([A-Z][A-Z ,:]+)`\*\*/).flatten
+    assert_equal 2, quoted.size
+    assert pending.start_with?("#{quoted[0]}."), "the guide quotes a pending marker the server does not send"
+    assert retry_note.start_with?("#{quoted[1]}."), "the guide quotes a retry marker the server does not send"
   end
 
   # ── The fields "How to win" reasons from ────────────────────────────────────

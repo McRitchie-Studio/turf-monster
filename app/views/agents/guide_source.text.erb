@@ -723,7 +723,7 @@ Every error is `{ "error": { "code": "...", "message": "..." } }`. **Unless a ro
 | 403 | `account_frozen` | The account is on hold. Reads work; writes are refused. | Stop. Tell the player to contact support. |
 | 403 | `age_verification_required` | The site requires age verification and the player has not done it | Tell the player to verify their date of birth on the website. The same key then works. |
 | 404 | `not_found` | No such contest, or no such entry among the player's own. Also `/api`, `/api/` and any path under them that is not an endpoint, on any method. | Re-read the contests or the player's entries, and check the path. |
-| 409 | `idempotency_key_reused` | This idempotency key is already tied to something else: a request with different picks, another contest or another `allow_usdc`, or an entry that has since been removed because its contest was reset | Stop sending this request with this key; it will get the same answer every time. If you were retrying and changed the body by mistake, send the original body once. If the body was already the original, the key's entry no longer exists and the key is finished: read `GET /api/v1/entries`, tell the player what you find, and make a new entry only with a new key and the player's yes. A different entry always needs a new key. |
+| 409 | `idempotency_key_reused` | This idempotency key is already tied to something else: a request with different picks, another contest or another `allow_usdc`, or an entry that has since been removed because its contest was reset | Stop sending this request with this key; it will get the same answer every time. If you were retrying and changed the body by mistake, send the original body once. If the body was already the original, the key's entry no longer exists and the key is finished: read `GET /api/v1/entries`, tell the player what you find, and make a new entry only with a new key and the player's yes, because a new entry is paid for again. A different entry always needs a new key. |
 | 409 | `idempotency_in_progress` | A request to enter this contest is still running for this player: this key's earlier attempt, or another key's. It is also the answer given to a slow earlier attempt that one of your retries has taken over. | Wait `retry_after` seconds and send the same request again with the same idempotency key. Do not switch keys. |
 | 422 | `contest_not_open` | The contest is settled or not ready for entries | Choose another contest. |
 | 422 | `contest_locked` | The lock time has passed | Nothing. Entries and edits are closed. |
@@ -759,7 +759,7 @@ A key belongs to the player, not to the API key, and it does not expire.
 
 | What you got | What it means | What to send next |
 |---|---|---|
-| `201` | The entry exists | Nothing. Sending it again returns the same `201` with the header `Idempotent-Replayed: true`. It is the first response and does not reflect later edits. |
+| `201` | The entry exists | Nothing. Sending it again returns the same `201` with the header `Idempotent-Replayed: true`. It is the first response as it was sent: it does not reflect later edits, or an entry removed since. `GET /api/v1/entries/:slug` is the current state. |
 | `202` | Paid, being confirmed | The same request, same key, after `retry_after` |
 | `409 idempotency_in_progress` | An earlier attempt is still running, or this attempt was overtaken by your own retry | The same request, same key, after `retry_after` |
 | `503 chain_unavailable` | Unknown. The payment may have landed. | The same request, same key, after `retry_after`. If it landed, you get the entry it paid for. If not, the server answers `503` for 150 seconds after the attempt ended before it will try again, and for up to about five minutes when the earlier request died without finishing. Repeated `503`s in that window are normal. Keep the key. |
@@ -880,7 +880,7 @@ If you cannot tell which case you are in, call `list_my_entries` before anything
 | Limit | Keyed on |
 |---|---|
 | <%= mcp_key_throttle.limit %> requests per <%= mcp_key_throttle.period.to_i %> seconds | The API key. This is a separate count from the key's limit on `/api/`. |
-| <%= Rack::Attack::MCP_UNVERIFIED_LIMIT %> requests per <%= mcp_key_throttle.period.to_i %> seconds (<%= Rack::Attack::MCP_UNVERIFIED_SHARED_EGRESS_LIMIT %> from the addresses Anthropic's connectors call from) | The calling IP address, only for requests with no key or with a key that has not yet authenticated here. A key's first successful request takes it out of this limit for <%= (Rack::Attack::MCP_VERIFIED_TTL / 1.hour).to_i %> hours. |
+| <%= Rack::Attack::MCP_UNVERIFIED_LIMIT %> requests per <%= mcp_key_throttle.period.to_i %> seconds (<%= Rack::Attack::MCP_UNVERIFIED_SHARED_EGRESS_LIMIT %> from the addresses Anthropic's connectors call from) | The calling IP address, only for requests with no key or with a key that has not authenticated here before. A key's first successful request takes it out of this limit for <%= (Rack::Attack::MCP_VERIFIED_TTL / 1.hour).to_i %> hours. |
 
 A player is limited by their key and not by the address their client calls from. A JSON-RPC batch (revision `<%= rpc::BATCHING.first %>` only, at most <%= rpc::MAX_BATCH %> messages) counts once per message.
 

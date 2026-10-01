@@ -305,6 +305,39 @@ class Api::V1::EntryWritesTest < ActionDispatch::IntegrationTest
     assert_equal 1, my_entries.count
   end
 
+  # The guide's advice for this code has to END. "Send the original body" does
+  # not, in this case: the body IS the original, and the answer never changes.
+  # What ends it is a new key, which is what the guide now says.
+  test "POST idempotency_key_reused: a key whose entry a reset removed answers 409 for the original body, every time, and a new key gets through" do
+    enter(idem: "reset-key")
+    assert_response :created
+    # A contest reset deletes the entry rows; the request row survives with its
+    # entry_id nulled (the foreign key is ON DELETE SET NULL). This is the row
+    # of a request that never stored its response.
+    request_row = ApiEntryRequest.find_by!(user: @user, idempotency_key: "reset-key")
+    request_row.update_columns(response_body: nil)
+    my_entries.each(&:destroy!)
+    assert_nil request_row.reload.entry_id
+
+    2.times do
+      enter(idem: "reset-key")
+      assert_api_error :conflict, "idempotency_key_reused"
+      assert_match(/no longer exists\. Use a new key/, json["error"]["message"])
+    end
+    assert_empty my_entries.where.not(status: :cart)
+
+    # A new key is a new request and gets a definite answer of its own. It is
+    # also a new entry that is paid for again, which is why the guide asks for
+    # the player's yes first: with no second token the answer is no_entry_token.
+    enter(idem: "after-reset-key")
+    assert_api_error :unprocessable_entity, "no_entry_token"
+
+    @vault.grant_token("token-2")
+    enter(idem: "after-reset-key")
+    assert_response :created
+    assert_equal 1, my_entries.where(status: :active).count
+  end
+
   test "POST idempotency_in_progress: a concurrent duplicate is a 409 with Retry-After and spends nothing" do
     duplicate = nil
     @vault.grant_token("token-2")
