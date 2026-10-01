@@ -22,7 +22,7 @@ modal, never a silent no-op), built so the mechanism can be lifted into
 
 ## Current state (what exists today)
 
-`config/initializers/rack_attack.rb` (OPSEC-019, rack-attack 6.8.0). **30**
+`config/initializers/rack_attack.rb` (OPSEC-019, rack-attack 6.8.0). **31**
 `throttle` blocks, no safelists/blocklists, a custom 429 responder, and a
 `throttle.rack_attack` WARN logger.
 
@@ -57,6 +57,7 @@ grep -n '^  throttle("' config/initializers/rack_attack.rb
 | Money | `coinflow_checkout/ip` | 10 / min | ip (`/tokens/coinflow_order`) |
 | Money | `aeropay_checkout/ip` | 10 / min | ip (`/tokens/aeropay_order`) |
 | Money | `cdp_sessions/user` | 10 / min | session user id (`/cdp/onramp_sessions` + `/cdp/offramp_sessions`) |
+| Money | `cdp_offramp_send/user` | 10 / min | session user id (`/cdp/offramp/cosign_send` + `/cdp/offramp/prepare_send`) |
 | Money | `wallet_withdraw/ip` | 5 / min | ip |
 | Money | `webhooks/stripe` | 100 / min | ip |
 | Money | `webhooks/paypal` | 100 / min | ip |
