@@ -20,6 +20,14 @@ const { loginAdmin, reseed } = require("./helpers");
 //     card finds out from a window event and re-fetches itself; a lower tier can
 //     see the listener is written, never that it fires.
 //
+//   * BACK DOES NOT BRING THE KEY BACK. Turbo snapshots the page as the player
+//     leaves it and restores that snapshot on Back with no request, so "the
+//     server renders it once" says nothing about what the browser kept. Only a
+//     real history traversal shows whether the raw key is in that snapshot.
+//   * A REFUSAL IS SAID IN THE CARD. A frame handed a response it cannot use
+//     shows "Content missing" or nothing at all, and both are things Turbo does
+//     with a response, not things the server sends.
+//
 // The e2e server runs with ENABLE_AGE_GATE on and seeds its users age-verified,
 // with geo-blocking off. The refusals are covered where they are decided:
 // test/controllers/api_keys_controller_test.rb.
@@ -41,6 +49,29 @@ async function expectNoReload(page) {
     await page.evaluate(() => window.__apiKeysNoReload === true),
     "the page reloaded; the card was meant to update in place",
   ).toBe(true);
+}
+
+// A link on /account that Turbo Drive follows (same origin, not opted out).
+const LEAVE_LINK = 'a[href="/"]:not([data-turbo="false"]):visible';
+
+// Wait for a Turbo visit to FINISH, not for the URL to flip: Turbo files the
+// outgoing snapshot a tick after the visit starts, and pressing Back before it
+// lands sends the restoration to the network (app/javascript/turbo_snapshot_cache.js,
+// e2e/cart_survives_turbo_restore.spec.js).
+async function settle(page) {
+  await page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        const visit =
+          window.Turbo &&
+          window.Turbo.session &&
+          window.Turbo.session.navigator &&
+          window.Turbo.session.navigator.currentVisit;
+        if (!visit) return resolve();
+        document.addEventListener("turbo:load", () => resolve(), { once: true });
+        setTimeout(resolve, 3000);
+      }),
+  );
 }
 
 async function openAccount(page) {
@@ -261,5 +292,124 @@ test.describe("Agent API keys", () => {
     const key = await createKey(page, "After the gate");
     expect(key).toMatch(KEY_FORMAT);
     await expectNoReload(page);
+  });
+
+  // The player mints a key and walks off without pressing "I've copied it".
+  // Turbo files a snapshot of the page they left; Back puts that snapshot on
+  // screen without asking the server. The reveal is data-turbo-temporary, so it
+  // is not in the snapshot.
+  test("the raw key is not shown again after leaving the page and pressing Back", async ({ page }) => {
+    await openAccount(page);
+    const card = page.locator(CARD);
+    const key = await createKey(page, "Left on screen");
+    expect(key).toMatch(KEY_FORMAT);
+    await expect(card.locator("[data-api-key-created]")).toBeVisible();
+
+    // A Turbo visit, not a document load: the marker planted by openAccount
+    // has to survive it, or Back below would be an ordinary reload and prove
+    // nothing about the snapshot.
+    await page.locator(LEAVE_LINK).first().click();
+    await page.waitForURL((u) => u.pathname !== "/account");
+    await settle(page);
+    await expectNoReload(page);
+
+    // THE CONTROL: Back must be answered from Turbo's snapshot. A request for
+    // /account here would mean the server re-rendered the page, and a server
+    // render never had the key to show.
+    const refetched = [];
+    page.on("request", (req) => {
+      if (req.isNavigationRequest() || new URL(req.url()).pathname === "/account") refetched.push(req.url());
+    });
+
+    await page.goBack();
+    await page.waitForURL(/\/account$/);
+    await settle(page);
+    await expect(card).toBeVisible();
+    await expectNoReload(page);
+    expect(refetched, "Back was served by the network, so the snapshot was never exercised").toEqual([]);
+
+    // The snapshot kept the card and the key's row, and dropped the reveal.
+    await expect(card.locator("[data-api-key-row]")).toHaveCount(1);
+    await expect(card.locator("[data-api-key-row]")).toContainText("Left on screen");
+    await expect(card.locator("[data-api-key-created]")).toHaveCount(0);
+    await expect(card.locator("[data-api-key-secret]")).toHaveCount(0);
+    expect(await page.content()).not.toContain(key);
+  });
+
+  // The mint throttle is rack-attack's, and rack-attack is off in the e2e
+  // server (config/initializers/rack_attack.rb), so the 429 is played back here
+  // with the body the real responder sends; test/integration/api_rate_limit_test.rb
+  // pins that the real one is a JSON 429 with no card in it. What this spec
+  // owns is the browser half: Turbo gets a response it cannot render, and the
+  // form says why instead of sitting there silent.
+  test("a throttled mint says so in the card", async ({ page }) => {
+    await openAccount(page);
+    const card = page.locator(CARD);
+    const throttled = card.locator("[data-api-key-throttled]");
+    await expect(throttled).toBeHidden();
+
+    let throttle = true;
+    await page.route("**/account/api_keys", async (route) => {
+      if (route.request().method() !== "POST" || !throttle) return route.continue();
+      await route.fulfill({
+        status: 429,
+        contentType: "application/json",
+        headers: { "Retry-After": "3600", "X-RateLimit-Tier": "general" },
+        body: JSON.stringify({ error: "Too many requests. Try again later.", tier: "general", retry_after: 3600 }),
+      });
+    });
+
+    await card.getByLabel("Name").fill("One too many");
+    await card.getByRole("button", { name: "Create key" }).click();
+
+    await expect(throttled).toBeVisible();
+    await expect(throttled).toContainText("too many keys");
+    // The card is intact and usable: no key, no spinner left behind, what was typed kept.
+    await expect(card.locator("[data-api-key-secret]")).toHaveCount(0);
+    await expect(card.getByRole("button", { name: "Create key" })).toBeEnabled();
+    await expect(card.getByLabel("Name")).toHaveValue("One too many");
+    await expect(card).not.toContainText("Content missing");
+    await expectNoReload(page);
+
+    // Once the throttle lifts, the same form works and the message goes.
+    throttle = false;
+    const key = await createKey(page, "One too many");
+    expect(key).toMatch(KEY_FORMAT);
+    await expect(card.locator("[data-api-key-throttled]")).toHaveCount(0);
+    await expectNoReload(page);
+  });
+
+  // A real 404 from the server: the row's form is pointed at a key id that does
+  // not exist, which is what a row left on screen after its key is gone would do.
+  test("a revoke the server refuses says so in the card, not Content missing", async ({ page }) => {
+    await openAccount(page);
+    const card = page.locator(CARD);
+    await createKey(page, "Stays");
+    await card.getByRole("link", { name: "I've copied it" }).click();
+    const row = card.locator("[data-api-key-row]");
+    await expect(row).toHaveCount(1);
+
+    await row.locator("form").evaluate((form) => {
+      form.action = form.action.replace(/\/\d+$/, "/0");
+    });
+    const statuses = [];
+    page.on("response", (res) => {
+      if (res.request().method() === "DELETE") statuses.push(res.status());
+    });
+    page.on("dialog", (dialog) => dialog.accept());
+    await row.getByRole("button", { name: "Revoke" }).click();
+
+    const error = card.locator("[data-api-key-card-error]");
+    await expect(error).toBeVisible();
+    await expect(error).toContainText("no longer on your account");
+    expect(statuses, "the refusal must be the server's own 404").toEqual([404]);
+    await expect(card).not.toContainText("Content missing");
+    // Nothing was revoked, the row is back with no spinner, and the page stood still.
+    await expect(row).toHaveCount(1);
+    await expect(row).toContainText("Stays");
+    await expect(row.locator(".cta-spinner")).toBeHidden();
+    await expect(row.getByRole("button", { name: "Revoke" })).toBeEnabled();
+    await expectNoReload(page);
+    await expect(page).toHaveURL(/\/account$/);
   });
 });
