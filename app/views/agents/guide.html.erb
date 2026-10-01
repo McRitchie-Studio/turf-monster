@@ -19,7 +19,7 @@
     <p class="text-xs font-semibold text-muted uppercase tracking-wider mb-2">Sections</p>
     <ol class="list-decimal pl-5 text-sm space-y-1 sm:columns-2">
       <% @sections.each do |section| %>
-        <li><%= link_to section.text, "##{section.id}", class: "text-primary hover:underline" %></li>
+        <li><%= link_to section.text, "##{section.id}", class: "text-primary hover:underline", data: { turbo: false } %></li>
       <% end %>
     </ol>
   </nav>
