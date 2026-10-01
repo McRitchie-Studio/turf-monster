@@ -277,6 +277,65 @@ class Rack::Attack
     req.ip if api_request?(req)
   end
 
+  ### Throttle: the MCP endpoint (/mcp) — the agent API for chat clients
+  # The same player traffic as /api/, through one path, so the same per-key
+  # limit. What differs is the per-IP side, because of WHO calls.
+  #
+  # A claude.ai connector does not call from the player's address. It calls
+  # from Anthropic's, and every player using a connector shares that range:
+  # "Anthropic's outbound traffic to your server originates from
+  # 160.79.104.0/21" (https://claude.com/docs/connectors/building/authentication,
+  # "Network reference", and https://platform.claude.com/docs/en/api/ip-addresses,
+  # "Outbound IP addresses"; both read 2026-10-01. The second page lists no
+  # outbound IPv6 range: 2607:6bc0::/48 is INBOUND, Anthropic's own API).
+  # A per-IP cap there is one cap shared by strangers, so one busy player
+  # could lock the rest out.
+  #
+  # mcp/key      120/min on a digest of the bearer key. THE limit, everywhere.
+  #              Its own bucket: a key's /api/ traffic does not spend it.
+  # mcp/ip       600/min per address for requests that carry a key, as api/ip
+  #              is: the backstop against a script sending a different made-up
+  #              key each time. NOT applied to Anthropic's range, where it
+  #              would be the shared cap described above. A made-up-key flood
+  #              from that range would have to be driven through claude.ai,
+  #              which is not a tool a script has. If Anthropic adds a range,
+  #              its addresses simply get this backstop until it is listed.
+  # mcp/anon_ip  30/min per address for requests with NO bearer key, from
+  #              anywhere. Those are answered 401 (or 405) at once and are never
+  #              a player, so a tight cap costs nobody anything.
+  #
+  # A JSON-RPC batch is one request here; AgentMcp::Protocol::MAX_BATCH bounds
+  # what one request can carry.
+  MCP_PATH = "/mcp".freeze
+  MCP_SHARED_EGRESS = [IPAddr.new("160.79.104.0/21")].freeze
+
+  # Every spelling the router sends to McpController: Rails squeezes repeated
+  # slashes and ignores a trailing one.
+  def self.mcp_request?(req)
+    path = req.path.squeeze("/")
+    path = path.chomp("/") if path.length > 1
+    path == MCP_PATH
+  end
+
+  def self.mcp_shared_egress?(req)
+    address = IPAddr.new(req.ip.to_s)
+    MCP_SHARED_EGRESS.any? { |range| range.include?(address) }
+  rescue IPAddr::Error
+    false
+  end
+
+  throttle("mcp/key", limit: 120, period: 1.minute) do |req|
+    api_key_discriminator(req) if mcp_request?(req)
+  end
+
+  throttle("mcp/ip", limit: 600, period: 1.minute) do |req|
+    req.ip if mcp_request?(req) && api_key_discriminator(req) && !mcp_shared_egress?(req)
+  end
+
+  throttle("mcp/anon_ip", limit: 30, period: 1.minute) do |req|
+    req.ip if mcp_request?(req) && api_key_discriminator(req).nil?
+  end
+
   ### Throttle: agent API key mint — row-growth backstop
   # Authenticated and capped at ApiKey::MAX_ACTIVE_PER_USER live keys, but a
   # mint-revoke loop would still grow api_keys without bound. A person makes a
@@ -316,7 +375,8 @@ class Rack::Attack
     # The agent API answers in ITS envelope ({ error: { code, message } }), the
     # one shape every /api/ response uses, so a client needs a single error
     # parser. No X-RateLimit-Tier: that header drives the browser's wait modal.
-    if api_request?(request)
+    # /mcp answers the same way: a 429 is HTTP, below JSON-RPC, as its 401 is.
+    if api_request?(request) || mcp_request?(request)
       next [
         429,
         { "Content-Type" => "application/json", "Retry-After" => retry_after.to_s },

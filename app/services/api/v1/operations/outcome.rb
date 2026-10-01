@@ -26,7 +26,10 @@ module Api
 
         def error? = !error_code.nil?
 
-        def http_status = Rack::Utils.status_code(status)
+        # Rack renamed 422 and warns on the name Rails still uses.
+        def http_status
+          status == :unprocessable_entity ? 422 : Rack::Utils.status_code(status)
+        end
 
         # The envelope every agent API error uses (docs/AGENT_API.md, "Errors").
         def error_body

@@ -292,4 +292,15 @@ class ApiKeyAuthenticationTest < ActionDispatch::IntegrationTest
   ensure
     ProbeController.reraise = false
   end
+
+  # --- the opt-out must name its actions -------------------------------------------
+
+  # Called bare, skip_before_action would lift the freeze gate from every
+  # action of the controller, present and future. That spelling must not load.
+  test "allow_frozen_account_writes refuses to be called without only:" do
+    assert_raises(ArgumentError) { Class.new(Api::V1::BaseController) { allow_frozen_account_writes } }
+    assert_raises(ArgumentError) { Class.new(Api::V1::BaseController) { allow_frozen_account_writes only: [] } }
+    assert_raises(ArgumentError) { Class.new(Api::V1::BaseController) { allow_frozen_account_writes only: nil } }
+    assert_raises(ArgumentError) { Class.new(Api::V1::BaseController) { allow_frozen_account_writes except: :read } }
+  end
 end

@@ -156,7 +156,7 @@ module AgentMcp
                protocolVersion: version,
                capabilities: { tools: { listChanged: false } },
                serverInfo: server_info,
-               instructions: INSTRUCTIONS
+               instructions: Instructions::TEXT
              })
     end
 
