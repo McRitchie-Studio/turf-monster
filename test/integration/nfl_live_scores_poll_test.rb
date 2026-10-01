@@ -657,6 +657,93 @@ class NflLiveScoresPollTest < ActionDispatch::IntegrationTest
     assert_equal 3, Game.find_by(external_id: "EV1").goals.count
   end
 
+  # ── THE VETO THAT BOUNCED THIS PR ─────────────────────────────────────────
+  #
+  # `Slate has_many :contests` and `contests.slate_id` is NOT unique, so one
+  # slate carries several — the ordinary multi-tier pattern. The refusal used to
+  # be decided ONCE PER CYCLE and returned before `rows.each`, so a single
+  # settled contest anywhere on the slot stopped every game on it from being
+  # written at all. Measured by the reviewer: two contests on one slate, one
+  # settled and one open, `anomalies == ["settled_contest"]` and
+  # `Game.find_by(external_id: "EV1")` NIL — the row was never even created.
+  #
+  # THAT RE-CREATES THE ORIGINAL BUG. An admin grades tier A on Sunday evening;
+  # tier B is still open with paid entries; Monday Night Football is on the same
+  # slate. Every tick thereafter refused, so MNF was never scored for anyone.
+  #
+  # SO THE DECISION IS MADE FROM THE CONTEST POPULATION, PER GAME: a game is
+  # skipped only when EVERY contest that renders it is settled. The two contests
+  # share their SlateMatchup rows — one row cannot be both frozen and current —
+  # so when a live open contest needs the slot, the matchups move. What stays
+  # frozen is what the money actually stands on: `score_affected_contests!`
+  # scopes to `status: [:open]`, so the settled contest's own stored
+  # `entries.score` and `selections.points` are never recomputed.
+  test "an open contest sharing a slate with a settled one still gets scored" do
+    matchup = matchup_on("team-a-vs-team-b-pre4", turf_score: 2.0)
+    open_contest = Contest.create!(name: "Open Tier", slug: "open-tier", contest_type: "medium",
+                                   status: "open", slate: slates(:one), max_entries: 9,
+                                   entry_fee_cents: 1900)
+    open_entry = open_contest.entries.create!(user: users(:alex), status: :active, score: 0.0)
+    open_entry.selections.create!(slate_matchup: matchup)
+
+    # The fixture contest on the SAME slate, graded. Its two fixture entries hold
+    # score 1.5 and carry NO selections, so a re-score would recompute them to
+    # 0.0 — which makes "unchanged at 1.5" a real assertion rather than a tautology.
+    settled = contests(:one)
+    settled.update!(status: "settled")
+    assert_equal [1.5, 1.5], settled.entries.order(:id).map { |e| e.score.to_f }
+
+    client = StubClient.new(scoreboard: scoreboard(home: 10, away: 7), summaries: { "EV1" => summary })
+
+    result = Nfl::LiveScores::PollCycle.call(slot: @slot, client: client)
+
+    game = Game.find_by(external_id: "EV1")
+    assert_not_nil game, "the row was never created under the per-cycle veto"
+    assert_equal 3, game.goals.count, "the open contest's slot has to be scored"
+    assert_in_delta 20.0, open_entry.reload.score.to_f, 0.01,
+                    "10 points x 2.0 turf_score — the open tier scored"
+    assert_equal [1.5, 1.5], settled.entries.order(:id).map { |e| e.score.to_f },
+                 "the settled tier's stored scores are what its payouts stand on"
+    assert_equal ["settled_contest_coscored"], result.anomalies.map(&:kind),
+                 "reported, because a settled contest's matchups did move"
+    assert_match settled.slug, result.anomalies.first.detail
+  end
+
+  # THE PER-GAME CONTROL. One slot, two games: one on a slate whose only contest
+  # is settled, one on a slate with no contest at all. The settled one is skipped
+  # and the other is written — which is the property a per-cycle refusal could
+  # not have.
+  test "a settled game is skipped without costing the other games on the slot" do
+    settled_contest_on("team-a-vs-team-b-pre4")
+    client = StubClient.new(scoreboard: two_game_scoreboard, summaries: { "EV2" => summary_for("TMC", "TMD") })
+
+    result = Nfl::LiveScores::PollCycle.call(slot: @slot, client: client)
+
+    assert_nil Game.find_by(external_id: "EV1"), "the settled game is still refused"
+    assert_not_nil Game.find_by(external_id: "EV2"), "its neighbour must not pay for that"
+    assert_equal 3, Game.find_by(external_id: "EV2").goals.count
+    assert_equal ["settled_contest"], result.anomalies.map(&:kind), "one anomaly, naming the skipped game"
+    assert_match "team-a-vs-team-b-pre4", result.anomalies.first.detail
+    assert_equal 2, result.games_seen
+    assert_equal ["EV2"], client.summary_calls, "no request was spent on the skipped game"
+  end
+
+  # A PENDING CONTEST IS NOT AN OPEN ONE. `Contest#status` is pending/open/settled
+  # and only `open` is scored (`Game#score_affected_contests!`), so a pending
+  # contest cannot unblock a settled one — otherwise a tier that has not launched
+  # would re-open a graded tier's matchups.
+  test "a pending contest does not unblock a settled slate" do
+    settled_contest_on("team-a-vs-team-b-pre4")
+    Contest.create!(name: "Pending Tier", slug: "pending-tier", contest_type: "medium",
+                    status: "pending", slate: slates(:one), max_entries: 9, entry_fee_cents: 1900)
+    client = StubClient.new(scoreboard: scoreboard(home: 10, away: 7), summaries: { "EV1" => summary })
+
+    result = Nfl::LiveScores::PollCycle.call(slot: @slot, client: client)
+
+    assert_equal ["settled_contest"], result.anomalies.map(&:kind)
+    assert_equal 0, Goal.count
+  end
+
   # A CONTEST IS SETTLED IN THE DATABASE BEFORE IT IS SETTLED ON CHAIN.
   # `Contest#grade!` writes `status: "settled"` and only then attempts
   # `settle_onchain!`, which can legitimately still be pending — so a graded,
@@ -796,10 +883,33 @@ class NflLiveScoresPollTest < ActionDispatch::IntegrationTest
 
   # A SlateMatchup on the fixture slate pointing at `game_slug` — the link that
   # carries a score from a game to a contest's entries.
-  def matchup_on(game_slug)
+  def matchup_on(game_slug, turf_score: nil)
     SlateMatchup.create!(slate: slates(:one), team_slug: @home.slug,
                          opponent_team_slug: @away.slug, game_slug: game_slug,
-                         slug: "sm-#{game_slug}", rank: 1)
+                         slug: "sm-#{game_slug}", rank: 1, turf_score: turf_score)
+  end
+
+  # TWO games on one slot, which is what a per-game refusal needs and a
+  # single-event board cannot express. EV1 is the TMA/TMB game the settled
+  # contest's matchup names; EV2 is an unrelated TMC/TMD game on the same week.
+  def two_game_scoreboard
+    first = scoreboard(home: 10, away: 7).fetch("events").first
+    second = Marshal.load(Marshal.dump(first))
+    second["id"] = "EV2"
+    competitors = second.dig("competitions", 0, "competitors")
+    competitors[0]["team"]["abbreviation"] = "TMC"
+    competitors[1]["team"]["abbreviation"] = "TMD"
+    { "events" => [first, second] }
+  end
+
+  def summary_for(home_abbr, away_abbr)
+    {
+      "scoringPlays" => [
+        play("P1", home_abbr, home: 7,  away: 0, type: "TD"),
+        play("P2", away_abbr, home: 7,  away: 7, type: "TD"),
+        play("P3", home_abbr, home: 10, away: 7, type: "FG")
+      ]
+    }
   end
 
   # The fixture contest, on that same slate, moved to the terminal state.

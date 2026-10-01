@@ -107,6 +107,135 @@ class NflSilentGapCheckTest < ActiveSupport::TestCase
     assert_equal 1, ErrorLog.count
   end
 
+  # ── THE SHAPE PRODUCTION ACTUALLY HOLDS ───────────────────────────────────
+  #
+  # THE REGRESSION THAT BOUNCED THIS PR, and it matters more than every test
+  # above it: those build their games with `season_year`/`season_type`/`week`
+  # hand-stamped, and PRODUCTION DOES NOT PRODUCE THAT SHAPE until the poller
+  # has already succeeded against the slot once.
+  #
+  # Measured on a freshly seeded database, not inferred: 272 NFL games, ZERO
+  # carrying `season_year`. `PollCycle#upsert_game` is the only non-test writer
+  # of those three columns; `db/seeds/nfl_2026.rb` and
+  # `Nfl::CacheExpectedTeamTotals#ensure_game!` both create games without them,
+  # and `AddSeasonIdentityToGames` added them with no backfill. So a prefilter
+  # that REQUIRED them could only ever see a slot the poller had already polled
+  # — and a slot it never polled is precisely the failure this object exists to
+  # catch. The 2026 week-2 rows carried `external_id` nil and all three slot
+  # columns nil, which is why a run against them reported a CONCLUSIVE CLEAN
+  # week.
+  #
+  # The slot is resolved from the SLATE instead, which is the record named by
+  # slot and the one every surface already reads: 17/17 seeded slates resolve a
+  # year and a single week (the `year` column, and the week off the name through
+  # `Slate#week_range`), and 256/256 seeded games reach exactly one slot that
+  # way.
+
+  test "a seed-shaped game with no slot columns is still found through its slate" do
+    game = seed_shaped_game(home: teams(:team_a), away: teams(:team_b))
+    assert_nil game.season_year, "the production shape: nothing has stamped a slot"
+    assert_nil game.week
+    assert_nil game.external_id
+    client = StubClient.new(boards: { @slot_key => board(final("EV1", "TMA", "TMB", home: 41, away: 31)) })
+
+    result = Nfl::LiveScores::SilentGapCheck.call(client: client)
+
+    refute result.clean?, "this is the exact week-2 shape — a conclusive clean run here is the defect"
+    assert result.conclusive?
+    assert_equal [@slot_key], client.scoreboard_calls, "the slot came off the slate"
+    assert_equal 1, result.gaps.length
+    assert_equal 2026, result.gaps.first.slot.year
+    assert_equal 2, result.gaps.first.slot.week
+    assert_match game.slug, result.gaps.first.games.first
+  end
+
+  test "the seed-shaped gap pages a human exactly as a stamped one does" do
+    seed_shaped_game(home: teams(:team_a), away: teams(:team_b))
+    client = StubClient.new(boards: { @slot_key => board(final("EV1", "TMA", "TMB", home: 41, away: 31)) })
+
+    assert_difference -> { ErrorLog.count }, 1 do
+      Nfl::LiveScores::SilentGapCheck.call(client: client)
+    end
+
+    assert_match "bin/nfl-live-poll --slot 2026:2:2", ErrorLog.order(:id).last.message
+  end
+
+  # The week comes off the NAME here, because the seed writes no `week` column on
+  # the slate either — measured, 0 of 17. `Slate#week_range` is the existing
+  # reader for that, and this asserts the tripwire goes through it rather than
+  # through a column the seed leaves null.
+  test "the slot resolves from a slate carrying no week column" do
+    slate = seed_shaped_slate
+    assert_nil slate[:week], "the seed writes the week into the name, not the column"
+    assert_equal 2026, slate[:year], "the year column IS derived, from the name, on save"
+    seed_shaped_game(home: teams(:team_a), away: teams(:team_b), slate: slate)
+    client = StubClient.new(boards: { @slot_key => board(final("EV1", "TMA", "TMB", home: 41, away: 31)) })
+
+    result = Nfl::LiveScores::SilentGapCheck.call(client: client)
+
+    assert_equal [@slot_key], client.scoreboard_calls
+    refute result.clean?
+  end
+
+  # A SPAN SLATE NAMES SEVERAL WEEKS, so it cannot say which one a game sits in
+  # from its name alone. Every week it covers becomes a candidate slot, and that
+  # is the safe direction: the slot is only the REQUEST KEY — `unscored_final`
+  # re-derives the game per scoreboard row — so an extra request can never
+  # produce a false alert, while a missing one is the blindness this fixes.
+  test "a game on a span slate contributes every week the span covers" do
+    span = Slate.create!(name: "NFL 2026 Weeks 1-3", slug: "nfl-2026-weeks-1-3")
+    seed_shaped_game(home: teams(:team_a), away: teams(:team_b), slate: span)
+    client = StubClient.new(boards: { @slot_key => board(final("EV1", "TMA", "TMB", home: 41, away: 31)) })
+
+    result = Nfl::LiveScores::SilentGapCheck.call(client: client)
+
+    assert_equal [[2026, 2, 1], [2026, 2, 2], [2026, 2, 3]], client.scoreboard_calls.sort
+    refute result.clean?, "week 2 of the span is still read, and still reports the gap"
+    assert_equal 1, result.gaps.length, "only the week that actually disagreed"
+  end
+
+  # The per-matchup week wins over the span's name when it is there, which is
+  # what `Nfl::BuildSpanSlate#rebuild_matchups!` writes — so an odds-CSV-built
+  # span costs ONE request, not one per week.
+  test "a per-matchup week pins a span slate to one request" do
+    span = Slate.create!(name: "NFL 2026 Weeks 1-3", slug: "nfl-2026-weeks-1-3")
+    seed_shaped_game(home: teams(:team_a), away: teams(:team_b), slate: span, matchup_week: 2)
+    client = StubClient.new(boards: { @slot_key => board(final("EV1", "TMA", "TMB", home: 41, away: 31)) })
+
+    Nfl::LiveScores::SilentGapCheck.call(client: client)
+
+    assert_equal [@slot_key], client.scoreboard_calls
+  end
+
+  # A STAMPED GAME STILL USES ITS OWN COLUMNS, and no slate query is spent on
+  # it. ESPN itself wrote that slot for that game, so it is the authoritative
+  # answer and the cheapest one.
+  test "a stamped game keeps resolving from its own columns" do
+    unscored_game(home: teams(:team_a), away: teams(:team_b))
+    SlateMatchup.create!(slate: seed_shaped_slate, team_slug: teams(:team_a).slug,
+                         opponent_team_slug: teams(:team_b).slug,
+                         game_slug: "team-a-vs-team-b-wrong", slug: "sm-wrong", rank: 1)
+    client = StubClient.new(boards: { @slot_key => board(final("EV1", "TMA", "TMB", home: 41, away: 31)) })
+
+    result = Nfl::LiveScores::SilentGapCheck.call(client: client)
+
+    assert_equal [@slot_key], client.scoreboard_calls
+    refute result.clean?
+  end
+
+  # A non-NFL slate must not send this check to the NFL scoreboard, and the
+  # World Cup slates are exactly the rows carrying no week at all.
+  test "a slate naming no week contributes no slot" do
+    world_cup = Slate.create!(name: "World Cup Group A", slug: "wc-group-a")
+    seed_shaped_game(home: teams(:team_a), away: teams(:team_b), slate: world_cup)
+    client = StubClient.new
+
+    result = Nfl::LiveScores::SilentGapCheck.call(client: client)
+
+    assert result.clean?
+    assert_empty client.scoreboard_calls, "there is no week to ask for"
+  end
+
   # ── WHAT IT MUST NOT FLAG ─────────────────────────────────────────────────
 
   # THE COST ASSERTION. A week we have already scored must not reach the network
@@ -186,10 +315,11 @@ class NflSilentGapCheckTest < ActiveSupport::TestCase
     assert_empty client.scoreboard_calls
   end
 
-  # A game with no season slot cannot be rendered as a week, and every game
-  # predating the live feed has one. Asking ESPN for "week nil" is not a request
-  # worth making.
-  test "a game carrying no season slot is not a candidate" do
+  # A game NOTHING can place in a week is not a candidate — not because a null
+  # slot is uninteresting, but because there is no slot to ask ESPN for. With no
+  # slate naming it, no SlateMatchup points at it either, so no contest scores
+  # off it and there is nothing for this check to protect.
+  test "a game no slate names and no poller stamped is not a candidate" do
     Game.create!(home_team_slug: teams(:team_a).slug, away_team_slug: teams(:team_b).slug,
                  kickoff_at: 3.days.ago, status: "scheduled")
     client = StubClient.new
@@ -197,7 +327,7 @@ class NflSilentGapCheckTest < ActiveSupport::TestCase
     result = Nfl::LiveScores::SilentGapCheck.call(client: client)
 
     assert result.clean?
-    assert_empty client.scoreboard_calls
+    assert_empty client.scoreboard_calls, "there is no slot to ask about"
   end
 
   # Game is shared with the World Cup contests. A soccer fixture carrying a
@@ -233,6 +363,29 @@ class NflSilentGapCheckTest < ActiveSupport::TestCase
   end
 
   private
+
+  # THE PRODUCTION SHAPE, built the way `db/seeds/nfl_2026.rb` builds it: no
+  # `external_id`, no `season_year`/`season_type`/`week`, a `kickoff_at`, and a
+  # slate whose NAME is the only place the week appears.
+  def seed_shaped_game(home:, away:, kickoff: 3.days.ago, slate: nil, matchup_week: nil)
+    game = Game.create!(
+      home_team_slug: home.slug, away_team_slug: away.slug,
+      kickoff_at: kickoff, status: "scheduled"
+    )
+    SlateMatchup.create!(
+      slate: slate || seed_shaped_slate, team_slug: home.slug, opponent_team_slug: away.slug,
+      game_slug: game.slug, slug: "sm-#{game.slug}", rank: 1, week: matchup_week
+    )
+    game
+  end
+
+  # `week` and `season_type` are left to the model: `season_type` has a NOT NULL
+  # default and `year`/`sport` derive from the name in `before_validation`, which
+  # is exactly what the seed relies on. The `week` COLUMN stays null, as it does
+  # on all 17 seeded slates.
+  def seed_shaped_slate
+    @seed_shaped_slate ||= Slate.create!(name: "NFL 2026 Week 2", slug: "nfl-2026-week-2")
+  end
 
   def unscored_game(home:, away:, kickoff: 3.days.ago, status: "scheduled", week: 2)
     Game.create!(
