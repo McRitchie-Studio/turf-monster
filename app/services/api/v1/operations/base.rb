@@ -47,8 +47,9 @@ module Api
 
         attr_reader :user, :api_key, :params, :writable
 
-        def ok(body, status: :ok)
-          Outcome.ok(body, status: status)
+        # ok(contest: …, teams: …): the keywords ARE the response body.
+        def ok(**body)
+          Outcome.ok(body)
         end
 
         # The web's visibility rule for one contest (ContestsController#set_contest):

@@ -25,22 +25,22 @@ module Api
       before_action :require_age_verified, only: %i[create update]
 
       def index
-        run Operations::ListEntries
+        run_operation Operations::ListEntries
       end
 
       def show
-        run Operations::GetEntry
+        run_operation Operations::GetEntry
       end
 
       # POST /api/v1/contests/:slug/entries. Created and funded in one call or
       # not at all; the Idempotency-Key is what makes a retry safe.
       def create
-        run Operations::SubmitEntry, idempotency_key: request.headers["Idempotency-Key"]
+        run_operation Operations::SubmitEntry, idempotency_key: request.headers["Idempotency-Key"]
       end
 
       # PATCH /api/v1/entries/:slug. Replaces the entry's picks.
       def update
-        run Operations::EditEntry
+        run_operation Operations::EditEntry
       end
     end
   end

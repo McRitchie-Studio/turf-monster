@@ -21,7 +21,7 @@ module Api
 
       private
 
-      def run(operation, **options)
+      def run_operation(operation, **options)
         render_outcome operation.call(user: current_user, api_key: current_api_key, params: params,
                                       writable: write_refusal.nil?, **options)
       end

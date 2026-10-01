@@ -7,7 +7,7 @@ module Api
   module V1
     class MeController < BaseController
       def show
-        run Operations::GetMe
+        run_operation Operations::GetMe
       end
     end
   end

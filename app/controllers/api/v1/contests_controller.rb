@@ -16,15 +16,15 @@ module Api
   module V1
     class ContestsController < BaseController
       def index
-        run Operations::ListContests
+        run_operation Operations::ListContests
       end
 
       def show
-        run Operations::GetContest
+        run_operation Operations::GetContest
       end
 
       def leaderboard
-        run Operations::GetLeaderboard
+        run_operation Operations::GetLeaderboard
       end
     end
   end
