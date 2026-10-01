@@ -3064,7 +3064,7 @@ module Solana
     # (Errno::EHOSTUNREACH etc. — all SystemCallError) therefore escapes
     # get_balance UNWRAPPED. Left alone it walks straight past the funding-decision
     # callers' `rescue Solana::Client::RpcError` (ContestsController
-    # #resolve_web2_entry_funding! / #entry_funding_status) → a false-block / 500
+    # Entries::ManagedEntry#fund! / #entry_funding_status) → a false-block / 500
     # on the entry path while the documented fail-open never fires. We normalize
     # them to RpcError below so the caller contract holds for EVERY transport
     # failure. Deliberately NOT StandardError — a genuine bug (decode/NoMethod)

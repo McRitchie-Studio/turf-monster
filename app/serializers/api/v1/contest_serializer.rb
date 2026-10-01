@@ -19,8 +19,13 @@ module Api
       # `goals` for both; this is what it actually holds.
       SCORING_UNITS = { "nfl" => "points", "fifa" => "goals" }.freeze
 
-      def initialize(contest, facts:, web_rules:, entries_count:, my_entries_count:)
+      # writable: whether this caller may write at all right now (the account
+      # hold and the age gate, ApiKeyAuthentication#write_refusal). It feeds
+      # `accepting_entries`, so the field never promises an entry the server
+      # will refuse.
+      def initialize(contest, facts:, web_rules:, entries_count:, my_entries_count:, writable:)
         @contest = contest
+        @writable = writable
         @facts = facts
         @web_rules = web_rules
         @entries_count = entries_count.to_i
@@ -97,12 +102,15 @@ module Api
         }
       end
 
-      # Whether a new entry would be taken right now, as far as the contest
-      # itself is concerned: open, not locked, not cancelled, not marked coming
-      # soon, with room left and room under this player's own limit. It does not
-      # speak for the player's account (a frozen account, an empty wallet).
+      # Whether POST /api/v1/contests/:slug/entries would get past its gates
+      # right now: a contest the API can enter (Turf Totals), open, not locked,
+      # not cancelled, not marked coming soon, with room left and room under
+      # this player's own limit, for a caller who may write (not on hold, age
+      # verified when the gate is on). It does not speak for the wallet: whether
+      # there is a token to spend, or a wallet the server can sign for, is on
+      # GET /api/v1/me.
       def accepting_entries?(locked, spots_left)
-        contest.open? && !locked && !contest.cancelled? && !contest.coming_soon? &&
+        @writable && supported && contest.open? && !locked && !contest.cancelled? && !contest.coming_soon? &&
           spots_left.positive? && @my_entries_count < contest.max_entries_per_user
       end
     end

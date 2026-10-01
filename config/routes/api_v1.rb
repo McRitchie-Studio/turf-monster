@@ -15,3 +15,8 @@ get "contests/:slug",             to: "contests#show",        format: false, as:
 get "contests/:slug/leaderboard", to: "contests#leaderboard", format: false, as: :contest_leaderboard
 get "entries",                    to: "entries#index",        format: false
 get "entries/:slug",              to: "entries#show",         format: false, as: :entry
+
+# Writes. An entry is created whole and funded in one call (no cart), and its
+# picks can be replaced until the contest locks.
+post  "contests/:slug/entries", to: "entries#create", format: false, as: :contest_entries
+patch "entries/:slug",          to: "entries#update", format: false

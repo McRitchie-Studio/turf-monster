@@ -925,7 +925,7 @@ export function eligibilityBlocker(session, neededCents, opts) {
       //    hasn't hydrated. The genuinely-unfunded null case is covered by the
       //    AUTHORITATIVE hold-window server check (the board's beginFundingCheck
       //    → POST check_funding, awaited in confirmEntry) plus the server
-      //    safety-net (resolve_web2_entry_funding!), so a $0 fresh wallet lands
+      //    safety-net (Entries::ManagedEntry#fund!), so a $0 fresh wallet lands
       //    on the Top Up Wallet — never a doomed on-chain "0x1" sim attempt.
       if (session.usdcCents == null) return null;
       if ((session.usdcCents | 0) >= neededCents) return null;

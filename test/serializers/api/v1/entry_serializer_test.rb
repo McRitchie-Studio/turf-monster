@@ -10,14 +10,15 @@ class Api::V1::EntrySerializerTest < ActiveSupport::TestCase
     @entry = enter!(@sam, @contest, fixture_matchups)
   end
 
-  def serializer(entry = @entry, viewer: @sam)
+  def serializer(entry = @entry, viewer: @sam, writable: true)
     contest = Contest.includes(:slate).find(@contest.id)
     facts = Api::V1::ContestFacts.for([contest])
     entry = Entry.includes(:user, selections: { slate_matchup: :team }).find(entry.id)
     Api::V1::EntrySerializer.new(entry, contest: contest, facts: facts,
                                         board: Api::V1::Board.new(contest, contest_locked: facts.locked?(contest)),
                                         ranks: Api::V1::Ranking.for_contests([contest.id])[contest.id],
-                                        web_rules: Api::V1::WebRules.new(viewer), viewer: viewer)
+                                        web_rules: Api::V1::WebRules.new(viewer), viewer: viewer,
+                                        writable: writable)
   end
 
   test "an own entry before lock: picks, provisional rank, no payout, editable" do
@@ -54,6 +55,16 @@ class Api::V1::EntrySerializerTest < ActiveSupport::TestCase
     @entry.reload
     assert_equal false, serializer.as_json[:editable]
     assert_raises(RuntimeError) { @entry.update_picks!(fixture_matchups.map(&:id)) }
+  end
+
+  # PATCH /api/v1/entries/:slug refuses a caller who may not write, and a
+  # cancelled contest (Api::V1::EntriesController#update_refusal).
+  test "editable is false for a caller who may not write, and in a cancelled contest" do
+    assert_equal true, serializer(writable: true).as_json[:editable]
+    assert_equal false, serializer(writable: false).as_json[:editable]
+
+    @contest.update!(onchain_cancelled: true)
+    assert_equal false, serializer.as_json[:editable]
   end
 
   test "a complete entry in a settled contest is final: stored rank and payout, not editable" do

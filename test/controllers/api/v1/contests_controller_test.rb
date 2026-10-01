@@ -112,8 +112,65 @@ class Api::V1::ContestsControllerTest < ActionDispatch::IntegrationTest
     assert_empty first_page & slugs
     assert_equal false, json["pagination"]["has_more"]
 
-    api_get api_v1_contests_path, params: { limit: 5000, offset: -3 }
+    api_get api_v1_contests_path, params: { limit: 5000 }
     assert_equal [100, 0], json["pagination"].values_at("limit", "offset")
+  end
+
+  # EXPECTATION FLIPPED by agent-api-entry-endpoints, on purpose. This test used
+  # to assert that `offset: -3` fell back to 0. The doc says an invalid
+  # parameter is a 400, and the shapes `to_i` cannot take (an array, a hash)
+  # were a 500, so every value that is not a whole number is now refused.
+  test "a limit or offset that is not a whole number is a 400, whatever its shape" do
+    bad = [{ offset: -3 }, { limit: 0 }, { limit: -1 }, { limit: "ten" }, { limit: "1.5" }, { limit: ["1"] },
+           { limit: { a: 1 } }, { offset: ["1"] }, { offset: "9" * 30 }, { limit: "9" * 30 }, { offset: "1e3" }]
+
+    bad.each do |params|
+      [api_v1_contests_path, api_v1_contest_leaderboard_path("test-contest"), api_v1_entries_path].each do |path|
+        api_get path, params: params
+        assert_api_error :bad_request, "bad_request"
+      end
+    end
+
+    api_get api_v1_contests_path, params: { limit: "", offset: "" }
+    assert_equal [25, 0], json["pagination"].values_at("limit", "offset"), "a blank value is an absent one"
+    api_get api_v1_contests_path, params: { offset: 999_999_999 }
+    assert_response :success
+    assert_empty json["contests"]
+  end
+
+  test "a status that is not a string is a 400" do
+    api_get api_v1_contests_path, params: { status: ["open"] }
+    assert_api_error :bad_request, "bad_request"
+  end
+
+  test "a slug that cannot name anything is a 404, never a 500" do
+    ["/api/v1/contests/a%00b", "/api/v1/contests/a%00b/leaderboard", "/api/v1/entries/a%00b",
+     "/api/v1/contests/#{'x' * 300}"].each do |path|
+      api_get path
+      assert_api_error :not_found, "not_found"
+    end
+
+    api_get api_v1_entries_path, params: { contest: { slug: "test-contest" } }
+    assert_api_error :not_found, "not_found"
+    api_get api_v1_entries_path, params: { contest: ["test-contest"] }
+    assert_api_error :not_found, "not_found"
+    api_get "/api/v1/entries?contest=a%00b"
+    assert_api_error :not_found, "not_found"
+  end
+
+  test "a path under /api/ that no route claims is a 404 in the JSON envelope" do
+    ["/api/v1/nope", "/api/v1/contests/test-contest/nope", "/api/v2/me", "/api/nope", "/api", "/api/", "/api/v1/me.html",
+     "/api/v1/contests/test-contest.html"].each do |path|
+      api_get path
+      assert_api_error :not_found, "not_found"
+      assert_equal "application/json; charset=utf-8", response.headers["Content-Type"]
+    end
+
+    api_get "/api/v1/nope", key: nil
+    assert_api_error :not_found, "not_found"
+
+    delete "/api/v1/me", headers: { "Authorization" => "Bearer #{@key.raw_token}", "User-Agent" => AGENT_UA }
+    assert_api_error :not_found, "not_found"
   end
 
   test "status narrows the list, and an unknown status is a 400 rather than an empty list" do
@@ -309,5 +366,23 @@ class Api::V1::ContestsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 8, json["entries"].size
     assert_equal 6, json["entries"].last["picks"].size
     assert_equal few, many, "users and selections preload once each; every pick reads the one loaded board"
+  end
+
+  # The picks-visibility rule asks whether the contest has locked, and with no
+  # starts_at that is a lookup of the slate's first kickoff. It ran once per
+  # row; Api::V1::WebRules now asks once per request.
+  test "the leaderboard of a contest with no starts_at costs the same for two entries as for eight" do
+    @contest.update!(starts_at: nil)
+    api_get api_v1_contest_leaderboard_path("test-contest") # warm
+    few = count_queries { api_get api_v1_contest_leaderboard_path("test-contest") }
+
+    2.times do
+      %i[sam casey alex].each { |name| enter!(users(name), @contest, fixture_matchups) }
+    end
+    many = count_queries { api_get api_v1_contest_leaderboard_path("test-contest") }
+
+    assert_equal 8, json["entries"].size
+    assert_equal true, json["picks_hidden_until_lock"], "not locked, so the visibility rule runs for every row"
+    assert_equal few, many
   end
 end

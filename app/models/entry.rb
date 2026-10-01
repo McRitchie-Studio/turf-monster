@@ -74,17 +74,17 @@ class Entry < ApplicationRecord
   # for lock state — mirrors the existing confirm! behavior where only the
   # picks being committed are validated.
   def update_picks!(matchup_ids)
-    raise "Editing is not supported for this contest type" if survivor?
-    raise "Contest is not open" unless contest.open?
+    raise Refusal.new(:unsupported_contest, "Editing is not supported for this contest type") if survivor?
+    raise Refusal.new(:contest_not_open, "Contest is not open") unless contest.open?
     # v0.17: derived lock — block edits once the contest lock time has passed
     # (status stays `open`, so `open?` alone no longer closes this window).
-    raise "Contest has locked — entries closed" if contest.locks_at && Time.current >= contest.locks_at
+    raise Refusal.new(:contest_locked, "Contest has locked — entries closed") if contest.locks_at && Time.current >= contest.locks_at
 
     new_ids = matchup_ids.map(&:to_i).uniq
-    raise "Exactly #{contest.picks_required} selections required" unless new_ids.size == contest.picks_required
+    raise Refusal.new(:invalid_picks, "Exactly #{contest.picks_required} selections required") unless new_ids.size == contest.picks_required
 
     new_matchups = contest.slate.slate_matchups.where(id: new_ids & contest.pickable_matchup_ids).includes(:team, :game).to_a
-    raise "Invalid matchup selection" unless new_matchups.size == contest.picks_required
+    raise Refusal.new(:invalid_picks, "Invalid matchup selection") unless new_matchups.size == contest.picks_required
 
     current_ids = selections.pluck(:slate_matchup_id)
     changed_ids = current_ids.to_set ^ new_ids.to_set
@@ -92,7 +92,7 @@ class Entry < ApplicationRecord
     changed_ids.each do |id|
       m = new_matchups.find { |nm| nm.id == id } ||
           contest.slate.slate_matchups.includes(:team).find_by(id: id)
-      raise "#{m.team.name}'s game has already started" if m&.locked?
+      raise Refusal.new(:team_locked, "#{m.team.name}'s game has already started") if m&.locked?
     end
 
     transaction do
@@ -123,7 +123,7 @@ class Entry < ApplicationRecord
   # `comped: true` is the admin-seed escape hatch (Contest#fill! only): it exempts
   # the lock-time gate so admin seeding may legitimately happen after lock.
   def assert_enterable!(comped: false)
-    raise "Contest is not open" unless contest.open?
+    raise Refusal.new(:contest_not_open, "Contest is not open") unless contest.open?
 
     # H7 prelaunch audit (2026-05-24): enforce contest-wide lock time. Closes
     # the staggered-kickoff information-edge attack — a user could otherwise
@@ -132,29 +132,29 @@ class Entry < ApplicationRecord
     # whose individual `locked?` is still false. `comped: true` (admin fill via
     # Contest#fill!) is exempt; admin seeding may legitimately happen after lock.
     if contest.locks_at && Time.current >= contest.locks_at && !comped
-      raise "Contest has locked — entries closed"
+      raise Refusal.new(:contest_locked, "Contest has locked — entries closed")
     end
 
-    raise "Exactly #{contest.picks_required} selections required" unless selections.count == contest.picks_required
+    raise Refusal.new(:invalid_picks, "Exactly #{contest.picks_required} selections required") unless selections.count == contest.picks_required
     assert_pickable!(*selections.includes(:slate_matchup).map(&:slate_matchup)) # backstop for a cart built before the writers checked
     # Check no locked games
     selections.includes(slate_matchup: :game).each do |s|
-      raise "#{s.slate_matchup.team.name}'s game has already started" if s.slate_matchup.locked?
+      raise Refusal.new(:team_locked, "#{s.slate_matchup.team.name}'s game has already started") if s.slate_matchup.locked?
     end
 
     # Contest capacity. This entry is still `cart`, so it is not double-counted.
     active_count = contest.entries.where(status: [:active, :complete]).count
-    raise "Contest is full" if contest.max_entries && active_count >= contest.max_entries
+    raise Refusal.new(:contest_full, "Contest is full") if contest.max_entries && active_count >= contest.max_entries
 
     # Per-user entry limit
     user_active_count = contest.entries.where(user: user, status: [:active, :complete]).count
-    raise "Maximum #{contest.max_entries_per_user} entries per contest" if user_active_count >= contest.max_entries_per_user
+    raise Refusal.new(:entry_limit_reached, "Maximum #{contest.max_entries_per_user} entries per contest") if user_active_count >= contest.max_entries_per_user
 
     # Sybil / duplicate-exact-combo check
     my_combo = selections.map(&:slate_matchup_id).sort
     contest.entries.where(user: user, status: [:active, :complete]).find_each do |other|
       other_combo = other.selections.map(&:slate_matchup_id).sort
-      raise "You already have an entry with this exact selection combination" if other_combo == my_combo
+      raise Refusal.new(:duplicate_lineup, "You already have an entry with this exact selection combination") if other_combo == my_combo
     end
   end
 
@@ -315,7 +315,7 @@ class Entry < ApplicationRecord
                    .pluck(:entry_number)
 
     free = vault.next_free_entry_index(contest.slug, wallet_address, max: max, skip: taken)
-    raise "You've already used all #{max} of your entry slots for this contest." if free.nil?
+    raise Refusal.new(:entry_limit_reached, "You've already used all #{max} of your entry slots for this contest.") if free.nil?
 
     update!(entry_number: free) if entry_number != free
     free
@@ -421,7 +421,7 @@ class Entry < ApplicationRecord
     slate_matchups.each do |slate_matchup|
       next if pickable_ids.include?(slate_matchup.id)
 
-      raise "#{slate_matchup.team.name} is not a pickable matchup in this contest"
+      raise Refusal.new(:invalid_picks, "#{slate_matchup.team.name} is not a pickable matchup in this contest")
     end
   end
 end

@@ -903,11 +903,11 @@ class ApplicationController < ActionController::Base
   end
 
   def usdc_cache_key(user = current_user)
-    "usdc_balance:#{user.id}"
+    NavbarCacheKeys.usdc(user)
   end
 
   def usdt_cache_key(user = current_user)
-    "usdt_balance:#{user.id}"
+    NavbarCacheKeys.usdt(user)
   end
 
   def invalidate_usdc_cache(user = current_user)
@@ -980,7 +980,7 @@ class ApplicationController < ActionController::Base
   end
 
   def seeds_cache_key(user = current_user)
-    "user_seeds:#{user.id}"
+    NavbarCacheKeys.seeds(user)
   end
 
   def invalidate_seeds_cache(user = current_user)
