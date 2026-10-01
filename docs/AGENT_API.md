@@ -811,7 +811,7 @@ spent.**
 | 403 | `account_frozen` | both | The account is on hold | Stop. Tell the player to contact support. |
 | 403 | `age_verification_required` | both | The age gate is on and the player has not verified | Tell the player to verify their date of birth on the website, then retry with the same key. |
 | 404 | `not_found` | both | No such contest (POST), or no such entry among the player's own (PATCH) | Re-read `GET /api/v1/contests` or `GET /api/v1/entries`. |
-| 409 | `idempotency_key_reused` | POST | This key was already used with different picks, a different contest or a different `allow_usdc` | A different entry needs a new key. If you meant to retry, send the original body. |
+| 409 | `idempotency_key_reused` | POST | This key is already tied to something else: a request with different picks, a different contest or a different `allow_usdc`, or an entry that has since been removed by a contest reset (`Entries::ApiSubmission#replay`: the request row outlives its entry and holds no stored response) | Stop sending this request with this key; the answer does not change. If the body was changed by mistake, send the original body once. If the body was already the original, the key is finished: read the player's entries, and make a new entry only with a new key and the player's yes, because it is paid for again. |
 | 409 | `idempotency_in_progress` | POST | A request to enter this contest is still running for this player: this key's first request, or another key's | Wait `retry_after` seconds and send the same request again. Do not switch keys. |
 | 422 | `contest_not_open` | both | The contest is settled, or is not ready to take entries | Pick another contest. |
 | 422 | `contest_locked` | both | The lock time has passed | Nothing to do; entries and edits are closed. |
@@ -1105,6 +1105,7 @@ Run against a local stack on 2026-10-01, with a real key.
 |--------|--------|
 | **Claude Code 2.1.286**, headless (`claude -p --mcp-config`), with the `.mcp.json` shape above and the key from an environment variable | Connected, listed all eight tools, and called `get_me`, `list_contests` and `get_contest`, answering from their results. Its first request was a `server/discover` probe at revision `2026-07-28`; it got the `400` and fell back to `initialize` at `2025-11-25`. Its `GET /mcp` got the `405` and it carried on. |
 | **MCP Inspector 2.9.0**, command line (`npx @modelcontextprotocol/inspector --cli … --header "Authorization: Bearer …"`) | `tools/list --strict` reported no schema portability problems. `tools/call` returned `structuredContent` and the text block for `get_me` and `get_contest`; a wrong argument name came back as `isError: true` with `bad_request`. Without a key it read the `401` as "sign in with OAuth", which this server does not offer. |
+| **Claude Code 2.1.286**, the command `/agents` shows, run as printed with a desk address and a real desk key, under a throwaway `CLAUDE_CONFIG_DIR` | `claude mcp add` stored the server; `claude mcp list` reported it connected. With the placeholder left in place of the key it reported the `401` and `invalid_api_key`. A headless session given the sentence the page suggests called `get_me`, `list_contests`, `get_contest` and `list_my_entries` and stopped to ask before entering. |
 | `curl` | `initialize`, `tools/call`, the `401` and the `405` |
 | claude.ai, Claude Desktop, Claude mobile | **Not tested.** They need a public HTTPS address, and either OAuth or the request-headers beta. |
 
@@ -1220,8 +1221,8 @@ tool and `curl` are who reads them.
 
 | URL | Reader | What it is |
 |-----|--------|------------|
-| `/agents` | A person | A starter prompt to copy, three steps to a key, a short endpoint table |
-| `/agents/guide` | An agent, or a developer | The agent guide as a page: rules, scoring, locks, prizes, eligibility, every endpoint and error, retries, and how to reason about a lineup |
+| `/agents` | A person | A starter prompt to copy, three steps to a key, the command that connects Claude Code to `/mcp`, which assistants work today, a short endpoint table |
+| `/agents/guide` | An agent, or a developer | The agent guide as a page: rules, scoring, locks, prizes, eligibility, every endpoint and error, retries, the MCP endpoint and its tools, and how to reason about a lineup |
 | `/agents/guide.md` | An agent | The same guide as plain Markdown, served `text/markdown` |
 | `/llms.txt` | An agent | A pointer to the Markdown guide |
 
@@ -1230,7 +1231,10 @@ a field or an error code changes here, change `guide_source.text.erb` in the
 same PR. `test/integration/agent_guide_guard_test.rb` fails if the guide names a
 route the app does not draw or an error code its source does not emit, and
 fails the other way round too: a new API route or refusal code with no row in
-the guide.
+the guide. It holds the MCP tools the same way: a tool name written on any page
+must be in `AgentMcp::Tools::ALL`, every registry tool must have a row in the
+guide with its schema's arguments, and the REST request the guide pairs a tool
+with must be the one whose action runs that tool's operation.
 
 **One source for the guide.** `app/views/agents/guide_source.text.erb` is
 Markdown with ERB. `/agents/guide.md` serves the rendered string as it is, and
@@ -1239,13 +1243,19 @@ Markdown with ERB. `/agents/guide.md` serves the rendered string as it is, and
 written in: headings, paragraphs, one-level lists, fenced code, tables, inline
 code, bold and links. The app has no Markdown gem, and the renderer raises on
 anything outside that subset, so a construct it cannot render fails a test
-instead of reaching the page as literal text.
+instead of reaching the page as literal text. A link to a section of the same
+page is rendered `data-turbo="false"`: followed by Turbo, the jump ignored the
+heading's scroll margin and landed it under the navbar.
 
 **Numbers come from the code.** The guide reads the multiplier curve
 (`SlateMatchup.turf_score_for`), the bye factor, the worked example
 (`TurfMonsterRules`), prize splits (`Contest::FORMATS`), the key lifetime
 (`ApiKey::LIFETIME`), the rate limits (`Rack::Attack.throttles`), ages by state
-(`AgePolicy`) and the excluded states (`Studio::GeoSetting`). Do not type one in.
+(`AgePolicy`) and the excluded states (`Studio::GeoSetting`). Its MCP section
+reads the tools and their arguments from `AgentMcp::Tools::ALL`, the revisions
+and JSON-RPC codes from `AgentMcp::Protocol`, and the limits from
+`Rack::Attack`. Do not type one in. The one thing typed there is the REST
+request each tool stands for, which the guard test holds to the code.
 
 **The starter prompt** is `app/views/agents/_starter_prompt.text.erb`, rendered
 once per request and handed to both the block a person reads and the copy
@@ -1253,12 +1263,27 @@ button. It names production's canonical host (`TurfMonster::HostConfig::DEFAULT_
 on every environment, so a prompt copied from a desk never sends an agent to
 localhost.
 
-**What the pages do not say.** They name no MCP or connector address (the
-[MCP endpoint](#mcp) exists, but most claude.ai accounts cannot connect to it
-until it has OAuth, and naming it on the public pages is a later decision), render no key-shaped string, promise no grading or payout timing, and
-say nothing about what the Terms allow an AI agent to do: only that the player
-is responsible for what their agent does on their account, with a link to the
-Terms. `test/controllers/agents_controller_test.rb` holds each of those.
+**The Claude Code command** is built once, by `AgentsController#mcp_connect_command`,
+from the production host, the `/mcp` route and the server's own name, and used
+three times: the block on `/agents`, its copy button, and the guide. It is one
+line, with `--header` last (the option takes a list, so placed before the name
+it swallows the name: `error: missing required argument 'name'`). The key's
+place is held by `PASTE_YOUR_API_KEY_HERE`.
+
+**What the pages say about clients.** Claude Code works today with a key. The
+Claude chat app (claude.ai, desktop, mobile) does not for most accounts: a
+custom connector there cannot carry a personal key, because Anthropic documents
+request headers as a beta for a limited set of organizations. The pages say
+that in the present tense and send chat users to Claude Code.
+
+**What the pages do not say.** They do not say or imply that the chat app will
+be able to connect later: nothing that would make it so (see [What OAuth would
+need](#what-oauth-would-need)) has a go-ahead. They name the MCP endpoint only
+on the production host, render no key-shaped string, promise no grading or
+payout timing, do not say a payment cannot repeat, and say nothing about what
+the Terms allow an AI agent to do: only that the player is responsible for what
+their agent does on their account, with a link to the Terms.
+`test/controllers/agents_controller_test.rb` holds each of those.
 
 | Piece | Where |
 |-------|-------|
