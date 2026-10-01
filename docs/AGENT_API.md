@@ -26,7 +26,8 @@ card), gives it a name, and hands it to their agent.
 
 The new key is on screen only until the player dismisses it or leaves the page.
 The block that shows it is marked `data-turbo-temporary`, so the browser's Back
-button does not bring it back from Turbo's page snapshot.
+button does not bring it back from Turbo's page snapshot. The card restored that
+way lists the key and offers **Add another API key**.
 
 Creating keys is throttled to 10 an hour per IP address. Past that, the card
 says so and creates nothing. A revoke the server refuses (the key is no longer
