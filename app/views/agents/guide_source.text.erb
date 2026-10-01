@@ -129,7 +129,7 @@ The Turf Score is written onto the board when the board is ranked, and scoring m
 
 ### A worked example
 
-Six real NFL teams with their multipliers on a <%= team_count %>-team board, and three **invented** weekly scores each (a three-week contest):
+Six NFL teams at the ranks shown on a <%= team_count %>-team board, with three **invented** weekly scores each (a three-week contest):
 
 | Team | Rank | Week scores | Team score | Turf Score | Points |
 |---|---|---|---|---|---|
@@ -151,7 +151,7 @@ Read `phase` and the flags beside it, not `status`: a contest's `status` stays `
 | Open | `phase: "open"`, `locked: false` | Create entries and replace their picks. The leaderboard lists every entry but shows only the player's own picks. |
 | Live | `phase: "live"`, `locked: true` | Read only. Every entry's picks are visible. Scores and ranks move as games finish. |
 | Settled | `phase: "settled"`, `settled: true` | Read only. `rank` and `payout_cents` are final. |
-| Cancelled | `cancelled: true` (its `status` still says `open`) | Nothing. Tell the player; refunds and questions go to support. |
+| Cancelled | `cancelled: true` (its `status` still says `open`) | Nothing. Tell the player; questions about a cancelled contest go to support. |
 
 `accepting_entries` is the one-field answer to "could a new entry go in right now": the contest is open, not locked, not cancelled, not coming soon, has a spot left, and the player is under their own limit. It says nothing about the player's wallet or tokens.
 
@@ -559,7 +559,7 @@ curl -H "Authorization: Bearer $TURF_MONSTER_KEY" "<%= api %>/entries?contest=nf
 }
 ```
 
-(Four more picks are omitted, and so is their share of the score. The two shown earn 31 × 1.0 = 31.0 and 17 × <%= one.(example_bye_score) %> = <%= one.(example_bye_points) %>.)
+(Four more picks are omitted, and the example's `score` counts only the two shown. They earn 31 × 1.0 = 31.0 and 17 × <%= one.(example_bye_score) %> = <%= one.(example_bye_points) %>.)
 
 | Field | Notes |
 |---|---|
