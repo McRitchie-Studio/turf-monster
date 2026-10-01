@@ -186,7 +186,7 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
     assert doc.at_css(%(a[href="#{account_path}"])), "the key step links to the account page"
     assert doc.at_css(%(a[href="#{agents_guide_path}"]))
     assert doc.at_css(%(a[href="#{agents_guide_markdown_path}"]))
-    assert doc.at_css(%(a[href="#{terms_path}"]))
+    assert doc.at_css(%(a[href="#{terms_path(anchor: "ai-agents")}"])), "links the Terms at the agent clause"
 
     rows = doc.css('[data-test="agents-endpoints"] tbody tr')
     assert_operator rows.size, :>=, 6
