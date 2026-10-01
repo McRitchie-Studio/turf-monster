@@ -1189,7 +1189,12 @@
 # carries the filter and the shown count. Not tagged
 # @devnet and it does not skip: 347 - 17 - 4 = 326. Derived with
 # bin/e2e-lane-derive --write on this tree.
-total_specs: 347
+#
+# 347 -> 348 (agent-api-key-foundation): one spec in e2e/agent_api_keys.spec.js — create an
+# agent API key on /account, copy it from the one page that shows it, use it as a bearer
+# credential, revoke it. The clipboard write, the non-Turbo form submit and the revoke
+# confirm are browser facts no lower tier can see.
+total_specs: 348
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1540,7 +1545,10 @@ allowed_skips: 4
 # on this tree, which re-reads the file to confirm both routes agree.
 # 325 -> 326 (tiktok-landing-route): the one funnel spec described beside
 # total_specs above; excluded holds at 17 and allowed_skips at 4.
-executed: 326
+# 326 -> 327 (agent-api-key-foundation): the one agent API key spec described beside
+# total_specs above. It runs in the chromium lane and carries no skip, so excluded holds at
+# 17 and allowed_skips at 4. Derived with bin/e2e-lane-derive --write on this tree.
+executed: 327
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a
