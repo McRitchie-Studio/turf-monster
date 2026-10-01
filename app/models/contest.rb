@@ -494,7 +494,7 @@ class Contest < ApplicationRecord
   def fill!(users:)
     raise "Contest is not open" unless open?
 
-    matchup_ids = matchups.pluck(:id)
+    matchup_ids = pickable_matchup_ids
     raise "Need at least #{picks_required} matchups" if matchup_ids.size < picks_required
 
     active_count = entries.where(status: [:active, :complete]).count
@@ -513,8 +513,8 @@ class Contest < ApplicationRecord
       loop do
         attempts += 1
         break if attempts > slots * 100
-        # Pick the contest's required number of non-locked matchups.
-        available = matchups.reject(&:locked?).map(&:id)
+        # Pick the contest's required number of non-locked PICKABLE matchups.
+        available = matchups.reject(&:locked?).map(&:id) & matchup_ids
         next if available.size < picks_required
         combo = available.sample(picks_required).sort
         break unless existing_combos.include?(combo)
@@ -896,5 +896,29 @@ class Contest < ApplicationRecord
     if slug.to_s.bytesize > SLUG_MAX_BYTES
       errors.add(:slug, "is too long (maximum is #{SLUG_MAX_BYTES} bytes)")
     end
+  end
+
+  public
+
+  # The ids of the pickable rows: what both pick writers (Entry#toggle_selection!
+  # and #update_picks!), the confirm gate (Entry#assert_enterable!) and #fill!
+  # check a row against. The slate holds a row for EVERY game of a span, and each
+  # is a real SlateMatchup with a real id, so "belongs to this contest's slate"
+  # is not the same question as "may be picked": a later-week row passes the
+  # first and must fail the second.
+  #
+  # One grouped read rather than `pickable_matchups.map(&:id)`, which loads the
+  # slate twice on a span (once for multi_week?, once for the grouping). The two
+  # agree by construction, since a single-week slate has one row per team and so
+  # "each team's first row" is every row, and
+  # test/models/span_pick_guard_test.rb pins that agreement on both shapes.
+  #
+  # (Down here, and every edit above kept line-for-line, on purpose: docs/workflows
+  # cites this file by line number and test/docs/workflow_citation_docs_test.rb
+  # holds those citations, so code inserted mid-file re-pins every number below it.)
+  def pickable_matchup_ids
+    return [] unless slate
+
+    slate.matchups_by_team.values.map { |team_matchups| team_matchups.first.id }
   end
 end

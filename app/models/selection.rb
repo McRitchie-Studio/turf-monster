@@ -68,4 +68,37 @@ class Selection < ApplicationRecord
 
     contest.matchups_for_team(slate_matchup.team_slug)
   end
+
+  # ONE ENTRY, ONE ROW PER TEAM.
+  #
+  # `validates :slate_matchup_id, uniqueness` above is per ROW, and a span slate
+  # has several rows per team. On a span each Selection scores the team's goals
+  # across the WHOLE span (see #compute_points!), so two rows of one team on one
+  # entry would count that team twice.
+  #
+  # What stopped that before this validation was an accident: the slug is
+  # "<entry slug>-<team slug>", `index_selections_on_slug` is unique, and so the
+  # second row died as a raw PG::UniqueViolation that the pick endpoints echoed
+  # to the player. That index is still the race-safe backstop; this gives the
+  # rule a name, a clean message, and a test that does not depend on how a slug
+  # happens to be spelled.
+  #
+  # Only when the pick itself changes: scoring writes `points` through update!,
+  # and re-judging the team on every one of those would add a query per
+  # selection to every grade.
+  #
+  # (Down here, and every edit above kept line-for-line, on purpose: docs/workflows
+  # cites this file by line number and test/docs/workflow_citation_docs_test.rb
+  # holds those citations, so code inserted mid-file re-pins every number below it.)
+  validate :team_unique_within_entry, if: :will_save_change_to_slate_matchup_id?
+
+  def team_unique_within_entry
+    return unless entry && slate_matchup
+
+    taken = Selection.joins(:slate_matchup)
+                     .where(entry_id: entry.id, slate_matchups: { team_slug: slate_matchup.team_slug })
+                     .where.not(id: id)
+                     .exists?
+    errors.add(:base, "#{slate_matchup.team&.name || slate_matchup.team_slug} is already picked in this entry") if taken
+  end
 end

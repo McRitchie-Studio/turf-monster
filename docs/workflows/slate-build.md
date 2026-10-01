@@ -264,8 +264,8 @@ Every **non-test** caller, for reference (a dozen more live under `test/`):
 |---|---|
 | Contest creation — `ContestsController#resolve_span_slate` | `app/controllers/contests_controller.rb:2380` |
 | Demo seed — `#seed_nfl_demo_contest!` | `db/seeds/nfl_demo_contest.rb:51` |
-| E2E seed — span 15-17, `Nfl::BuildSpanSlate.call` | `e2e/seed.rb:114` |
-| E2E seed — span 1-3, `Nfl::BuildSpanSlate.call` | `e2e/seed.rb:238` |
+| E2E seed — span 15-17, `Nfl::BuildSpanSlate.call` | `e2e/seed.rb:115` |
+| E2E seed — span 1-3, `Nfl::BuildSpanSlate.call` | `e2e/seed.rb:239` |
 
 `Nfl::BuildSpanSlate#call` (`app/services/nfl/build_span_slate.rb:31-56`) assembles one
 slate from the weekly ones. It **refuses rather than truncates**: `#source_slates` raises on

@@ -1,0 +1,14 @@
+<%# The agent API keys card on a page of its own. Reached through the card's
+    Turbo Frame, which takes only the frame out of this response, and directly
+    by a browser without Turbo, which gets the whole page. Locals: card, the
+    state the controller is answering with (see ApiKeysController#render_card). %>
+<div class="max-w-2xl mx-auto">
+  <h1 class="text-2xl font-extrabold text-heading mb-8">Account Settings</h1>
+
+  <div class="card shadow p-6 mb-6">
+    <h2 class="text-lg font-bold text-heading mb-4">Agent API keys</h2>
+    <%= render "accounts/api_keys_section", user: current_user, blocked_reason: api_key_mint_blocker, **card %>
+  </div>
+
+  <%= link_to "Back to account", account_path, class: "btn btn-outline w-full", data: { turbo_frame: "_top" } %>
+</div>

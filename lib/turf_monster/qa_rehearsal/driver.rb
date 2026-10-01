@@ -209,7 +209,11 @@ module TurfMonster
             picks_required: contest.picks_required,
             payouts: contest.payouts,
             prize_pool_cents: contest.guaranteed_prize_cents,
-            matchup_ids: contest.matchups.order(:id).pluck(:id),
+            # PICKABLE rows, not every matchup: the rehearsal slate is a span,
+            # and the pick endpoints refuse the later-week row of a team.
+            # Spelled with pickable_matchups, not pickable_matchup_ids, because
+            # this runs inside the DEPLOYED app, which may be a release behind.
+            matchup_ids: contest.pickable_matchups.map(&:id).sort,
             locks_at: contest.starts_at&.iso8601,
             minted: minted,
             kickoff_shift_seconds: shift

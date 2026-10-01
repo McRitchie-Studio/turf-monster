@@ -81,6 +81,9 @@ class User < ApplicationRecord
   # is kept dormant (no migration) but there is no longer a password= setter or #authenticate.
   has_one_attached :avatar
   has_many :entries, dependent: :destroy
+  # Agent API keys (docs/AGENT_API.md). Destroyed with the account: a key
+  # outliving its player would be a credential for nobody.
+  has_many :api_keys, dependent: :destroy
   has_many :transaction_logs, dependent: :destroy
   has_many :stripe_purchases, dependent: :destroy
   has_many :cdp_ramp_transactions, dependent: :destroy
@@ -706,6 +709,21 @@ class User < ApplicationRecord
   # the same `current_user` reference across the request, so the memo holds.
   def entry_token_balance
     @entry_token_balance ||= cached_entry_tokens.count { |t| !t[:consumed] }
+  end
+
+  # The same count, but an unreadable chain RAISES instead of reading as zero.
+  #
+  # #cached_entry_tokens swallows an RPC failure into [] so a render never
+  # 500s on a flaky node — right for a navbar badge, wrong for anything that
+  # REPORTS the number to a caller who will act on it (the agent API): "you
+  # have no free entries" and "we could not tell" are different answers. Shares
+  # the same 60s cache key, so it costs no extra RPC when the badge is warm.
+  def entry_token_balance!
+    return 0 unless solana_connected?
+
+    Rails.cache.fetch(entry_tokens_cache_key, expires_in: 60.seconds) do
+      Solana::Vault.new.list_entry_tokens(solana_address)
+    end.count { |t| !t[:consumed] }
   end
 
   # Returns the first unconsumed EntryTokenAccount PDA for this user, or nil.

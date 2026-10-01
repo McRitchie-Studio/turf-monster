@@ -1,5 +1,16 @@
 # Bot API — Planned (design only)
 
+> **SUPERSEDED IN PART (2026-09-30). Read [`AGENT_API.md`](AGENT_API.md) first.**
+> An agent API now exists at `/api/v1`, and it does **not** authenticate the way
+> this page proposes. The shipped credential is an API key the player mints on
+> their account page and sends as `Authorization: Bearer <key>`; there is no
+> `POST /api/v1/auth`, no nonce endpoint and no `tm_bot_` session token. The
+> status note below ("no `/api/v1/*` routes exist") is no longer true, and the
+> rate limit this page quotes (60/min per token) is not the shipped one
+> (120/min per key). The wallet-signature sign-in sketched here is kept as
+> design input for a later wallet-agent path; the endpoint shapes below are
+> proposals, not contracts.
+
 REST API for headless bot agents to interact with Turf Monster programmatically. Bots would join contests, make selections, and submit entries without a browser.
 
 > **Status (2026-05-23): DESIGN ONLY — NOT IMPLEMENTED. No `/api/v1/*` routes exist in `config/routes.rb` and no controllers under `app/controllers/api/v1/`. This doc describes a future surface.**

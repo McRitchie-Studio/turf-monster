@@ -47,7 +47,7 @@ class Entry < ApplicationRecord
     raise "Contest has locked — entries closed" if contest.locks_at && Time.current >= contest.locks_at
 
     existing = selections.find_by(slate_matchup: slate_matchup)
-
+    assert_pickable!(slate_matchup) unless existing # only ADDING is gated; a held row can always come out
     if existing
       existing.destroy!
     elsif selections.count < contest.picks_required
@@ -83,7 +83,7 @@ class Entry < ApplicationRecord
     new_ids = matchup_ids.map(&:to_i).uniq
     raise "Exactly #{contest.picks_required} selections required" unless new_ids.size == contest.picks_required
 
-    new_matchups = contest.slate.slate_matchups.where(id: new_ids).includes(:team, :game).to_a
+    new_matchups = contest.slate.slate_matchups.where(id: new_ids & contest.pickable_matchup_ids).includes(:team, :game).to_a
     raise "Invalid matchup selection" unless new_matchups.size == contest.picks_required
 
     current_ids = selections.pluck(:slate_matchup_id)
@@ -136,7 +136,7 @@ class Entry < ApplicationRecord
     end
 
     raise "Exactly #{contest.picks_required} selections required" unless selections.count == contest.picks_required
-
+    assert_pickable!(*selections.includes(:slate_matchup).map(&:slate_matchup)) # backstop for a cart built before the writers checked
     # Check no locked games
     selections.includes(slate_matchup: :game).each do |s|
       raise "#{s.slate_matchup.team.name}'s game has already started" if s.slate_matchup.locked?
@@ -396,5 +396,32 @@ class Entry < ApplicationRecord
 
   def name_slug
     "#{user.display_name.parameterize}-#{contest.name_slug}-#{id}"
+  end
+
+  private
+
+  # A pick is a TEAM, anchored on the row Contest#pickable_matchups offers: on a
+  # span slate, the team's first game. Every later game of the span is a real
+  # SlateMatchup on the same slate, so a hand-built request can name one, and
+  # until this guard both pick writers accepted it. That let a team be named by
+  # a row the board never renders, whose own kickoff (the per-game lock) is
+  # weeks after the team's first game, and whose id differs from the anchor's,
+  # so the same six teams read as a different lineup to the duplicate-combo
+  # check in #assert_enterable!.
+  #
+  # #update_picks! applies the same rule inside its lookup: a non-pickable id
+  # drops out of the query, and the size check refuses the set.
+  #
+  # (Down here, and every edit above kept line-for-line, on purpose: docs/workflows
+  # cites this file by line number and test/docs/workflow_citation_docs_test.rb
+  # holds those citations, so code inserted mid-file re-pins every number below it.)
+  def assert_pickable!(*slate_matchups)
+    pickable_ids = contest.pickable_matchup_ids
+
+    slate_matchups.each do |slate_matchup|
+      next if pickable_ids.include?(slate_matchup.id)
+
+      raise "#{slate_matchup.team.name} is not a pickable matchup in this contest"
+    end
   end
 end

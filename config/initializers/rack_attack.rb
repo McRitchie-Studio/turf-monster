@@ -238,6 +238,53 @@ class Rack::Attack
     req.ip if req.path.match?(%r{\A/contests/[^/]+/(toggle_selection|enter|clear_picks)\z})
   end
 
+  ### Throttle: the agent API (/api/) — its own tier (docs/AGENT_API.md)
+  # Every other rule in this file is an allowlist of browser paths, so a new
+  # route defaults to EXEMPT. These two are deliberately a PREFIX match
+  # instead: every endpoint added under /api/ is throttled the day it ships,
+  # with nobody having to remember this file.
+  #
+  # api/key — the real limit. Keyed on the bearer key, because that is the
+  # client: one agent, one player, whatever server it happens to call from.
+  # 120/min is far above an agent reading a board and filing an entry, and far
+  # below a loop that has lost the plot. The discriminator is a DIGEST of the
+  # key, so the raw key never becomes a cache key, and it needs no database
+  # read — a revoked or made-up key is still counted, against itself.
+  #
+  # api/ip — the flood backstop, and why it is so much looser. Agents call
+  # from shared cloud egress (many players behind one provider's addresses),
+  # so a tight per-IP cap would throttle strangers for each other's traffic.
+  # But api/key alone can be sidestepped by sending a different made-up key on
+  # every request, each landing in its own empty bucket and each costing an
+  # indexed lookup. 600/min per address caps that without touching real use.
+  API_PATH_PREFIX = "/api/".freeze
+  API_BEARER_PATTERN = /\ABearer\s+(\S+)\s*\z/i
+
+  def self.api_request?(req)
+    req.path.start_with?(API_PATH_PREFIX)
+  end
+
+  def self.api_key_discriminator(req)
+    token = req.env["HTTP_AUTHORIZATION"].to_s[API_BEARER_PATTERN, 1]
+    token.present? ? Digest::SHA256.hexdigest(token)[0, 32] : nil
+  end
+
+  throttle("api/key", limit: 120, period: 1.minute) do |req|
+    api_key_discriminator(req) if api_request?(req)
+  end
+
+  throttle("api/ip", limit: 600, period: 1.minute) do |req|
+    req.ip if api_request?(req)
+  end
+
+  ### Throttle: agent API key mint — row-growth backstop
+  # Authenticated and capped at ApiKey::MAX_ACTIVE_PER_USER live keys, but a
+  # mint-revoke loop would still grow api_keys without bound. A person makes a
+  # key a handful of times a year.
+  throttle("api_key_mint/ip", limit: 10, period: 1.hour) do |req|
+    req.ip if req.post? && req.path == "/account/api_keys"
+  end
+
   ### Response: throttled requests get 429
   # Tier tag drives the client: tier-1 "general" 429s open the global wait
   # modal (via authedFetch); "auth"-surface 429s keep their own inline UX.
@@ -255,6 +302,18 @@ class Rack::Attack
     retry_after = match_data[:period].to_i
     matched     = request.env["rack.attack.matched"].to_s
     tier        = AUTH_THROTTLE_NAMES.include?(matched) ? "auth" : "general"
+
+    # The agent API answers in ITS envelope ({ error: { code, message } }), the
+    # one shape every /api/ response uses, so a client needs a single error
+    # parser. No X-RateLimit-Tier: that header drives the browser's wait modal.
+    if api_request?(request)
+      next [
+        429,
+        { "Content-Type" => "application/json", "Retry-After" => retry_after.to_s },
+        [{ error: { code: "rate_limited", message: "Too many requests. Retry after #{retry_after} seconds." },
+           retry_after: retry_after }.to_json]
+      ]
+    end
 
     [
       429,
