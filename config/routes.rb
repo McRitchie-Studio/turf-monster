@@ -296,7 +296,7 @@ Rails.application.routes.draw do
   # rather than a second spelling of the same endpoint.
   namespace :api, defaults: { format: :json } do
     namespace :v1 do
-      get "me", to: "me#show", format: false
+      draw :api_v1 # config/routes/api_v1.rb; kept out of this file so its cited line numbers hold
     end
   end
 
