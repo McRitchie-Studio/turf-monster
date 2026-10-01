@@ -661,6 +661,16 @@ Rails.application.routes.draw do
   # this app held all four, and drawing them alongside these would have raised
   # `Invalid route name, already in use` at route-load.
 
+  # Playing through an AI agent (docs/AGENT_API.md, "The agent pages"): the page
+  # a person reads, the agent guide as a page and as plain Markdown, and the
+  # pointer file agents look for. Drawn down here, below every line
+  # docs/workflows cites, so no citation moves. The `.md` spelling comes first:
+  # `agents/guide` takes an optional format and would otherwise claim it.
+  get "agents",          to: "agents#show",           as: :agents
+  get "agents/guide.md", to: "agents#guide_markdown", as: :agents_guide_markdown, format: false
+  get "agents/guide",    to: "agents#guide",          as: :agents_guide, format: false
+  get "llms.txt",        to: "agents#llms",           as: :llms_txt, format: false
+
   # Test-only endpoints — exercised by Playwright e2e specs to seed
   # OAuth mock payloads and force referral cache values without staging
   # full signup flows. Guarded to non-production so Playwright (which runs
