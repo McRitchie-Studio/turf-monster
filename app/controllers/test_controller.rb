@@ -104,6 +104,16 @@ class TestController < ApplicationController
       Rails.logger.warn "[reseed] non-core user cleanup failed: #{e.class}: #{e.message[0,160]}"
     end
 
+    # Agent API keys minted by a prior spec. The core users are never wiped, so
+    # a key made for the seeded admin would otherwise still be listed — and
+    # still count toward ApiKey::MAX_ACTIVE_PER_USER — in every later spec.
+    begin
+      api_key_count = ApiKey.delete_all
+      cleared << "api_keys(#{api_key_count})" if api_key_count > 0
+    rescue => e
+      Rails.logger.warn "[reseed] api key cleanup failed: #{e.class}: #{e.message[0,160]}"
+    end
+
     # Wipe core users' entries too — survivor.spec.js's "logged-in user
     # can enter and make a round-1 pick" logs in as mason (core, id=3)
     # and POSTs /contests/world-cup-survivor/enter. A prior run's entry
