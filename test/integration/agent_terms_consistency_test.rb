@@ -88,6 +88,14 @@ class AgentTermsConsistencyTest < ActionDispatch::IntegrationTest
     assert_no_match(/unfair advantage/i, text)
   end
 
+  # The date is the day the wording last changed, not the day of the visit:
+  # the Terms tell the reader to judge a change by it. Move it with the copy.
+  test "the Terms' last-updated date is fixed at the day of the approved change" do
+    travel_to Time.zone.local(2027, 3, 15, 12) do
+      assert_includes squish(terms_doc.text), "Last updated October 01, 2026."
+    end
+  end
+
   test "every phrase this guard holds the pages to is in the approved Terms text" do
     (PROHIBITIONS + PERMISSION).each { |phrase| assert_includes AI_AGENTS, phrase }
     assert_match RESPONSIBILITY, AI_AGENTS
