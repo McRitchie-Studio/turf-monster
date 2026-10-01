@@ -486,7 +486,6 @@ class Entries::ApiSubmissionTest < ActiveSupport::TestCase
   test "a confirmed API entry announces the join and nudges the level-up mint" do
     nudges = []
     @vault.sync_balance_seeds = 75
-    @contest.update!(chat_enabled: true) if @contest.respond_to?(:chat_enabled=)
 
     LevelUpTokenMintJob.stub :nudge, ->(user, seeds_total:) { nudges << [user.id, seeds_total] } do
       submit
@@ -494,6 +493,6 @@ class Entries::ApiSubmissionTest < ActiveSupport::TestCase
 
     assert_equal [[@user.id, 75]], nudges
     assert_equal 1, TransactionLog.where(user: @user, transaction_type: "entry_fee").count
-    assert_equal 1, Message.where(contest: @contest, user: @user, system: true).count if @contest.chat_enabled?
+    assert_equal 1, Message.where(contest: @contest, user: @user, system: true).count
   end
 end
