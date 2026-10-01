@@ -70,7 +70,7 @@ grep -n '^  throttle("' config/initializers/rack_attack.rb
 | Interactive | `general/ip` | 90 / 60s | ip (tier-1 limiter — toggle_selection / enter / clear_picks) |
 | Agent API | `api/key` | 120 / min | SHA-256 digest of the bearer key (every path under `/api/`, any verb) |
 | Agent API | `api/ip` | 600 / min | ip (every path under `/api/`; flood backstop, loose because agents share cloud egress) |
-| Agent API | `api_key_mint/ip` | 10 / hour | ip (`POST /account/api_keys`) |
+| Agent API | `api_key_mint/ip` | 10 / hour | ip (`POST /account/api_keys`, in every spelling the router sends to the mint: `.html`, any other format, a trailing slash). The 429 is JSON with no keys card in it, so the card's form reads the status and shows its own message. |
 
 Key facts that constrain the design:
 

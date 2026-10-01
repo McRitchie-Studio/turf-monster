@@ -281,8 +281,18 @@ class Rack::Attack
   # Authenticated and capped at ApiKey::MAX_ACTIVE_PER_USER live keys, but a
   # mint-revoke loop would still grow api_keys without bound. A person makes a
   # key a handful of times a year.
+  #
+  # The pattern is every spelling the router sends to api_keys#create: the
+  # route takes an optional format and Rails ignores a trailing slash, so
+  # `/account/api_keys.html` mints a key exactly as the bare path does. It does
+  # not reach `/account/api_keys/:id` (the revoke).
+  #
+  # Its 429 is this file's JSON, not the keys card, so the card's form reads
+  # the status and says so itself (accounts/_api_keys_section).
+  API_KEY_MINT_PATH = %r{\A/account/api_keys(?:\.[^/]*)?/?\z}
+
   throttle("api_key_mint/ip", limit: 10, period: 1.hour) do |req|
-    req.ip if req.post? && req.path == "/account/api_keys"
+    req.ip if req.post? && req.path.match?(API_KEY_MINT_PATH)
   end
 
   ### Response: throttled requests get 429

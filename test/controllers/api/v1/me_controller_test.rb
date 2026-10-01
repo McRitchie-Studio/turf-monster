@@ -200,6 +200,31 @@ class Api::V1::MeControllerTest < ActionDispatch::IntegrationTest
     assert_api_error :unauthorized, "missing_api_key"
   end
 
+  # Two credentials for two different players on one request. The key is the
+  # one this surface reads; the cookie is not consulted, so it cannot win, and
+  # it cannot be acted on either (it stays signed in as itself afterwards).
+  test "a session cookie for one player and a bearer key for another resolves to the key's player" do
+    cookie_user = users(:sam)
+    log_in_as(cookie_user)
+    get account_path
+    assert_response :success, "the control: this session really is signed in"
+
+    get_me
+
+    assert_response :success
+    assert_equal @user.username, json.dig("user", "username")
+    assert_not_equal cookie_user.username, json.dig("user", "username")
+    assert_equal @key.prefix, json.dig("api_key", "prefix")
+    assert_not_includes response.body, cookie_user.solana_address
+
+    get account_path
+    assert_response :success
+    # The key's player holds a key and the cookie's player holds none, so an
+    # empty list is the session still being the cookie's player.
+    assert_select "turbo-frame#api_keys_card"
+    assert_select "turbo-frame#api_keys_card [data-api-key-row]", count: 0
+  end
+
   # --- what the browser stack would have done ------------------------------------
 
   test "an incomplete profile is answered, not redirected to the profile form" do
