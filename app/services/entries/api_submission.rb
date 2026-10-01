@@ -388,24 +388,26 @@ module Entries
 
     # What to do with an exception out of ManagedEntry. `managed` is nil when
     # the request never got that far.
-    def settle_failure(record, managed, error)
+    def settle_failure(record, managed, exception)
       spent = managed&.spend_attempted?
       entry = managed&.entry && Entry.find_by(id: managed.entry.id)
-      code, message = classify(error)
+      code, message = classify(exception)
       # A refusal is an answer, not a fault. A fault with no code is re-raised
       # below and logged once, by the controller.
-      log_error(error, record) unless error.is_a?(Entry::Refusal) || code.nil?
+      log_error(exception, record) unless exception.is_a?(Entry::Refusal) || code.nil?
 
       if entry && (spent || entry.active?)
         # The lock transaction committed. With a spend, that means the spend
         # landed and something after it failed (the durable capture): the row is
         # paid, finish it later. Without one, the entry confirmed and only the
         # bookkeeping after it failed. Either way the entry stands.
+        record.funding_method ||= managed.funding_method || "free"
+        record.token_consumed = managed.token_consumed? if record.token_consumed.nil?
         Entries::OnchainReconcileJob.perform_later(entry.id) if spent
         return pending(record)
       end
 
-      if spent && !chain_rejected?(error)
+      if spent && !chain_rejected?(exception)
         mark(record, state: "uncertain", spend_uncertain_at: Time.current, last_error_code: "chain_unavailable")
         return error(:chain_unavailable, retry_after: PENDING_RETRY_AFTER)
       end
@@ -414,40 +416,40 @@ module Entries
       # committed; remove it so no half-made entry survives a failed request.
       entry&.destroy!
       mark(record, state: "failed", entry: nil, spend_uncertain_at: nil, last_error_code: (code || :internal_error).to_s)
-      raise error if code.nil?
+      raise exception if code.nil?
 
       error(code, message, retry_after: (PENDING_RETRY_AFTER if code == :chain_unavailable))
     end
 
-    def chain_rejected?(error)
-      error.is_a?(Entry::Refusal) || error.message.to_s.match?(CHAIN_REJECTED)
+    def chain_rejected?(exception)
+      exception.is_a?(Entry::Refusal) || exception.message.to_s.match?(CHAIN_REJECTED)
     end
 
     # [code, message], or [nil, nil] for a fault that is ours (the controller
     # answers 500 and it is logged).
-    def classify(error)
-      if error.is_a?(Entry::Refusal)
-        code = error.code
+    def classify(exception)
+      if exception.is_a?(Entry::Refusal)
+        code = exception.code
         # Our own refusals already carry API wording; the model's are replaced
         # where they are written for the website, and kept where they name the
         # team or the limit.
-        message = MESSAGES.value?(error.message) ? error.message : (MESSAGES[code] || error.message)
+        message = MESSAGES.value?(exception.message) ? exception.message : (MESSAGES[code] || exception.message)
         message = MESSAGES[:no_entry_token_usdc_off] if code == :no_entry_token && @allow_usdc
-        message = error.message if DETAILED_CODES.include?(code)
+        message = exception.message if DETAILED_CODES.include?(code)
         return [code, message]
       end
 
-      reason = Solana::ErrorInterpreter.interpret(error, contest: @contest, mode: "web2").dig(:blocker, :reason)
+      reason = Solana::ErrorInterpreter.interpret(exception, contest: @contest, mode: "web2").dig(:blocker, :reason)
       code = BLOCKER_CODES[reason]
       return [code, MESSAGES[code] || "The contest refused this entry. Nothing was spent."] if code
-      return [:chain_unavailable, MESSAGES[:chain_unavailable]] if chain_error?(error)
+      return [:chain_unavailable, MESSAGES[:chain_unavailable]] if chain_error?(exception)
 
       [nil, nil]
     end
 
-    def chain_error?(error)
-      error.is_a?(Solana::Client::RpcError) || error.message.to_s.match?(CHAIN_REJECTED) ||
-        error.message.to_s.match?(/blockhash|timed out|timeout|connection (refused|reset)|network error/i)
+    def chain_error?(exception)
+      exception.is_a?(Solana::Client::RpcError) || exception.message.to_s.match?(CHAIN_REJECTED) ||
+        exception.message.to_s.match?(/blockhash|timed out|timeout|connection (refused|reset)|network error/i)
     end
 
     # ── Settling a doubt ─────────────────────────────────────────────────────
