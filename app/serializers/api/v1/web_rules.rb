@@ -20,7 +20,7 @@ module Api
       end
 
       def picks_visible?(entry, contest)
-        picks_visible_for?(entry, contest)
+        picks_visible_for?(entry, lock_memo(contest))
       end
 
       def spots_left(contest, entries_count)
@@ -28,6 +28,22 @@ module Api
       end
 
       private
+
+      # The helper asks `contest.locked?` once per entry, and for a contest with
+      # no starts_at that is a query for the slate's first kickoff each time: a
+      # leaderboard page paid one per row. The answer cannot change within a
+      # request, so the contest is handed to the helper behind a wrapper that
+      # asks once. The rule that runs is still the helper's.
+      class LockMemo < SimpleDelegator
+        def locked?
+          @locked = __getobj__.locked? unless defined?(@locked)
+          @locked
+        end
+      end
+
+      def lock_memo(contest)
+        (@lock_memos ||= {})[contest.id] ||= LockMemo.new(contest)
+      end
 
       def current_user
         @viewer

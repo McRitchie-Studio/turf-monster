@@ -65,9 +65,11 @@ module Api
 
         board = Board.new(contest, contest_locked: facts.locked?(contest))
         web_rules = WebRules.new(current_user)
+        writable = write_refusal.nil?
         rows = page_ids.filter_map { |id| entries[id] }.map do |entry|
           EntrySerializer.new(entry, contest: contest, facts: facts, board: board, ranks: ranks,
-                                     web_rules: web_rules, viewer: current_user).leaderboard_row
+                                     web_rules: web_rules, viewer: current_user,
+                                     writable: writable).leaderboard_row
         end
 
         render json: {
@@ -85,7 +87,7 @@ module Api
       # 400, not an empty list: `pending` in particular must not look like a
       # filter that happens to match nothing.
       def listed_statuses
-        return LISTED_STATUSES if params[:status].blank?
+        return LISTED_STATUSES if params[:status].nil? || params[:status] == ""
         return [params[:status]] if LISTED_STATUSES.include?(params[:status])
 
         render_api_error(:bad_request, "status must be one of: #{LISTED_STATUSES.join(', ')}.", status: :bad_request)
@@ -94,7 +96,7 @@ module Api
 
       def find_contest
         scope = current_user.admin? ? Contest.all : Contest.where.not(status: :pending)
-        scope.includes(:slate).find_by!(slug: params[:slug])
+        scope.includes(:slate).find_by!(slug: slug_param)
       end
 
       def serialize_contests(contests, facts: ContestFacts.for(contests))
@@ -102,11 +104,13 @@ module Api
         entry_counts = Entry.confirmed.where(contest_id: ids).group(:contest_id).count
         my_counts = current_user.entries.confirmed.where(contest_id: ids).group(:contest_id).count
         web_rules = WebRules.new(current_user)
+        writable = write_refusal.nil?
 
         contests.map do |contest|
           ContestSerializer.new(contest, facts: facts, web_rules: web_rules,
                                          entries_count: entry_counts[contest.id],
-                                         my_entries_count: my_counts[contest.id]).as_json
+                                         my_entries_count: my_counts[contest.id],
+                                         writable: writable).as_json
         end
       end
 

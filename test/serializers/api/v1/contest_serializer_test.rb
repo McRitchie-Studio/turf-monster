@@ -6,12 +6,12 @@ class Api::V1::ContestSerializerTest < ActiveSupport::TestCase
 
   setup { @contest = contests(:one) }
 
-  def serialize(entries_count: 2, my_entries_count: 0, viewer: users(:sam))
+  def serialize(entries_count: 2, my_entries_count: 0, viewer: users(:sam), writable: true)
     contest = Contest.includes(:slate).find(@contest.id)
     Api::V1::ContestSerializer.new(contest, facts: Api::V1::ContestFacts.for([contest]),
                                             web_rules: Api::V1::WebRules.new(viewer),
                                             entries_count: entries_count,
-                                            my_entries_count: my_entries_count).as_json
+                                            my_entries_count: my_entries_count, writable: writable).as_json
   end
 
   test "an open contest: identity, phase, money in cents, capacity and limits" do

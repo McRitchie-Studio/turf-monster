@@ -78,6 +78,10 @@ module ApiKeyAuthentication
     rescue_from StandardError, with: :render_api_unexpected_error
     rescue_from ActiveRecord::RecordNotFound, with: :render_api_not_found
     rescue_from ActionController::ParameterMissing, with: :render_api_bad_request
+    # A parameter of the wrong shape (Api::V1::StrictParams), and a body that
+    # is not the JSON it claims to be.
+    rescue_from ActionController::BadRequest, with: :render_api_bad_request
+    rescue_from ActionDispatch::Http::Parameters::ParseError, with: :render_api_malformed_body
 
     before_action :authenticate_api_key!
     # After authentication, so a keyless write is still a 401, not a 403.
@@ -185,6 +189,10 @@ module ApiKeyAuthentication
 
   def render_api_bad_request(exception)
     render_api_error(:bad_request, exception.message, status: :bad_request)
+  end
+
+  def render_api_malformed_body(_exception = nil)
+    render_api_error(:bad_request, "The request body is not valid JSON.", status: :bad_request)
   end
 
   # Anything unplanned: write the ErrorLog row an operator will look for, then

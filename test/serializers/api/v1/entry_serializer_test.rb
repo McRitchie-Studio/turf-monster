@@ -10,14 +10,15 @@ class Api::V1::EntrySerializerTest < ActiveSupport::TestCase
     @entry = enter!(@sam, @contest, fixture_matchups)
   end
 
-  def serializer(entry = @entry, viewer: @sam)
+  def serializer(entry = @entry, viewer: @sam, writable: true)
     contest = Contest.includes(:slate).find(@contest.id)
     facts = Api::V1::ContestFacts.for([contest])
     entry = Entry.includes(:user, selections: { slate_matchup: :team }).find(entry.id)
     Api::V1::EntrySerializer.new(entry, contest: contest, facts: facts,
                                         board: Api::V1::Board.new(contest, contest_locked: facts.locked?(contest)),
                                         ranks: Api::V1::Ranking.for_contests([contest.id])[contest.id],
-                                        web_rules: Api::V1::WebRules.new(viewer), viewer: viewer)
+                                        web_rules: Api::V1::WebRules.new(viewer), viewer: viewer,
+                                        writable: writable)
   end
 
   test "an own entry before lock: picks, provisional rank, no payout, editable" do

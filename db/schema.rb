@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_01_120000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_01_130000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -64,6 +64,31 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_120000) do
     t.index ["aeropay_transaction_id"], name: "index_aeropay_purchases_on_aeropay_transaction_id", unique: true
     t.index ["slug"], name: "index_aeropay_purchases_on_slug", unique: true
     t.index ["user_id"], name: "index_aeropay_purchases_on_user_id"
+  end
+
+  create_table "api_entry_requests", force: :cascade do |t|
+    t.boolean "allow_usdc", default: false, null: false
+    t.bigint "api_key_id"
+    t.datetime "attempted_at", null: false
+    t.integer "attempts", default: 0, null: false
+    t.bigint "contest_id", null: false
+    t.datetime "created_at", null: false
+    t.bigint "entry_id"
+    t.string "fingerprint", null: false
+    t.string "funding_method"
+    t.string "idempotency_key", null: false
+    t.string "last_error_code"
+    t.jsonb "matchup_ids", default: [], null: false
+    t.jsonb "response_body"
+    t.integer "response_status"
+    t.datetime "spend_uncertain_at"
+    t.string "state", default: "executing", null: false
+    t.boolean "token_consumed"
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["entry_id"], name: "index_api_entry_requests_on_entry_id"
+    t.index ["user_id", "contest_id", "state"], name: "index_api_entry_requests_on_user_id_and_contest_id_and_state"
+    t.index ["user_id", "idempotency_key"], name: "index_api_entry_requests_on_user_id_and_idempotency_key", unique: true
   end
 
   create_table "api_keys", force: :cascade do |t|
@@ -1042,6 +1067,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_120000) do
   add_foreign_key "active_storage_attachments", "active_storage_blobs", column: "blob_id"
   add_foreign_key "active_storage_variant_records", "active_storage_blobs", column: "blob_id"
   add_foreign_key "aeropay_purchases", "users"
+  add_foreign_key "api_entry_requests", "api_keys", on_delete: :nullify
+  add_foreign_key "api_entry_requests", "contests", on_delete: :cascade
+  add_foreign_key "api_entry_requests", "entries", on_delete: :nullify
+  add_foreign_key "api_entry_requests", "users", on_delete: :cascade
   add_foreign_key "api_keys", "users"
   add_foreign_key "coinflow_purchases", "users"
   add_foreign_key "contest_slates", "contests"
