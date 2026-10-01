@@ -1310,10 +1310,32 @@ that in the present tense and send chat users to Claude Code.
 be able to connect later: nothing that would make it so (see [What OAuth would
 need](#what-oauth-would-need)) has a go-ahead. They name the MCP endpoint only
 on the production host, render no key-shaped string, promise no grading or
-payout timing, do not say a payment cannot repeat, and say nothing about what
-the Terms allow an AI agent to do: only that the player is responsible for what
-their agent does on their account, with a link to the Terms.
+payout timing, and do not say a payment cannot repeat.
 `test/controllers/agents_controller_test.rb` holds each of those.
+
+**What the pages say about the Terms.** Until 2026-10-01 the pages said nothing
+about what the Terms allow an agent to do, because the Terms forbade "automated
+agents". The Terms' "Acceptable use" section (`app/views/pages/terms.html.erb`,
+the list item with id `ai-agents`) now carries wording Alex approved on
+2026-10-01, and it is binding copy: change it only on his word.
+
+> You may use an AI agent or other software to play through our official API,
+> on your own account and with your own API key. You remain responsible for
+> everything it does. Do not use automation to run more than one account, to
+> coordinate entries with other players, or to reach the game by any route
+> other than the official API.
+
+The pages restate that rule and link the Terms at `#ai-agents`: `/agents` in the
+paragraph under "What your key can and cannot do", the guide under "Before you
+start" in the section "What the Terms permit". Both name the same things
+and no others: the official API, the player's own account, the player's own
+key, the player's responsibility, and the three prohibitions (more than one
+account, coordinating entries with other players, any route other than the
+official API). The guide also says the official API is both the REST API and
+the MCP endpoint, so a tool-calling agent is not left to guess. The pages must
+not say more or less than the Terms do.
+`test/integration/agent_terms_consistency_test.rb` holds the Terms to the
+approved wording verbatim and each page to the Terms.
 
 | Piece | Where |
 |-------|-------|

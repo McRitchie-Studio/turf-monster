@@ -137,6 +137,27 @@ for (const theme of ["light", "dark"]) {
   });
 }
 
+// The Terms clause the agent pages restate (task terms-permit-api-agents): the
+// link under "What your key can and cannot do" opens the Terms AT the clause,
+// and the clause, one long list item, wraps inside a phone's width.
+test("the Terms link on /agents opens the Terms at the AI agent clause", async ({ page }) => {
+  await page.goto("/agents");
+  await page.locator('[data-test="agents-terms-rule"] a').click();
+  await expect(page).toHaveURL(/\/terms#ai-agents$/);
+  const clause = page.locator('[data-test="terms-ai-agents"]');
+  await expect(clause).toContainText("play through our official API");
+  await expect(clause).toBeInViewport();
+});
+
+for (const theme of ["light", "dark"]) {
+  test(`the Terms page does not scroll sideways at phone width (${theme})`, async ({ page }) => {
+    await useTheme(page, theme);
+    await page.goto("/terms#ai-agents");
+    await expect(page.locator('[data-test="terms-ai-agents"]')).toBeVisible();
+    expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
+  });
+}
+
 // A heading that is "in the viewport" can still be under the sticky navbar,
 // which is where these jumps landed while Turbo followed them: the heading's
 // scroll margin was ignored. toBeInViewport passed on a heading 16px short of
