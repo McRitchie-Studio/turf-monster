@@ -30,7 +30,7 @@
 #     403 `account_frozen` on every request that is not a GET or a HEAD, with
 #     nothing to remember: a new write endpoint is covered the day it is routed.
 #     Reads stay open, as they do on the web. A controller opts an action out
-#     by name — `allow_frozen_account_writes only: :dispatch` — and then owes
+#     by name — `allow_frozen_account_writes only: :call_tool` — and then owes
 #     the check itself.
 #   * The age gate, ON REQUEST. A key stamped `not_required` can outlive
 #     ENABLE_AGE_GATE being turned on, so an action that enters a contest

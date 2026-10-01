@@ -1196,7 +1196,13 @@
 # blank name inline, and the card revealing its form the moment the age gate is passed.
 # The frame swap, the clipboard write, the spinner and the confirm are browser facts no
 # lower tier can see.
-total_specs: 352
+#
+# 352 -> 355 (api-key-hardening-follow-ups): three more specs in e2e/agent_api_keys.spec.js.
+# The raw key is not on screen after leaving /account and pressing Back (Turbo restores a
+# snapshot with no request, so only a real history traversal can see what it kept); a
+# throttled mint and a refused revoke each say so inside the card (what Turbo does with a
+# response it cannot render is a browser fact).
+total_specs: 355
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1550,7 +1556,10 @@ allowed_skips: 4
 # 326 -> 331 (agent-api-key-foundation): the five agent API key specs described beside
 # total_specs above. All run in the chromium lane and none skips, so excluded holds at 17
 # and allowed_skips at 4. Derived with bin/e2e-lane-derive --write on this tree.
-executed: 331
+# 331 -> 334 (api-key-hardening-follow-ups): the three specs described beside total_specs
+# above. All run in the chromium lane and none skips, so excluded holds at 17 and
+# allowed_skips at 4. Derived with bin/e2e-lane-derive --write on this tree.
+executed: 334
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

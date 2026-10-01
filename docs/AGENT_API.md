@@ -23,6 +23,14 @@ card), gives it a name, and hands it to their agent.
 | Limit | 5 active keys per player |
 | Revoke | Any time, from the same card. Takes effect on the next request. |
 
+The new key is on screen only until the player dismisses it or leaves the page.
+The block that shows it is marked `data-turbo-temporary`, so the browser's Back
+button does not bring it back from Turbo's page snapshot.
+
+Creating keys is throttled to 10 an hour per IP address. Past that, the card
+says so and creates nothing. A revoke the server refuses (the key is no longer
+on the account, or the write failed) is also answered inside the card.
+
 ### Eligibility is checked when the key is created
 
 An API request comes from the agent's servers, so its IP address says nothing
@@ -39,6 +47,17 @@ the key:
 
 API requests do not repeat the location check. The 90-day lifetime is what
 bounds how old that verdict can get.
+
+Two things are asked again at request time, because the key's stamp cannot
+answer for them:
+
+- **The account hold.** A frozen account is refused on every request that is
+  not a `GET` or a `HEAD`. Reads keep working.
+- **Age, on endpoints that enter a contest.** A key stamped `not_required` was
+  created while the age gate was off. If the gate is turned on later, the stamp
+  does not excuse the player: the endpoint checks the player's own verification
+  and refuses with `age_verification_required` until they verify on the site.
+  No shipped endpoint asks yet; the entry endpoints will.
 
 ## Authentication
 
@@ -71,7 +90,8 @@ Branch on `code`. `message` is written for a person and may change.
 | 401 | `invalid_api_key` | The key is malformed or unknown |
 | 401 | `revoked_api_key` | The player revoked this key |
 | 401 | `expired_api_key` | The key is past its 90 days |
-| 403 | `account_frozen` | The account is on hold; actions that spend are refused. Reads still work. |
+| 403 | `account_frozen` | The account is on hold. Every request that is not a `GET` or `HEAD` is refused. Reads still work. |
+| 403 | `age_verification_required` | The age gate is on and the player has not verified their date of birth. The player verifies on the site; the same key then works. Returned only by endpoints that enter a contest. |
 | 400 | `bad_request` | A required parameter is missing |
 | 404 | `not_found` | No such resource |
 | 429 | `rate_limited` | Too many requests. The body also carries `retry_after` (seconds), and so does the `Retry-After` header. |
@@ -121,7 +141,7 @@ key works.
 | `wallet.address` | The player's Solana address, or `null` |
 | `free_entry_tokens` | Unspent free entries. **`null` means the balance could not be read just now**, not zero; ask again. |
 | `account.frozen` | `true` when the account is on hold |
-| `api_key.name` | The label the player gave the key, or `null` |
+| `api_key.name` | The label the player gave the key. Always present. |
 | `api_key.eligibility.age_gate` | `passed`, or `not_required` when the age gate was off at creation |
 
 This endpoint is read-only, so it answers for a frozen account.
@@ -131,7 +151,7 @@ This endpoint is read-only, so it answers for a frozen account.
 | Piece | Where |
 |-------|-------|
 | Key model | `app/models/api_key.rb` |
-| Bearer authentication, the error envelope, the freeze gate | `app/controllers/concerns/api_key_authentication.rb` |
+| Bearer authentication, the error envelope, the freeze gate, the age re-check | `app/controllers/concerns/api_key_authentication.rb` |
 | API base controller | `app/controllers/api/v1/base_controller.rb` |
 | Create and revoke | `app/controllers/api_keys_controller.rb` |
 | The eligibility gates, one answer for the card and the server | `ApplicationController#api_key_mint_blocker` |
@@ -140,10 +160,49 @@ This endpoint is read-only, so it answers for a frozen account.
 
 To add an endpoint, subclass `Api::V1::BaseController` and add the route inside
 the `namespace :api` block in `config/routes.rb`. Authentication, the error
-envelope and the throttle apply without further wiring. Put
-`before_action :require_unfrozen_account` on any action that spends money or a
-free entry. A surface that cannot inherit from the base controller includes
-`ApiKeyAuthentication` directly.
+envelope and the throttle apply without further wiring. A surface that cannot
+inherit from the base controller includes `ApiKeyAuthentication` directly and
+gets the same.
+
+### Write gates
+
+| Gate | Default | How an endpoint uses it |
+|------|---------|-------------------------|
+| Account hold | **On for every non-`GET`/`HEAD` request.** Nothing to add. | Opt an action out with `allow_frozen_account_writes only: :action`. That action then owes the check itself. |
+| Age gate | Off. An endpoint asks for it. | `before_action :require_age_verified` on any action that enters a contest. |
+| Location | Never re-checked. | Decided at key creation (Alex, 2026-09-30). |
+
+A write endpoint with one action per operation needs one line:
+
+```ruby
+class Api::V1::EntriesController < Api::V1::BaseController
+  before_action :require_age_verified, only: %i[create update]
+  # The account hold already covers create and update: they are not GETs.
+end
+```
+
+Each gate is also a plain question that renders nothing and returns `nil` or a
+`Refusal` (`code`, `message`, `status`): `frozen_account_refusal`,
+`age_gate_refusal`, and `write_refusal` for both, hold first. That form is for a
+surface where one action carries many operations and answers in its own
+envelope, such as an MCP endpoint dispatching tools through one `POST`:
+
+```ruby
+class McpController < ActionController::API
+  include ApiKeyAuthentication
+  allow_frozen_account_writes only: :call_tool   # read tools must stay open
+
+  def call_tool
+    if tool.writes? && (refusal = write_refusal)
+      return render json: tool_error(refusal.code, refusal.message)
+    end
+    # ...
+  end
+end
+```
+
+An action that opts out and then forgets to ask is open to a frozen account, so
+keep the opt-out to the one dispatching action.
 
 The API base controller is `ActionController::API`, not `ApplicationController`,
 on purpose: the browser stack's `allow_browser` guard, CSRF check, session-token
