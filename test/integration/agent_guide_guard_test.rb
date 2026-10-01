@@ -37,13 +37,8 @@ class AgentGuideGuardTest < ActionDispatch::IntegrationTest
     /\brefuse\(\s*:(\w+)/,
     /\brender_api_error\(\s*:(\w+)/,
     /\berror\(\s*:(\w+)/,
-    /code: "(\w+)"/
+    /(?<![\w_])code: "(\w+)"/ # the envelope's own key, not `last_error_code:` on a record
   ].freeze
-
-  # What an emitter pattern can catch that is an HTTP status, not a code. Named
-  # one by one: `not_found` and `bad_request` are statuses AND codes, so the
-  # whole status table cannot be subtracted.
-  NOT_CODES = %w[forbidden unprocessable_entity].freeze
 
   def fetch(path)
     get path
@@ -84,7 +79,7 @@ class AgentGuideGuardTest < ActionDispatch::IntegrationTest
       EMITTERS.flat_map { |pattern| source.scan(pattern).flatten }
     end
     codes += ApiKeyAuthentication::AUTH_ERRORS.keys.map(&:to_s)
-    codes.uniq - NOT_CODES
+    codes.uniq
   end
 
   test "every route the pages name is drawn by the app" do
