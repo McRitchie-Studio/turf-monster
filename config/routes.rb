@@ -297,6 +297,13 @@ Rails.application.routes.draw do
   namespace :api, defaults: { format: :json } do
     namespace :v1 do
       get "me", to: "me#show", format: false
+
+      # Read endpoints. Contests and entries are addressed by slug.
+      get "contests",                   to: "contests#index",       format: false
+      get "contests/:slug",             to: "contests#show",        format: false, as: :contest
+      get "contests/:slug/leaderboard", to: "contests#leaderboard", format: false, as: :contest_leaderboard
+      get "entries",                    to: "entries#index",        format: false
+      get "entries/:slug",              to: "entries#show",         format: false, as: :entry
     end
   end
 
