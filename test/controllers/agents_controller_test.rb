@@ -37,7 +37,9 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
       get path
 
       assert_no_match REAL_KEY_SHAPE, response.body
-      # The MCP endpoint is not built. A page naming one sends an agent to a 404.
+      # The MCP endpoint exists (POST /mcp, docs/AGENT_API.md "MCP"), but the
+      # public pages do not offer it yet: most claude.ai accounts cannot connect
+      # to it until it has OAuth, and whether the pages name it is Alex's call.
       assert_no_match(%r{/mcp\b}i, response.body.gsub(%r{<(script|style)\b.*?</\1>}m, ""))
     end
   end

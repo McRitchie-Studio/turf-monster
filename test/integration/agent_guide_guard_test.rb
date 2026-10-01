@@ -21,10 +21,17 @@ class AgentGuideGuardTest < ActionDispatch::IntegrationTest
   ROUTE = %r{\b(GET|POST|PATCH|PUT|DELETE) (/api/[A-Za-z0-9_/:.-]*[A-Za-z0-9_])}
   CATCH_ALL_CONTROLLER = "api/v1/errors".freeze
 
-  # Where an API error code can be written down.
+  # Where an API error code can be written down. The agent API has two
+  # surfaces over one set of operations: /api/v1 (the controllers) and /mcp
+  # (McpController and AgentMcp), and a refusal can be written in either or in
+  # the operations both call. All of it is scanned, so a code added anywhere an
+  # agent can be answered from needs a row in the guide.
   CODE_SOURCES = %w[
     app/controllers/api/**/*.rb
+    app/controllers/mcp_controller.rb
     app/controllers/concerns/api_key_authentication.rb
+    app/services/api/v1/operations/**/*.rb
+    app/services/agent_mcp/**/*.rb
     app/services/entries/**/*.rb
     app/models/entry.rb
     app/models/entry/**/*.rb
@@ -124,6 +131,41 @@ class AgentGuideGuardTest < ActionDispatch::IntegrationTest
 
   test "every error code the app emits is in the guide" do
     assert_empty emitted_codes - documented_codes, "the app emits error codes the guide has no row for"
+  end
+
+  # The operations are where the edit's own refusals are written, and the MCP
+  # files are where a second surface could grow codes of its own. If a glob
+  # stopped matching, both code tests would go on passing without them.
+  test "the scan reaches the operations and both surfaces" do
+    scanned = api_sources.map { |path| Pathname(path).relative_path_from(Rails.root).to_s }
+
+    %w[
+      app/controllers/api/v1/entries_controller.rb
+      app/controllers/mcp_controller.rb
+      app/services/api/v1/operations/edit_entry.rb
+      app/services/api/v1/operations/submit_entry.rb
+      app/services/agent_mcp/server.rb
+      app/services/agent_mcp/tool_result.rb
+      app/services/entries/api_submission.rb
+    ].each { |path| assert_includes scanned, path }
+
+    edit = source_without_comments(Rails.root.join("app/services/api/v1/operations/edit_entry.rb"))
+    found = EMITTERS.flat_map { |pattern| edit.scan(pattern).flatten }
+    assert_equal %w[contest_cancelled duplicate_lineup], found.sort, "the two refusals the edit adds are no longer seen where they are written"
+  end
+
+  # /mcp answers in the SAME envelope codes as /api/v1 and adds none: its own
+  # transport refusals (405, the Origin 403, a malformed message) are JSON-RPC
+  # errors with numeric codes, which is not this vocabulary. A new envelope
+  # code written in the MCP files would have no row in a guide that does not
+  # document /mcp, so it fails here first, by name.
+  test "the MCP surface emits no envelope code of its own" do
+    mcp = %w[app/controllers/mcp_controller.rb app/services/agent_mcp/**/*.rb]
+          .flat_map { |pattern| Dir.glob(Rails.root.join(pattern)) }
+    assert_operator mcp.size, :>=, 6
+    codes = mcp.flat_map { |path| EMITTERS.flat_map { |pattern| source_without_comments(path).scan(pattern).flatten } }.uniq
+
+    assert_equal %w[rate_limited], codes, "a code only /mcp emits needs a decision: a guide row, or a JSON-RPC error instead"
   end
 
   test "the scan sees the codes it was written to see" do

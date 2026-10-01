@@ -76,7 +76,7 @@ module Api
       end
 
       # What PATCH /api/v1/entries/:slug requires before it will replace picks
-      # (Api::V1::EntriesController#update and Entry#update_picks!): a caller
+      # (Api::V1::Operations::EditEntry and Entry#update_picks!): a caller
       # who may write, an active entry, a Turf Totals contest that is open, not
       # cancelled, and not past its lock time. A pick whose own game has kicked
       # off is frozen on top of this; each pick says so in its own `locked`.

@@ -277,6 +277,126 @@ class Rack::Attack
     req.ip if api_request?(req)
   end
 
+  ### Throttle: the MCP endpoint (/mcp) — the agent API for chat clients
+  # The same player traffic as /api/, through one path, so the same per-key
+  # limit. What differs is the per-IP side, because of WHO calls.
+  #
+  # A claude.ai connector does not call from the player's address. It calls
+  # from Anthropic's, and every player using a connector shares that range:
+  # "Anthropic's outbound traffic to your server originates from
+  # 160.79.104.0/21" (https://claude.com/docs/connectors/building/authentication,
+  # "Network reference", and https://platform.claude.com/docs/en/api/ip-addresses,
+  # "Outbound IP addresses"; both read 2026-10-01. The second page lists no
+  # outbound IPv6 range: 2607:6bc0::/48 is INBOUND, Anthropic's own API).
+  # A per-IP cap on players there is one cap shared by strangers, so one busy
+  # player could lock the rest out. So NO per-IP limit is put on a player at
+  # all, here or anywhere. The per-IP limit is on requests that have not shown
+  # they are a player.
+  #
+  # mcp/key            120/min on a digest of the bearer key. THE limit for a
+  #                    player. Its own bucket: /api/ traffic does not spend it.
+  #                    A JSON-RPC batch is charged one per message
+  #                    (mcp_charge_batch, called by McpController).
+  # mcp/unverified_ip  per address, for a request with no bearer key OR with a
+  #                    key this app has not yet seen authenticate. 30/min; 300
+  #                    inside Anthropic's range, where one address carries many
+  #                    people making their first request.
+  #
+  # "SEEN AUTHENTICATE" WITHOUT A DATABASE READ HERE. A bearer-shaped string
+  # proves nothing: a script can send a different made-up key on every request,
+  # each one a fresh mcp/key bucket and each costing a key lookup. So
+  # McpController, once a key has authenticated, writes a mark for its digest
+  # into this same cache (mcp_mark_verified, kept MCP_VERIFIED_TTL). The throttle
+  # reads the mark: one cache read, no database. A marked key is a player and
+  # is limited by mcp/key alone. An unmarked one counts against the address
+  # until its first request succeeds, which costs a real player one request of
+  # the 30. A revoked or expired key keeps its mark until it lapses; all that
+  # buys is 120 401s a minute.
+  #
+  # WHAT THIS DOES NOT STOP. Anthropic's range is not only claude.ai: anyone
+  # with an Anthropic API key can point the API's MCP connector at this
+  # endpoint with any token they like, so made-up keys CAN arrive from that
+  # range without a claude.ai account. They are held to 300/min per address.
+  # While such a flood lasts, a player whose key is not yet marked and whose
+  # request leaves through the same address gets a 429 on first contact;
+  # players already marked are untouched. And the address is the one the
+  # Heroku router wrote, never one the caller named
+  # (config/initializers/forwarded_headers.rb).
+  MCP_PATH = "/mcp".freeze
+  MCP_SHARED_EGRESS = [IPAddr.new("160.79.104.0/21")].freeze
+  MCP_KEY_LIMIT = 120
+  MCP_UNVERIFIED_LIMIT = 30
+  MCP_UNVERIFIED_SHARED_EGRESS_LIMIT = 300
+  MCP_VERIFIED_TTL = 24.hours
+
+  # Every spelling the router sends to McpController: Rails squeezes repeated
+  # slashes and ignores a trailing one.
+  def self.mcp_request?(req)
+    path = req.path.squeeze("/")
+    path = path.chomp("/") if path.length > 1
+    path == MCP_PATH
+  end
+
+  def self.mcp_shared_egress?(req)
+    address = IPAddr.new(req.ip.to_s)
+    MCP_SHARED_EGRESS.any? { |range| range.include?(address) }
+  rescue IPAddr::Error
+    false
+  end
+
+  def self.mcp_verified_cache_key(digest)
+    "mcp/verified:#{digest}"
+  end
+
+  # Has this bearer key authenticated here within MCP_VERIFIED_TTL? Memoised on
+  # the request: both throttles ask.
+  def self.mcp_verified?(req)
+    return req.env["mcp.key_verified"] if req.env.key?("mcp.key_verified")
+
+    digest = api_key_discriminator(req)
+    req.env["mcp.key_verified"] = digest.present? && cache.read(mcp_verified_cache_key(digest)).present?
+  rescue StandardError
+    # A cache that cannot be read must not let everything through unlimited.
+    req.env["mcp.key_verified"] = false
+  end
+
+  # Called by McpController after a key has authenticated. A cache write only
+  # when the mark is not already there.
+  def self.mcp_mark_verified(req)
+    return unless enabled
+    return if req.env["mcp.key_verified"]
+
+    digest = api_key_discriminator(req)
+    cache.write(mcp_verified_cache_key(digest), 1, MCP_VERIFIED_TTL) if digest
+  rescue StandardError => e
+    Rails.logger.warn("[rack-attack] mcp verified mark failed: #{e.class}")
+  end
+
+  # A batch reached the app as ONE request and was counted once. Charge the
+  # other messages to the key's bucket, and say whether that put it over.
+  def self.mcp_charge_batch(req, messages)
+    return false unless enabled
+
+    digest = api_key_discriminator(req)
+    return false if digest.nil? || messages < 2
+
+    count = nil
+    (messages - 1).times { count = cache.count("mcp/key:#{digest}", 1.minute.to_i) }
+    count.to_i > MCP_KEY_LIMIT
+  rescue StandardError => e
+    Rails.logger.warn("[rack-attack] mcp batch charge failed: #{e.class}")
+    false
+  end
+
+  throttle("mcp/key", limit: MCP_KEY_LIMIT, period: 1.minute) do |req|
+    api_key_discriminator(req) if mcp_request?(req)
+  end
+
+  unverified_limit = ->(req) { mcp_shared_egress?(req) ? MCP_UNVERIFIED_SHARED_EGRESS_LIMIT : MCP_UNVERIFIED_LIMIT }
+  throttle("mcp/unverified_ip", limit: unverified_limit, period: 1.minute) do |req|
+    req.ip if mcp_request?(req) && !mcp_verified?(req)
+  end
+
   ### Throttle: agent API key mint — row-growth backstop
   # Authenticated and capped at ApiKey::MAX_ACTIVE_PER_USER live keys, but a
   # mint-revoke loop would still grow api_keys without bound. A person makes a
@@ -316,7 +436,8 @@ class Rack::Attack
     # The agent API answers in ITS envelope ({ error: { code, message } }), the
     # one shape every /api/ response uses, so a client needs a single error
     # parser. No X-RateLimit-Tier: that header drives the browser's wait modal.
-    if api_request?(request)
+    # /mcp answers the same way: a 429 is HTTP, below JSON-RPC, as its 401 is.
+    if api_request?(request) || mcp_request?(request)
       next [
         429,
         { "Content-Type" => "application/json", "Retry-After" => retry_after.to_s },

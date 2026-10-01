@@ -290,7 +290,7 @@ Rails.application.routes.draw do
   get    "account/api_keys",     to: "api_keys#index",   as: :account_api_keys
   post   "account/api_keys",     to: "api_keys#create"
   delete "account/api_keys/:id", to: "api_keys#destroy", as: :account_api_key
-
+  draw :mcp # config/routes/mcp.rb: /mcp, the agent API as an MCP server. On a formerly blank line, so no cited line moves.
   # The agent API. Bearer-key authenticated (Api::V1::BaseController) — no
   # cookie, no CSRF. JSON only: `format: false` so a trailing ".html" is a 404
   # rather than a second spelling of the same endpoint.
