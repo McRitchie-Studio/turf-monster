@@ -233,7 +233,12 @@ class MiniMarkdown
       label = Regexp.last_match(1)
       target = CGI.unescapeHTML(Regexp.last_match(2))
       refuse!("link target outside this site, https or mailto", target) unless target.match?(LINK_TARGET)
-      %(<a href="#{h(target)}" class="text-primary hover:underline break-words">#{label}</a>)
+      # A link to a section of this page is left to the browser. Through Turbo
+      # the jump ignored the heading's scroll margin and landed it under the
+      # navbar (measured at 375px: 43px above the viewport, against 96px below
+      # its top for a plain anchor jump).
+      in_page = target.start_with?("#") ? %( data-turbo="false") : ""
+      %(<a href="#{h(target)}"#{in_page} class="text-primary hover:underline break-words">#{label}</a>)
     end
   end
 

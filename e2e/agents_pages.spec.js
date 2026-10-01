@@ -10,6 +10,10 @@ const { test, expect } = require("@playwright/test");
 //     tier below this one.
 //   * THE BUTTON IS REACHABLE WITHOUT SCROLLING. "At the top of the page" is a
 //     layout fact at a real viewport, with the real navbar above it.
+//   * A THUMB CAN HIT IT. Both copy buttons are measured against the 44px
+//     minimum; the first shipped at 38.
+//   * THE ENDPOINT TABLE CAN BE READ. Its second column once rendered about
+//     27px wide at this width, one word per line. Its width is measured.
 //   * NOTHING SCROLLS SIDEWAYS. The guide is full of long JSON and curl
 //     examples; each has to scroll inside its own box and leave the page alone.
 //     That is measured, in both themes, at 375 pixels.
@@ -17,6 +21,7 @@ const { test, expect } = require("@playwright/test");
 // No reseed and no sign-in: both pages are public and read no database row a
 // seed owns.
 const PHONE = { width: 375, height: 740 };
+const TAP_TARGET = 44;
 
 test.use({ viewport: PHONE, permissions: ["clipboard-read", "clipboard-write"] });
 
@@ -39,7 +44,8 @@ test("the starter prompt is copied to the clipboard from the top of /agents", as
   const box = await copy.boundingBox();
   expect(box.y + box.height).toBeLessThan(PHONE.height);
   // A real tap target, not the primitive's bare text link.
-  expect(box.height).toBeGreaterThanOrEqual(36);
+  expect(box.height).toBeGreaterThanOrEqual(TAP_TARGET);
+  expect(box.width).toBeGreaterThanOrEqual(TAP_TARGET);
 
   await copy.click();
   await expect(copy).toContainText("Copied");
@@ -49,6 +55,56 @@ test("the starter prompt is copied to the clipboard from the top of /agents", as
   // The whole prompt, line breaks included: a prompt flattened to one line is
   // still "the same words" and reads far worse to the model it is pasted into.
   expect(clipboard.split("\n\n").length).toBeGreaterThan(8);
+});
+
+test("the Claude Code command is copied whole, on one line, from a button a thumb can hit", async ({ page }) => {
+  await page.goto("/agents");
+
+  const shown = (await page.locator('[data-test="mcp-command"]').innerText()).trim();
+  expect(shown).toMatch(/^claude mcp add --transport http turf-monster https:\/\/\S+\/mcp --header "Authorization: Bearer \S+"$/);
+
+  const copy = page.locator('[data-test="mcp-command-copy"] button');
+  await copy.scrollIntoViewIfNeeded();
+  const box = await copy.boundingBox();
+  expect(box.height).toBeGreaterThanOrEqual(TAP_TARGET);
+  expect(box.width).toBeGreaterThanOrEqual(TAP_TARGET);
+
+  await copy.click();
+  await expect(copy).toContainText("Copied");
+  const clipboard = await page.evaluate(() => navigator.clipboard.readText());
+  // The block wraps on screen; the clipboard must not carry those wraps.
+  expect(clipboard).toBe(shown);
+  expect(clipboard).not.toContain("\n");
+
+  // The command is long and unbreakable by spaces alone: it wraps inside its
+  // box and does not push the page sideways.
+  const block = page.locator('[data-test="mcp-command"]');
+  expect(await block.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+});
+
+test("the endpoint table's second column is wide enough to read at phone width", async ({ page }) => {
+  await page.goto("/agents");
+  const table = page.locator('[data-test="agents-endpoints"]');
+  await table.scrollIntoViewIfNeeded();
+  const tableBox = await table.boundingBox();
+
+  const purposes = page.locator('[data-test="agents-endpoint-purpose"]');
+  const count = await purposes.count();
+  expect(count).toBeGreaterThanOrEqual(6);
+  for (let index = 0; index < count; index += 1) {
+    const cell = purposes.nth(index);
+    await expect(cell).toBeVisible();
+    const box = await cell.boundingBox();
+    // It regressed to about 27px. Stacked, it has the table's whole width;
+    // 200px is the floor that still reads as a sentence and not a column of
+    // single words.
+    expect(box.width).toBeGreaterThanOrEqual(200);
+    expect(box.width).toBeGreaterThanOrEqual(tableBox.width * 0.9);
+    // And every description fits on at most two lines.
+    expect(box.height).toBeLessThanOrEqual(56);
+  }
+  // Nothing in the table is wider than the table: no sideways scroll inside it.
+  expect(await table.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
 });
 
 for (const theme of ["light", "dark"]) {
@@ -81,9 +137,29 @@ for (const theme of ["light", "dark"]) {
   });
 }
 
+// A heading that is "in the viewport" can still be under the sticky navbar,
+// which is where these jumps landed while Turbo followed them: the heading's
+// scroll margin was ignored. toBeInViewport passed on a heading 16px short of
+// the top and failed when the guide grew. So the heading's own top is measured:
+// below the top of the viewport, and in its upper half.
+async function expectLandedOn(page, id) {
+  await expect(page).toHaveURL(new RegExp(`#${id}$`));
+  await expect
+    .poll(() => page.locator(`#${id}`).evaluate((el) => Math.round(el.getBoundingClientRect().top)))
+    .toBeGreaterThanOrEqual(40);
+  const top = await page.locator(`#${id}`).evaluate((el) => el.getBoundingClientRect().top);
+  expect(top).toBeLessThan(PHONE.height / 2);
+}
+
 test("a section link on the guide lands on that section", async ({ page }) => {
   await page.goto("/agents/guide");
   await page.locator('nav[aria-label="Sections"] a', { hasText: "How to win" }).click();
-  await expect(page).toHaveURL(/#how-to-win$/);
-  await expect(page.locator("#how-to-win")).toBeInViewport();
+  await expectLandedOn(page, "how-to-win");
+});
+
+test("a link inside the guide's text lands on its section, clear of the navbar", async ({ page }) => {
+  await page.goto("/agents/guide");
+  // The last section link in the page: from the MCP section back up to Errors.
+  await page.locator('[data-test="agent-guide"] article a[href="#errors"]').last().click();
+  await expectLandedOn(page, "errors");
 });

@@ -1208,7 +1208,14 @@
 # fold; /agents and /agents/guide do not scroll sideways in either theme while the guide's
 # code blocks and tables scroll inside their own boxes; a section link lands on its
 # section. Derived with bin/e2e-lane-derive --write after merging accepted.
-total_specs: 361
+#
+# 361 -> 364 (agent-pages-mcp-setup): three more specs in e2e/agents_pages.spec.js, at 375px.
+# The Claude Code command is copied whole and on one line from a button at least 44px tall;
+# the endpoint table's second column is measured (it had rendered about 27px wide); and a
+# link inside the guide's text lands its section clear of the navbar (through Turbo the jump
+# ignored the heading's scroll margin). Derived with bin/e2e-lane-derive --write on a tree
+# level with origin/accepted.
+total_specs: 364
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1565,7 +1572,7 @@ allowed_skips: 4
 # 331 -> 334 (api-key-hardening-follow-ups): the three specs described beside total_specs
 # above. All run in the chromium lane and none skips, so excluded holds at 17 and
 # allowed_skips at 4. Derived with bin/e2e-lane-derive --write on this tree.
-executed: 340
+executed: 343
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

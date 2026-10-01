@@ -74,6 +74,8 @@ class MiniMarkdownTest < ActiveSupport::TestCase
     assert_equal "allow_usdc", doc.at_css("p code").text
     assert_equal "only", doc.at_css("p strong").text
     assert_equal [ "#how-to-win", "https://example.test/terms" ], doc.css("p a").map { |a| a["href"] }
+    # A section link is the browser's to follow, not Turbo's; any other link is not marked.
+    assert_equal [ "false", nil ], doc.css("p a").map { |a| a["data-turbo"] }
   end
 
   test "bold may wrap a code span" do

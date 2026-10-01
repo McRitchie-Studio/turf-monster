@@ -3,6 +3,12 @@ require "test_helper"
 # [component] + [integration] The agent pages: /agents, /agents/guide, its
 # Markdown twin, and /llms.txt.
 #
+# EXPECTATION FLIPPED, ON PURPOSE (task agent-pages-mcp-setup). Until the MCP
+# endpoint merged, these tests held that no page named a connector address.
+# The pages now name it, so that assertion is gone and three took its place:
+# the address is production's, the command on the page really authenticates
+# against /mcp, and no page promises the Claude chat app a way in.
+#
 # What a server test can hold: the pages are public, the prompt on the page is
 # the prompt the copy button carries, the two forms of the guide are one text,
 # and the things these pages must never say are not said. That a tap really
@@ -14,10 +20,22 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
   # A user agent `allow_browser` would answer 406: what an LLM's fetch tool sends.
   AGENT_UA = { "User-Agent" => "python-requests/2.32" }.freeze
   PATHS = %w[/agents /agents/guide /agents/guide.md /llms.txt].freeze
+  HOST = TurfMonster::HostConfig::DEFAULT_APP_HOST
+  MCP_URL = "https://#{HOST}/mcp".freeze
+  # The command as Claude Code documents it for a remote server with a bearer
+  # token (https://code.claude.com/docs/en/mcp, read 2026-10-01). Typed here,
+  # not built from the app's constants: this is the test's own copy of what a
+  # friend must be able to paste.
+  CONNECT_COMMAND = %(claude mcp add --transport http turf-monster https://#{HOST}/mcp ) +
+                    %(--header "Authorization: Bearer PASTE_YOUR_API_KEY_HERE")
 
   def guide_markdown
     get agents_guide_markdown_path
     response.body
+  end
+
+  def guide_mcp_section
+    guide_markdown[/^## Playing through MCP\n(.*?)^## /m, 1]
   end
 
   def page_text(selector)
@@ -33,14 +51,27 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
       assert_response :success
     end
 
-    test "#{path} shows no key-shaped string and no connector address" do
+    test "#{path} shows no key-shaped string, and no MCP address but production's" do
       get path
 
       assert_no_match REAL_KEY_SHAPE, response.body
-      # The MCP endpoint exists (POST /mcp, docs/AGENT_API.md "MCP"), but the
-      # public pages do not offer it yet: most claude.ai accounts cannot connect
-      # to it until it has OAuth, and whether the pages name it is Alex's call.
-      assert_no_match(%r{/mcp\b}i, response.body.gsub(%r{<(script|style)\b.*?</\1>}m, ""))
+      addresses = response.body.gsub(%r{<(script|style)\b.*?</\1>}m, "").scan(%r{https?://[^\s"'<>)]+/mcp\b})
+      assert_includes addresses, MCP_URL
+      assert_empty addresses.uniq - [ MCP_URL ]
+    end
+
+    # A reviewer removed exactly this sentence once. Nothing that would let the
+    # chat app connect has a go-ahead, so no page may say it is on its way.
+    test "#{path} does not promise the Claude chat app a way to connect" do
+      get path
+      text = Nokogiri::HTML(response.body).text.gsub(/\s+/, " ")
+      # Every sentence about the chat app, a connector or OAuth; none may look
+      # forward. ("Coming soon" is a contest state, and is not one of them.)
+      about = text.split(/(?<=[.!?:])\s+/).grep(/claude\.ai|chat app|connector|OAuth/i)
+      assert_operator about.size, :>=, 1, "the page no longer says anything about the chat app" unless path == "/llms.txt"
+
+      looking_forward = about.grep(/\b(soon|coming|planned|roadmap|yet|until|later|will|going to|in the works|on the way)\b/i)
+      assert_empty looking_forward
     end
   end
 
@@ -67,6 +98,57 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
     order = page.css("h1, h2").map(&:text)
     assert_equal "Starter prompt", order[1]
     assert_operator order.index("Starter prompt"), :<, order.index("Three steps")
+  end
+
+  # ── The second way in: Claude Code over MCP ─────────────────────────────────
+
+  test "/agents shows the Claude Code command once, after the starter prompt, and the copy button carries it" do
+    get agents_path
+    page = Nokogiri::HTML(response.body).at_css('[data-test="agents-page"]')
+
+    shown = page.at_css('[data-test="mcp-command"]').text
+    assert_equal CONNECT_COMMAND, shown
+    assert_equal shown, page.at_css('[data-test="mcp-command-copy"] button')["data-copy-text"]
+    assert_equal 1, shown.lines.size, "one line: a continuation backslash does not paste into every shell"
+
+    order = page.css("h1, h2").map(&:text)
+    assert_operator order.index("Starter prompt"), :<, order.index("Connect Claude Code")
+    assert_operator order.index("Three steps"), :<, order.index("Connect Claude Code")
+    # What to say once connected, and how to undo it.
+    assert_match(/Ask me before you enter anything/, page.text)
+    assert_includes page.text, "claude mcp remove turf-monster"
+  end
+
+  test "the guide prints the same command the page does" do
+    assert_includes guide_markdown, "```bash\n#{CONNECT_COMMAND}\n```"
+  end
+
+  test "the header in the command is the one /mcp authenticates" do
+    key = ApiKey.mint!(user: users(:sam), name: "Claude", geo_country: "US", geo_state: "CO", age_result: "not_required")
+    url, header = CONNECT_COMMAND.match(/ (https:\S+) --header "([^"]+)"\z/).captures
+    name, value = header.split(": ", 2)
+    path = URI(url).path
+    body = { jsonrpc: "2.0", id: 1, method: "initialize",
+             params: { protocolVersion: AgentMcp::Protocol::LATEST, capabilities: {}, clientInfo: { name: "test", version: "1" } } }
+
+    post path, params: body.to_json, headers: { "Content-Type" => "application/json", name => value }
+    assert_response :unauthorized, "the placeholder is not a key"
+
+    post path, params: body.to_json,
+               headers: { "Content-Type" => "application/json", name => value.sub("PASTE_YOUR_API_KEY_HERE", key.raw_token) }
+    assert_response :success
+    assert_equal "turf-monster", response.parsed_body.dig("result", "serverInfo", "name")
+  end
+
+  test "/agents says plainly which Claude works today" do
+    get agents_path
+    clients = page_text('[data-test="agents-clients"]')
+
+    assert_match(/Claude Code works today/, clients)
+    assert_match(/Claude chat app \(claude\.ai and the desktop and phone apps\) does not work for most people today/, clients)
+    # Anthropic's own description of the header option, not ours.
+    assert_match(/a beta open to a limited set of organizations/, clients)
+    assert_match(/use Claude Code for this instead/, clients)
   end
 
   test "the starter prompt says what a cold model needs" do
@@ -190,6 +272,7 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
       "What Turf Monster is", "The rules of Turf Totals", "Scoring", "Contest lifecycle", "Locks",
       "Entry limits and duplicate lineups", "Prizes, ties and short fields", "Eligibility",
       "Free entry tokens and funding", "Endpoints", "Errors", "Retries and idempotency", "Rate limits",
+      "Playing through MCP",
       "Results and payouts", "What the API cannot do yet", "How to win"
     ].each { |section| assert_includes sections, section }
   end
@@ -203,6 +286,13 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
     assert_includes markdown, "Entry score: **#{format('%.1f', TurfMonsterRules.lineup_total)}**"
     AgePolicy::MINIMUM_AGE_BY_STATE.each_key { |state| assert_includes markdown, state }
     Studio::GeoSetting.banned_subdivision_codes.each { |state| assert_includes markdown, state }
+
+    mcp = guide_mcp_section
+    mcp_key = Rack::Attack.throttles.fetch("mcp/key")
+    assert_includes mcp, "| #{mcp_key.limit} requests per #{mcp_key.period.to_i} seconds | The API key."
+    assert_includes mcp, "| #{Rack::Attack::MCP_UNVERIFIED_LIMIT} requests per 60 seconds (#{Rack::Attack::MCP_UNVERIFIED_SHARED_EGRESS_LIMIT} from"
+    AgentMcp::Protocol::VERSIONS.each { |version| assert_includes mcp, "`#{version}`" }
+    assert_includes mcp, "at most #{AgentMcp::Protocol::MAX_BATCH} messages"
 
     # The example board obeys the pricing rule the guide states: rank 5 of 6,
     # one game of two.
@@ -254,6 +344,34 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
       assert_no_match(/(never|not|cannot|can't|won't) (\w+ )?pay(s)? (\w+ )?twice/i, text)
       assert_no_match(/never (be )?(charged|spen[dt]) twice/i, text)
     end
+  end
+
+  test "the MCP section says what an agent on that surface must not get wrong" do
+    mcp = guide_mcp_section
+
+    assert_includes mcp, "`POST #{MCP_URL}`"
+    assert_match(/`Authorization: Bearer <the key>`, on every request, `initialize` included/, mcp)
+    assert_match(/Revision `2026-07-28` is not spoken/, mcp)
+    assert_match(/A tool result is the REST response body/, mcp)
+    assert_match(/do not tell the player they are entered until a call returns an entry/, mcp)
+    assert_match(/takes the `Idempotency-Key` as its `idempotency_key` argument/, mcp)
+    assert_match(/\*\*same\*\* `idempotency_key`/, mcp)
+    assert_match(/\*\*new\*\* `idempotency_key`/, mcp)
+    assert_match(/One key works on both surfaces, and the idempotency record is shared/, mcp)
+    assert_match(/cannot connect for most accounts/, mcp)
+  end
+
+  # The old advice was "send the original body", which is the request that
+  # just failed when the key's entry was removed by a contest reset
+  # (Entries::ApiSubmission#replay). test/controllers/api/v1/entry_writes_test.rb
+  # holds the behaviour; this holds the words.
+  test "the idempotency_key_reused row ends: it never leaves the agent resending one request" do
+    row = guide_markdown.lines.find { |line| line.include?("| `idempotency_key_reused` |") }
+
+    assert_match(/removed because its contest was reset/, row)
+    assert_match(/Stop sending this request with this key/, row)
+    assert_match(/send the original body once/, row)
+    assert_match(/only with a new key and the player's yes/, row)
   end
 
   test "allow_usdc is documented as a JSON boolean" do

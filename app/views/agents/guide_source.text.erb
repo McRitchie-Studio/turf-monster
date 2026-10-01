@@ -44,6 +44,41 @@
   example_bye_score = SlateMatchup.turf_score_for(5, 6, sport: "nfl", game_factor: Slate.game_factor(2, 1))
   example_bye_points = (17 * example_bye_score).round(1)
   example_entry_score = (31.0 + example_bye_points).round(1)
+
+  # The MCP endpoint. The tools, their arguments, the revisions and the limits
+  # are read from the registry and the constants the endpoint itself runs on.
+  # The one thing typed here is which REST request each tool stands for; a tool
+  # with no line below fails the render, and the guard test holds each line to
+  # the operation that tool really runs.
+  mcp_tools = AgentMcp::Tools::ALL
+  mcp_rest = {
+    "get_me" => "GET /api/v1/me",
+    "list_contests" => "GET /api/v1/contests",
+    "get_contest" => "GET /api/v1/contests/:slug",
+    "get_leaderboard" => "GET /api/v1/contests/:slug/leaderboard",
+    "list_my_entries" => "GET /api/v1/entries",
+    "get_entry" => "GET /api/v1/entries/:slug",
+    "submit_entry" => "POST /api/v1/contests/:slug/entries",
+    "edit_entry" => "PATCH /api/v1/entries/:slug"
+  }
+  mcp_effect = { "submit_entry" => "Yes: spends a free entry token, or USDC", "edit_entry" => "Yes: replaces the picks" }
+  mcp_arguments = lambda do |tool|
+    schema = tool.input_schema
+    names = schema[:properties].keys
+    next "none" if names.empty?
+
+    names.map { |name| schema[:required].include?(name) ? "**`#{name}`**" : "`#{name}`" }.join(", ")
+  end
+  mcp_argument_rows = mcp_tools.flat_map { |tool| tool.input_schema[:properties].to_a }.uniq(&:first)
+  mcp_type = lambda do |schema|
+    next "list of #{schema[:items][:type]}s" if schema[:type] == "array"
+
+    schema[:enum] ? schema[:enum].map { |value| "`#{value}`" }.join(" or ") : schema[:type]
+  end
+  mcp_versions = AgentMcp::Protocol::VERSIONS
+  mcp_key_throttle = Rack::Attack.throttles.fetch("mcp/key")
+  mcp_meta = AgentMcp::ToolResult::META
+  rpc = AgentMcp::Protocol
 -%>
 # Turf Monster agent guide
 
@@ -72,6 +107,8 @@ You need an API key from the player. They create it on their account page at <%=
 - **Bodies:** JSON, with `Content-Type: application/json`, on the two requests that have one.
 
 Treat the key as a password. Do not echo it back to the player, write it to a file, or put it in a URL.
+
+**If you are connected through MCP**, you have <%= mcp_tools.size %> tools in place of the HTTP requests below, and the key is already on the connection. Everything in this guide about the game, the rules, the errors and the retry rule applies to the tools unchanged; [Playing through MCP](#playing-through-mcp) says how they map.
 
 A sensible first session:
 
@@ -686,7 +723,7 @@ Every error is `{ "error": { "code": "...", "message": "..." } }`. **Unless a ro
 | 403 | `account_frozen` | The account is on hold. Reads work; writes are refused. | Stop. Tell the player to contact support. |
 | 403 | `age_verification_required` | The site requires age verification and the player has not done it | Tell the player to verify their date of birth on the website. The same key then works. |
 | 404 | `not_found` | No such contest, or no such entry among the player's own. Also `/api`, `/api/` and any path under them that is not an endpoint, on any method. | Re-read the contests or the player's entries, and check the path. |
-| 409 | `idempotency_key_reused` | This idempotency key was already used with different picks, another contest or another `allow_usdc` | A different entry needs a new key. If you meant to retry, send the original body. |
+| 409 | `idempotency_key_reused` | This idempotency key is already tied to something else: a request with different picks, another contest or another `allow_usdc`, or an entry that has since been removed because its contest was reset | Stop sending this request with this key; it will get the same answer every time. If you were retrying and changed the body by mistake, send the original body once. If the body was already the original, the key's entry no longer exists and the key is finished: read `GET /api/v1/entries`, tell the player what you find, and make a new entry only with a new key and the player's yes, because a new entry is paid for again. A different entry always needs a new key. |
 | 409 | `idempotency_in_progress` | A request to enter this contest is still running for this player: this key's earlier attempt, or another key's. It is also the answer given to a slow earlier attempt that one of your retries has taken over. | Wait `retry_after` seconds and send the same request again with the same idempotency key. Do not switch keys. |
 | 422 | `contest_not_open` | The contest is settled or not ready for entries | Choose another contest. |
 | 422 | `contest_locked` | The lock time has passed | Nothing. Entries and edits are closed. |
@@ -722,7 +759,7 @@ A key belongs to the player, not to the API key, and it does not expire.
 
 | What you got | What it means | What to send next |
 |---|---|---|
-| `201` | The entry exists | Nothing. Sending it again returns the same `201` with the header `Idempotent-Replayed: true`. It is the first response and does not reflect later edits. |
+| `201` | The entry exists | Nothing. Sending it again returns the same `201` with the header `Idempotent-Replayed: true`. It is the first response as it was sent: it does not reflect later edits, or an entry removed since. `GET /api/v1/entries/:slug` is the current state. |
 | `202` | Paid, being confirmed | The same request, same key, after `retry_after` |
 | `409 idempotency_in_progress` | An earlier attempt is still running, or this attempt was overtaken by your own retry | The same request, same key, after `retry_after` |
 | `503 chain_unavailable` | Unknown. The payment may have landed. | The same request, same key, after `retry_after`. If it landed, you get the entry it paid for. If not, the server answers `503` for 150 seconds after the attempt ended before it will try again, and for up to about five minutes when the earlier request died without finishing. Repeated `503`s in that window are normal. Keep the key. |
@@ -745,6 +782,107 @@ Giving up on a key after a `503` and sending a new one does not get around the w
 | <%= ip_throttle.limit %> requests per <%= ip_throttle.period.to_i %> seconds | The calling IP address |
 
 Both cover every path under `/api/`. Past a limit the answer is `429 rate_limited` with `retry_after`. A full read of a contest is one request, so a careful session needs a few dozen requests, not hundreds. Do not poll the leaderboard in a tight loop; scores change when games do.
+
+## Playing through MCP
+
+The same API is also a remote Model Context Protocol server, for a client that calls tools instead of making HTTP requests. Each tool runs the same code as one endpoint above, so the rules, the refusals and the retry rule are the ones this guide has already given.
+
+- **Address:** `POST <%= agent_mcp_url %>`
+- **Authentication:** the same key, in the same header: `Authorization: Bearer <the key>`, on every request, `initialize` included. The key is read from that header and nowhere else: not the URL, not the body, not a tool argument. A request without a valid key is an HTTP `401` before any message is read.
+- **Transport:** MCP Streamable HTTP. Every request is answered with one `application/json` body. There is no event stream and no session, so `GET <%= mcp_path %>` is a `405`.
+- **Protocol revisions:** <%= mcp_versions.map { |version| "`#{version}`" }.to_sentence %>. `initialize` answers with the client's revision when it is one of these, and with `<%= rpc::LATEST %>` otherwise. A later request without an `MCP-Protocol-Version` header is read as `<%= rpc::HEADER_ABSENT %>`.
+- **Newer clients fall back.** Revision `2026-07-28` is not spoken. A client that opens with that revision's `server/discover` request is answered HTTP `400` with JSON-RPC error `<%= rpc::INVALID_REQUEST %>`, which a client that speaks both eras reads as an older server, and it then sends `initialize`. A client that speaks only `2026-07-28` cannot connect.
+- **Capabilities:** tools only. The methods are `initialize`, `ping`, `tools/list` and `tools/call`.
+
+### Which clients can connect
+
+- **Claude Code** connects today with a key, using the command below.
+- **Any MCP client that can send a request header** connects the same way: Streamable HTTP to the address above with the `Authorization` header.
+- **The Claude chat app (claude.ai, desktop and mobile), as a custom connector,** cannot connect for most accounts. A custom connector there signs in with OAuth, which this server does not offer, and sending a fixed header instead is described by Anthropic as "in beta and available to a limited set of organizations". An account that has a **Request headers** section when adding a custom connector can choose **No sign-in** and add the header `authorization` with the value `Bearer`, a space, then the key. An account without that section cannot connect.
+
+In Claude Code, the player runs this once in a terminal, with their key in place of `<%= AgentsController::KEY_PLACEHOLDER %>`:
+
+```bash
+<%= mcp_connect_command %>
+```
+
+That saves the key in Claude Code's own settings for the folder it was run in. `/mcp` inside Claude Code then shows the server and its tools.
+
+### The tools
+
+| Tool | Same as | Arguments | Changes anything? |
+|---|---|---|---|
+<% mcp_tools.each do |tool| -%>
+| `<%= tool.name %>` | `<%= mcp_rest.fetch(tool.name) %>` | <%= mcp_arguments.(tool) %> | <%= tool.writes? ? mcp_effect.fetch(tool.name) : "No" %> |
+<% end -%>
+
+Arguments in bold are required. A tool takes no argument that is not listed: an unknown one is refused by name, with `bad_request`, so sending `slug` for `contest_slug` tells you so.
+
+| Argument | Type | Meaning |
+|---|---|---|
+<% mcp_argument_rows.each do |name, schema| -%>
+| `<%= name %>` | <%= mcp_type.(schema) %> | <%= schema[:description] %> |
+<% end -%>
+
+On `list_my_entries`, `contest_slug` is optional and narrows the list to one contest. `tools/list` returns each tool's full JSON Schema.
+
+### Tool results
+
+**A tool result is the REST response body.** `content[0].text` is that body as a JSON string, always. From revision `<%= rpc::STRUCTURED_CONTENT_SINCE %>` the same body is also in `structuredContent`. What REST says in its status line and headers is in `_meta`: `<%= mcp_meta %>/http_status`, `<%= mcp_meta %>/retry_after` (seconds) and `<%= mcp_meta %>/idempotent_replayed`.
+
+**A refusal is a result with `isError: true`**, and its body is the same `{ "error": { "code": "...", "message": "..." } }` with the same codes as the table under [Errors](#errors). Branch on `code` exactly as you would over HTTP. An argument of the wrong type is one of these (`bad_request`), not a protocol error, so you can read it and correct the call.
+
+```json
+{
+  "content": [
+    { "type": "text", "text": "{\"error\":{\"code\":\"team_locked\",\"message\":\"...\"}}" }
+  ],
+  "structuredContent": { "error": { "code": "team_locked", "message": "..." } },
+  "isError": true,
+  "_meta": { "<%= mcp_meta %>/http_status": 422 }
+}
+```
+
+Two answers carry a second text block, because a model does not see a status line:
+
+- **`PENDING: PAID, NOT YET ENTERED`** is the `202` of `POST /api/v1/contests/:slug/entries`. `isError` is `false` and `entry` is `null`. The entry is paid for and is not yet an entry. Do not tell the player it failed, and **do not tell the player they are entered until a call returns an entry**. Call `submit_entry` again with the same `idempotency_key` and the same arguments after `retry_after` seconds. If it is still pending after a few minutes, stop and tell the player what [the section on creating an entry](#post-apiv1contestsslugentries) says to tell them: paid for, not showing as entered, contact support.
+- **`RETRY`** comes with `idempotency_in_progress` and `chain_unavailable`. `isError` is `true`. Call the same tool again with the same `idempotency_key` and the same arguments after `retry_after` seconds.
+
+An account on hold, or one that still owes age verification, can call every reading tool. `submit_entry` and `edit_entry` answer `account_frozen` or `age_verification_required`.
+
+### The idempotency key is an argument
+
+A model cannot set a header, so `submit_entry` takes the `Idempotency-Key` as its `idempotency_key` argument. It is required, and it follows the same two-case rule as [Retries and idempotency](#retries-and-idempotency):
+
+1. **No definite answer yet** (a timeout, an error with no result, `chain_unavailable`, `idempotency_in_progress`, or pending): call `submit_entry` again with the **same** `idempotency_key` and the **same** arguments, as many times as it takes.
+2. **A definite refusal that says nothing was spent**: only then may you change `matchup_ids` or `allow_usdc`, and the changed call takes a **new** `idempotency_key`.
+
+If you cannot tell which case you are in, call `list_my_entries` before anything else.
+
+**One key works on both surfaces, and the idempotency record is shared.** The API key that authenticates `<%= mcp_path %>` is the key that authenticates `/api/v1`. An `idempotency_key` used in `submit_entry` and an `Idempotency-Key` sent to the REST endpoint are one record for the player: a value first used over MCP replays over REST, and the other way round. `edit_entry` needs no key, as `PATCH` needs none.
+
+### Failures that are not tool results
+
+| Failure | Answer |
+|---|---|
+| No key, or a malformed, revoked or expired one | HTTP `401` with the error body used everywhere else |
+| Too many requests | HTTP `429` with `rate_limited` and `retry_after` |
+| A body that is not JSON, or larger than <%= McpController::MAX_BODY_BYTES / 1.kilobyte %> KB | HTTP `400`, JSON-RPC error `<%= rpc::PARSE_ERROR %>` |
+| A message that is not a JSON-RPC request, an `MCP-Protocol-Version` not listed above, or a batch at a revision without batches | HTTP `400`, JSON-RPC error `<%= rpc::INVALID_REQUEST %>` |
+| A method other than the four above | JSON-RPC error `<%= rpc::METHOD_NOT_FOUND %>` |
+| An unknown tool, or `arguments` that is not an object | JSON-RPC error `<%= rpc::INVALID_PARAMS %>` |
+| A fault on the server | JSON-RPC error `<%= rpc::INTERNAL_ERROR %>`. For `submit_entry`, call again with the same `idempotency_key` and the same arguments. |
+| `GET`, `PUT`, `PATCH` or `DELETE` on the address | HTTP `405` |
+| A request carrying an `Origin` header from another site | HTTP `403` |
+
+### MCP rate limits
+
+| Limit | Keyed on |
+|---|---|
+| <%= mcp_key_throttle.limit %> requests per <%= mcp_key_throttle.period.to_i %> seconds | The API key. This is a separate count from the key's limit on `/api/`. |
+| <%= Rack::Attack::MCP_UNVERIFIED_LIMIT %> requests per <%= mcp_key_throttle.period.to_i %> seconds (<%= Rack::Attack::MCP_UNVERIFIED_SHARED_EGRESS_LIMIT %> from the addresses Anthropic's connectors call from) | The calling IP address, only for requests with no key or with a key that has not authenticated here before. A key's first successful request takes it out of this limit for <%= (Rack::Attack::MCP_VERIFIED_TTL / 1.hour).to_i %> hours. |
+
+A player is limited by their key and not by the address their client calls from. A JSON-RPC batch (revision `<%= rpc::BATCHING.first %>` only, at most <%= rpc::MAX_BATCH %> messages) counts once per message.
 
 ## Results and payouts
 
