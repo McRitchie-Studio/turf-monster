@@ -308,6 +308,6 @@ class Api::V1::ContestsControllerTest < ActionDispatch::IntegrationTest
 
     assert_equal 8, json["entries"].size
     assert_equal 6, json["entries"].last["picks"].size
-    assert_operator many, :<=, few + 3, "selections, their matchups and their teams preload once each"
+    assert_equal few, many, "users and selections preload once each; every pick reads the one loaded board"
   end
 end

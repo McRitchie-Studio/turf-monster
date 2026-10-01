@@ -25,7 +25,7 @@ module Api
           scope = scope.where(contest_id: contest.id)
         end
 
-        entries = scope.includes(contest: :slate, selections: { slate_matchup: :team })
+        entries = scope.includes(:selections, contest: :slate)
                        .order(created_at: :desc, id: :desc)
                        .limit(page_limit).offset(page_offset).to_a
 
@@ -34,7 +34,7 @@ module Api
 
       def show
         entry = current_user.entries.confirmed
-                            .includes(contest: :slate, selections: { slate_matchup: :team })
+                            .includes(:selections, contest: :slate)
                             .find_by!(slug: params[:slug])
 
         render json: { entry: serialize([entry]).first }

@@ -60,7 +60,7 @@ module Api
         ranks = Ranking.for_contests([contest.id]).fetch(contest.id, {})
         page_ids = leaderboard_order(contest, ranks).slice(page_offset, page_limit) || []
         entries = contest.entries.where(id: page_ids)
-                         .includes(:user, selections: { slate_matchup: :team })
+                         .includes(:user, :selections)
                          .index_by(&:id)
 
         board = Board.new(contest, contest_locked: facts.locked?(contest))
