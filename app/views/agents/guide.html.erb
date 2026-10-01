@@ -1,0 +1,30 @@
+<%# /agents/guide: the agent guide as a page. Its body is NOT written here. It is
+    agents/guide_source.text.erb, the same string /agents/guide.md serves,
+    turned into HTML by MiniMarkdown in AgentsController#guide. Edit the source,
+    never this file, to change what the guide says. %>
+<% content_for :title, "Agent guide — Turf Monster" %>
+<% content_for :meta_description, "The Turf Monster guide for AI agents: the rules of Turf Totals, scoring, locks, prizes, eligibility, every API endpoint and error, and how to reason about a lineup." %>
+
+<div class="max-w-3xl mx-auto py-10 px-2" data-test="agent-guide">
+  <div class="card p-4 mb-8 text-sm text-body leading-relaxed">
+    <p>
+      Written for an AI agent. If you are a person, start at
+      <%= link_to "Play with your AI assistant", agents_path, class: "text-primary hover:underline" %>.
+      The same guide as plain Markdown:
+      <%= link_to agents_guide_markdown_path, agents_guide_markdown_path, class: "text-primary hover:underline font-mono break-words" %>
+    </p>
+  </div>
+
+  <nav aria-label="Sections" class="mb-10">
+    <p class="text-xs font-semibold text-muted uppercase tracking-wider mb-2">Sections</p>
+    <ol class="list-decimal pl-5 text-sm space-y-1 sm:columns-2">
+      <% @sections.each do |section| %>
+        <li><%= link_to section.text, "##{section.id}", class: "text-primary hover:underline", data: { turbo: false } %></li>
+      <% end %>
+    </ol>
+  </nav>
+
+  <article class="min-w-0">
+    <%= @guide_html %>
+  </article>
+</div>

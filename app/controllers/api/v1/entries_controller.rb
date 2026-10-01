@@ -1,5 +1,6 @@
-# The caller's own entries: the list and one entry (docs/AGENT_API.md).
-# Read-only, so it answers for a frozen account.
+# The caller's own entries: read them, create one, replace its picks
+# (docs/AGENT_API.md). Each action names an operation
+# (app/services/api/v1/operations), which the MCP endpoint calls too.
 #
 # WHICH ENTRIES. Confirmed ones: `active` (submitted, contest not graded) and
 # `complete` (graded). That is Entry.confirmed, the same set the web counts
@@ -7,55 +8,39 @@
 #
 # A `cart` entry is NOT served, and neither is an `abandoned` one. A cart is the
 # website's half-built lineup, saved one tap at a time before the player pays.
-# It has no score, no rank and no place on a leaderboard, the API has no way to
-# build one (an API entry is submitted whole), and reporting it as an entry
-# would tell an agent its player is in a contest they have not entered.
+# It has no score, no rank and no place on a leaderboard, and the API neither
+# builds one nor touches the player's: an API entry is created whole, paid for
+# in the same call, or not created at all (Entries::ApiSubmission).
 #
 # Another player's entry slug is a 404, the same answer as a slug that does not
 # exist. Rivals are read through the contest leaderboard, under its own rule.
+#
+# THE WRITES. Both run behind the account hold (default-deny on every non-GET,
+# ApiKeyAuthentication) and the age gate, asked again here because a key's
+# stamp can predate the gate being switched on. Location is not re-asked: it
+# was decided in the player's browser when the key was created.
 module Api
   module V1
     class EntriesController < BaseController
-      include Pagination
+      before_action :require_age_verified, only: %i[create update]
 
       def index
-        scope = current_user.entries.confirmed
-        if params[:contest].present?
-          contest = Contest.where.not(status: :pending).find_by!(slug: params[:contest])
-          scope = scope.where(contest_id: contest.id)
-        end
-
-        entries = scope.includes(:selections, contest: :slate)
-                       .order(created_at: :desc, id: :desc)
-                       .limit(page_limit).offset(page_offset).to_a
-
-        render json: { entries: serialize(entries), pagination: pagination_json(scope.count) }
+        run_operation Operations::ListEntries
       end
 
       def show
-        entry = current_user.entries.confirmed
-                            .includes(:selections, contest: :slate)
-                            .find_by!(slug: params[:slug])
-
-        render json: { entry: serialize([entry]).first }
+        run_operation Operations::GetEntry
       end
 
-      private
+      # POST /api/v1/contests/:slug/entries. Created and funded in one call or
+      # not at all; the Idempotency-Key is what makes a retry safe.
+      def create
+        run_operation Operations::SubmitEntry, idempotency_key: request.headers["Idempotency-Key"]
+      end
 
-      # One ContestFacts and one Ranking read for the whole page, and one Board
-      # per distinct contest on it.
-      def serialize(entries)
-        contests = entries.map(&:contest).uniq
-        facts = ContestFacts.for(contests)
-        ranks = Ranking.for_contests(contests.reject(&:settled?).map(&:id))
-        boards = contests.to_h { |contest| [contest.id, Board.new(contest, contest_locked: facts.locked?(contest))] }
-        web_rules = WebRules.new(current_user)
-
-        entries.map do |entry|
-          EntrySerializer.new(entry, contest: entry.contest, facts: facts, board: boards[entry.contest_id],
-                                     ranks: ranks[entry.contest_id], web_rules: web_rules,
-                                     viewer: current_user).as_json
-        end
+      # PATCH /api/v1/entries/:slug. Replaces the entry's picks.
+      def update
+        run_operation Operations::EditEntry
       end
     end
   end

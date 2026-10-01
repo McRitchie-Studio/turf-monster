@@ -68,6 +68,8 @@ module ApiKeyAuthentication
   AGE_GATE_MESSAGE = "Verify your age on turfmonster.media before entering a contest. " \
                      "Sign in, open your account page, and confirm your date of birth.".freeze
 
+  NOT_FOUND_MESSAGE = "No such resource.".freeze
+
   # Why a request is being turned away, as data. `status` is a Rails status
   # symbol; a surface with its own envelope uses `code` and `message` only.
   Refusal = Struct.new(:code, :message, :status)
@@ -78,6 +80,10 @@ module ApiKeyAuthentication
     rescue_from StandardError, with: :render_api_unexpected_error
     rescue_from ActiveRecord::RecordNotFound, with: :render_api_not_found
     rescue_from ActionController::ParameterMissing, with: :render_api_bad_request
+    # A parameter of the wrong shape (Api::V1::StrictParams), and a body that
+    # is not the JSON it claims to be.
+    rescue_from ActionController::BadRequest, with: :render_api_bad_request
+    rescue_from ActionDispatch::Http::Parameters::ParseError, with: :render_api_malformed_body
 
     before_action :authenticate_api_key!
     # After authentication, so a keyless write is still a 401, not a 403.
@@ -85,12 +91,20 @@ module ApiKeyAuthentication
   end
 
   class_methods do
-    # The explicit opt-out from the default freeze gate. Takes the options of
-    # skip_before_action (`only:`, `except:`). An action named here is reachable
-    # by a frozen account on any verb, so it owes `frozen_account_refusal` (or
-    # `require_unfrozen_account`) wherever it actually writes.
-    def allow_frozen_account_writes(**options)
-      skip_before_action :refuse_frozen_account_writes, **options
+    # The explicit opt-out from the default freeze gate, for the actions named
+    # in `only:`. An action named here is reachable by a frozen account on any
+    # verb, so it owes `frozen_account_refusal` (or `require_unfrozen_account`)
+    # wherever it actually writes.
+    #
+    # `only:` is REQUIRED and may not be empty. Called bare, skip_before_action
+    # would lift the gate from every action of the controller, present and
+    # future, which is the opposite of default-deny; so the one spelling that
+    # does that does not load.
+    def allow_frozen_account_writes(only:)
+      actions = Array(only).map(&:to_sym)
+      raise ArgumentError, "allow_frozen_account_writes needs only: with at least one action" if actions.empty?
+
+      skip_before_action :refuse_frozen_account_writes, only: actions
     end
   end
 
@@ -179,12 +193,28 @@ module ApiKeyAuthentication
     render_api_error(code, AUTH_ERRORS.fetch(code), status: :unauthorized)
   end
 
+  # The exceptions an operation raises on purpose, as the Refusal each one is.
+  # nil for anything else. REST renders the Refusal; a surface with its own
+  # envelope (MCP) reads the same code and message from it.
+  def api_exception_refusal(exception)
+    case exception
+    when ActiveRecord::RecordNotFound
+      Refusal.new(:not_found, NOT_FOUND_MESSAGE, :not_found)
+    when ActionController::ParameterMissing, ActionController::BadRequest
+      Refusal.new(:bad_request, exception.message, :bad_request)
+    end
+  end
+
   def render_api_not_found(_exception = nil)
-    render_api_error(:not_found, "No such resource.", status: :not_found)
+    render_api_error(:not_found, NOT_FOUND_MESSAGE, status: :not_found)
   end
 
   def render_api_bad_request(exception)
-    render_api_error(:bad_request, exception.message, status: :bad_request)
+    render_api_refusal(api_exception_refusal(exception))
+  end
+
+  def render_api_malformed_body(_exception = nil)
+    render_api_error(:bad_request, "The request body is not valid JSON.", status: :bad_request)
   end
 
   # Anything unplanned: write the ErrorLog row an operator will look for, then

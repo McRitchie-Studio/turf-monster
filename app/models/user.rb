@@ -734,7 +734,7 @@ class User < ApplicationRecord
 
   # Like #next_unconsumed_entry_token but scoped to a SPECIFIC wallet address.
   #
-  # The web2 server-sign entry path (ContestsController#resolve_web2_entry_funding!)
+  # The web2 server-sign entry path (Entries::ManagedEntry#fund!)
   # signs the consume with the managed (web2) keypair, so it must only surface a
   # token the web2 address actually OWNS. #next_unconsumed_entry_token reads
   # #solana_address — web3-preferred for a combo (web2+web3) account — and

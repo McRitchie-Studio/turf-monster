@@ -290,14 +290,14 @@ Rails.application.routes.draw do
   get    "account/api_keys",     to: "api_keys#index",   as: :account_api_keys
   post   "account/api_keys",     to: "api_keys#create"
   delete "account/api_keys/:id", to: "api_keys#destroy", as: :account_api_key
-
+  draw :mcp # config/routes/mcp.rb: /mcp, the agent API as an MCP server. On a formerly blank line, so no cited line moves.
   # The agent API. Bearer-key authenticated (Api::V1::BaseController) — no
   # cookie, no CSRF. JSON only: `format: false` so a trailing ".html" is a 404
   # rather than a second spelling of the same endpoint.
   namespace :api, defaults: { format: :json } do
-    namespace :v1 do
-      draw :api_v1 # config/routes/api_v1.rb; kept out of this file so its cited line numbers hold
-    end
+    namespace(:v1) { draw :api_v1 } # config/routes/api_v1.rb; kept out of this file so its cited line numbers hold
+    # Last, so it sees only what nothing above claimed: a 404 in the API's JSON envelope, not the HTML page.
+    match "(*unmatched)", to: "v1/errors#not_found", via: :all, format: false
   end
 
   # Newsletter / quest mission 2 — authed one-click join (+ web3 email capture)
@@ -660,6 +660,16 @@ Rails.application.routes.draw do
   # admin_geo_toggle_path), which is exactly why the engine's flag is opt-in:
   # this app held all four, and drawing them alongside these would have raised
   # `Invalid route name, already in use` at route-load.
+
+  # Playing through an AI agent (docs/AGENT_API.md, "The agent pages"): the page
+  # a person reads, the agent guide as a page and as plain Markdown, and the
+  # pointer file agents look for. Drawn down here, below every line
+  # docs/workflows cites, so no citation moves. The `.md` spelling comes first:
+  # `agents/guide` takes an optional format and would otherwise claim it.
+  get "agents",          to: "agents#show",           as: :agents
+  get "agents/guide.md", to: "agents#guide_markdown", as: :agents_guide_markdown, format: false
+  get "agents/guide",    to: "agents#guide",          as: :agents_guide, format: false
+  get "llms.txt",        to: "agents#llms",           as: :llms_txt, format: false
 
   # Test-only endpoints — exercised by Playwright e2e specs to seed
   # OAuth mock payloads and force referral cache values without staging

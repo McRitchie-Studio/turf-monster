@@ -15,8 +15,12 @@
 module Api
   module V1
     class EntrySerializer
-      def initialize(entry, contest:, facts:, board:, ranks:, web_rules:, viewer:)
+      # writable: whether this caller may write at all right now (the account
+      # hold and the age gate, ApiKeyAuthentication#write_refusal). It feeds
+      # `editable`, so the field never promises an edit the server will refuse.
+      def initialize(entry, contest:, facts:, board:, ranks:, web_rules:, viewer:, writable:)
         @entry = entry
+        @writable = writable
         @contest = contest
         @facts = facts
         @board = board
@@ -71,13 +75,14 @@ module Api
         { picks_visible: true, picks: picks.sort_by { |pick| [pick[:rank] || Float::INFINITY, pick[:matchup_id]] } }
       end
 
-      # What Entry#update_picks! and EntriesController#update require of the
-      # entry and its contest before they will replace picks: an active entry,
-      # a Turf Totals contest, still open, lock time not passed. A pick whose
-      # own game has kicked off is frozen on top of this; each pick says so in
-      # its own `locked`.
+      # What PATCH /api/v1/entries/:slug requires before it will replace picks
+      # (Api::V1::Operations::EditEntry and Entry#update_picks!): a caller
+      # who may write, an active entry, a Turf Totals contest that is open, not
+      # cancelled, and not past its lock time. A pick whose own game has kicked
+      # off is frozen on top of this; each pick says so in its own `locked`.
       def editable?
-        entry.active? && contest.turf_totals? && contest.open? && !facts.locked?(contest)
+        @writable && entry.active? && contest.turf_totals? && contest.open? &&
+          !contest.cancelled? && !facts.locked?(contest)
       end
     end
   end

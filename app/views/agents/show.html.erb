@@ -1,0 +1,166 @@
+<%# /agents: the page a PERSON reads. The reader is a friend with a free-entry
+    email, probably on a phone, possibly not technical. So: one sentence, then
+    the thing to copy, then three steps. Everything an agent needs in depth
+    lives in the guide (agents/guide_source.text.erb), and this page links
+    there instead of repeating it.
+
+    THE PROMPT IS RENDERED ONCE (AgentsController#show) and used twice: the
+    block a person reads, and the copy button's payload. Never type it here.
+    The Claude Code command is built once the same way (mcp_connect_command).
+
+    TWO WAYS TO PLAY, the prompt first: it works with any assistant that can
+    make web requests. The second, connecting Claude Code to the MCP endpoint,
+    is for a reader who already has Claude Code.
+
+    NOT ON THIS PAGE, ON PURPOSE: any promise that the Claude chat app will be
+    able to connect (it cannot take a personal key for most accounts, and
+    nothing that would change that is scheduled), and any statement about what
+    the Terms allow an AI agent to do. %>
+<% content_for :title, "Play with your AI assistant — Turf Monster" %>
+<% content_for :meta_description, "Hand Turf Monster to your AI assistant: copy the starter prompt or connect Claude Code, add your API key, and it can read contests, build a lineup and enter with your free entry." %>
+
+<%# The engine's copy button, restyled from outside: its own button is a small
+    text link, too small a target for the one action each block exists for.
+    min-h-11 is 44px, the smallest target a thumb reliably hits. The inline
+    code chip is hidden because the whole text is shown in the block below. %>
+<% copy_button_classes = "shrink-0 [&_code]:hidden [&_button]:min-h-11 [&_button]:min-w-11 [&_button]:rounded-lg [&_button]:border [&_button]:border-strong [&_button]:bg-surface-alt [&_button]:px-4 [&_button]:py-2 [&_button]:text-sm [&_button]:font-semibold [&_button]:text-heading" %>
+
+<div class="max-w-3xl mx-auto py-10 px-2 space-y-12" data-test="agents-page">
+  <header>
+    <h1 class="text-3xl md:text-4xl font-extrabold text-heading mb-3">Play Turf Monster with your AI assistant</h1>
+    <p class="text-body text-lg leading-relaxed">
+      Copy the prompt below, give it to your assistant with your API key, and it can read the contests, work out a lineup with you and enter using your free entry.
+    </p>
+  </header>
+
+  <section aria-labelledby="starter-prompt-heading">
+    <div class="card p-4 sm:p-6">
+      <div class="flex items-center justify-between gap-3 mb-3">
+        <h2 id="starter-prompt-heading" class="text-lg font-bold text-heading">Starter prompt</h2>
+        <div data-test="starter-prompt-copy" class="<%= copy_button_classes %>">
+          <%= render "components/copy_button", text: @starter_prompt, display: "Starter prompt" %>
+        </div>
+      </div>
+      <pre data-test="starter-prompt" class="bg-inset border border-subtle rounded-lg p-3 text-sm text-body font-sans leading-relaxed whitespace-pre-wrap break-words max-h-96 overflow-y-auto"><%= @starter_prompt %></pre>
+      <p class="text-secondary text-sm mt-3">
+        Replace <span class="font-mono text-heading">[PASTE YOUR API KEY HERE]</span> with your key before you send it.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="text-2xl font-bold text-heading mb-4">Three steps</h2>
+    <ol class="space-y-3">
+      <li class="card p-5">
+        <p class="font-mono text-primary text-sm mb-1">01</p>
+        <h3 class="text-lg font-bold text-heading mb-1">Claim your free entry</h3>
+        <p class="text-body text-sm leading-relaxed">Open the email we sent you and follow its link. That signs you in and puts a free entry on your account.</p>
+      </li>
+      <li class="card p-5">
+        <p class="font-mono text-primary text-sm mb-1">02</p>
+        <h3 class="text-lg font-bold text-heading mb-1">Create an API key</h3>
+        <p class="text-body text-sm leading-relaxed">
+          On your <%= link_to "account page", account_path, class: "text-primary hover:underline" %>, find <span class="text-heading font-semibold">Agent API keys</span>, give the key a name and create it. It is shown once, so copy it then.
+        </p>
+      </li>
+      <li class="card p-5">
+        <p class="font-mono text-primary text-sm mb-1">03</p>
+        <h3 class="text-lg font-bold text-heading mb-1">Paste the prompt and your key</h3>
+        <p class="text-body text-sm leading-relaxed">Paste the starter prompt into your assistant with your key in place. It will show you a lineup and ask before it enters anything.</p>
+      </li>
+    </ol>
+  </section>
+
+  <section aria-labelledby="connect-claude-code-heading">
+    <div class="card p-4 sm:p-6">
+      <div class="flex items-center justify-between gap-3 mb-3">
+        <h2 id="connect-claude-code-heading" class="text-lg font-bold text-heading">Connect Claude Code</h2>
+        <div data-test="mcp-command-copy" class="<%= copy_button_classes %>">
+          <%= render "components/copy_button", text: mcp_connect_command, display: "Claude Code command" %>
+        </div>
+      </div>
+      <p class="text-body text-sm leading-relaxed mb-3">
+        If you use Claude Code, you can skip the prompt and connect it to Turf Monster directly. Run this once in your terminal, with your key in place of <span class="font-mono text-heading break-all"><%= AgentsController::KEY_PLACEHOLDER %></span>:
+      </p>
+      <pre data-test="mcp-command" class="bg-inset border border-subtle rounded-lg p-3 text-sm text-body font-mono leading-relaxed whitespace-pre-wrap break-words"><%= mcp_connect_command %></pre>
+      <p class="text-body text-sm leading-relaxed mt-3">
+        Then open Claude Code in the same folder and say: <span class="text-heading">&ldquo;Play Turf Monster for me. Check my account, show me the open contests and suggest a lineup. Ask me before you enter anything.&rdquo;</span>
+      </p>
+      <p class="text-secondary text-sm leading-relaxed mt-3">
+        The command saves your key in Claude Code's own settings on your computer. To take it out again, run <span class="font-mono text-heading break-words">claude mcp remove <%= AgentMcp::Server::SERVER_INFO.fetch(:name) %></span>.
+      </p>
+    </div>
+  </section>
+
+  <section class="space-y-3">
+    <h2 class="text-2xl font-bold text-heading">Which assistants can do this</h2>
+    <ul class="list-disc pl-5 text-body space-y-2 leading-relaxed" data-test="agents-clients">
+      <li><span class="text-heading font-semibold">Claude Code</span> works today, either way: with the starter prompt, or connected with the command above.</li>
+      <li><span class="text-heading font-semibold">Codex, or any other assistant that can make web requests on its own,</span> works with the starter prompt.</li>
+      <li><span class="text-heading font-semibold">The Claude chat app</span> (claude.ai and the desktop and phone apps) does not work for most people today. A chat cannot call the game on its own, so the prompt does not work there. It can connect to outside services, but for most accounts it has no place to put a personal key: Anthropic describes that option as a beta open to a limited set of organizations. If you use Claude in chat, use Claude Code for this instead.</li>
+    </ul>
+  </section>
+
+  <section class="space-y-3">
+    <h2 class="text-2xl font-bold text-heading">What your key can and cannot do</h2>
+    <ul class="list-disc pl-5 text-body space-y-2 leading-relaxed">
+      <li>It lets your assistant read contests and enter one for you, paid for with your free entry.</li>
+      <li>It can pay an entry fee from your USDC, but only when a request explicitly asks for that. The starter prompt tells your assistant not to ask unless you say so.</li>
+      <li>It stops working after <%= (ApiKey::LIFETIME / 1.day).to_i %> days.</li>
+      <li>You can revoke it at any time from your <%= link_to "account page", account_path, class: "text-primary hover:underline" %>, and it stops working at once.</li>
+      <li>Treat it like a password. Anyone holding it can enter contests as you.</li>
+    </ul>
+    <p class="text-secondary text-sm leading-relaxed">
+      You are responsible for what your assistant does on your account. See the <%= link_to "Terms of Service", terms_path, class: "text-primary hover:underline" %>.
+    </p>
+  </section>
+
+  <section>
+    <h2 class="text-2xl font-bold text-heading mb-2">The API in brief</h2>
+    <p class="text-body leading-relaxed mb-4">
+      Every request goes to <span class="font-mono text-heading break-words"><%= agent_base_url %>/api/v1</span> with the header <span class="font-mono text-heading break-words">Authorization: Bearer &lt;your key&gt;</span>.
+    </p>
+    <%# Two columns from the sm breakpoint up. Narrower than that, a request
+        line that may not wrap left the second column about 27px wide, so each
+        row STACKS: the request on one line, what it does underneath. The
+        header row would label nothing in that layout and is kept for screen
+        readers only. e2e/agents_pages.spec.js measures the second cell. %>
+    <div class="card">
+      <table class="w-full text-sm block sm:table" data-test="agents-endpoints">
+        <thead class="sr-only sm:not-sr-only sm:table-header-group">
+          <tr class="border-b border-subtle">
+            <th class="px-3 py-2 text-left text-xs font-semibold text-muted uppercase tracking-wider">Request</th>
+            <th class="px-3 py-2 text-left text-xs font-semibold text-muted uppercase tracking-wider">What it does</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-subtle block sm:table-row-group">
+          <% [
+               [ "GET /api/v1/me", "Check the key and your free entries" ],
+               [ "GET /api/v1/contests", "List contests" ],
+               [ "GET /api/v1/contests/:slug", "One contest and the teams to pick from" ],
+               [ "GET /api/v1/contests/:slug/leaderboard", "The standings" ],
+               [ "GET /api/v1/entries", "Your entries" ],
+               [ "POST /api/v1/contests/:slug/entries", "Enter a contest" ],
+               [ "PATCH /api/v1/entries/:slug", "Change an entry's teams before the lock" ]
+             ].each do |request_line, purpose| %>
+            <tr class="block py-2 sm:table-row sm:py-0">
+              <td class="block px-3 py-0.5 font-mono text-xs text-heading break-words sm:table-cell sm:py-2 sm:whitespace-nowrap"><%= request_line %></td>
+              <td class="block px-3 py-0.5 text-body sm:table-cell sm:py-2" data-test="agents-endpoint-purpose"><%= purpose %></td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card p-5 sm:p-6">
+    <h2 class="text-xl font-bold text-heading mb-2">The agent guide</h2>
+    <p class="text-body leading-relaxed mb-4">
+      The full rules, every endpoint and error, the Claude Code connection in detail, and how to reason about a lineup. Your assistant reads it first; you can too.
+    </p>
+    <div class="flex flex-wrap items-center gap-x-5 gap-y-3">
+      <%= link_to "Read the agent guide", agents_guide_path, class: "btn btn-primary" %>
+      <%= link_to "Plain Markdown version", agents_guide_markdown_path, class: "text-primary hover:underline text-sm" %>
+    </div>
+  </section>
+</div>
