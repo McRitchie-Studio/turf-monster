@@ -32,7 +32,9 @@ class CreateApiEntryRequests < ActiveRecord::Migration[8.1]
       t.string :funding_method
       t.boolean :token_consumed
       t.integer :response_status
-      t.jsonb :response_body
+      # The first response's JSON, as text and not jsonb: a replay is the same
+      # bytes, and jsonb does not keep key order.
+      t.text :response_body
 
       t.timestamps
     end

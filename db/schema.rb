@@ -79,7 +79,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_130000) do
     t.string "idempotency_key", null: false
     t.string "last_error_code"
     t.jsonb "matchup_ids", default: [], null: false
-    t.jsonb "response_body"
+    t.text "response_body"
     t.integer "response_status"
     t.datetime "spend_uncertain_at"
     t.string "state", default: "executing", null: false

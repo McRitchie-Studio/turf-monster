@@ -6,6 +6,29 @@ require "test_helper"
 # Every test counts spends on LedgerVault, which keeps the chain's own books:
 # a consumed token stays consumed and a ticket stays on chain. "One spend" is
 # `vault.tickets.size == 1`, never "the method was called once".
+# Makes Entry#assert_enterable! raise on its Nth call while armed, and is inert
+# otherwise. Minitest has no any-instance stub, and the entry under test is
+# built inside the service, so there is no instance to stub from outside.
+module FailingBackstop
+  mattr_accessor :remaining
+
+  def self.arm!(on_call:)
+    self.remaining = on_call
+    yield
+  ensure
+    self.remaining = nil
+  end
+
+  def assert_enterable!(**options)
+    if FailingBackstop.remaining
+      FailingBackstop.remaining -= 1
+      raise ActiveRecord::StatementInvalid, "simulated database failure" if FailingBackstop.remaining.zero?
+    end
+    super
+  end
+end
+Entry.prepend(FailingBackstop)
+
 class Entries::ApiSubmissionTest < ActiveSupport::TestCase
   include AgentApiTestSupport
   include ActiveJob::TestHelper
@@ -62,7 +85,7 @@ class Entries::ApiSubmissionTest < ActiveSupport::TestCase
     row = record
     assert_equal ["succeeded", entry.id, 201, "token", true],
                  [row.state, row.entry_id, row.response_status, row.funding_method, row.token_consumed]
-    assert_equal result.body, row.response_body
+    assert_equal result.body, JSON.parse(row.response_body)
   end
 
   # ── succeeded: replay ─────────────────────────────────────────────────────
@@ -337,6 +360,27 @@ class Entries::ApiSubmissionTest < ActiveSupport::TestCase
     assert_equal @vault.tickets.sole[:signature], entries.sole.onchain_tx_signature
   end
 
+  test "abandoned: a request that died after the lock committed, before the proof was written, is finished from the chain" do
+    row = abandon!
+    on_chain(@vault) do
+      @vault.enter_contest_with_token(@user.web2_solana_address, @contest.slug, 0, "token-1",
+                                      user_keypair: "fake-keypair-object", season_id: 1)
+    end
+    paid = enter!(@user, @contest, fixture_matchups, status: :cart)
+    paid.update!(entry_number: 0)
+    row.update!(entry: paid)
+    @vault.grant_token("token-2")
+
+    result = travel(ApiEntryRequest::IN_FLIGHT_TIMEOUT + 1.second) { submit }
+
+    assert_equal :created, result.status
+    assert_equal [paid.id], entries.pluck(:id)
+    assert paid.reload.active?
+    assert_equal @vault.tickets.sole[:signature], paid.onchain_tx_signature
+    assert_equal 1, @vault.spent_tokens.size
+    assert_equal({ "method" => "unknown", "token_consumed" => nil }, result.body["funding"])
+  end
+
   # ── confirming: paid, the confirming write failed ─────────────────────────
 
   def with_failing_confirm(&block)
@@ -452,6 +496,35 @@ class Entries::ApiSubmissionTest < ActiveSupport::TestCase
     assert_error result, :no_entry_token, :unprocessable_entity
     assert_match(/not available right now/, result.message)
     assert_nothing_spent
+  end
+
+  test "a free contest needs no token and spends nothing" do
+    @contest.update!(entry_fee_cents: 0, onchain_contest_id: nil)
+    @vault = LedgerVault.new(tokens: [])
+
+    result = submit
+
+    assert_equal :created, result.status
+    assert_equal({ "method" => "free", "token_consumed" => false }, result.body["funding"])
+    assert entries.sole.active?
+    assert_empty @vault.tickets
+    assert_empty @vault.entry_token_list_calls
+  end
+
+  test "a free entry whose confirm fails leaves no row behind, and the retry makes one entry" do
+    @contest.update!(entry_fee_cents: 0, onchain_contest_id: nil)
+
+    # The gate passes inside the lock and fails as confirm!'s backstop: the
+    # entry row is committed, never activated, and there is no payment to honour.
+    FailingBackstop.arm!(on_call: 2) do
+      assert_raises(ActiveRecord::StatementInvalid) { submit }
+    end
+
+    assert_empty entries, "a failed request must not leave a half-made entry"
+    assert_equal ["failed", nil], [record.state, record.entry_id]
+
+    assert_equal :created, submit.status
+    assert entries.sole.active?
   end
 
   # ── the player's web cart ─────────────────────────────────────────────────

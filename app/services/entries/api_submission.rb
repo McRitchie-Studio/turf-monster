@@ -304,9 +304,9 @@ module Entries
 
       run_effects(record, entry)
 
-      body = success_body(record, entry)
-      record.update!(response_status: 201, response_body: body)
-      Result.new(status: :created, body: body)
+      json = JSON.generate(success_body(record, entry))
+      record.update!(response_status: 201, response_body: json)
+      Result.new(status: :created, body: JSON.parse(json))
     end
 
     # The chat announcement and the seeds side effects of a web entry
@@ -337,7 +337,10 @@ module Entries
 
     def replay(record)
       entry = record.entry
-      body = record.response_body || (entry && success_body(record, entry))
+      # The stored text, parsed: key order survives, so a replay renders the
+      # same bytes the first response did. Without one (the request died
+      # between confirming and storing), the entry is described as it is now.
+      body = record.response_body ? JSON.parse(record.response_body) : (entry && success_body(record, entry))
       # The entry was deleted since (a contest reset). The key is spent either
       # way: it must not buy a second entry.
       return error(:idempotency_key_reused, "This Idempotency-Key was used by an entry that no longer exists. Use a new key.") if body.nil?
@@ -389,7 +392,9 @@ module Entries
       spent = managed&.spend_attempted?
       entry = managed&.entry && Entry.find_by(id: managed.entry.id)
       code, message = classify(error)
-      log_error(error, record) unless error.is_a?(Entry::Refusal)
+      # A refusal is an answer, not a fault. A fault with no code is re-raised
+      # below and logged once, by the controller.
+      log_error(error, record) unless error.is_a?(Entry::Refusal) || code.nil?
 
       if entry && (spent || entry.active?)
         # The lock transaction committed. With a spend, that means the spend
