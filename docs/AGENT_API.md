@@ -635,8 +635,8 @@ can play:
 | Piece | Where |
 |-------|-------|
 | Routes (drawn from their own file so `config/routes.rb` line numbers hold) | `config/routes/api_v1.rb` |
-| Contests, contest detail, leaderboard | `app/controllers/api/v1/contests_controller.rb` |
-| The player's entries | `app/controllers/api/v1/entries_controller.rb` |
+| The actions (each names an operation and renders its outcome) | `app/controllers/api/v1/contests_controller.rb`, `entries_controller.rb`, `me_controller.rb` |
+| The work: queries, visibility, parameter checks. One class per endpoint, shared with the MCP tools | `app/services/api/v1/operations/` |
 | Paging | `app/controllers/api/v1/pagination.rb` |
 | Contest JSON | `app/serializers/api/v1/contest_serializer.rb` |
 | Entry and leaderboard-row JSON | `app/serializers/api/v1/entry_serializer.rb` |
@@ -890,7 +890,8 @@ Only one request per player and contest runs at a time, whatever its key.
 | Piece | Where |
 |-------|-------|
 | Routes | `config/routes/api_v1.rb` |
-| The two actions, the header and body checks | `app/controllers/api/v1/entries_controller.rb` |
+| The two actions | `app/controllers/api/v1/entries_controller.rb` |
+| The header and body checks, and the edit's two extra rules | `app/services/api/v1/operations/submit_entry.rb`, `edit_entry.rb` |
 | Strict parameter readers (a wrong shape is a 400, not a 500) | `app/controllers/api/v1/strict_params.rb` |
 | Create, at most once per key: the claim, settling a doubt, the gates that need no entry, the response | `app/services/entries/api_submission.rb` |
 | The idempotency record, its states and its two clocks | `app/models/api_entry_request.rb` |
@@ -908,6 +909,217 @@ through the same record without going through this controller.
 Known gap: nothing sweeps `uncertain` records. A payment that landed for a
 request whose agent never came back stays an unclaimed ticket until the same
 player sends another request for that contest, or an operator looks.
+
+## MCP
+
+The same API as a remote [Model Context Protocol](https://modelcontextprotocol.io)
+server, for a client that cannot make HTTP requests of its own but can use an
+MCP connector. Eight tools, one per endpoint above. Each tool runs the same code
+as its endpoint, so everything on this page about rules, errors and retries
+holds for the tools as written.
+
+| | |
+|---|---|
+| Endpoint | `POST https://turfmonster.media/mcp` |
+| Transport | MCP Streamable HTTP. Every request is answered with one `application/json` body. No event stream, no session. |
+| Protocol revisions | `2025-03-26`, `2025-06-18`, `2025-11-25` |
+| Authentication | `Authorization: Bearer tmk_...` on every request, `initialize` included |
+| Methods | `initialize`, `ping`, `tools/list`, `tools/call`, and any notification |
+
+### Connecting a client
+
+What works today, and what does not. "Verified" means read in the vendor's own
+documentation on 2026-10-01, at the link given; see also [Clients
+tested](#clients-tested).
+
+| Client | Works with a key today? | How |
+|--------|-------------------------|-----|
+| **Claude Code** (terminal, desktop app, IDE) | **Yes** | The command or the file below |
+| Any MCP client that can send a request header (the MCP Inspector, an SDK client, Cursor and similar) | **Yes** | Streamable HTTP to `/mcp` with the `Authorization` header |
+| **claude.ai, Claude Desktop and Claude mobile, as a custom connector** | **Not for most accounts** | A custom connector signs in with OAuth, which this server does not offer yet. Sending a fixed header instead ("Request headers", under *Add custom connector*) is, in Anthropic's words, "in beta and available to a limited set of organizations". An account that has that section can connect: choose **No sign-in**, add the header `authorization` with the value `Bearer tmk_...` (the word `Bearer`, a space, then the key). An account that does not have it cannot connect until Turf Monster adds OAuth. Source: [Add a connector that isn't in the directory](https://claude.com/docs/connectors/custom/add-unlisted), "Authenticate with request headers". |
+
+A claude.ai connector added without a header gets a `401` and reports that it
+could not connect. That is the missing OAuth, not a fault in the key.
+
+**Claude Code**, from a terminal
+([docs](https://code.claude.com/docs/en/mcp)):
+
+```bash
+claude mcp add --transport http turf-monster https://turfmonster.media/mcp \
+  --header "Authorization: Bearer tmk_..."
+```
+
+That stores the key in your own Claude Code settings (`~/.claude.json`), for the
+current project. Add `--scope user` to have it in every project. Then run
+`/mcp` inside Claude Code to see the eight tools.
+
+To keep the key out of a file you share, use a project `.mcp.json` that reads
+it from the environment:
+
+```json
+{
+  "mcpServers": {
+    "turf-monster": {
+      "type": "http",
+      "url": "https://turfmonster.media/mcp",
+      "headers": { "Authorization": "Bearer ${TURF_MONSTER_KEY}" }
+    }
+  }
+}
+```
+
+**Never put the key in the URL.** `/mcp?key=...` is not read, on purpose: URLs
+end up in logs and histories.
+
+### The tools
+
+| Tool | Same as | Arguments | Changes anything? |
+|------|---------|-----------|-------------------|
+| `get_me` | `GET /api/v1/me` | none | No |
+| `list_contests` | `GET /api/v1/contests` | `status` (`open` or `settled`), `limit`, `offset` | No |
+| `get_contest` | `GET /api/v1/contests/:slug` | **`contest_slug`** | No |
+| `get_leaderboard` | `GET /api/v1/contests/:slug/leaderboard` | **`contest_slug`**, `limit`, `offset` | No |
+| `list_my_entries` | `GET /api/v1/entries` | `contest_slug`, `limit`, `offset` | No |
+| `get_entry` | `GET /api/v1/entries/:slug` | **`entry_slug`** | No |
+| `submit_entry` | `POST /api/v1/contests/:slug/entries` | **`contest_slug`**, **`matchup_ids`**, **`idempotency_key`**, `allow_usdc` (default `false`) | **Yes: spends a token, or USDC** |
+| `edit_entry` | `PATCH /api/v1/entries/:slug` | **`entry_slug`**, **`matchup_ids`** | Yes: replaces the picks |
+
+Bold arguments are required. `tools/list` returns each tool's full JSON Schema
+and a description written for the model. No tool takes an argument that is not
+listed: an unknown one is refused, by name, so a model that sends `slug` for
+`contest_slug` is told so.
+
+`idempotency_key` is the `Idempotency-Key` header of the REST endpoint, moved
+into the arguments because a model cannot set a header. It is the same record:
+a key used over MCP replays over REST, and the other way round. Everything in
+[Retrying safely](#retrying-safely) applies.
+
+Each tool carries annotations a client may use to decide when to ask the
+player first: the six reads are `readOnlyHint: true`; `submit_entry` and
+`edit_entry` are `readOnlyHint: false` and `destructiveHint: true` (one spends
+what cannot be returned, the other overwrites). All eight are
+`idempotentHint: true` and `openWorldHint: false`.
+
+The `initialize` result carries `instructions` for the model: what the game is,
+the order to call the tools in, to confirm the lineup with the player before
+submitting, to leave `allow_usdc` off unless the player says otherwise, and the
+one-entry-one-key retry rule.
+
+### Results and errors
+
+A tool result is the REST response body, unchanged:
+
+```json
+{
+  "content": [{ "type": "text", "text": "{\"entry\":{...},\"funding\":{...}}" }],
+  "structuredContent": { "entry": { }, "funding": { "method": "token", "token_consumed": true } },
+  "isError": false,
+  "_meta": { "turfmonster.media/http_status": 201 }
+}
+```
+
+| Part | What it holds |
+|------|---------------|
+| `content[0].text` | The REST body as a JSON string. Always present. |
+| `structuredContent` | The same body as JSON. Sent when the request carries `MCP-Protocol-Version: 2025-06-18` or later; revision `2025-03-26` has no such field. |
+| `isError` | `true` when REST would answer 4xx or 5xx. The body is then the usual envelope, `{ "error": { "code", "message" } }`, with the same codes as the tables above. |
+| `_meta` | What REST says in its status line and headers: `turfmonster.media/http_status`, `turfmonster.media/retry_after` (seconds), `turfmonster.media/idempotent_replayed` (`true` on a replay). |
+
+Three answers from `submit_entry` are worth knowing by sight:
+
+| REST | As a tool result | What to do |
+|------|------------------|------------|
+| `202`, `"pending": true` | `isError: false`, the same body, and a second text block that begins `PENDING, NOT A FAILURE` | The entry is paid. Call again with the same `idempotency_key` after `retry_after` seconds to receive it. |
+| `409 idempotency_in_progress` | `isError: true`, a second text block that begins `RETRY` | Call again with the same key after `retry_after` seconds. |
+| `503 chain_unavailable` | `isError: true`, a second text block that begins `RETRY` | The same. Never switch keys. |
+
+Some failures are not tool results, because they are not about a tool:
+
+| Failure | Answer |
+|---------|--------|
+| No key, or a bad, revoked or expired one | HTTP `401` with `WWW-Authenticate: Bearer realm="Turf Monster API"` and the REST envelope. No JSON-RPC is read first. |
+| Too many requests | HTTP `429` with `Retry-After` and the REST envelope (`rate_limited`) |
+| A body that is not JSON | HTTP `400`, JSON-RPC error `-32700` |
+| Not a JSON-RPC request; an `MCP-Protocol-Version` this server does not speak; a batch sent at a revision without batches | HTTP `400`, JSON-RPC error `-32600` |
+| A method other than the four above | JSON-RPC error `-32601` |
+| An unknown tool, or `arguments` that is not an object | JSON-RPC error `-32602` |
+| A crash on our side | JSON-RPC error `-32603`. For `submit_entry`, retry with the same key. |
+| `GET`, `DELETE`, `PUT` or `PATCH /mcp` | HTTP `405`, `Allow: POST` |
+| A request with an `Origin` header that is not this site's (a web page calling) | HTTP `403` |
+
+An argument of the wrong type is a tool result (`isError: true`, code
+`bad_request`), not a JSON-RPC error, so the model can read it and try again.
+
+An account on hold, or short of the age gate, can call every read tool. The two
+writing tools answer `account_frozen` or `age_verification_required`.
+
+### Limits
+
+| Limit | Keyed on |
+|-------|----------|
+| 120 requests per minute | The API key. Separate from the key's 120 on `/api/`. |
+| 600 requests per minute | The calling IP address, for requests that carry a key. **Not applied to Anthropic's connector addresses**, which every claude.ai player shares. |
+| 30 requests per minute | The calling IP address, for requests with no key |
+
+Also: a request body is at most 64 KB; a JSON-RPC batch (revision `2025-03-26`
+only) holds at most 10 messages and counts as one request. Detail and the
+reasoning: [`RATE_LIMITING.md`](RATE_LIMITING.md).
+
+### Protocol notes
+
+- **Stateless.** No `MCP-Session-Id` is issued and nothing is remembered from
+  `initialize`. The revision a client negotiated reaches later requests in the
+  `MCP-Protocol-Version` header. Without that header the server assumes
+  `2025-03-26`, as the specification says to.
+- **Version negotiation.** `initialize` answers with the client's revision when
+  it is one of the three, and with `2025-11-25` otherwise. Any other value in
+  the `MCP-Protocol-Version` header of a later request is a `400`.
+- **Batches** are accepted at `2025-03-26` only. `2025-06-18` removed them from
+  the protocol. `initialize` may not be part of one.
+- **Capabilities:** `tools` only. No resources, prompts, logging or completions.
+- **No library.** The server is about 600 lines, comments included, in `app/services/agent_mcp/`.
+  The `mcp` gem is in the lockfile only as a development dependency of rubocop.
+  It is not in the production bundle, and its transport is built around
+  sessions and event streams this endpoint does not have.
+
+### Clients tested
+
+CLIENTS_TESTED_PLACEHOLDER
+
+### What OAuth would need
+
+Not built. Written down so the next piece starts from the seams and not from a
+search. claude.ai's requirements are in Anthropic's [Authentication for
+connectors](https://claude.com/docs/connectors/building/authentication).
+
+| Piece | Where it plugs in |
+|-------|-------------------|
+| Recognising an access token | `authenticate_api_key!` in `ApiKeyAuthentication` is the one step that turns a bearer value into a player. A second scheme branches there, on the token's prefix (`tmk_` is a key). Everything after it asks only for `current_user`, `current_api_key` and `write_refusal`. |
+| What an access token must carry | What a key carries: the player, an expiry, a way to revoke, and the **eligibility stamp** (location, and age when the gate is on) taken in the player's browser. A key gets it at creation; an OAuth grant would take it on the consent screen, which is a page on this site. |
+| `GET /api/v1/me` and `get_me` | They report `api_key.prefix`, `name`, `expires_at`, `eligibility`. An OAuth caller has no key, so that block needs a second shape. |
+| The `401` | Claude starts sign-in from a `401` whose header points at metadata: `WWW-Authenticate: Bearer resource_metadata="https://turfmonster.media/.well-known/oauth-protected-resource"`. Today's header names only a realm. |
+| Discovery | `/.well-known/oauth-protected-resource` (RFC 9728; `resource` must equal the `/mcp` URL exactly) and authorization server metadata (RFC 8414). |
+| The authorization server | Authorization code with PKCE `S256`; a client identity for Claude (a Client ID Metadata Document, or Dynamic Client Registration); the redirect URI `https://claude.ai/api/mcp/auth_callback`, and a loopback redirect on any port for Claude Code; a token endpoint that takes form-encoded bodies and rotates refresh tokens. |
+| Rate limits | Nothing: `mcp/key` is keyed on a digest of whatever bearer value is sent. |
+| The tools | Nothing. |
+
+### For developers: the MCP endpoint
+
+| Piece | Where |
+|-------|-------|
+| Route (drawn from its own file) | `config/routes/mcp.rb` |
+| HTTP: the Origin check, the key, the body, the write gates | `app/controllers/mcp_controller.rb` |
+| The protocol: JSON-RPC, revisions, `tools/list`, `tools/call` | `app/services/agent_mcp/server.rb`, `protocol.rb` |
+| The eight tools: names, descriptions, schemas, the operation each runs | `app/services/agent_mcp/tools.rb`, `tool.rb` |
+| An operation's outcome as a tool result | `app/services/agent_mcp/tool_result.rb` |
+| The `instructions` text | `app/services/agent_mcp/instructions.rb` |
+| The work, shared with `/api/v1` | `app/services/api/v1/operations/` |
+| Throttles | `config/initializers/rack_attack.rb` (`mcp/key`, `mcp/ip`, `mcp/anon_ip`) |
+
+A tool holds no rule of the game. To add one, write the operation, call it from
+a REST action, and add a `Tool` to the registry that names it. A tool that
+writes is declared `writes: true`, which is what puts it behind the account
+hold and the age gate.
 
 ## For developers
 
@@ -932,7 +1144,7 @@ gets the same.
 
 | Gate | Default | How an endpoint uses it |
 |------|---------|-------------------------|
-| Account hold | **On for every non-`GET`/`HEAD` request.** Nothing to add. | Opt an action out with `allow_frozen_account_writes only: :action`. That action then owes the check itself. |
+| Account hold | **On for every non-`GET`/`HEAD` request.** Nothing to add. | Opt an action out with `allow_frozen_account_writes only: :action`. That action then owes the check itself. `only:` is required: called without it, or with an empty list, the method raises, because that spelling would lift the hold from every action of the controller. |
 | Age gate | Off. An endpoint asks for it. | `before_action :require_age_verified` on any action that enters a contest. |
 | Location | Never re-checked. | Decided at key creation (Alex, 2026-09-30). |
 
@@ -954,12 +1166,11 @@ envelope, such as an MCP endpoint dispatching tools through one `POST`:
 ```ruby
 class McpController < ActionController::API
   include ApiKeyAuthentication
-  allow_frozen_account_writes only: :call_tool   # read tools must stay open
+  allow_frozen_account_writes only: :rpc   # read tools must stay open
 
-  def call_tool
-    if tool.writes? && (refusal = write_refusal)
-      return render json: tool_error(refusal.code, refusal.message)
-    end
+  def run_tool(tool, arguments)
+    refusal = write_refusal
+    return Api::V1::Operations::Outcome.refused(refusal) if tool.writes? && refusal
     # ...
   end
 end

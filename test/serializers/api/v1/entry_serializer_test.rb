@@ -58,7 +58,7 @@ class Api::V1::EntrySerializerTest < ActiveSupport::TestCase
   end
 
   # PATCH /api/v1/entries/:slug refuses a caller who may not write, and a
-  # cancelled contest (Api::V1::EntriesController#update_refusal).
+  # cancelled contest (Api::V1::Operations::EditEntry#update_refusal).
   test "editable is false for a caller who may not write, and in a cancelled contest" do
     assert_equal true, serializer(writable: true).as_json[:editable]
     assert_equal false, serializer(writable: false).as_json[:editable]

@@ -70,6 +70,9 @@ grep -n '^  throttle("' config/initializers/rack_attack.rb
 | Interactive | `general/ip` | 90 / 60s | ip (tier-1 limiter — toggle_selection / enter / clear_picks) |
 | Agent API | `api/key` | 120 / min | SHA-256 digest of the bearer key (every path under `/api/`, any verb) |
 | Agent API | `api/ip` | 600 / min | ip (every path under `/api/`; flood backstop, loose because agents share cloud egress) |
+| Agent API (MCP) | `mcp/key` | 120 / min | SHA-256 digest of the bearer key (`/mcp`, any verb). Its own bucket: `/api/` traffic on the same key does not spend it. |
+| Agent API (MCP) | `mcp/ip` | 600 / min | ip, for `/mcp` requests that carry a bearer key. **Skipped for Anthropic's outbound range `160.79.104.0/21`.** |
+| Agent API (MCP) | `mcp/anon_ip` | 30 / min | ip, for `/mcp` requests with no bearer key (answered 401 or 405) |
 | Agent API | `api_key_mint/ip` | 10 / hour | ip (`POST /account/api_keys`, in every spelling the router sends to the mint: `.html`, any other format, a trailing slash). The 429 is JSON with no keys card in it, so the card's form reads the status and shows its own message. |
 
 Key facts that constrain the design:
@@ -196,6 +199,35 @@ exists to open the browser's wait modal):
 The `/api/` tier is also the one **prefix** rule in the initializer. Every
 other throttle is an allowlist of paths, so a new route is exempt until someone
 adds it; an endpoint added under `/api/` is throttled the day it ships.
+
+### The MCP endpoint and shared egress
+
+`/mcp` is outside `/api/`, so the prefix rule above does not reach it; it has
+three throttles of its own, matched on the path in every spelling the router
+accepts. Its 429 is the agent API's envelope, as its 401 is: both are HTTP,
+below JSON-RPC.
+
+The per-key limit is the same as the API's. The per-IP side is not, because of
+who calls. A claude.ai connector does not call from the player's address; it
+calls from Anthropic's, and every player on a connector shares that range.
+Anthropic documents it: "Anthropic's outbound traffic to your server originates
+from `160.79.104.0/21`" ([Authentication for connectors, "Network
+reference"](https://claude.com/docs/connectors/building/authentication)), and
+the [IP address reference](https://platform.claude.com/docs/en/api/ip-addresses)
+lists the same range under "Outbound IP addresses" (both read 2026-10-01). That
+page lists **no outbound IPv6 range**; `2607:6bc0::/48` is under "Inbound",
+Anthropic's own API, and is not traffic this app receives.
+
+| Throttle | Why it is shaped this way |
+|----------|---------------------------|
+| `mcp/key` | The real limit. One player, one key, wherever the request comes from. |
+| `mcp/ip` | The backstop `api/ip` is: a script that sends a different made-up key on every request lands each in an empty `mcp/key` bucket. 600 a minute per address caps that. It is **skipped inside Anthropic's range**, where one address carries many players and a shared cap would let one of them lock out the rest (five keys at 120 a minute is already 600). A made-up-key flood from inside that range would have to be driven through claude.ai. |
+| `mcp/anon_ip` | A request with no bearer key is never a player. It is refused at once, so a tight cap costs nobody anything, and it applies everywhere, Anthropic's range included. |
+
+If Anthropic adds a range, its addresses get the `mcp/ip` backstop until the
+range is added to `MCP_SHARED_EGRESS`: looser protection for nobody, a shared
+cap for those players until it is listed. A JSON-RPC batch is one request to
+these throttles; `AgentMcp::Protocol::MAX_BATCH` (10) bounds what it can carry.
 
 ## Client UX
 
