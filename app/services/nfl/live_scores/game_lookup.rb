@@ -20,11 +20,15 @@ module Nfl
     # `external_id` and silently fails on exactly the production rows the
     # incident was about.
     module GameLookup
-      def self.find(row)
+      # `home:`/`away:` let a caller that has already resolved both teams hand
+      # them in rather than paying for the lookups a second time — the same
+      # affordance #slug_for carries, and the reason a cycle can resolve its 32
+      # abbreviations once. Behaviour is identical when they are omitted.
+      def self.find(row, home: nil, away: nil)
         by_id = Game.find_by(external_id: row.external_id)
         return by_id if by_id
 
-        slug = slug_for(row)
+        slug = slug_for(row, home: home, away: away)
         return nil unless slug
 
         Game.find_by(slug: slug)
