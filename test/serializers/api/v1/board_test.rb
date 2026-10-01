@@ -120,6 +120,6 @@ class Api::V1::BoardTest < ActiveSupport::TestCase
 
     queries = count_queries { board.teams }
 
-    assert_operator queries, :<=, 9, "two loads of the slate (rows + teams, opponents, games), whatever its size"
+    assert_operator queries, :<=, 10, "the contest, its slate, and two loads of the slate (rows, teams, opponents, games), whatever its size"
   end
 end

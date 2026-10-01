@@ -35,10 +35,15 @@ module AgentApiTestSupport
   end
 
   # Data queries only: no schema reflection, no transaction bookkeeping.
+  #
+  # A query answered from the query cache COUNTS. In an integration test the
+  # cache outlives the request, so a repeated request is served almost entirely
+  # from it; skipping cached hits measured a 14-query endpoint as 2 and would
+  # have hidden any N+1 the first request had already warmed.
   def count_queries(&block)
     count = 0
     counter = lambda do |*, payload|
-      count += 1 unless payload[:name].in?(%w[SCHEMA TRANSACTION]) || payload[:cached]
+      count += 1 unless payload[:name].in?(%w[SCHEMA TRANSACTION])
     end
     ActiveSupport::Notifications.subscribed(counter, "sql.active_record", &block)
     count
