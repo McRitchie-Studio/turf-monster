@@ -48,7 +48,10 @@ class McpController < ActionController::API
     payload = parsed_body
     return render_reply(AgentMcp::Server.parse_error) if payload.equal?(UNPARSEABLE)
 
-    return render_batch_over_limit if payload.is_a?(Array) && Rack::Attack.mcp_charge_batch(request, payload.size)
+    # Only a batch the server will run is charged. An oversize one is refused
+    # below (-32600) at the cost of the one request the throttle already counted;
+    # charging it first would be one cache round trip per message of a 64 KB body.
+    return render_batch_over_limit if chargeable_batch?(payload) && Rack::Attack.mcp_charge_batch(request, payload.size)
 
     server = AgentMcp::Server.new(run_tool: method(:run_tool))
     render_reply server.handle(payload, version_header: request.headers["MCP-Protocol-Version"])
@@ -70,6 +73,10 @@ class McpController < ActionController::API
   end
 
   private
+
+  def chargeable_batch?(payload)
+    payload.is_a?(Array) && payload.size <= AgentMcp::Protocol::MAX_BATCH
+  end
 
   # Run one tool for the authenticated player. Returns the operation's Outcome;
   # the two exceptions an operation raises on purpose become the same

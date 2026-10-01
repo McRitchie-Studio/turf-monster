@@ -271,4 +271,19 @@ class McpRateLimitTest < ActionDispatch::IntegrationTest
       assert_equal 0, calls
     end
   end
+
+  test "an oversize batch is refused uncharged: it costs the one request it was" do
+    key = mint_api_key(users(:sam))
+    headers = { "Authorization" => "Bearer #{key.raw_token}", "REMOTE_ADDR" => ELSEWHERE }
+
+    with_rack_attack do
+      ping(headers, body: JSON.generate(Array.new(5_000) { 1 }))
+      assert_response :bad_request
+
+      119.times { ping(headers) }
+      assert_response :ok
+      ping(headers)
+      assert_response :too_many_requests
+    end
+  end
 end
