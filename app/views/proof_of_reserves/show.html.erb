@@ -1,10 +1,5 @@
 <% content_for :title, "Proof of Reserves — Turf Monster" %>
-<% content_for :head do %>
-  <meta property="og:title" content="Turf Monster — Proof of Reserves">
-  <meta property="og:description" content="Every contest's prize pool is a USDC vault on Solana. See it live, from chain.">
-  <meta property="og:type" content="article">
-  <meta property="og:image" content="<%= request.base_url %>/logo.png">
-<% end %>
+<% link_preview description: "Every contest's prize pool is a USDC vault on Solana. See it live, from chain." %>
 
 <script type="application/json" id="proof-of-reserves-config">
 <%= @page_config.to_json.html_safe %>

@@ -351,20 +351,6 @@ class ApplicationController < ActionController::Base
     controller_name == "contests" && action_name.in?(%w[show world_cup index live])
   end
 
-  # A link-preview fetcher (iMessage, Discord, Slack, X...) reading a page. The
-  # application layout asks this and answers a match with only the preview tags
-  # (layouts/_link_preview_document) instead of the full app, because Apple's
-  # LinkPresentation drops any page over 1 MiB and a contest page is larger.
-  # People and unknown agents never match. The allow-list is LinkPreviewBot.
-  #
-  # No format check: only the HTML layout asks, and an unfurler often sends
-  # `Accept: */*`, which Rails reads as Mime::ALL (not html?) even though the
-  # response it renders is HTML.
-  def link_preview_bot_request?
-    (request.get? || request.head?) && LinkPreviewBot.match?(request.user_agent)
-  end
-  helper_method :link_preview_bot_request?
-
   # Stamp the REAL logged-in user's last activity (admin dashboard "by recent
   # session"). Throttled to one write per 5 min via update_column (no callbacks,
   # no updated_at churn) so it's cheap on the hot path; uses true_user so admin

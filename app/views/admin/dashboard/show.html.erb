@@ -189,45 +189,20 @@
       <% end %>
     </div>
 
-    <%# Link Preview (og:image) defaults. Cropper.js + the crop-photo modal
-        (registered in the application layout) back the immediate image save. %>
+    <%# Link preview defaults moved to studio-engine's /admin/link_preview
+        (Studio::SiteIdentity), which edits the image, title and description
+        beside a live card. This card only points there. %>
     <div>
-      <%= render "studio/cropper_assets" %>
-      <div class="card p-6 space-y-5">
+      <div class="card p-6 space-y-4" data-test="dashboard-link-preview">
         <div>
           <h2 class="text-heading text-lg font-semibold">Link Preview Defaults</h2>
           <p class="text-muted text-sm mt-1">
             The image, title, and description shown when a turfmonster.media link is
             shared in iMessage, Discord, Slack, or X. Used site-wide unless a page
-            sets its own. Falls back to the built-in <code class="text-xs bg-inset px-1 rounded">/og.png</code>
-            when no image is uploaded.
+            sets its own, like a contest's banner.
           </p>
         </div>
-
-        <%= render "admin/shared/og_image_uploader",
-              form_url: admin_dashboard_link_preview_image_path, form_id: "og-image-form",
-              file_param: "site_setting[default_og_image]", preview_dom_id: "default-og-image-preview",
-              attachment: @site_setting.default_og_image, alt: "Default link-preview image",
-              fallback: "No image — falls back to /og.png",
-              label: tag.label("Default image (1200×630)", class: "block text-sm text-secondary mb-2 font-medium") %>
-
-        <%= form_with url: admin_dashboard_link_preview_path, method: :patch, html: { class: "space-y-4" } do |f| %>
-          <div>
-            <label for="default_og_title" class="block text-sm text-secondary mb-2 font-medium">Default title</label>
-            <%# Placeholders render the live OgHelper fallbacks so the admin
-                sees exactly what ships when the field is left blank. %>
-            <%= text_field_tag "site_setting[default_og_title]", @site_setting.default_og_title,
-                  id: "default_og_title", class: "input-field",
-                  placeholder: OgHelper::DEFAULT_OG_TITLE %>
-          </div>
-          <div>
-            <label for="default_og_description" class="block text-sm text-secondary mb-2 font-medium">Default description</label>
-            <%= text_area_tag "site_setting[default_og_description]", @site_setting.default_og_description,
-                  id: "default_og_description", rows: 3, class: "input-field",
-                  placeholder: OgHelper::DEFAULT_OG_DESCRIPTION %>
-          </div>
-          <button type="submit" class="btn btn-primary">Save text</button>
-        <% end %>
+        <%= link_to "Edit link preview", admin_link_preview_path, class: "btn btn-secondary" %>
       </div>
     </div>
   </div>

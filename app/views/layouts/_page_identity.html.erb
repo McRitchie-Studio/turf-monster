@@ -1,16 +1,13 @@
-<%# locals: (preview:) %>
-<%# The page identity in <head>: title, description, icons, and the Open
-    Graph + Twitter preview tags. Rendered by the full application layout AND
-    the slim link-preview document, so the two can never disagree. `preview` is OgHelper#page_link_preview.
-
-    Title/description/og:image resolve through OgHelper: a page-level
-    content_for override wins, then the admin-set SiteSetting defaults
-    (/admin/dashboard), then the hardcoded fallbacks. og:image falls back to the
-    static public/og.png (1200x630 landscape, ~53KB — sized + compressed for the
-    unfurl; the old 1.3MB /logo.png timed out and blanked previews). Only the
-    static fallback has known fixed dimensions. %>
-<title><%= preview[:title] %></title>
-<meta name="description" content="<%= preview[:description] %>">
+<%# The page identity in <head>: title, description and icons. The title and
+    description are the ones the link preview resolves (studio_link_preview:
+    the page's override, then the site identity at /admin/link_preview, then
+    the drafted copy), so the tab title and the unfurl never disagree. The
+    og:/twitter: tags themselves come from studio-engine's layouts/studio/_head. %>
+<% identity = studio_link_preview %>
+<title><%= identity[:title] %></title>
+<% if identity[:description] %>
+<meta name="description" content="<%= identity[:description] %>">
+<% end %>
 
 <%# Favicons + PWA icons (Turf Monster green monster mark) %>
 <link rel="icon" href="/favicon.ico" sizes="any">
@@ -25,7 +22,3 @@
 <%# Modern companion to the engine head's apple-mobile-web-app-capable
     (clears the Chrome deprecation warning). Both are intentionally kept. %>
 <meta name="mobile-web-app-capable" content="yes">
-
-<%# Open Graph + Twitter unfurl tags (shared with the landing layout). %>
-<%= render "layouts/link_preview_meta", title: preview[:title], description: preview[:description],
-      image: preview[:image], image_default: preview[:image_default] %>

@@ -27,14 +27,15 @@ Studio.magic_link_store = :database
 Studio.draw_link_routes = false
 
 Studio.configure do |config|
-
   # ---- Site identity + link preview (studio-engine docs/LINK_PREVIEW.md) ----
   # The DRAFTED title and description; the operator edits them at
   # /admin/link_preview, and Studio.site_identity reads the result.
   config.site_title = "Turf Monster — Skill-Based Pick’em Contests"
   config.site_description = "Turf Monster: skill-based pick’em. Pick your teams, stack Turf Scores, and win cash prizes in contests or head-to-head against friends, with transparent, verifiable payouts."
-  # This app still writes its own og tags. Delete them, then remove this line.
-  config.link_preview_tags = false
+  # The og:/twitter: tags come from the engine head (layouts/studio/_head)
+  # under the default link_preview_tags = :auto, which holds them off if any
+  # template under app/views mentions og:title or og:image — a comment counts.
+  # test/integration/site_identity_adoption_test.rb keeps app/views clean.
 
   config.app_name = "Turf Monster"
   config.sticky_table_headers = true

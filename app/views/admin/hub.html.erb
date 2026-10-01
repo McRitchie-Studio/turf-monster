@@ -49,6 +49,8 @@
     <%= render "hub_tile", name: "New Contest", url: new_contest_path, status: :flagged %>
     <%= render "hub_tile", name: "Contests",    url: contests_path, status: :reviewed %>
     <%= render "hub_tile", name: "Landing Pages", url: admin_landing_pages_path, status: :reviewed %>
+    <%= render "hub_tile", name: "Link Preview", url: admin_link_preview_path,
+               note: "The site-wide image, title and description shared links unfurl with" %>
     <%= render "hub_tile", name: "Seasons",     url: admin_seasons_path, status: :flagged %>
     <%= render "hub_tile", name: "Treasury",    url: admin_pending_transactions_path, status: :flagged,
           note: "Co-sign pending vault transactions, the revenue sweep among them (hop 1)" %>
