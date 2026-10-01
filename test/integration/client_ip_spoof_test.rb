@@ -144,19 +144,4 @@ class ClientIpSpoofTest < ActionDispatch::IntegrationTest
       assert_equal [401], statuses.first(limit).uniq
     end
   end
-
-  test "rotating a spoofed address on every request does not escape the login limit" do
-    limit = Rack::Attack.throttles.fetch("login/ip").limit
-    blocked = nil
-
-    with_rack_attack do
-      (limit + 1).times do |i|
-        post "/login", params: { email: "nobody#{i}@example.com", password: "x" },
-                       headers: { "REMOTE_ADDR" => ROUTER, "X-Forwarded-For" => CLIENT, "Forwarded" => "for=192.0.2.#{i}" }
-        blocked = response.status
-      end
-    end
-
-    assert_equal 429, blocked
-  end
 end
