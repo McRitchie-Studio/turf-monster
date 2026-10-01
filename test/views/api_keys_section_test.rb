@@ -92,6 +92,10 @@ class ApiKeysSectionTest < ActionView::TestCase
     button = render_section(blocked_reason: :age).at_css('[data-api-key-blocked="age"] button')
 
     assert_includes button["@click"], "open('birthday'"
+    # ...and reloads once the card reports success, since the blocker is
+    # decided server-side.
+    assert_includes render_section(blocked_reason: :age).at_css('[data-api-key-blocked="age"]')["@age-verified.window"],
+                    "reload"
   end
 
   test "a blocked player still sees and can revoke the keys they hold" do

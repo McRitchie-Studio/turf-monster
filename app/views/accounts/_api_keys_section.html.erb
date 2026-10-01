@@ -60,7 +60,10 @@
       API keys aren't available where you are, because contests aren't either.
     </p>
   <% when :age %>
-    <div class="flex items-center justify-between gap-3 flex-wrap" data-api-key-blocked="age">
+    <%# The birthday card dispatches age-verified on success and closes. The
+        blocker was decided server-side, so reload to get the form. %>
+    <div class="flex items-center justify-between gap-3 flex-wrap" data-api-key-blocked="age"
+         x-data @age-verified.window="window.location.reload()">
       <p class="text-sm text-secondary min-w-0">Verify your age to create an API key.</p>
       <button type="button" @click="$store.modals.open('birthday', {})" class="btn btn-primary btn-sm flex-shrink-0">
         Verify age
