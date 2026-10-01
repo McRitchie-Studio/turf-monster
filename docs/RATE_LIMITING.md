@@ -232,8 +232,10 @@ throttle's own cache (`Rack::Attack.mcp_mark_verified`, kept 24 hours and
 renewed when it lapses). The throttle reads the mark: one cache read. A marked
 key skips `mcp/unverified_ip`; an unmarked one counts against its address until
 its first request succeeds, which costs a real player one request of the 30. A
-revoked or expired key keeps its mark until it lapses, which buys it 120 `401`s
-a minute and nothing else.
+marked key that then fails authentication (revoked, expired, deleted) has its
+mark deleted by that `401` (`Rack::Attack.mcp_clear_verified`, called from
+`McpController#render_api_auth_error`), so from its next request it counts
+against its address like any unknown key.
 
 **What this does not stop.** Anthropic's range is not only claude.ai. Anyone
 with an Anthropic API key can point the API's MCP connector at this endpoint
