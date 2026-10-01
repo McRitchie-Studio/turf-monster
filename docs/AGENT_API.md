@@ -16,7 +16,7 @@ card), gives it a name, and hands it to their agent.
 | Property | Value |
 |----------|-------|
 | Format | `tmk_` followed by 40 letters and digits |
-| Shown | Once, on the page that answers the create request. It cannot be recovered. |
+| Shown | Once, in the card, in the response to the create request. It cannot be recovered. |
 | Stored | A SHA-256 digest and the first 10 characters (the display prefix). Never the key. |
 | Lifetime | 90 days from creation |
 | Name | Required, up to 40 characters. It is how the player tells their keys apart. |
