@@ -143,7 +143,9 @@ and only *transient* post-spend failures are left for the reconciler.
 ## 2a. Agent API — `POST /api/v1/contests/:slug/entries` (same path, no cart, one spend per key)
 
 The contract an agent sees is in [`docs/AGENT_API.md`](../AGENT_API.md). This is
-what it does to the tree above.
+what it does to the tree above. The MCP tool `submit_entry` (`POST /mcp`) enters
+this tree at the same point, through the same operation, with the idempotency
+key as an argument instead of a header.
 
 ```
 create (Api::V1::EntriesController)
@@ -180,7 +182,7 @@ create (Api::V1::EntriesController)
 
 | Branch | Where — `Entries::ApiSubmission` is `app/services/entries/api_submission.rb` |
 |---|---|
-| the action — `Api::V1::EntriesController#create` | `app/controllers/api/v1/entries_controller.rb:48-73` |
+| the operation both surfaces run (the REST action and the MCP tool `submit_entry`) — `Api::V1::Operations::SubmitEntry#call` | `app/services/api/v1/operations/submit_entry.rb:24-38` |
 | one record per (player, key), one live request per player and contest — `Entries::ApiSubmission#acquire` | `app/services/entries/api_submission.rb:207-231` |
 | settle an earlier doubt before spending — `Entries::ApiSubmission#run` | `:246-277` |
 | the fence: this attempt still owns the key, checked inside the contest lock — `Entries::ApiSubmission#fence!` | `:293-299` |
