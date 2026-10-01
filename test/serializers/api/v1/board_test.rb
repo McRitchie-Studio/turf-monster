@@ -58,7 +58,7 @@ class Api::V1::BoardTest < ActiveSupport::TestCase
     assert_equal [1, 2], games.map { |game| game[:week] }
     assert_equal %w[team-b team-c], games.map { |game| game[:opponent][:slug] }
     assert_equal [true, true], games.map { |game| game[:home] }
-    assert_equal [false, true], team(rows, "team-c")[:games].map { |game| game[:home] }
+    assert_equal [true, false], team(rows, "team-c")[:games].map { |game| game[:home] }
     assert_equal 40.0, team(rows, "team-a")[:expected_team_score], "summed over both games"
     assert_match(/\A\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ\z/, games.first[:kickoff_at])
   end
@@ -84,16 +84,19 @@ class Api::V1::BoardTest < ActiveSupport::TestCase
     assert_equal [21, 10], row[:games].map { |game| game[:team_score] }
   end
 
-  test "a team is locked once its first game kicks off, and every team once the contest locks" do
+  test "a team is locked once its first game kicks off, while its later game has not started" do
     build_span_contest!(@contest, week_one_kickoff: 1.hour.ago)
     row = team(board.teams, "team-a")
 
     assert_equal true, row[:locked]
     assert_equal [true, false], row[:games].map { |game| game[:started] }
+  end
 
+  test "every team is locked once the contest locks, whatever its own kickoff" do
     build_span_contest!(@contest)
-    assert_equal [false], board.teams.map { |r| r[:locked] }.uniq
-    assert_equal [true], board(contest_locked: true).teams.map { |r| r[:locked] }.uniq
+
+    assert_equal [false], board.teams.map { |row| row[:locked] }.uniq
+    assert_equal [true], board(contest_locked: true).teams.map { |row| row[:locked] }.uniq
   end
 
   test "a pick is its team row plus the points it has earned" do

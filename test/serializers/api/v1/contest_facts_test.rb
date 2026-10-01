@@ -20,7 +20,8 @@ class Api::V1::ContestFactsTest < ActiveSupport::TestCase
     assert_equal contest.picks_required, facts.picks_required(contest), "#{label}: picks_required"
     assert_equal contest.multi_week?, facts.multi_week?(contest), "#{label}: multi_week?"
     assert_equal contest.weeks_count, facts.games_per_team(contest), "#{label}: games per team"
-    assert_equal contest.locks_at&.to_i, facts.locks_at(contest)&.to_i, "#{label}: locks_at"
+    assert_equal contest.locks_at.to_i, facts.locks_at(contest).to_i, "#{label}: locks_at"
+    assert_equal contest.locks_at.nil?, facts.locks_at(contest).nil?, "#{label}: locks_at presence"
     assert_equal contest.locked?, facts.locked?(contest), "#{label}: locked?"
     assert_equal contest.live?, facts.live?(contest), "#{label}: live?"
   end
