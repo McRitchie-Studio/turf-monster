@@ -41,11 +41,14 @@ class McpController < ActionController::API
   skip_before_action :authenticate_api_key!, only: :method_not_allowed
   prepend_before_action :refuse_foreign_origin
   before_action :no_store
+  before_action :mark_key_verified, only: :rpc
 
   # POST /mcp
   def rpc
     payload = parsed_body
     return render_reply(AgentMcp::Server.parse_error) if payload.equal?(UNPARSEABLE)
+
+    return render_batch_over_limit if payload.is_a?(Array) && Rack::Attack.mcp_charge_batch(request, payload.size)
 
     server = AgentMcp::Server.new(run_tool: method(:run_tool))
     render_reply server.handle(payload, version_header: request.headers["MCP-Protocol-Version"])
@@ -57,8 +60,13 @@ class McpController < ActionController::API
   # or else return HTTP 405 Method Not Allowed" (basic/transports).
   def method_not_allowed
     response.set_header("Allow", "POST")
-    render_api_error(:method_not_allowed, "This MCP endpoint takes POST only. It offers no event stream and no session.",
-                     status: :method_not_allowed)
+    # In JSON-RPC, as this endpoint's other transport refusals are (the Origin
+    # 403, the 400s), and on purpose NOT a new code in the agent API's error
+    # envelope: that vocabulary is the one the public guide documents, and
+    # /api/v1 has no 405 to share it with.
+    render json: AgentMcp::Server.error_message(nil, AgentMcp::Protocol::INVALID_REQUEST,
+                                                "This MCP endpoint takes POST only. It offers no event stream and no session."),
+           status: :method_not_allowed
   end
 
   private
@@ -121,6 +129,21 @@ class McpController < ActionController::API
     render json: AgentMcp::Server.error_message(nil, AgentMcp::Protocol::INVALID_REQUEST,
                                                 "Requests from this Origin are not accepted."),
            status: :forbidden
+  end
+
+  # Runs after authenticate_api_key!, so only for a key that is real. Tells the
+  # throttle this key is a player's: it is then limited by its own bucket and
+  # not by the address it calls from (config/initializers/rack_attack.rb).
+  def mark_key_verified
+    Rack::Attack.mcp_mark_verified(request)
+  end
+
+  # A batch whose messages, charged one each, put the key over its limit. The
+  # same answer the throttle itself gives, and nothing in the batch has run.
+  def render_batch_over_limit
+    response.set_header("Retry-After", "60")
+    render json: { error: { code: "rate_limited", message: "Too many requests. Retry after 60 seconds." }, retry_after: 60 },
+           status: :too_many_requests
   end
 
   # Every answer is one player's data, or a spend.

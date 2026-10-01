@@ -634,7 +634,8 @@ class McpControllerTest < ActionDispatch::IntegrationTest
 
       assert_response :method_not_allowed
       assert_equal "POST", response.headers["Allow"]
-      assert_equal "method_not_allowed", json.dig("error", "code")
+      assert_equal(-32_600, json.dig("error", "code"))
+      assert_equal "2.0", json["jsonrpc"]
     end
 
     get "/mcp", headers: mcp_headers
