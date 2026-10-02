@@ -16,6 +16,26 @@
     next touchdown, so the reader's chosen game would silently jump back to the
     default mid-play. Declared out here, it survives every replacement, and the
     fresh chips read it as Alpine initialises them. %>
+<%# HAND A PENDING CART BACK TO THE CONTEST PAGE.
+    /contests/:id (and root) send a visitor here once a game has started. But a
+    visitor who built a lineup and then left to sign in — the Google full-page
+    redirect, the new-signup token purchase — is on their way BACK to finish an
+    entry, and the saved cart is only replayed by the board on the contest page
+    (selectionBoard#init in _turf_totals_board). Landing here would leave them
+    signed in on a leaderboard with no entry and nothing saying why. Same key and
+    same 30-minute freshness as that init, and the item is LEFT IN PLACE: the
+    board consumes it. The contest page never routes, so this cannot loop. %>
+<script>
+  (function () {
+    try {
+      var parsed = JSON.parse(localStorage.getItem('pendingContestEntry') || 'null');
+      var fresh = parsed && parsed.savedAt && (Date.now() - parsed.savedAt) < (30 * 60 * 1000);
+      if (fresh && parsed.contestSlug === <%= raw @contest.slug.to_json %>) {
+        window.location.replace(<%= raw contest_page_path(@contest).to_json %>);
+      }
+    } catch (e) { /* bad JSON or storage unavailable: stay on the live board */ }
+  })();
+</script>
 <div class="max-w-7xl mx-auto px-4 py-6" x-data="{ focus: '<%= @focus_slug %>' }">
   <%# Single live stream for all real-time read updates (strip / focus /
       leaderboard / goal-feed). Chat keeps its own [@contest, :messages]

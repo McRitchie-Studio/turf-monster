@@ -1934,6 +1934,11 @@ html.dark { --rx-fill: 0 0 0; }
   opacity: 1;
   transform: scale(1.04);
 }
+/* No hover on a touch screen, so there the reason is always shown — otherwise a
+   phone sees a dimmed card that will not respond and nothing saying why. */
+@media (hover: none) {
+  .tm-lock-overlay { opacity: 1; }
+}
 @media (prefers-reduced-motion: reduce) {
   .holo-card:hover,
   .holo-card.is-selected,

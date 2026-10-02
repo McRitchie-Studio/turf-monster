@@ -552,10 +552,15 @@ class TestController < ApplicationController
     return render json: { error: "no game" }, status: :unprocessable_entity unless game
 
     previous = game.kickoff_at
-    game.update_columns(kickoff_at: params[:kickoff_at].present? ? Time.iso8601(params[:kickoff_at]) : 5.minutes.ago)
+    # A kickoff_at key that is PRESENT but blank restores a game that had none;
+    # only an omitted key means "start it".
+    kickoff = if params.key?(:kickoff_at) then params[:kickoff_at].presence && Time.iso8601(params[:kickoff_at])
+    else 5.minutes.ago
+    end
+    game.update_columns(kickoff_at: kickoff)
 
     render json: { ok: true, game_slug: game.slug, matchup_id: matchup&.id, team: matchup&.team&.name,
-                   previous_kickoff_at: previous&.iso8601, kickoff_at: game.kickoff_at.iso8601 }
+                   previous_kickoff_at: previous&.iso8601, kickoff_at: game.kickoff_at&.iso8601 }
   end
 
   # Stage a WEB3 account for the step-up specs: an email-addressable user that

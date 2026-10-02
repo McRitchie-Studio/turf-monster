@@ -2047,7 +2047,7 @@ window.selectionBoard = function() {
         if (!resp) { this.submitting = false; return; }
         var data = await resp.json();
         if (resp.ok && data.success) {
-          window.location.href = data.redirect || ('/contests/' + this.contestId);
+          window.location.href = data.redirect || ('/contests/' + this.contestId + '/contest');
         } else {
           this.showError((data && data.error) || 'Failed to update entry.');
           this.submitting = false;
@@ -2061,7 +2061,7 @@ window.selectionBoard = function() {
     // Edit mode: discard staged picks and return to the leaderboard view.
     // Server-side state (the active entry's selections) is untouched.
     cancelEdit() {
-      window.location.href = '/contests/' + this.contestId;
+      window.location.href = '/contests/' + this.contestId + '/contest'; // the page, not the router
     }
   };
 };

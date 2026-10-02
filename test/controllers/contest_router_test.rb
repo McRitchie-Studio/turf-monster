@@ -69,6 +69,23 @@ class ContestRouterTest < ActionDispatch::IntegrationTest
     assert_redirected_to live_contest_path(@contest)
   end
 
+  # A visitor returning from a full-page sign-in comes back through root with a
+  # cart saved in localStorage, and only the contest page can replay it. The
+  # browser half (the hand-off actually firing) is e2e/game_started_lock.spec.js;
+  # this pins that the page root sends them to carries the hand-off, aimed at the
+  # page that never routes.
+  test "the live board hands a saved cart for this contest back to the contest page" do
+    start_a_game!
+
+    get live_contest_path(@contest)
+
+    script = css_select("script").map(&:text).find { |js| js.include?("pendingContestEntry") }
+    assert script, "the live board must look for a saved cart"
+    assert_includes script, "parsed.contestSlug === #{@contest.slug.to_json}"
+    assert_includes script, "window.location.replace(#{contest_page_path(@contest).to_json})"
+    assert_not_includes script, "removeItem", "the cart is left for the board to consume"
+  end
+
   test "root goes to the contest URL before any game starts" do
     featured = @contest
     Contest.stub(:featured, featured) do
