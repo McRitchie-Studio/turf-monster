@@ -678,10 +678,10 @@ class ContestsController < ApplicationController
   # ?add_entry=, ?picks=) is asking for something the contest page does, so it
   # stays here.
   def show
-    if route_to_live? && request.query_parameters.empty?
-      flash.keep # a notice set by the redirect that brought them here rides along
-      return redirect_to live_contest_path(@contest)
-    end
+    # A notice set by whatever redirected them here survives the extra hop: this
+    # request never reads the flash, so Rails does not sweep it
+    # (test/controllers/contest_router_test.rb pins that).
+    return redirect_to live_contest_path(@contest) if route_to_live? && request.query_parameters.empty?
 
     load_contest_page
   end
