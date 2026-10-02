@@ -757,6 +757,25 @@ class Contest < ApplicationRecord
     locked? && !settled?
   end
 
+  # Has ANY game on this contest's slate started? The contest URL routes a
+  # visitor on this (ContestsController#show): from the first kickoff onward
+  # the thing worth looking at is the live board, even though the contest itself
+  # may still be open — on a span slate the teams that have not played yet stay
+  # pickable for weeks after the first one locks.
+  #
+  # "Started" is the same inference `games_by_phase` draws for a game that is
+  # not :upcoming — kickoff passed, a score on the board, or already final —
+  # asked as one EXISTS so the router does not load a slate of games to decide
+  # where to send someone.
+  def any_game_started?(now = Time.current)
+    return false unless slate
+
+    Game.where(slug: matchups.select(:game_slug))
+        .where("games.kickoff_at <= :now OR games.status IN ('in_progress', 'completed') " \
+               "OR EXISTS (SELECT 1 FROM goals WHERE goals.game_slug = games.slug)", now: now)
+        .exists?
+  end
+
   # This contest's games bucketed for the live page. There's no on-chain
   # in-progress status, so "active" is inferred: a game is live if it has goals
   # OR its kickoff has passed, as long as it isn't completed. (Test games carry

@@ -48,12 +48,8 @@
           'matchup-pulse': pulseId === '<%= matchup.id %>' && selectionCount === 0
         }"
         role="checkbox" :aria-checked="!!selections['<%= matchup.id %>']"
-        aria-label="<%= team.name %> — <%= opponent_slots.map { |slot| "#{slot[:detail]}: #{slot[:opponent]&.name || 'bye'}" }.join(', ') %>"
+        aria-label="<%= team.name %> — <%= opponent_slots.map { |slot| "#{slot[:detail]}: #{slot[:opponent]&.name || 'bye'}" }.join(', ') %><%= ' — locked, game started' if locked %>"
         <% if locked %>disabled<% end %>>
-  <% if locked %>
-    <span class="absolute top-2 left-2 text-[10px]" style="color: <%= pal[:fg_faint] %>">&#128274;</span>
-  <% end %>
-
   <%# City small + lighter, mascot large + bold in the team accent. Two lines
       also cure the old single-line truncation ("San Francisco 49...",
       "Los Angeles Char..."). %>
@@ -149,4 +145,17 @@
     <% end %>
   </div>
   </button>
+  <%# WHY the card is locked, said on hover. It lives OUT here on the wrapper,
+      not inside the button, for two reasons. The button is dimmed to 50% and
+      would dim this with it. And `.holo-card > *` makes every child of the
+      card position:relative, so the lock that used to sit inside it never
+      floated — it took a line of its own and made a locked card taller than
+      its neighbours. Out of the card's flow, the two heights are the same.
+      Styles: .tm-lock-overlay in application.css. %>
+  <% if locked %>
+    <span class="tm-lock-overlay" data-test="game-started-overlay" aria-hidden="true">
+      <span class="text-2xl md:text-3xl leading-none">&#128274;</span>
+      <span class="text-xs md:text-sm font-extrabold uppercase tracking-wider">Game Started</span>
+    </span>
+  <% end %>
 </div>
