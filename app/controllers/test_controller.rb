@@ -545,10 +545,10 @@ class TestController < ApplicationController
     matchup = nil
     game = if params[:game_slug].present?
              Game.find_by(slug: params[:game_slug])
-           else
+    else
              matchup = Contest.find_by(slug: params[:contest])&.pickable_matchups&.find(&:game)
              matchup&.game
-           end
+    end
     return render json: { error: "no game" }, status: :unprocessable_entity unless game
 
     previous = game.kickoff_at
