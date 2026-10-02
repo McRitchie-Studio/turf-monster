@@ -24,13 +24,18 @@
     (selectionBoard#init in _turf_totals_board). Landing here would leave them
     signed in on a leaderboard with no entry and nothing saying why. Same key and
     same 30-minute freshness as that init, and the item is LEFT IN PLACE: the
-    board consumes it. The contest page never routes, so this cannot loop. %>
+    board consumes it. The contest page never routes, so this cannot loop.
+    ONE hand-off per saved cart (handedOff): the contest page renders no board
+    for a visitor who already holds an entry, so nothing consumes the cart there,
+    and an unmarked one would pull them off this board for the full 30 minutes. %>
 <script>
   (function () {
     try {
       var parsed = JSON.parse(localStorage.getItem('pendingContestEntry') || 'null');
       var fresh = parsed && parsed.savedAt && (Date.now() - parsed.savedAt) < (30 * 60 * 1000);
-      if (fresh && parsed.contestSlug === <%= raw @contest.slug.to_json %>) {
+      if (fresh && !parsed.handedOff && parsed.contestSlug === <%= raw @contest.slug.to_json %>) {
+        parsed.handedOff = true;
+        localStorage.setItem('pendingContestEntry', JSON.stringify(parsed));
         window.location.replace(<%= raw contest_page_path(@contest).to_json %>);
       }
     } catch (e) { /* bad JSON or storage unavailable: stay on the live board */ }

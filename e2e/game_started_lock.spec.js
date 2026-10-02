@@ -148,6 +148,19 @@ test.describe("a saved cart, once a game has started", () => {
     await page.goto(`/contests/${CONTEST}`);
     await expect(page.locator("[data-test='live-state']")).toBeVisible();
     await expect(page).toHaveURL(new RegExp(`/contests/${CONTEST}/live$`));
+
+    // ONE hand-off per cart. A contest page that renders no board (the visitor
+    // already holds an entry) consumes nothing, and must not keep pulling them
+    // off the live board for the rest of the 30 minutes.
+    await page.goto(`/contests/${CONTEST}/contest`);
+    await page.evaluate((slug) => {
+      localStorage.setItem("pendingContestEntry", JSON.stringify({ contestSlug: slug, selections: { 1: true }, autoEnter: true, savedAt: Date.now() }));
+    }, CONTEST);
+    await page.route(`**/contests/${CONTEST}/contest`, (route) => route.fulfill({ contentType: "text/html", body: "<p id='boardless'>no board</p>" }));
+    await page.goto(`/contests/${CONTEST}/live`);
+    await expect(page.locator("#boardless")).toBeVisible();
+    await page.goto(`/contests/${CONTEST}/live`);
+    await expect(page.locator("[data-test='live-state']")).toBeVisible();
   });
 
   test("leaving edit mode never needs the router: the board's own exits name the contest page", async ({ page }) => {
