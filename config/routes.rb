@@ -326,6 +326,11 @@ Rails.application.routes.draw do
   # moderation. Auth via require_admin (studio-engine).
   get "contests/:id/admin", to: "contests#admin", as: :admin_contest
 
+  # The contest page at a URL of its own. /contests/:id routes to the live board
+  # once a game has started (ContestsController#show), so the page needs an
+  # address that never redirects — the live board's "← Contest" button uses it.
+  get "contests/:id/contest", to: "contests#contest", as: :contest_page
+
   resources :contests, only: [:index, :show, :new, :create, :edit, :update] do
     collection do
       get :my

@@ -6,12 +6,12 @@ class ContestsController < ApplicationController
   # unrelated despite reading alike.
   include DbSpanTracing
 
-  skip_before_action :require_authentication, only: [:index, :show, :my, :world_cup, :leaderboard_poll, :live]
+  skip_before_action :require_authentication, only: [:index, :show, :contest, :my, :world_cup, :leaderboard_poll, :live]
   # Observability for the latency tail (fix-turf-latency-tail): attribute the
   # DB wall time on the two hot paths — "/" (world_cup redirect) and the contest
   # show page — to connect vs execute. No-op-safe; DB_SPAN_TRACE=0 disables.
-  around_action :trace_db_span, only: [:world_cup, :show]
-  before_action :set_contest, only: [:show, :admin, :edit, :update, :update_banner, :toggle_selection, :enter, :check_funding, :clear_picks, :grade, :fill, :lock, :prepare_lock_time, :confirm_lock_time, :prepare_conclusion_time, :confirm_conclusion_time, :jump, :simulate_game, :simulate_batch, :reset, :close_onchain, :cancel_onchain, :prepare_entry, :discard_prepared_entry, :stamp_entry_signature, :recover_pending_entry, :confirm_onchain_entry, :prepare_onchain_contest, :confirm_onchain_contest, :leaderboard_poll, :live, :pick, :grade_round]
+  around_action :trace_db_span, only: [:world_cup, :show, :contest]
+  before_action :set_contest, only: [:show, :contest, :admin, :edit, :update, :update_banner, :toggle_selection, :enter, :check_funding, :clear_picks, :grade, :fill, :lock, :prepare_lock_time, :confirm_lock_time, :prepare_conclusion_time, :confirm_conclusion_time, :jump, :simulate_game, :simulate_batch, :reset, :close_onchain, :cancel_onchain, :prepare_entry, :discard_prepared_entry, :stamp_entry_signature, :recover_pending_entry, :confirm_onchain_entry, :prepare_onchain_contest, :confirm_onchain_contest, :leaderboard_poll, :live, :pick, :grade_round]
   before_action :require_admin, only: [:new, :create, :rebuild_create_tx, :finalize, :admin, :edit, :update, :update_banner, :generator, :generate_bundle, :finalize_bundle, :grade, :fill, :lock, :prepare_lock_time, :confirm_lock_time, :prepare_conclusion_time, :confirm_conclusion_time, :jump, :simulate_game, :simulate_batch, :reset, :close_onchain, :cancel_onchain, :prepare_onchain_contest, :confirm_onchain_contest, :grade_round]
   before_action :require_geo_allowed, only: [:toggle_selection, :enter, :prepare_entry]
   # B4 / OPSEC-048: frozen accounts can browse but cannot spend or enter.
@@ -664,50 +664,32 @@ class ContestsController < ApplicationController
   def world_cup
     @contest = Contest.featured
     return redirect_to contests_path unless @contest
-    redirect_to contest_path(@contest)
+    # Straight to where #show would send them, so root is one hop, not two.
+    redirect_to route_to_live? ? live_contest_path(@contest) : contest_path(@contest)
   end
 
+  # /contests/:id is a ROUTER, not a page. Once a single game on the slate has
+  # started it sends the visitor to the live board; until then it renders the
+  # contest page. The contest page keeps a URL of its own (#contest, below) so
+  # the live board's "← Contest" button has somewhere to land that does not
+  # bounce straight back.
+  #
+  # Only a BARE visit is routed. A URL carrying a query (?edit_entry=,
+  # ?add_entry=, ?picks=) is asking for something the contest page does, so it
+  # stays here.
   def show
-    @creator = @contest.user
-    @has_entry = logged_in? && @contest.entries.where(user: current_user, status: [:active, :complete]).exists?
-    @seeds_data = load_seeds_data
-    # Quest card mission (username -> newsletter -> invite). Only for entered
-    # users — the card is gated on @has_entry, so current_user is present.
-    @quest_step = current_user.quest_step if @has_entry
-
-    # Current user's entries on this contest — preloaded once so the contest
-    # header (dropdown) and the "Your Entries" navigation card on the show
-    # page don't re-query. Includes complete entries so the card still works
-    # in settled state for read-only reference.
-    @my_active_entries = if logged_in?
-                           current_user.entries
-                                       .where(contest: @contest, status: [:active, :complete])
-                                       .includes(selections: { slate_matchup: [:team, :game] })
-                                       .order(:entry_number, :id)
-                                       .to_a
-                         else
-                           []
-                         end
-
-    # Resolve params[:edit_entry] → an active entry owned by current_user on
-    # this contest. Picked up by the show template to swap the leaderboard
-    # for the selection board in edit mode.
-    if logged_in? && params[:edit_entry].present? && @contest.open?
-      @edit_entry = @my_active_entries.find { |e| e.slug == params[:edit_entry] && e.active? }
+    if route_to_live? && request.query_parameters.empty?
+      flash.keep # a notice set by the redirect that brought them here rides along
+      return redirect_to live_contest_path(@contest)
     end
 
-    load_contest_board_data
+    load_contest_page
+  end
 
-    # "More Contests" selector at the bottom of the page.
-    @other_contests = Contest.where(status: [:open]).ranked.where.not(id: @contest.id).includes(:slate)
-
-    if @contest.onchain?
-      begin
-        @onchain_contest = Solana::Vault.new.read_contest(@contest.slug)
-      rescue => e
-        Rails.logger.warn "Failed to read onchain contest: #{e.message}"
-      end
-    end
+  # The contest page itself, in every contest state — never routed.
+  def contest
+    load_contest_page
+    render :show
   end
 
   # Admin view of the contest show page — bypasses the "hide picks while
@@ -715,7 +697,7 @@ class ContestsController < ApplicationController
   # Same render path as #show; @admin_view is the helper hook.
   def admin
     @admin_view = true
-    show
+    load_contest_page
     render :show
   end
 
@@ -2628,6 +2610,55 @@ class ContestsController < ApplicationController
     respond_to do |format|
       format.html { redirect_to root_path, alert: "Contest not found" }
       format.json { render json: { error: "Contest not found" }, status: :not_found }
+    end
+  end
+
+  # Survivor has no live board (#live redirects it back here), so it is never
+  # routed there — which is also what keeps the two redirects from looping.
+  def route_to_live?
+    @contest.turf_totals? && @contest.any_game_started?
+  end
+
+  def load_contest_page
+    @creator = @contest.user
+    @has_entry = logged_in? && @contest.entries.where(user: current_user, status: [:active, :complete]).exists?
+    @seeds_data = load_seeds_data
+    # Quest card mission (username -> newsletter -> invite). Only for entered
+    # users — the card is gated on @has_entry, so current_user is present.
+    @quest_step = current_user.quest_step if @has_entry
+
+    # Current user's entries on this contest — preloaded once so the contest
+    # header (dropdown) and the "Your Entries" navigation card on the show
+    # page don't re-query. Includes complete entries so the card still works
+    # in settled state for read-only reference.
+    @my_active_entries = if logged_in?
+                           current_user.entries
+                                       .where(contest: @contest, status: [:active, :complete])
+                                       .includes(selections: { slate_matchup: [:team, :game] })
+                                       .order(:entry_number, :id)
+                                       .to_a
+                         else
+                           []
+                         end
+
+    # Resolve params[:edit_entry] → an active entry owned by current_user on
+    # this contest. Picked up by the show template to swap the leaderboard
+    # for the selection board in edit mode.
+    if logged_in? && params[:edit_entry].present? && @contest.open?
+      @edit_entry = @my_active_entries.find { |e| e.slug == params[:edit_entry] && e.active? }
+    end
+
+    load_contest_board_data
+
+    # "More Contests" selector at the bottom of the page.
+    @other_contests = Contest.where(status: [:open]).ranked.where.not(id: @contest.id).includes(:slate)
+
+    if @contest.onchain?
+      begin
+        @onchain_contest = Solana::Vault.new.read_contest(@contest.slug)
+      rescue => e
+        Rails.logger.warn "Failed to read onchain contest: #{e.message}"
+      end
     end
   end
 
