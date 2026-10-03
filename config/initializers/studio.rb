@@ -306,6 +306,74 @@ Studio.configure do |config|
   # Draw /admin/geo + /geo/check from the engine. Opt-in there because THIS app
   # owned all four helper names until the routes above were deleted.
   config.draw_geo_routes = true
+
+  # ---- Site footer (studio-engine docs/SITE_FOOTER.md) ----
+  # The engine's footer, rendered by `studio_site_footer` at the end of the
+  # application layout. It exists for SITE LEGITIMACY as much as navigation:
+  # wallet scanners, link unfurlers and payment underwriters judge a new domain
+  # by whether it links About, Contact, Terms, Privacy, Responsible Gaming and
+  # State Eligibility. Dropping any of those links is a regression with business
+  # consequences; test/integration/site_footer_test.rb pins all sixteen.
+  #
+  # NO ADDRESS, NO MAP, NO PHONE, by the operator's instruction (2026-10-02).
+  # Without `address:` the engine renders no Location band and never requests
+  # Leaflet or a map tile, so the content security policy needs no change.
+  #
+  # FUTURE: a business mailing address goes here once the registered agent / PO
+  # box exists (operator decision 2026-06-10). Card-processor underwriters
+  # require one before the applications (docs/underwriting/APPLICATION_ANSWERS.md).
+  # Add it as `address: { street:, city_line: }` with no lat/lng, which gives the
+  # Location band and still no map.
+  config.site_footer = ->(view) {
+    {
+      # The © line prints "© <year> <name>", and the engine has no separate
+      # copyright key, so the name carries the old line's sentence. The legal
+      # line above it carries "Play responsibly", linked.
+      name: "McRitchie Studio. Turf Monster is a game of skill.",
+      wordmark: %w[Turf Monster],
+      # The 45KB brand icon brand_logo uses, not the 1.3MB navbar logo.png the
+      # engine would otherwise pick.
+      logo: "/icon-192.png",
+      home_path: view.root_path,
+      # The engine prints the tagline as escaped text, so it cannot hold a link:
+      # "transparency pages" is the Transparency column's first link instead.
+      tagline: "Skill-based World Cup pick’em contests. Pick up to 6 matchups, stack Turf Scores, " \
+               "and win cash prizes — with every payout verifiable on our transparency pages.",
+      email: "alex@turfmonster.media",
+      # No social row: Turf Monster has no profile handles on record.
+      columns: [
+        [ "Play", [ [ "Contests", view.contests_path ],
+                    [ "Rules", view.turf_monster_v1_path ],
+                    [ "NFL Totals", view.nfl_team_totals_path ],
+                    [ "How to Play", view.help_how_to_play_path ],
+                    [ "Help Center", view.help_path ],
+                    [ "Play with AI", view.agents_path ] ] ],
+        [ "Transparency", [ [ "Transparency Center", view.transparency_path ],
+                            [ "Proof of Reserves", view.proof_of_reserves_path ],
+                            [ "Smart Contract", view.contract_path ],
+                            [ "Phantom Wallet", view.help_phantom_path ] ] ],
+        [ "Company", [ [ "About", view.about_path ],
+                       [ "Contact", view.contact_path ],
+                       [ "Terms of Service", view.terms_path ],
+                       [ "Privacy Policy", view.privacy_path ],
+                       [ "Responsible Gaming", view.responsible_gaming_path ],
+                       [ "State Eligibility", view.state_eligibility_path ] ] ]
+      ],
+      legal: [ [ "Terms of Service", view.terms_path ],
+               [ "Privacy Policy", view.privacy_path ],
+               [ "Play responsibly", view.responsible_gaming_path ] ]
+    }
+  }
+
+  # WHERE IT SHOWS: on every page the application layout renders, for a visitor
+  # and a signed-in viewer alike, exactly as the hand-built footer it replaced.
+  # The engine's default would hide it from signed-in viewers outside
+  # `site_footer_controllers`, which would take the legitimacy links off every
+  # signed-in page, so the rule is replaced rather than narrowed. The pages that
+  # have no footer are the ones that never render this layout: the landing
+  # funnel (layout "landing", kept bare to hold the visitor on its CTA), the
+  # magic-link confirm page (layout "loading"), and the layout-false responses.
+  config.site_footer_visible = ->(_view) { true }
 end
 
 # The site identity's image service: public-read, like LandingPage#og_image and
