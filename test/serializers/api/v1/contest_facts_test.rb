@@ -102,12 +102,25 @@ class Api::V1::ContestFactsTest < ActiveSupport::TestCase
     assert_equal slates(:one).starts_at.to_i, facts_for(@contest).locks_at(@contest).to_i
   end
 
-  test "a first kickoff in the past with no starts_at reads locked and live" do
+  # The span builder names its slates "NFL ...", so the derived lock is the
+  # opening-Sunday rule (Contest::LockRule), not the first kickoff itself.
+  test "a passed NFL Sunday lock with no starts_at reads locked and live" do
+    travel_to Time.utc(2026, 10, 4, 18, 0) # Sunday, an hour after 11:00 Denver
     build_span_contest!(@contest, week_one_kickoff: 1.hour.ago)
     @contest.update!(starts_at: nil)
 
     assert_agrees_with_model(@contest, "kicked off")
     assert_equal "live", facts_for(@contest).phase(@contest)
+  end
+
+  test "an NFL Thursday kickoff with no starts_at still reads open until the Sunday lock" do
+    travel_to Time.utc(2026, 10, 2, 18, 0) # Friday, after TNF
+    build_span_contest!(@contest, week_one_kickoff: Time.utc(2026, 10, 2, 0, 15))
+    @contest.update!(starts_at: nil)
+
+    assert_agrees_with_model(@contest, "TNF kicked off")
+    assert_equal Time.utc(2026, 10, 4, 17, 0), facts_for(@contest).locks_at(@contest)
+    assert_equal "open", facts_for(@contest).phase(@contest)
   end
 
   test "a passed starts_at reads live, and a settled contest reads locked but not live" do

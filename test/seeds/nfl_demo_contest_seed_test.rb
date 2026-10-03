@@ -53,8 +53,8 @@ class NflDemoContestSeedTest < ActiveSupport::TestCase
     assert_not contest.locked?, "a fresh worktree needs a board it can still pick on"
     assert contest.pickable_matchups.all? { |matchup| matchup.turf_score.present? },
            "every pickable team needs the frozen multiplier the board renders and settlement pays"
-    assert_equal FIRST_KICKOFF.to_i, contest.starts_at.utc.to_i,
-                 "the contest opens against its first kickoff, so picks stay unlocked"
+    assert_equal Contest::LockRule.nfl_lock_at(FIRST_KICKOFF).to_i, contest.starts_at.utc.to_i,
+                 "the contest locks on the opening Sunday (Contest::LockRule), so picks stay unlocked"
   end
 
   test "the span rolls forward once a week has kicked off" do
