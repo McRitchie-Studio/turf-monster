@@ -2762,11 +2762,8 @@ class ContestsController < ApplicationController
          .order(Arel.sql("starts_at ASC NULLS LAST"), :week)
   end
 
-  # The lock every create path stamps into starts_at when the operator names
-  # none: Contest::LockRule via the slate — 11:00 Denver on an NFL slate's
-  # opening Sunday, the first kickoff for every other sport.
   def default_start_for_slate(slate)
-    slate&.default_contest_lock_at
+    slate&.default_contest_lock_at # the default LOCK (Contest::LockRule): NFL opening Sunday 11:00 Denver, else first kickoff
   end
 
   # Best-effort sport derivation from a slate's name. Slate/Team don't carry

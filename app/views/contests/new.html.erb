@@ -18,9 +18,8 @@
         slateId: @contest.slate_id,
         slateStarts: slate_starts
       }.to_json %>
-      <%# The selected slate supplies the default LOCK (Slate#default_contest_lock_at:
-          11:00 Denver on an NFL slate's opening Sunday, else the first kickoff);
-          the sport pills remain as manual date presets for operator overrides. %>
+      <%# The selected slate supplies the default LOCK (Slate#default_contest_lock_at); the
+          sport pills remain as manual date presets for operator overrides. %>
       <div x-data='contestLockPicker(<%== picker_options %>)'>
       <!-- Sport selector -->
       <div class="mb-6">
