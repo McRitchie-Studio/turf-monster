@@ -51,7 +51,9 @@ module Api
           turf_score: matchup.turf_score&.to_f,
           expected_team_score: expected_team_score(games),
           team_score: team_score(games),
-          locked: @contest_locked || matchup.locked?,
+          # The TEAM's lock (SlateMatchup#pick_locked?), read off the rows
+          # already loaded: any of its games has kicked off.
+          locked: @contest_locked || matchup.locked? || games.any?(&:locked?),
           games_count: games.size,
           bye_weeks: @span_weeks - games.filter_map(&:week),
           games: games.map { |game_matchup| game_json(game_matchup) }
