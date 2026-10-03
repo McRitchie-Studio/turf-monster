@@ -119,6 +119,82 @@ test.describe("Phantom contest lock", () => {
     expect(bodies[0]).toEqual({ lock_timestamp: 0 });
   });
 
+  // THE SERVER BROADCASTS, NOT THE PAGE (server-broadcasts-contest-lock).
+  //
+  // Production 2026-10-03: this flow called connection.sendRawTransaction
+  // against `data-solana-rpc-url`, which on mainnet is the free public RPC, and
+  // died as `403 Access forbidden`. Now the signed wire goes to
+  // confirm_lock_time as `signed_tx`. Only a live browser can show that: the
+  // prepare answer is a REAL wire the page must parse, hand to Phantom and
+  // re-serialize with the fee payer's slot still empty (a strict serialize
+  // throws AFTER the operator approved), and the absence of an RPC call is a
+  // fact about the network, not the markup.
+  test("the signed wire is POSTed to the server and the page never calls an RPC", async ({ page }) => {
+    await stubDesktopPhantom(page);
+
+    const rpcCalls = [];
+    page.on("request", (req) => {
+      const body = req.postData() || "";
+      if (/"jsonrpc"/.test(body) || /solana\.com|helius|quiknode|rpcpool/.test(req.url())) rpcCalls.push(req.url());
+    });
+
+    let prepared = null;
+    await page.route("**/contests/*/prepare_lock_time", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ success: true, serialized_tx: prepared, lock_timestamp: 1798230300 }),
+      });
+    });
+    const confirms = [];
+    await page.route("**/contests/*/confirm_lock_time", async (route) => {
+      confirms.push(JSON.parse(route.request().postData() || "{}"));
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ success: false, error: "stubbed after the request under test" }),
+      });
+    });
+
+    await loginAdmin(page);
+    await page.goto("/contests");
+    await page.evaluate(() => {
+      const s = window.Alpine && window.Alpine.store("session");
+      if (s) s.address = null;
+    });
+
+    // A real, UNSIGNED two-signer wire, built by the page's own web3: a fee
+    // payer the server will fill and the operator's Phantom key.
+    prepared = await page.evaluate(() => {
+      const w3 = window.solanaWeb3;
+      const feePayer = w3.Keypair.generate().publicKey;
+      const operator = w3.Keypair.generate().publicKey;
+      const tx = new w3.Transaction({ feePayer, recentBlockhash: w3.Keypair.generate().publicKey.toBase58() });
+      tx.add(new w3.TransactionInstruction({
+        programId: w3.Keypair.generate().publicKey,
+        keys: [{ pubkey: operator, isSigner: true, isWritable: true }],
+        data: new Uint8Array([1, 2, 3]),
+      }));
+      return btoa(String.fromCharCode.apply(null, tx.serialize({ requireAllSignatures: false, verifySignatures: false })));
+    });
+
+    await page.evaluate(() => window.lockContestAtViaPhantom("lock-spec-contest", 1798230300));
+
+    await expect.poll(() => confirms.length).toBe(1);
+    expect(confirms[0].lock_timestamp).toBe(1798230300);
+    expect(confirms[0].tx_signature).toBeUndefined();
+    // The page re-serialized the very wire it was handed: same message bytes.
+    const sameMessage = await page.evaluate(([a, b]) => {
+      const w3 = window.solanaWeb3;
+      const dec = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+      const m1 = w3.Transaction.from(dec(a)).serializeMessage();
+      const m2 = w3.Transaction.from(dec(b)).serializeMessage();
+      return m1.length === m2.length && m1.every((v, i) => v === m2[i]);
+    }, [prepared, confirms[0].signed_tx]);
+    expect(sameMessage).toBe(true);
+    expect(rpcCalls).toEqual([]);
+  });
+
   // THE CONTROL. The quick buttons on the contest page still send a RELATIVE
   // offset, so the two specs above are pinning a body shape chosen per entry
   // point rather than one hardcoded for every caller.
