@@ -1640,8 +1640,14 @@ class ContestsController < ApplicationController
   # Phantom-prepared lock (web3). set_contest_lock_time is 1-of-3 and the admin's
   # Phantom is a vault signer, so a single Phantom signature authorizes it.
   # prepare_lock_time builds the TX (bot pays the fee, Phantom signs the admin
-  # slot); the client signs + broadcasts; confirm_lock_time verifies on-chain
-  # then mirrors starts_at (chain is master — DB only moves post-confirm).
+  # slot); the client signs and POSTs the signed wire to confirm_lock_time,
+  # which verifies it is the transaction this server would build, bot-signs,
+  # simulates, broadcasts over the server's credentialed RPC, confirms, verifies
+  # what landed, and only then mirrors starts_at (chain is master — DB only
+  # moves post-confirm). THE BROWSER NEVER BROADCASTS: on mainnet it could only
+  # reach the free public RPC, which answered `403 Access forbidden`
+  # (server-broadcasts-contest-lock, 2026-10-03; cosign.js fixed the same
+  # defect on 2026-09-05). See #broadcast_contest_time!.
   #
   # TWO WAYS TO NAME THE MOMENT, because the quick buttons and a real reschedule
   # want different things and only one of them fits a relative offset:
@@ -1693,25 +1699,20 @@ class ContestsController < ApplicationController
       lock_ts = params[:lock_timestamp].to_i
       raise "Lock timestamp can't be negative" if lock_ts.negative?
 
-      contest_pda_b58 = Solana::Keypair.encode_base58(
-        Solana::Vault.new.contest_pda(@contest.slug).first
-      )
-      verify_solana_transaction!(
-        params[:tx_signature],
-        instruction: "set_contest_lock_time",
-        signer: current_user.web3_solana_address,
-        writable: contest_pda_b58
-      )
+      tx_signature = broadcast_contest_time!("set_contest_lock_time", lock_ts)
 
       # Chain is master — mirror starts_at only after the on-chain TX confirms.
       # nil is the DB's spelling of chain 0: the same mapping the server-signed
       # path used in reverse when it sent `starts_at&.to_i || 0`.
       @contest.update!(starts_at: lock_ts.zero? ? nil : Time.at(lock_ts))
 
-      render json: { success: true, redirect: contest_path(@contest), locks_at: @contest.locks_at&.iso8601 }
+      render json: { success: true, redirect: contest_path(@contest), locks_at: @contest.locks_at&.iso8601,
+                     tx_signature: tx_signature }
     end
+  rescue Solana::Vault::UnsafeCosignError, Solana::Cosign::WireRejected => e
+    render_contest_time_rejection(e)
   rescue StandardError => e
-    render json: { success: false, error: e.message }, status: :unprocessable_entity
+    render json: { success: false, error: contest_time_failure_message(e) }, status: :unprocessable_entity
   end
 
   # Phantom-prepared conclusion (web3), parallel to prepare/confirm_lock_time.
@@ -1744,23 +1745,18 @@ class ContestsController < ApplicationController
       ts = params[:conclusion_timestamp].to_i
       raise "Missing conclusion timestamp" unless ts.positive?
 
-      contest_pda_b58 = Solana::Keypair.encode_base58(
-        Solana::Vault.new.contest_pda(@contest.slug).first
-      )
-      verify_solana_transaction!(
-        params[:tx_signature],
-        instruction: "set_contest_conclusion_time",
-        signer: current_user.web3_solana_address,
-        writable: contest_pda_b58
-      )
+      tx_signature = broadcast_contest_time!("set_contest_conclusion_time", ts)
 
       # Chain is master — mirror concludes_at only after the on-chain TX confirms.
       @contest.update!(concludes_at: Time.at(ts))
 
-      render json: { success: true, redirect: contest_path(@contest), concludes_at: @contest.concludes_at&.iso8601 }
+      render json: { success: true, redirect: contest_path(@contest), concludes_at: @contest.concludes_at&.iso8601,
+                     tx_signature: tx_signature }
     end
+  rescue Solana::Vault::UnsafeCosignError, Solana::Cosign::WireRejected => e
+    render_contest_time_rejection(e)
   rescue StandardError => e
-    render json: { success: false, error: e.message }, status: :unprocessable_entity
+    render json: { success: false, error: contest_time_failure_message(e) }, status: :unprocessable_entity
   end
 
   def jump
@@ -2478,6 +2474,81 @@ class ContestsController < ApplicationController
   #
   # `instruction:` is required; `signer:` and `writable:` are optional but
   # every production caller should pass both.
+  # THE SERVER BROADCASTS A CONTEST TIME CHANGE (server-broadcasts-contest-lock).
+  #
+  # Two shapes of request, one verification:
+  #
+  #   signed_tx     the Phantom-signed wire (base64) from lock_contest.js. The
+  #                 server rebuilds what it would have prepared — this contest's
+  #                 PDA, THIS timestamp, the signed-in operator as the admin
+  #                 signer, the bot as fee payer — and `Cosign::Expectation`
+  #                 refuses anything else (WireRejected) before the bot signs.
+  #                 Then it simulates (the PROGRAM's own error comes back as
+  #                 SimulationFailed), broadcasts over the credentialed RPC and
+  #                 waits for `confirmed`. Arbitrary bytes never leave.
+  #   tx_signature  LEGACY: a page loaded before this deploy still broadcasts
+  #                 from the browser and posts only the signature, and an
+  #                 operator who broadcast out-of-band has nothing else. Kept so
+  #                 neither strands a lock that already landed.
+  #
+  # Either way the landed transaction is then verified on chain (OPSEC-010:
+  # the named instruction, signed by this operator, writing this contest's
+  # PDA) before the caller mirrors anything. Returns the signature.
+  def broadcast_contest_time!(instruction, timestamp)
+    admin_pubkey = current_user.web3_solana_address
+    vault = Solana::Vault.new
+    signed_tx = params[:signed_tx].to_s
+
+    tx_signature =
+      if signed_tx.present?
+        expectation = vault.contest_time_expectation(instruction, @contest.slug, timestamp, admin_pubkey: admin_pubkey)
+        vault.cosign_and_broadcast_contest_time(
+          signed_tx,
+          expectation: expectation,
+          before_send: lambda { |signature|
+            # The only record of the on-chain effect until the mirror below
+            # lands; a crash in between must be findable from the logs.
+            Rails.logger.warn("[ContestsController##{action_name}] BROADCAST #{instruction} " \
+                              "contest=#{@contest.slug} ts=#{timestamp} sig=#{signature}")
+          }
+        )
+      else
+        params[:tx_signature].presence || raise("Signed transaction required")
+      end
+
+    contest_pda_b58 = Solana::Keypair.encode_base58(vault.contest_pda(@contest.slug).first)
+    verify_solana_transaction!(tx_signature, instruction: instruction, signer: admin_pubkey,
+                                             writable: contest_pda_b58)
+    tx_signature
+  end
+
+  # A wire that is not the transaction this server built. The reason code goes
+  # to the log only (it tells an attacker which check tripped); the operator
+  # gets the remedy.
+  def render_contest_time_rejection(error)
+    Rails.logger.warn("[ContestsController##{action_name}] rejected contest time wire: " \
+                      "#{error.respond_to?(:reason) ? error.reason : error.class.name}: #{error.message}")
+    render json: { success: false,
+                   error: "Signed transaction did not match what this server prepared. Close this and try again." },
+           status: :unprocessable_entity
+  end
+
+  # THE PROGRAM'S OWN ERROR, NOT A GUESS. A simulation the program refused
+  # carries Anchor's log lines ("Error Code: ContestAlreadySettled. Error
+  # Message: ..."); surface those to the operator alongside the raw err so a
+  # refused lock reads as the reason it was refused. Anything from the send
+  # onward names its signature, so the operator can look it up before retrying.
+  def contest_time_failure_message(error)
+    message = error.message.to_s
+    if error.is_a?(Solana::Cosign::SimulationFailed)
+      program_lines = error.logs.grep(/Error Code|Error Message|custom program error/i).last(2)
+      message = [message, *program_lines].join(" — ") if program_lines.any?
+    elsif error.is_a?(Solana::Cosign::Error) && !error.is_a?(Solana::Cosign::PreflightRejected) && error.signature
+      message = "#{message} (transaction #{error.signature} may have landed — check it before retrying)" unless message.include?(error.signature)
+    end
+    message
+  end
+
   def verify_solana_transaction!(signature, instruction:, signer: nil, writable: nil)
     Solana::TxVerifier.verify!(
       signature: signature,

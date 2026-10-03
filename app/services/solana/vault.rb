@@ -1902,33 +1902,76 @@ module Solana
     end
 
     # Build a Phantom-signable set_contest_lock_time TX (1-of-3). The admin's
-    # Phantom wallet (which must be a vault signer — e.g. Mr. McRitchie's key) occupies
-    # the `admin` signer slot; the bot stays fee payer (slot 0) so the user only
-    # signs, paying no SOL. Mirrors the create_contest dual-signer pattern
-    # (build_create_contest): bot partial-signs, Phantom fills its placeholder
-    # client-side. Returns base64 for the client to sign + broadcast.
-    def build_set_contest_lock_time(contest_slug, lock_timestamp, admin_pubkey:, extra_cosigners: [])
+    # Phantom wallet (which must be a vault signer — e.g. Mr. McRitchie's key)
+    # occupies the `admin` signer slot; the bot stays fee payer (account 0) so
+    # the operator only signs, paying no SOL.
+    #
+    # PHANTOM-FIRST, SERVER-BROADCAST (server-broadcasts-contest-lock,
+    # 2026-10-03). This used to bot-partial-sign here and hand the browser the
+    # broadcast, which on mainnet sent it to the free public RPC (the
+    # credentialed one is never handed to a browser) and died there as
+    # `403 Access forbidden`. It now builds through `Cosign::Builder` exactly as
+    # the Phantom-first contest create does: every slot is left empty, Phantom
+    # signs first, and #cosign_and_broadcast_contest_time verifies the returned
+    # wire against a REBUILT expectation (#contest_time_expectation) before the
+    # bot fills its fee-payer slot and the server sends it over its own RPC.
+    #
+    # Returns { serialized_tx:, last_valid_block_height: }.
+    def build_set_contest_lock_time(contest_slug, lock_timestamp, admin_pubkey:)
+      build_contest_time("set_contest_lock_time", contest_slug, lock_timestamp, admin_pubkey: admin_pubkey)
+    end
+
+    # The bare set_contest_{lock,conclusion}_time instruction, as
+    # { accounts:, data: } — ONE definition shared by the builder that hands
+    # it to Phantom and the expectation that judges what Phantom hands back, so
+    # the two cannot drift. `cosigner: None` (the program id in the optional
+    # slot) is the 1-of-3 first-set shape (v0.19 #5).
+    CONTEST_TIME_INSTRUCTIONS = %w[set_contest_lock_time set_contest_conclusion_time].freeze
+
+    def contest_time_instruction(instruction, contest_slug, timestamp, admin_pubkey:)
+      raise ArgumentError, "unknown contest time instruction #{instruction}" unless CONTEST_TIME_INSTRUCTIONS.include?(instruction)
+
       admin_bytes = Keypair.decode_base58(admin_pubkey)
       c_pda, _ = contest_pda(contest_slug)
       vault_pda, _ = vault_state_pda
-      extras = extra_cosigner_metas(extra_cosigners)
-
-      data = Transaction.anchor_discriminator("set_contest_lock_time") +
-             Borsh.encode_i64(lock_timestamp.to_i)
-
-      serialized = build_partial_signed(
+      {
         accounts: [
           { pubkey: admin_bytes, is_signer: true,  is_writable: true  }, # admin == Phantom (vault signer)
-          { pubkey: @program_id, is_signer: false, is_writable: false }, # cosigner: None (1-of-3 pre-lock; v0.19 #5)
+          { pubkey: @program_id, is_signer: false, is_writable: false }, # cosigner: None
           { pubkey: vault_pda,   is_signer: false, is_writable: false }, # vault_state
           *governance_metas,
-          { pubkey: c_pda,       is_signer: false, is_writable: true  }, # contest
-          *extras
+          { pubkey: c_pda,       is_signer: false, is_writable: true  }  # contest
         ],
-        data: data,
-        additional_signers: [admin_bytes, *extras.map { |m| m[:pubkey] }]
+        data: Transaction.anchor_discriminator(instruction) + Borsh.encode_i64(timestamp.to_i)
+      }
+    end
+
+    # WHAT THE SERVER WILL ACCEPT BACK FROM PHANTOM for a contest time change,
+    # rebuilt from server state (the contest slug, the timestamp, the signed-in
+    # operator's wallet) rather than read from anything the browser sent.
+    # `Cosign::Expectation` then refuses a wire that is not exactly this
+    # instruction — another contest's PDA, another timestamp, another
+    # instruction, another signer, a smuggled transfer — before the bot's key
+    # is ever used, so the submit endpoint cannot be made to broadcast
+    # arbitrary bytes. See the long note at #cosign_completer for every rule.
+    def contest_time_expectation(instruction, contest_slug, timestamp, admin_pubkey:)
+      spec = contest_time_instruction(instruction, contest_slug, timestamp, admin_pubkey: admin_pubkey)
+      rebuilt_expectation(
+        instructions: [{ program_id: @program_id, accounts: spec[:accounts], data: spec[:data] }],
+        cosigner: admin_pubkey
       )
-      { serialized_tx: serialized }
+    end
+
+    # Verify, bot-sign (fee payer), simulate, broadcast over the SERVER's
+    # credentialed RPC, and wait for `confirmed` — `Cosign::Completer#complete`,
+    # the same rail the entry and contest-create cosigns ride. Returns the
+    # signature. Raises the gem's typed errors: `WireRejected` (not the tx we
+    # built; nothing signed or sent), `SimulationFailed` (the PROGRAM refused;
+    # carries err + logs), `PreflightRejected` (provably un-sent),
+    # `BroadcastFailed`/`TransactionFailed` (from the send onward).
+    def cosign_and_broadcast_contest_time(signed_wire_base64, expectation:, before_send: nil)
+      cosign_completer.complete(signed_wire_base64, expectation: expectation,
+                                                    before_send: before_send).signature
     end
 
     # Set (or clear) a contest's conclusion timestamp, server-signed. ONE
@@ -1981,30 +2024,18 @@ module Solana
 
     # Phantom-signable set_contest_conclusion_time (1-of-3). Mirrors
     # build_set_contest_lock_time: bot fee payer, admin's Phantom (a vault
-    # signer) signs the `admin` slot. Returns base64 for the client to sign.
-    def build_set_contest_conclusion_time(contest_slug, conclusion_timestamp, admin_pubkey:, extra_cosigners: [])
-      admin_bytes = Keypair.decode_base58(admin_pubkey)
-      c_pda, _ = contest_pda(contest_slug)
-      vault_pda, _ = vault_state_pda
-      extras = extra_cosigner_metas(extra_cosigners)
-
-      data = Transaction.anchor_discriminator("set_contest_conclusion_time") +
-             Borsh.encode_i64(conclusion_timestamp.to_i)
-
-      serialized = build_partial_signed(
-        accounts: [
-          { pubkey: admin_bytes, is_signer: true,  is_writable: true  },
-          { pubkey: @program_id, is_signer: false, is_writable: false }, # cosigner: None (1-of-3 first set; v0.19 #5)
-          { pubkey: vault_pda,   is_signer: false, is_writable: false },
-          *governance_metas,
-          { pubkey: c_pda,       is_signer: false, is_writable: true  },
-          *extras
-        ],
-        data: data,
-        additional_signers: [admin_bytes, *extras.map { |m| m[:pubkey] }]
-      )
-      { serialized_tx: serialized }
+    # signer) signs the `admin` slot, Phantom-first, server-broadcast.
+    def build_set_contest_conclusion_time(contest_slug, conclusion_timestamp, admin_pubkey:)
+      build_contest_time("set_contest_conclusion_time", contest_slug, conclusion_timestamp, admin_pubkey: admin_pubkey)
     end
+
+    def build_contest_time(instruction, contest_slug, timestamp, admin_pubkey:)
+      spec = contest_time_instruction(instruction, contest_slug, timestamp, admin_pubkey: admin_pubkey)
+      prepared = build_partial_unsigned(accounts: spec[:accounts], data: spec[:data],
+                                        cosigner: Keypair.decode_base58(admin_pubkey))
+      { serialized_tx: prepared.wire_base64, last_valid_block_height: prepared.last_valid_block_height }
+    end
+    private :build_contest_time
 
     # Build cancel_contest TX (2 on v0.25, CANCEL_CONTEST 3 from v0.26).
     # Refunds prize_pool → creator ATA.

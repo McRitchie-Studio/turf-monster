@@ -2743,6 +2743,125 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     assert_equal original.to_i, @contest.reload.starts_at.to_i, "a malformed call must not clear the lock"
   end
 
+  # --- the SERVER broadcasts the lock (server-broadcasts-contest-lock) -------
+  #
+  # Production 2026-10-03: the browser broadcast reached the free public mainnet
+  # RPC and died as `403 Access forbidden`. lock_contest.js now posts the
+  # Phantom-signed wire as `signed_tx`; the server judges it against what IT
+  # would build, broadcasts over its own RPC, verifies what landed, and only
+  # then mirrors the time.
+
+  def post_signed_lock(vault, params, path: confirm_lock_time_contest_path(@contest), verify: true)
+    Solana::Vault.stub :new, vault do
+      Solana::Keypair.stub :encode_base58, ->(v) { v.is_a?(String) ? v : v.to_s } do
+        verifier = verify ? ->(**kw) { (@verified ||= []) << kw; true } : ->(**) { raise Solana::TxVerifier::VerificationError, "should not verify" }
+        Solana::TxVerifier.stub :verify!, verifier do
+          post path, params: params, as: :json
+        end
+      end
+    end
+  end
+
+  def onchain_admin(tag)
+    admin = users(:alex)
+    admin.update!(web3_solana_address: "Web3#{tag}#{SecureRandom.hex(4)}")
+    @contest.update!(onchain_contest_id: "onchain_#{tag.downcase}#{SecureRandom.hex(4)}", starts_at: 1.hour.from_now)
+    log_in_as_onchain(admin)
+    admin
+  end
+
+  test "confirm_lock_time broadcasts the signed wire server-side, verifies it, then mirrors starts_at" do
+    admin = onchain_admin("SrvLock")
+    lock_ts = 3.days.from_now.to_i
+    vault = FakeVault.new
+
+    post_signed_lock(vault, { signed_tx: "PHANTOM_SIGNED_WIRE", lock_timestamp: lock_ts })
+
+    assert_response :success
+    body = JSON.parse(response.body)
+    assert body["success"]
+    assert_equal "fake-contest-time-sig-1", body["tx_signature"]
+    assert_equal [{ instruction: "set_contest_lock_time", slug: @contest.slug, timestamp: lock_ts,
+                    admin: admin.web3_solana_address }],
+                 vault.contest_time_expectation_calls,
+                 "the expectation is rebuilt from THIS contest, THIS timestamp and the SESSION's wallet"
+    assert_equal "PHANTOM_SIGNED_WIRE", vault.contest_time_broadcast_calls.first[:wire]
+    assert_equal vault.contest_time_expectation_calls.first[:timestamp],
+                 vault.contest_time_broadcast_calls.first[:expectation][:timestamp]
+    assert_equal "fake-contest-time-sig-1", @verified.first[:signature],
+                 "what landed is verified on chain before the DB moves"
+    assert_equal "set_contest_lock_time", @verified.first[:instruction_name]
+    assert_equal admin.web3_solana_address, @verified.first[:signer_pubkey]
+    assert_equal lock_ts, @contest.reload.starts_at.to_i
+  end
+
+  test "confirm_lock_time clears the lock through the server broadcast" do
+    onchain_admin("SrvClr")
+    vault = FakeVault.new
+
+    post_signed_lock(vault, { signed_tx: "PHANTOM_SIGNED_CLEAR", lock_timestamp: 0 })
+
+    assert_response :success
+    assert_equal 0, vault.contest_time_expectation_calls.first[:timestamp]
+    assert_nil @contest.reload.starts_at
+  end
+
+  test "confirm_lock_time refuses a tampered or foreign wire and leaves the lock untouched" do
+    onchain_admin("SrvBad")
+    original = @contest.reload.starts_at
+    vault = FakeVault.new
+    vault.contest_time_reject = "instruction_accounts_mismatch: another contest"
+
+    post_signed_lock(vault, { signed_tx: "FOREIGN_WIRE", lock_timestamp: 2.days.from_now.to_i }, verify: false)
+
+    assert_response :unprocessable_entity
+    error = JSON.parse(response.body)["error"]
+    assert_match(/did not match what this server prepared/, error)
+    refute_match(/instruction_accounts_mismatch/, error, "the reason code is for the log, not the client")
+    assert_equal original.to_i, @contest.reload.starts_at.to_i
+  end
+
+  test "confirm_lock_time surfaces the program's own error when the simulation refuses" do
+    onchain_admin("SrvSim")
+    original = @contest.reload.starts_at
+    vault = FakeVault.new
+    vault.contest_time_broadcast_raises = Solana::Cosign::SimulationFailed.new(
+      "simulation failed: {\"InstructionError\"=>[2, {\"Custom\"=>6006}]}",
+      err: { "InstructionError" => [2, { "Custom" => 6006 }] },
+      logs: ["Program log: AnchorError occurred. Error Code: ContestAlreadySettled. Error Number: 6006."]
+    )
+
+    post_signed_lock(vault, { signed_tx: "WIRE", lock_timestamp: 2.days.from_now.to_i }, verify: false)
+
+    assert_response :unprocessable_entity
+    error = JSON.parse(response.body)["error"]
+    assert_match(/6006/, error)
+    assert_match(/ContestAlreadySettled/, error)
+    assert_equal original.to_i, @contest.reload.starts_at.to_i
+  end
+
+  test "confirm_lock_time requires a signed wire or a signature" do
+    onchain_admin("SrvNone")
+    post_signed_lock(FakeVault.new, { lock_timestamp: 2.days.from_now.to_i }, verify: false)
+
+    assert_response :unprocessable_entity
+    assert_match(/Signed transaction required/, JSON.parse(response.body)["error"])
+  end
+
+  test "confirm_conclusion_time broadcasts the signed wire server-side too" do
+    admin = onchain_admin("SrvConc")
+    ts = 2.days.from_now.to_i
+    vault = FakeVault.new
+
+    post_signed_lock(vault, { signed_tx: "PHANTOM_SIGNED_CONC", conclusion_timestamp: ts },
+                     path: confirm_conclusion_time_contest_path(@contest))
+
+    assert_response :success
+    assert_equal [{ instruction: "set_contest_conclusion_time", slug: @contest.slug, timestamp: ts,
+                    admin: admin.web3_solana_address }], vault.contest_time_expectation_calls
+    assert_equal ts, @contest.reload.concludes_at.to_i
+  end
+
   # --- prepare_conclusion_time / confirm_conclusion_time (v0.18) ---
 
   test "prepare_conclusion_time builds a Phantom-signable set_contest_conclusion_time TX" do

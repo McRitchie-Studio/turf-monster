@@ -1,8 +1,9 @@
 // Set a contest timestamp (lock or conclusion) via Phantom (web3). Admin-only.
 // set_contest_{lock,conclusion}_time are both 1-of-3 vault ops and the admin's
 // Phantom wallet is itself a vault signer, so a single Phantom signature
-// authorizes either — no co-signer (unlike the 2-of-3 cosign flow). Mirrors the
-// entry sign flow; status + errors render through the shared transaction modal
+// authorizes either — no co-signer (unlike the 2-of-3 cosign flow). Phantom
+// signs; the SERVER broadcasts (confirm_*_time takes the signed wire). Mirrors
+// the contest-create sign flow; status + errors render through the shared transaction modal
 // (Alpine.store('solanaModal')), never alert().
 //
 // Usage:
@@ -59,7 +60,6 @@ async function setContestTimeViaPhantom(slug, prepareBody, opts) {
   }
 
   const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
-  const rpcUrl = document.body.dataset.solanaRpcUrl || "https://api.devnet.solana.com";
   const prepareUrl = `/contests/${slug}/prepare_${opts.action}_time`;
   const confirmUrl = `/contests/${slug}/confirm_${opts.action}_time`;
 
@@ -77,7 +77,7 @@ async function setContestTimeViaPhantom(slug, prepareBody, opts) {
       return;
     }
 
-    // 1. Server builds the TX (bot fee payer + Phantom admin-signer placeholder).
+    // 1. Server builds the TX unsigned (bot fee payer + Phantom admin slot).
     const prep = await fetch(prepareUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
@@ -101,25 +101,20 @@ async function setContestTimeViaPhantom(slug, prepareBody, opts) {
     }
     const signed = await provider.signTransaction(tx);
 
-    // 3. Broadcast + confirm.
+    // 3. THE SERVER BROADCASTS, NOT THIS PAGE. Post the signed wire; the server
+    //    checks it is the transaction it prepared (this contest, this time,
+    //    this operator), fills the fee-payer slot, simulates, sends it over its
+    //    own credentialed RPC, confirms, verifies what landed, and only then
+    //    mirrors the time. A browser broadcast reached the free public mainnet
+    //    RPC (the credentialed one is never handed to a page) and died as
+    //    `403 Access forbidden` — the defect cosign.js fixed on 2026-09-05.
+    //    requireAllSignatures:false — the fee payer's slot is the server's.
     if (modal) modal.show("Confirming Onchain", "Submitting transaction to Solana...");
-    const connection = new solanaWeb3.Connection(rpcUrl, "confirmed");
-    const signature = await connection.sendRawTransaction(signed.serialize(), {
-      skipPreflight: true,
-      maxRetries: 3,
-    });
-
-    // HTTP poll getSignatureStatuses instead of connection.confirmTransaction
-    // (no WebSocket subscription, no misleading "unknown" timeout).
-    if (modal) modal.show("Confirming Onchain", "Waiting for Solana confirmation...");
-    await window.pollConfirmation(rpcUrl, signature);
-
-    // 4. Mirror the timestamp server-side — only after the chain confirms.
-    if (modal) modal.show("Saving " + opts.noun, "Recording the time...");
+    const signedB64 = btoa(String.fromCharCode.apply(null, signed.serialize({ requireAllSignatures: false, verifySignatures: false })));
     const conf = await fetch(confirmUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
-      body: JSON.stringify({ tx_signature: signature, [opts.tsKey]: timestamp }),
+      body: JSON.stringify({ signed_tx: signedB64, [opts.tsKey]: timestamp }),
     });
     const confData = await conf.json();
     if (!conf.ok || !confData.success) {

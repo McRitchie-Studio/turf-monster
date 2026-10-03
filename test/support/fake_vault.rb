@@ -551,7 +551,7 @@ class FakeVault
   end
 
   # Used by ContestsController#prepare_lock_time (Phantom-signed lock flow).
-  def build_set_contest_lock_time(contest_slug, lock_timestamp, admin_pubkey:, extra_cosigners: [])
+  def build_set_contest_lock_time(contest_slug, lock_timestamp, admin_pubkey:)
     @lock_calls ||= []
     @lock_calls << { slug: contest_slug, lock_timestamp: lock_timestamp, admin: admin_pubkey }
     { serialized_tx: "FAKE_TX_lock_#{contest_slug}_#{lock_timestamp}" }
@@ -562,7 +562,7 @@ class FakeVault
   end
 
   # Used by ContestsController#prepare_conclusion_time (Phantom-signed flow).
-  def build_set_contest_conclusion_time(contest_slug, conclusion_timestamp, admin_pubkey:, extra_cosigners: [])
+  def build_set_contest_conclusion_time(contest_slug, conclusion_timestamp, admin_pubkey:)
     @conclusion_calls ||= []
     @conclusion_calls << { slug: contest_slug, conclusion_timestamp: conclusion_timestamp, admin: admin_pubkey }
     { serialized_tx: "FAKE_TX_conclude_#{contest_slug}_#{conclusion_timestamp}" }
@@ -570,6 +570,36 @@ class FakeVault
 
   def conclusion_calls
     @conclusion_calls ||= []
+  end
+
+  # Stands in for Vault#contest_time_expectation (the REBUILT expectation the
+  # confirm_*_time endpoints judge the Phantom-signed wire against). Records the
+  # server-side inputs so a test can assert the controller used ITS contest, ITS
+  # timestamp and the session's wallet — never anything from the wire.
+  attr_writer :contest_time_reject, :contest_time_broadcast_raises
+
+  def contest_time_expectation(instruction, contest_slug, timestamp, admin_pubkey:)
+    contest_time_expectation_calls << { instruction: instruction, slug: contest_slug,
+                                        timestamp: timestamp, admin: admin_pubkey }
+    { fake_contest_time_expectation: instruction, slug: contest_slug, timestamp: timestamp, admin: admin_pubkey }
+  end
+
+  def contest_time_expectation_calls
+    @contest_time_expectation_calls ||= []
+  end
+
+  def cosign_and_broadcast_contest_time(signed_wire_base64, expectation:, before_send: nil)
+    contest_time_broadcast_calls << { wire: signed_wire_base64, expectation: expectation }
+    raise Solana::Cosign::WireRejected.new(:fake_refusal, @contest_time_reject) if @contest_time_reject
+    raise @contest_time_broadcast_raises if @contest_time_broadcast_raises
+
+    signature = "fake-contest-time-sig-#{contest_time_broadcast_calls.length}"
+    before_send&.call(signature)
+    signature
+  end
+
+  def contest_time_broadcast_calls
+    @contest_time_broadcast_calls ||= []
   end
 
   # Used by ContestsController#confirm_lock_time (mirrors entry_pda shape).
