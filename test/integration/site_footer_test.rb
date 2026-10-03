@@ -91,9 +91,11 @@ class SiteFooterTest < ActionDispatch::IntegrationTest
       assert_select "a[href^='tel:']", count: 0
       assert_select ".ftr-socials", count: 0
     end
-    # Leaflet is only named when an address with coordinates is declared.
-    assert_no_match(/leaflet/i, response.body)
-    assert_no_match(/tile\.openstreetmap\.org/, response.body)
+    # Leaflet is only REQUESTED when an address with coordinates is declared.
+    # (The footer's inline stylesheet always carries .leaflet-* rules and
+    # comments, and its script names the map's hook, so neither word proves
+    # anything; the asset URL is what only a page with a map carries.)
+    assert_no_match(%r{studio/leaflet[^"']*\.(?:js|css)}, response.body)
   end
 
   test "a signed-in viewer keeps the footer, as on the hand-built one" do
