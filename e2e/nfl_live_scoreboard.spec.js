@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { reseed, allowMotion, loginAdmin, createActiveEntry } = require("./helpers");
+const { reseed, allowMotion, loginAdmin, createActiveEntry, routeHeadshots } = require("./helpers");
 
 // The league-wide live scoreboard at /live.
 //
@@ -8,6 +8,9 @@ const { reseed, allowMotion, loginAdmin, createActiveEntry } = require("./helper
 // reload — the whole reason the page exists. The dev toolbar is the injector,
 // standing in for a real NFL scoring play.
 test.beforeEach(async ({ request }) => await reseed(request));
+
+// Headshots come from the repo, never the bucket: routeHeadshots in helpers.js.
+test.beforeEach(async ({ page }) => await routeHeadshots(page));
 
 // `:visible` runs through the selectors below because the board draws every
 // game TWICE — once as a hero tile in the focus panel, once as a card in the

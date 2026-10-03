@@ -1,4 +1,5 @@
 const { test, expect } = require("@playwright/test");
+const { routeHeadshots } = require("./helpers");
 
 // The NFL player database browse surface.
 //
@@ -10,10 +11,14 @@ const { test, expect } = require("@playwright/test");
 // demo set, never to a league-wide count that a re-seed could move.
 //
 // WHAT IT DELIBERATELY DOES NOT COVER: the cached-headshot <img> path. The demo
-// seed caches no images (that needs AWS), so these players all render the
-// initials fallback. The <img> branch is covered against a fixture in
-// test/views/nfl_player_card_render_test.rb.
+// seed caches one headshot (Josh Allen) and the rest render the initials
+// fallback; nothing here asserts on the picture. The <img> branch is covered
+// against a fixture in test/views/nfl_player_card_render_test.rb. Allen's
+// picture is still REQUESTED by the Bills and player pages, so it is routed to a
+// local file (routeHeadshots) rather than fetched from the bucket.
 test.describe("NFL players", () => {
+  test.beforeEach(async ({ page }) => await routeHeadshots(page));
+
   // The whole surface is public — it is a marketing/SEO page, and a
   // require_authentication that crept back in would fail here first.
   test("the index is reachable signed-out and lists every team", async ({ page }) => {
