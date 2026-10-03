@@ -86,12 +86,30 @@ class Api::V1::ContestFactsTest < ActiveSupport::TestCase
     assert_equal 6, Contest.find(@contest.id).picks_required, "span with a bye"
   end
 
+  # The span builder names its slates "NFL ...", so these locks follow
+  # Contest::LockRule. Time is frozen: the lock equals the first kickoff only
+  # when that kickoff is on a Sunday at or after 11:00 Denver, so a kickoff
+  # relative to the wall clock passed or failed with the day the suite ran.
   test "with no starts_at the lock is the slate's first kickoff, as the model says" do
-    build_span_contest!(@contest, week_one_kickoff: 2.days.from_now)
+    travel_to Time.utc(2026, 10, 2, 18, 0) # Friday
+    kickoff = Time.utc(2026, 10, 4, 18, 0) # Sunday 12:00 Denver, after the 11:00 lock
+    build_span_contest!(@contest, week_one_kickoff: kickoff)
     @contest.update!(starts_at: nil)
 
-    assert_agrees_with_model(@contest, "no starts_at, future kickoff")
-    assert_in_delta 2.days.from_now.to_i, facts_for(@contest).locks_at(@contest).to_i, 5
+    assert_agrees_with_model(@contest, "no starts_at, future Sunday kickoff")
+    assert_equal kickoff, facts_for(@contest).locks_at(@contest)
+    assert_equal "open", facts_for(@contest).phase(@contest)
+  end
+
+  # The date this suite first went red: from Saturday 2026-10-03 06:00 UTC, a
+  # kickoff two days out fell on Monday in Denver and rolled to the next Sunday.
+  test "with no starts_at a Monday first kickoff locks on the following Sunday" do
+    travel_to Time.utc(2026, 10, 3, 7, 25) # Saturday
+    build_span_contest!(@contest, week_one_kickoff: 2.days.from_now) # Mon 01:25 Denver
+    @contest.update!(starts_at: nil)
+
+    assert_agrees_with_model(@contest, "no starts_at, Monday kickoff")
+    assert_equal Time.utc(2026, 10, 11, 17, 0), facts_for(@contest).locks_at(@contest)
     assert_equal "open", facts_for(@contest).phase(@contest)
   end
 
