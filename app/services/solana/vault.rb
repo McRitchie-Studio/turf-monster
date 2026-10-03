@@ -1857,11 +1857,11 @@ module Solana
     # 12:59, enter at 3pm with three hours of results known. So a human-facing
     # caller must never be wired back to this method.
     #
-    # WHAT STILL CALLS IT: TurfMonster::QaRehearsal::Driver, which drives a whole
-    # contest lifecycle through a remote console with nobody at a keyboard. It
-    # cannot raise a Phantom prompt, so a Phantom-only lock would simply end the
-    # rehearsal. Its conclusion-time twin (#set_contest_conclusion_time below)
-    # has no caller at all today and is kept beside it for the same reason.
+    # WHAT STILL CALLS IT: TurfMonster::QaRehearsal::Driver (a whole contest
+    # lifecycle via remote console, nobody at a keyboard, so no Phantom prompt),
+    # and Contests::ApplyNflSundayLock (`contests:nfl_sunday_lock`, operator-run,
+    # dry run unless WRITE=1, future-only and later-only moves). Its twin
+    # #set_contest_conclusion_time below has no caller; kept for the same reason.
     #
     # WHAT RETIRES THEM — a bridge with a known end, not a permanent exception.
     # Under the agreed five-signer structure, DEVNET gives three of the five

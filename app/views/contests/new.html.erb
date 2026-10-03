@@ -11,15 +11,15 @@
     <% end %>
 
     <%= form_with model: @contest, url: contests_path, method: :post, id: "contest-form" do |f| %>
-      <% slate_starts = @slates_for_contest.to_h { |slate| [slate.id, (slate.first_game_starts_at || slate.starts_at)&.iso8601] } %>
+      <% slate_starts = @slates_for_contest.to_h { |slate| [slate.id, slate.default_contest_lock_at&.iso8601] } %>
       <% picker_options = {
         sport: @default_sport.presence || "fifa",
         utcIso: @contest.starts_at&.iso8601,
         slateId: @contest.slate_id,
         slateStarts: slate_starts
       }.to_json %>
-      <%# The selected slate supplies the default start time; the sport pills
-          remain as manual date presets for operator overrides. %>
+      <%# The selected slate supplies the default LOCK (Slate#default_contest_lock_at); the
+          sport pills remain as manual date presets for operator overrides. %>
       <div x-data='contestLockPicker(<%== picker_options %>)'>
       <!-- Sport selector -->
       <div class="mb-6">

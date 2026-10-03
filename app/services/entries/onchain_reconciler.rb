@@ -121,7 +121,11 @@ module Entries
       # entry (the DB unique index enforces this too — this gives a clean skip).
       return :skipped if Entry.where.not(id: entry.id).exists?(onchain_tx_signature: sig)
 
-      entry.confirm!(tx_signature: sig, onchain_entry_id: pda)
+      # Judge the time gates as of when the chain accepted the payment — a spend
+      # that cleared seconds before a kickoff must still heal after it. No
+      # blockTime → judged now, the old answer (Entry#assert_enterable! as_of:).
+      entry.confirm!(tx_signature: sig, onchain_entry_id: pda,
+                     as_of: Solana::TxVerifier.block_time(sig, client: @vault.client))
       Rails.logger.info(
         "[reconcile][healed] entry_id=#{entry.id} contest=#{contest.slug} " \
         "user_id=#{entry.user_id} tx=#{sig.to_s.first(8)}..."

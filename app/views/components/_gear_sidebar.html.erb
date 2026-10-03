@@ -120,8 +120,8 @@
         `nq` survives above because the STATUS LINE reads it. %>
 
     <%# NFL Totals left this menu by request. The page and its route stay, and
-        shared/_footer still links it on every page for BOTH audiences, which is
-        the only route a logged-out visitor ever had. %>
+        the site footer (config.site_footer) still links it on every page for
+        BOTH audiences, which is the only route a logged-out visitor ever had. %>
     <%= link_to help_how_to_play_path, class: link_class do %><%= emoji_swap.("🎮", "🤔") %><span>How to Play</span><% end %>
     <%= link_to proof_of_reserves_path, class: link_class do %><%= emoji_swap.("🪎", "🏦") %><span>Proof of Reserves</span><% end %>
 

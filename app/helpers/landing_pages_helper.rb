@@ -84,7 +84,7 @@ module LandingPagesHelper
         #
         # BOTH DOORS SHUT AT ONCE, for both sports: every write path refuses
         # after locks_at — Entry#toggle_selection! (entry.rb:47), #update_picks!
-        # (entry.rb:81) and #assert_enterable! (entry.rb:134) each raise
+        # (entry.rb:81) and #assert_enterable! (entry.rb:146) each raise
         # "Contest has locked — entries closed". Not just picks whose own game
         # has kicked off: the per-game SlateMatchup#locked? check is a SEPARATE,
         # additional guard, and is NOT what this sentence rests on — an earlier

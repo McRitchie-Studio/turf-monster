@@ -154,7 +154,7 @@ back to the name only for a row written before the migration — `Slate#sport_fr
 (`:390-392`) and `Slate#year_from_name` (`:396-398`) are those fallback helpers, not the
 primary source. Neither `ensure_slate!` sets the columns: `Slate`'s `before_validation`
 derives both from the name for every writer through `Slate#derive_sport_and_year_from_name`
-(`:458-462`), so a missed assignment can no longer leave a column null — and
+(`:471-475`), so a missed assignment can no longer leave a column null — and
 `Nfl::BuildSpanSlate#ensure_slate!` says so in its own comment
 (`app/services/nfl/build_span_slate.rb:112-115`). Every span lookup then scopes by the
 columns: `Nfl::BuildSpanSlate#source_slates` runs
