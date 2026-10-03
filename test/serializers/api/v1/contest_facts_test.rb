@@ -86,12 +86,30 @@ class Api::V1::ContestFactsTest < ActiveSupport::TestCase
     assert_equal 6, Contest.find(@contest.id).picks_required, "span with a bye"
   end
 
-  test "with no starts_at the lock is the slate's first kickoff, as the model says" do
-    build_span_contest!(@contest, week_one_kickoff: 2.days.from_now)
+  # The clock is pinned in both lock tests below. The NFL lock is a weekday rule
+  # (Contest::LockRule), so a kickoff placed relative to the real clock lands on
+  # a different side of the opening Sunday depending on when the suite runs: a
+  # "2.days.from_now" kickoff read on a Saturday night is a Monday game, whose
+  # opening Sunday is six days later.
+  test "with no starts_at a non-NFL slate locks at its first kickoff, as the model says" do
+    travel_to Time.utc(2026, 9, 30, 18, 0) # Wednesday
+    kickoff = Time.utc(2026, 10, 2, 18, 0) # Friday
+    build_span_contest!(@contest, week_one_kickoff: kickoff)
+    @contest.slate.update!(sport: "fifa")
     @contest.update!(starts_at: nil)
 
-    assert_agrees_with_model(@contest, "no starts_at, future kickoff")
-    assert_in_delta 2.days.from_now.to_i, facts_for(@contest).locks_at(@contest).to_i, 5
+    assert_agrees_with_model(@contest, "no starts_at, future kickoff, non-NFL")
+    assert_equal kickoff, facts_for(@contest).locks_at(@contest)
+    assert_equal "open", facts_for(@contest).phase(@contest)
+  end
+
+  test "with no starts_at an NFL slate locks at 11:00 Denver on its opening Sunday, as the model says" do
+    travel_to Time.utc(2026, 9, 30, 18, 0) # Wednesday
+    build_span_contest!(@contest, week_one_kickoff: Time.utc(2026, 10, 2, 18, 0)) # Friday
+    @contest.update!(starts_at: nil)
+
+    assert_agrees_with_model(@contest, "no starts_at, future kickoff, NFL")
+    assert_equal Time.utc(2026, 10, 4, 17, 0), facts_for(@contest).locks_at(@contest) # Sunday 11:00 MDT
     assert_equal "open", facts_for(@contest).phase(@contest)
   end
 
