@@ -1,3 +1,5 @@
+const fs = require("fs");
+const path = require("path");
 const { test, expect } = require("@playwright/test");
 const { reseed, allowMotion, loginAdmin, createActiveEntry } = require("./helpers");
 
@@ -8,6 +10,24 @@ const { reseed, allowMotion, loginAdmin, createActiveEntry } = require("./helper
 // reload — the whole reason the page exists. The dev toolbar is the injector,
 // standing in for a real NFL scoring play.
 test.beforeEach(async ({ request }) => await reseed(request));
+
+// HEADSHOTS ARE SERVED LOCALLY, never from the bucket. The seed caches one
+// photographed athlete (Josh Allen, db/seeds/nfl_athletes_demo.rb) whose
+// ImageCache keys resolve to a real S3 URL; loading it live made the scorer
+// specs depend on a bucket the suite does not own — a 403 there (2026-10-03)
+// left the <img> empty and failed the centring and seam measurements on every
+// PR. Every test in this file gets a working picture from the repo; a test
+// that wants the failure path (the slow failure below) adds its own route, and a
+// later route takes precedence in Playwright.
+const HEADSHOT_PNG = fs.readFileSync(path.join(__dirname, "../public/icon.png"));
+
+async function routeHeadshots(page) {
+  await page.route("**/headshots/**", (route) =>
+    route.fulfill({ status: 200, contentType: "image/png", body: HEADSHOT_PNG })
+  );
+}
+
+test.beforeEach(async ({ page }) => await routeHeadshots(page));
 
 // `:visible` runs through the selectors below because the board draws every
 // game TWICE — once as a hero tile in the focus panel, once as a card in the
