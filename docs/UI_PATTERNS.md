@@ -426,6 +426,37 @@ Beside the geo badge in **both** navbar rows (desktop nav and mobile sub-navbar)
 - The button is `class="btn btn-primary"` — the theme's primary color, not a hardcoded green.
 - It is a **modal trigger, not a navigation**: `@click.prevent` opens the in-page auth modal via `$store.modals.open('auth', { step: 'credentials', mode: 'signup', … })`. The `signin_path` href is only the no-JS fallback. Login and signup are one create-or-login flow, so the single CTA reads "Sign in" while opening at `mode: 'signup'` (`_navbar.html.erb:118-124`).
 
+## Site footer
+
+The footer is studio-engine's site footer (`studio_site_footer`, engine
+`docs/SITE_FOOTER.md`), rendered once at the end of `layouts/application.html.erb`.
+The app owns no footer markup: its content is facts in
+`config/initializers/studio.rb` (`config.site_footer`).
+
+- **What it carries.** The mark and the two-part wordmark, the tagline, the
+  contact email, three link columns (Play, Transparency, Company: sixteen links),
+  a legal line (Terms of Service · Privacy Policy · Play responsibly) and the ©
+  line ("McRitchie Studio. Turf Monster is a game of skill."). The Company
+  column is the site-legitimacy set underwriters and wallet scanners look for;
+  `test/integration/site_footer_test.rb` pins every link by render.
+- **What it does not.** No address, no map, no phone, by the operator's
+  instruction, so Leaflet is never requested and the CSP needs nothing for it.
+  A business mailing address joins as `address:` (no coordinates, so still no
+  map) once the registered agent / PO box exists. No social row: there are no
+  handles on record.
+- **Where it shows.** Every page the application layout renders, signed in or
+  out (`config.site_footer_visible` always answers true). The landing funnel
+  (`layout "landing"`), the magic-link confirm page (`layout "loading"`) and the
+  `layout: false` responses have none.
+- **Rows.** Under 768px the brand runs across the top, then Play beside
+  Transparency, then Company. From 768px the three columns share a row under the
+  brand; from 1024px the brand joins that row. The engine owns these rules and
+  their browser spec.
+- **Limits of the engine's facts.** The tagline is escaped text, so "transparency
+  pages" is not a link there (the Transparency column's first link is). The ©
+  line prints "© <year> <name>", so the sentence rides in `name:`, which is
+  also the home link's accessible name.
+
 ## Wallet Signal (app-wide)
 
 Every page says which wallet is live, and a switch anywhere refreshes the state that depends on it. `shared/_wallet_signal` renders it; `app/javascript/wallet_signal.js` decides it.
