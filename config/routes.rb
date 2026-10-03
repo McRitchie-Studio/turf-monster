@@ -326,6 +326,11 @@ Rails.application.routes.draw do
   # moderation. Auth via require_admin (studio-engine).
   get "contests/:id/admin", to: "contests#admin", as: :admin_contest
 
+  # The contest page at a URL of its own. /contests/:id routes to the live board
+  # once a game has started (ContestsController#show), so the page needs an
+  # address that never redirects — the live board's "← Contest" button uses it.
+  get "contests/:id/contest", to: "contests#contest", as: :contest_page
+
   resources :contests, only: [:index, :show, :new, :create, :edit, :update] do
     collection do
       get :my
@@ -690,6 +695,7 @@ Rails.application.routes.draw do
     get  "test/treasury_layout_harness",  to: "test#treasury_layout_harness"
     post "test/grant_managed_wallet",     to: "test#grant_managed_wallet"
     post "test/set_quest_state",          to: "test#set_quest_state"
+    post "test/set_game_kickoff",         to: "test#set_game_kickoff"
     post "test/grant_web3_wallet",        to: "test#grant_web3_wallet"
     post "test/magic_link_token",         to: "test#magic_link_token"
     get  "test/user_info/:slug",          to: "test#user_info"

@@ -530,6 +530,39 @@ class TestController < ApplicationController
                    quest_step: user.quest_step, next_quest: user.next_quest }
   end
 
+  # Move ONE game's kickoff, so a browser spec can put a team card into its
+  # locked ("Game Started") state — a state the seed never holds, because every
+  # seeded span game is weeks ahead.
+  #
+  #   contest:    slug — uses the game behind its first pickable matchup, or
+  #   game_slug:  a specific game (how a spec puts the kickoff BACK)
+  #   kickoff_at: ISO8601; omitted means five minutes ago, i.e. "started"
+  #
+  # Answers with the PREVIOUS kickoff. #reseed does not rewrite games, so the
+  # spec that starts a game owns restoring it; a started game left behind would
+  # send every later spec's /contests/:slug visit to the live board.
+  def set_game_kickoff
+    matchup = nil
+    game = if params[:game_slug].present?
+             Game.find_by(slug: params[:game_slug])
+    else
+             matchup = Contest.find_by(slug: params[:contest])&.pickable_matchups&.find(&:game)
+             matchup&.game
+    end
+    return render json: { error: "no game" }, status: :unprocessable_entity unless game
+
+    previous = game.kickoff_at
+    # A kickoff_at key that is PRESENT but blank restores a game that had none;
+    # only an omitted key means "start it".
+    kickoff = if params.key?(:kickoff_at) then params[:kickoff_at].presence && Time.iso8601(params[:kickoff_at])
+    else 5.minutes.ago
+    end
+    game.update_columns(kickoff_at: kickoff)
+
+    render json: { ok: true, game_slug: game.slug, matchup_id: matchup&.id, team: matchup&.team&.name,
+                   previous_kickoff_at: previous&.iso8601, kickoff_at: game.kickoff_at&.iso8601 }
+  end
+
   # Stage a WEB3 account for the step-up specs: an email-addressable user that
   # holds a self-custody wallet and a remembered brand.
   #
