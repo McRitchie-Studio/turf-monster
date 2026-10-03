@@ -72,6 +72,22 @@ module Solana
       true
     end
 
+    # When the chain accepted `signature`: its blockTime as a Time, or nil when the
+    # RPC cannot say (unknown signature, no blockTime, any error). Callers use it
+    # to judge an ALREADY-PAID entry's time gates as of the moment it landed
+    # (Entry#assert_enterable! `as_of:`), so nil must mean "judge at now" — the
+    # old, stricter answer — never a guess.
+    def self.block_time(signature, client: nil)
+      return nil if signature.blank?
+
+      client ||= Solana::Config.client
+      seconds = client.get_transaction(signature)&.dig("blockTime")
+      seconds.is_a?(Integer) && seconds.positive? ? Time.zone.at(seconds) : nil
+    rescue StandardError => e
+      Rails.logger.warn("[tx_verifier][block_time] #{signature.to_s.first(8)}... #{e.class}: #{e.message.to_s[0, 140]}")
+      nil
+    end
+
     def self.find_matching_instruction(instructions, account_keys, program_id, expected_discriminator)
       total = account_keys.length
       Array(instructions).find do |ix|

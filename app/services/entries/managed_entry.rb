@@ -80,6 +80,7 @@ module Entries
         # PRE-FLIGHT: run the read-only eligibility gates BEFORE any consume.
         # Raises here → token stays unconsumed, entry stays `cart`, fail loudly.
         entry.assert_enterable!
+        @preflight_at = Time.current # confirm! judges its time gates as of this pass (Entry#assert_enterable! as_of:)
 
         # On-chain entries require a configured season (seed_schedule lives on its PDA).
         # Catch the missing-season case early with a clear error instead of a cryptic
@@ -238,7 +239,7 @@ module Entries
     # off-chain entry has nothing to recover, so its confirm! failure re-raises as
     # a normal error. (Incident 2026-06-08.)
     def finalize!(entry)
-      entry.confirm!(tx_signature: @tx_signature, onchain_entry_id: @onchain_entry_id)
+      entry.confirm!(tx_signature: @tx_signature, onchain_entry_id: @onchain_entry_id, as_of: @preflight_at)
     rescue StandardError => e
       raise e if @tx_signature.blank?
 

@@ -64,6 +64,7 @@ module Contests
 
       apply(contest, row)
     rescue StandardError => e
+      ErrorLog.capture!(e) # a money-path write failure must be findable, not just printed
       Row.new(slug: contest.slug, action: :error, reason: "#{e.class}: #{e.message.to_s[0, 200]}")
     end
 

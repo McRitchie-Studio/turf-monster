@@ -225,9 +225,9 @@ class SlateMatchup < ApplicationRecord
   # each with the reason it is allowed to write a price. Read that list rather
   # than trusting a count here, which is exactly the kind of number that rots.
 
-  # THIS ROW's game has kicked off.
-  def locked?
-    game&.kickoff_at.present? && game.kickoff_at <= Time.current
+  # THIS ROW's game has kicked off (as of `now`).
+  def locked?(now = Time.current)
+    game&.kickoff_at.present? && game.kickoff_at <= now
   end
 
   # THE TEAM can no longer be picked, added or dropped: its FIRST game in this
@@ -245,7 +245,7 @@ class SlateMatchup < ApplicationRecord
   # #assert_enterable! (enter / prepare / confirm / managed / agent API / fill!),
   # and ContestsController#prepare_entry.
   def pick_locked?(now = Time.current)
-    return true if locked?
+    return true if locked?(now)
     return false unless slate_id && team_slug
 
     self.class.started_team_slugs(slate_id, now, team_slugs: [team_slug]).any?

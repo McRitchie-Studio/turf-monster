@@ -122,7 +122,19 @@ class Entry < ApplicationRecord
   #
   # `comped: true` is the admin-seed escape hatch (Contest#fill! only): it exempts
   # the lock-time gate so admin seeding may legitimately happen after lock.
-  def assert_enterable!(comped: false)
+  #
+  # `as_of:` — WHEN the two TIME gates (contest lock, team kickoff) are judged.
+  # Only a caller whose payment the chain has ALREADY accepted passes it: the
+  # moment its own pre-flight passed, or the transaction's blockTime. Judged at
+  # now instead, a submit seconds before a Thursday kickoff passes the
+  # pre-flight, pays, and is then refused by the post-broadcast backstop and by
+  # every heal after it — paid, on chain, never active (Carl's block on
+  # nfl-sunday-morning-lock). Capacity, the per-user limit and the duplicate
+  # lineup are NOT time gates and stay judged now. A pre-broadcast pre-flight
+  # never passes it, and #gate_time clamps it to now, so no caller can use it to
+  # judge a moment later than the present.
+  def assert_enterable!(comped: false, as_of: nil)
+    at = self.class.gate_time(as_of)
     raise Refusal.new(:contest_not_open, "Contest is not open") unless contest.open?
 
     # H7 prelaunch audit (2026-05-24): enforce contest-wide lock time. Closes
@@ -131,7 +143,7 @@ class Entry < ApplicationRecord
     # already-kicked games, then submit picks drawn from later-kickoff matchups
     # whose individual `locked?` is still false. `comped: true` (admin fill via
     # Contest#fill!) is exempt; admin seeding may legitimately happen after lock.
-    if contest.locks_at && Time.current >= contest.locks_at && !comped
+    if contest.locks_at && at >= contest.locks_at && !comped
       raise Refusal.new(:contest_locked, "Contest has locked — entries closed")
     end
 
@@ -139,7 +151,7 @@ class Entry < ApplicationRecord
     assert_pickable!(*selections.includes(:slate_matchup).map(&:slate_matchup)) # backstop for a cart built before the writers checked
     # Check no locked games
     selections.includes(slate_matchup: :game).each do |s|
-      raise Refusal.new(:team_locked, "#{s.slate_matchup.team.name}'s game has already started") if s.slate_matchup.pick_locked?
+      raise Refusal.new(:team_locked, "#{s.slate_matchup.team.name}'s game has already started") if s.slate_matchup.pick_locked?(at)
     end
 
     # Contest capacity. This entry is still `cart`, so it is not double-counted.
@@ -158,6 +170,12 @@ class Entry < ApplicationRecord
     end
   end
 
+  # The moment #assert_enterable!'s time gates are judged: `as_of`, never later
+  # than now.
+  def self.gate_time(as_of)
+    as_of ? [as_of, Time.current].min : Time.current
+  end
+
   # Activate a cart entry. A paid contest's entry may only be activated with
   # proof of payment: `tx_signature` is the on-chain signature returned by a
   # consumed entry token or a vault entry, set server-side in
@@ -167,13 +185,16 @@ class Entry < ApplicationRecord
   # `comped: true` is the admin-seed escape hatch (Contest#fill! only): it
   # activates entries for seeded users without payment. Real user entries
   # always pass through the gate.
-  def confirm!(tx_signature: nil, onchain_entry_id: nil, comped: false)
+  def confirm!(tx_signature: nil, onchain_entry_id: nil, comped: false, as_of: nil)
     user.with_lock do
       # Backstop the read-only gates under the user row lock so the per-user
       # limit / sybil checks stay race-safe. ContestsController#enter already
       # ran assert_enterable! as a PRE-FLIGHT before the irreversible consume;
       # this re-runs the SAME method (no drift) as the serialized backstop.
-      assert_enterable!(comped: comped)
+      # `as_of:` judges its time gates at the moment the spend was cleared (see
+      # #assert_enterable!); it means nothing without a signature, so it is
+      # ignored for an unpaid confirm.
+      assert_enterable!(comped: comped, as_of: tx_signature.present? ? as_of : nil)
 
       transaction do
         # Payment gate: never activate a paid entry without proof of payment —
@@ -239,7 +260,7 @@ class Entry < ApplicationRecord
 
   # Confirm entry via direct onchain payment (Phantom wallet users).
   # No DB balance deduction — USDC was transferred onchain directly.
-  def confirm_onchain!(tx_signature:, entry_pda:)
+  def confirm_onchain!(tx_signature:, entry_pda:, as_of: nil)
     # Lock user row to prevent concurrent entry-limit bypass, then re-run the
     # read-only gates as the serialized backstop. ContestsController#
     # confirm_onchain_entry already ran assert_enterable! as a PRE-FLIGHT before
@@ -247,7 +268,7 @@ class Entry < ApplicationRecord
     # `comped:` here — the on-chain path is user-initiated only (admin fills go
     # through #confirm!).
     user.with_lock do
-      assert_enterable!
+      assert_enterable!(as_of: as_of) # time gates as of the cleared pre-flight / blockTime
 
       # Fail-closed payment gate (Lazarus audit #1/#7, 2026-05-31). The caller
       # (ContestsController#confirm_onchain_entry and #recover_pending_entry)

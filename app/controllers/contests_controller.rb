@@ -1291,7 +1291,7 @@ class ContestsController < ApplicationController
     begin
       verify_and_confirm_onchain_entry!(entry, ptx.tx_signature,
                                         entry_token_pda: prepared_token_pda,
-                                        vault: vault)
+                                        vault: vault, as_of: :block_time)
       ptx.update!(status: "confirmed")
 
       # Same consume, same stale cache: this path credits an entry whose token
@@ -1351,7 +1351,7 @@ class ContestsController < ApplicationController
       # filled-contest / duplicate-combo between #prepare_entry and here would
       # only surface AFTER the on-chain payment moved (the 2026-06-08 ordering
       # bug, in the Phantom path).
-      entry.assert_enterable!
+      entry.assert_enterable!; preflight_at = Time.current # the post-broadcast backstop judges its time gates as of THIS pass
 
       vault = Solana::Vault.new
 
@@ -1415,7 +1415,7 @@ class ContestsController < ApplicationController
       verify_and_confirm_onchain_entry!(entry, tx_signature,
                                         expected_entry_pda: params[:entry_pda],
                                         entry_token_pda: prepared_token_pda,
-                                        vault: vault)
+                                        vault: vault, as_of: preflight_at)
 
       ptx&.update!(status: "confirmed")
 
@@ -2550,8 +2550,8 @@ class ContestsController < ApplicationController
     {}
   end
 
-  def verify_and_confirm_onchain_entry!(entry, tx_signature, expected_entry_pda: false,
-                                        entry_token_pda: nil, vault: Solana::Vault.new)
+  def verify_and_confirm_onchain_entry!(entry, tx_signature, expected_entry_pda: false, # as_of: Time, or :block_time (recovery)
+                                        entry_token_pda: nil, vault: Solana::Vault.new, as_of: nil)
     derived_entry_pda = Solana::Keypair.encode_base58(
       vault.entry_pda(@contest.slug, current_user.web3_solana_address, entry.entry_number).first
     )
@@ -2564,7 +2564,8 @@ class ContestsController < ApplicationController
       writable: derived_entry_pda
     )
 
-    entry.confirm_onchain!(tx_signature: tx_signature, entry_pda: derived_entry_pda)
+    as_of = Solana::TxVerifier.block_time(tx_signature, client: vault.client) if as_of == :block_time # verified above: the chain accepted it then
+    entry.confirm_onchain!(tx_signature: tx_signature, entry_pda: derived_entry_pda, as_of: as_of)
     derived_entry_pda
   end
 
