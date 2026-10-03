@@ -1,3 +1,5 @@
+const fs = require("fs");
+const path = require("path");
 const { setupPhantomMock, MOCK_PUBKEY_B58 } = require("./phantom-mock");
 const { setupOnchainMocks, computeMockTransaction } = require("./rpc-mock");
 
@@ -298,6 +300,25 @@ async function clearRailContests(page) {
   return res.json();
 }
 
+/**
+ * Serve every cached-headshot request from the repo instead of the bucket.
+ *
+ * The seed caches one photographed athlete (Josh Allen,
+ * db/seeds/nfl_athletes_demo.rb) whose ImageCache keys resolve to a real S3 URL.
+ * Loading it live made specs depend on a bucket the suite does not own: a 403
+ * there (2026-10-03) left the scorer <img> empty and failed the live board's
+ * centring measurement on every PR. Call it from a beforeEach. A test that wants
+ * the failure path adds its own route afterwards; Playwright gives the later
+ * route precedence.
+ */
+const HEADSHOT_PNG = fs.readFileSync(path.join(__dirname, "../public/icon.png"));
+
+async function routeHeadshots(page) {
+  await page.route("**/headshots/**", (route) =>
+    route.fulfill({ status: 200, contentType: "image/png", body: HEADSHOT_PNG })
+  );
+}
+
 module.exports = {
   login,
   seedRailContests,
@@ -318,4 +339,5 @@ module.exports = {
   computeMockTransaction,
   attestAge,
   allowMotion,
+  routeHeadshots,
 };
