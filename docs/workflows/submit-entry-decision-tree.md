@@ -122,17 +122,17 @@ raises "No entry tokens" instead.
 | `onchain_session?` → 422 "use prepare_entry" | `#enter` at `:816-822` |
 | self-custody account in a web2 session → `web3_step_up_required` | `#enter` at `:867-874` |
 | hand-off to `Entries::ManagedEntry#call`, inside `rescue_and_log` | `#enter` at `:891` |
-| `@contest.with_lock` — `Entries::ManagedEntry#call` is `app/services/entries/managed_entry.rb:67-118` | `#call` at `:77` |
-| `assert_enterable!` pre-flight — `Entry#assert_enterable!` | `Entries::ManagedEntry#call` at `:82`; definition `app/models/entry.rb:125-159` |
-| season configured? | `Entries::ManagedEntry#call` at `app/services/entries/managed_entry.rb:87-92` |
-| paid contest with no on-chain PDA → refuse | `#call` at `:98-100` |
-| payment branch — `Entries::ManagedEntry#fund!` | `:150-229` |
-| token → `Solana::Vault#enter_contest_with_token` | `#fund!` at `:169-184` |
-| no token, USDC allowed → `Solana::Vault#enter_contest_with_usdc` | `#fund!` at `:185-222` |
-| neither → "No entry tokens" | `#fund!` at `:224` |
-| durable capture, OUTSIDE the lock | `#call` at `:112` |
-| `Entries::ManagedEntry#finalize!` → `Entry#confirm!` | `:240-266` |
-| transient failure after the spend → `Entries::OnchainReconcileJob.perform_later` | `#finalize!` at `:265` |
+| `@contest.with_lock` — `Entries::ManagedEntry#call` is `app/services/entries/managed_entry.rb:67-119` | `#call` at `:77` |
+| `assert_enterable!` pre-flight — `Entry#assert_enterable!` | `Entries::ManagedEntry#call` at `:82`; definition `app/models/entry.rb:136-171` |
+| season configured? | `Entries::ManagedEntry#call` at `app/services/entries/managed_entry.rb:88-93` |
+| paid contest with no on-chain PDA → refuse | `#call` at `:99-101` |
+| payment branch — `Entries::ManagedEntry#fund!` | `:151-230` |
+| token → `Solana::Vault#enter_contest_with_token` | `#fund!` at `:170-185` |
+| no token, USDC allowed → `Solana::Vault#enter_contest_with_usdc` | `#fund!` at `:186-223` |
+| neither → "No entry tokens" | `#fund!` at `:225` |
+| durable capture, OUTSIDE the lock | `#call` at `:113` |
+| `Entries::ManagedEntry#finalize!` → `Entry#confirm!` | `:241-267` |
+| transient failure after the spend → `Entries::OnchainReconcileJob.perform_later` | `#finalize!` at `:266` |
 
 **Why the gate ordering is sacred:** incident 2026-06-08 — the consume ran
 before a validation gate; the gate then failed and the user was paid-on-chain
@@ -228,7 +228,7 @@ prepare_entry
 |---|---|
 | not an `onchain_session?` → 403 | `#prepare_entry` at `:1006` |
 | full / wrong pick count / started game | `#prepare_entry` at `:1030-1037` |
-| `Entry#assign_onchain_entry_number!` | `#prepare_entry` at `:1046`; definition `app/models/entry.rb:307-322` |
+| `Entry#assign_onchain_entry_number!` | `#prepare_entry` at `:1046`; definition `app/models/entry.rb:328-343` |
 | `Solana::Vault#ensure_user_account` | `#prepare_entry` at `app/controllers/contests_controller.rb:1051` |
 | username codes 6020-6022 → friendly message, in `Solana::ErrorInterpreter.interpret` | `app/services/solana/error_interpreter.rb:184-196` |
 | ATA for the SELECTED currency — `Solana::Vault#ensure_ata` | `#prepare_entry` at `app/controllers/contests_controller.rb:1081` |
@@ -290,7 +290,7 @@ confirm_onchain_entry
 | C1 cosign guard — `Solana::Cosign::Expectation#verify!` | invoked inside `#cosign_and_broadcast_entry` below; definition `solana-studio lib/solana/cosign/expectation.rb` |
 | cosign + simulate + broadcast — `Solana::Vault#cosign_and_broadcast_entry` | `#confirm_onchain_entry` at `app/controllers/contests_controller.rb:1405-1409`; definition `app/services/solana/vault.rb:3529-3532` |
 | PT stamped with `tx_signature` immediately, BEFORE broadcast (`before_send:`) | `#confirm_onchain_entry` at `app/controllers/contests_controller.rb:1408` |
-| `ContestsController#verify_and_confirm_onchain_entry!` | `#confirm_onchain_entry` at `:1415-1418`; definition `:2553-2569` |
+| `ContestsController#verify_and_confirm_onchain_entry!` | `#confirm_onchain_entry` at `:1415-1418`; definition `:2553-2570` |
 | PT confirmed | `#confirm_onchain_entry` at `:1420` |
 
 ## 4. Can funds be taken without an entry? (the full inventory)
@@ -316,8 +316,8 @@ and every such case except #6 self-heals automatically.
 - **Trigger**: automatic, on contest-page load, ONLY when the viewer has a
   pending/submitted PT **with a tx_signature** (= broadcast actually happened;
   money may have moved) — `ContestsController#find_pending_recovery_ptx`
-  (`app/controllers/contests_controller.rb:2714-2734`) returns only a signed one
-  (`:2733`). Signatureless PTs trigger nothing — stale ones
+  (`app/controllers/contests_controller.rb:2715-2735`) returns only a signed one
+  (`:2734`). Signatureless PTs trigger nothing — stale ones
   (>10 min, never racing a mid-confirm tab) are silently expired.
 - **Logic**, in `ContestsController#recover_pending_entry`
   (`app/controllers/contests_controller.rb:1219-1317`): entry already active →
@@ -334,7 +334,7 @@ and every such case except #6 self-heals automatically.
 ### 5.2 `Entries::OnchainReconcileJob` / `OnchainReconciler` (web2)
 - **Triggers**: (a) enqueued inline by `Entries::ManagedEntry#finalize!`
   when `confirm!` fails after a successful consume/transfer
-  (`app/services/entries/managed_entry.rb:265`), for the browser and the agent API alike; (b) a no-arg sweep over all
+  (`app/services/entries/managed_entry.rb:266`), for the browser and the agent API alike; (b) a no-arg sweep over all
   eligible open contests via the `reconcile_onchain` task
   (`lib/tasks/entries.rake:33`) or `Entries::OnchainReconcileJob#perform` with no id
   (`app/jobs/entries/onchain_reconcile_job.rb:13-42`, sweep branch at `:26`), which
@@ -346,8 +346,8 @@ and every such case except #6 self-heals automatically.
 - **What proves a broadcast for an `abandoned` row** — one rule, two records,
   because there are two entry paths, both read by
   `Entries::OnchainReconciler.reconcilable?`
-  (`app/services/entries/onchain_reconciler.rb:201-206`) and its
-  `broadcast_proof?` (`:214-218`): the consume signature **on the ENTRY**
+  (`app/services/entries/onchain_reconciler.rb:205-210`) and its
+  `broadcast_proof?` (`:218-222`): the consume signature **on the ENTRY**
   (§2, the managed durable capture → fast path, slot spared) **or** a signed
   `PendingTransaction` targeting it (§3c, the Phantom path → chain probe, slot
   released). The managed half was added by `reach-managed-abandoned-strand`;
@@ -359,7 +359,7 @@ and every such case except #6 self-heals automatically.
 ### 5.3 Page-load stale-PT expiry (web3 hygiene)
 Signatureless pending PTs older than 10 minutes are flipped to `expired`
 during contest-page load, inside `ContestsController#find_pending_recovery_ptx`
-(`app/controllers/contests_controller.rb:2729-2731`). Pure cleanup; never touches
+(`app/controllers/contests_controller.rb:2730-2732`). Pure cleanup; never touches
 a PT with a signature.
 
 ### 5.4 Operator surfaces (manual)
