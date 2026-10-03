@@ -1033,7 +1033,7 @@ class ContestsController < ApplicationController
       entry.assert_selections_pickable! # validate selections: a legacy cart's later-week row is refused HERE, before the wallet prompt
       raise "Exactly #{@contest.picks_required} selections required" unless entry.selections.count == @contest.picks_required
       entry.selections.includes(slate_matchup: :game).each do |s|
-        raise "#{s.slate_matchup.team.name}'s game has already started" if s.slate_matchup.locked?
+        raise "#{s.slate_matchup.team.name}'s game has already started" if s.slate_matchup.pick_locked?
       end
 
       vault = Solana::Vault.new
@@ -2762,8 +2762,11 @@ class ContestsController < ApplicationController
          .order(Arel.sql("starts_at ASC NULLS LAST"), :week)
   end
 
+  # The lock every create path stamps into starts_at when the operator names
+  # none: Contest::LockRule via the slate — 11:00 Denver on an NFL slate's
+  # opening Sunday, the first kickoff for every other sport.
   def default_start_for_slate(slate)
-    slate&.first_game_starts_at || slate&.starts_at
+    slate&.default_contest_lock_at
   end
 
   # Best-effort sport derivation from a slate's name. Slate/Team don't carry

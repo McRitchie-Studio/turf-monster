@@ -6,7 +6,7 @@
 # with its team, opponent and game). Called per row on GET /api/v1/contests that
 # is a few hundred queries for one page. Here the same answers come from row
 # counts per (slate, team) and, only for contests with no starts_at, the first
-# kickoff per slate.
+# and last kickoff per slate.
 #
 # THE RULES ARE THE MODEL'S, NOT A SECOND COPY TO DRIFT. Each method names the
 # Contest method it mirrors, and test/serializers/api/v1/contest_facts_test.rb
@@ -36,7 +36,7 @@ module Api
         end
 
         unscheduled = contests.select { |contest| contest.starts_at.nil? }.filter_map(&:slate_id).uniq
-        @first_kickoff = first_kickoffs(unscheduled)
+        @kickoffs = kickoff_bounds(unscheduled)
       end
 
       # Contest#picks_required (Contest.picks_required_for_slate). It counts
@@ -62,10 +62,16 @@ module Api
         games_per_team(contest) > 1
       end
 
-      # Contest#locks_at (#starts_in_at): the stated start, else the slate's
-      # first kickoff, else the slate's own start.
+      # Contest#locks_at: the stated lock, else the slate's default
+      # (Slate#default_contest_lock_at) — the same Contest::LockRule, fed the
+      # first and last kickoff from one grouped query instead of per slate.
       def locks_at(contest)
-        contest.starts_at || @first_kickoff[contest.slate_id] || contest.slate&.starts_at
+        return contest.starts_at if contest.starts_at
+
+        first, last = @kickoffs[contest.slate_id]
+        slate = contest.slate
+        Contest::LockRule.default_lock_at(sport: slate&.sport, first_kickoff: first,
+                                          last_kickoff: last, fallback: slate&.starts_at)
       end
 
       # Contest#locked?
@@ -93,15 +99,20 @@ module Api
 
       private
 
-      def first_kickoffs(slate_ids)
+      # { slate_id => [first kickoff, last kickoff] }
+      def kickoff_bounds(slate_ids)
         return {} if slate_ids.empty?
 
         SlateMatchup.joins(:game)
                     .where(slate_id: slate_ids)
                     .where.not(games: { kickoff_at: nil })
                     .group(:slate_id)
-                    .minimum("games.kickoff_at")
-                    .transform_values { |value| value.is_a?(String) ? Time.zone.parse(value) : value }
+                    .pluck(:slate_id, Arel.sql("MIN(games.kickoff_at)"), Arel.sql("MAX(games.kickoff_at)"))
+                    .to_h { |slate_id, first, last| [slate_id, [as_time(first), as_time(last)]] }
+      end
+
+      def as_time(value)
+        value.is_a?(String) ? Time.zone.parse(value) : value&.in_time_zone
       end
     end
   end

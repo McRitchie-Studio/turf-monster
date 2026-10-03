@@ -445,6 +445,19 @@ class Slate < ApplicationRecord
     first_game&.kickoff_at
   end
 
+  def last_game_starts_at
+    slate_matchups.includes(:game).map(&:game).compact.filter_map(&:kickoff_at).max
+  end
+
+  # When a contest on this slate locks if nobody sets a lock by hand — the NFL
+  # opening-Sunday rule, or the first kickoff for every other sport. The rule
+  # lives in Contest::LockRule; this only feeds it the slate's kickoffs.
+  def default_contest_lock_at
+    kickoffs = slate_matchups.includes(:game).map(&:game).compact.filter_map(&:kickoff_at)
+    Contest::LockRule.default_lock_at(sport: sport, first_kickoff: kickoffs.min,
+                                      last_kickoff: kickoffs.max, fallback: starts_at)
+  end
+
   private
 
   # Fills `sport` / `year` from the name for any writer that did not set them.

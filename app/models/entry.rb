@@ -41,7 +41,7 @@ class Entry < ApplicationRecord
   public
 
   def toggle_selection!(slate_matchup)
-    raise "Game has already started" if slate_matchup.locked?
+    raise "Game has already started" if slate_matchup.pick_locked? # the TEAM's first game, not only this row's
     # v0.17: locking is derived (no status flip), so guard the contest lock
     # time here too — otherwise picks stay editable after lock until kickoff.
     raise "Contest has locked — entries closed" if contest.locks_at && Time.current >= contest.locks_at
@@ -92,7 +92,7 @@ class Entry < ApplicationRecord
     changed_ids.each do |id|
       m = new_matchups.find { |nm| nm.id == id } ||
           contest.slate.slate_matchups.includes(:team).find_by(id: id)
-      raise Refusal.new(:team_locked, "#{m.team.name}'s game has already started") if m&.locked?
+      raise Refusal.new(:team_locked, "#{m.team.name}'s game has already started") if m&.pick_locked?
     end
 
     transaction do
@@ -139,7 +139,7 @@ class Entry < ApplicationRecord
     assert_pickable!(*selections.includes(:slate_matchup).map(&:slate_matchup)) # backstop for a cart built before the writers checked
     # Check no locked games
     selections.includes(slate_matchup: :game).each do |s|
-      raise Refusal.new(:team_locked, "#{s.slate_matchup.team.name}'s game has already started") if s.slate_matchup.locked?
+      raise Refusal.new(:team_locked, "#{s.slate_matchup.team.name}'s game has already started") if s.slate_matchup.pick_locked?
     end
 
     # Contest capacity. This entry is still `cart`, so it is not double-counted.

@@ -59,7 +59,7 @@ def seed_nfl_demo_contest!
     entry_fee_cents: format.fetch(:entry_fee_cents),
     max_entries: format.fetch(:max_entries),
     status: "open",
-    starts_at: slate.first_game_starts_at || slate.starts_at
+    starts_at: slate.default_contest_lock_at
   )
   contest.skip_onchain_callback = true
   contest.save!
