@@ -14,7 +14,9 @@ require "test_helper"
 #    carry it — which is a page vanishing from the site, not a layout tweak.
 class NavbarBrandTest < ActionView::TestCase
   NAVBAR = Rails.root.join("app/views/layouts/_navbar.html.erb")
-  FOOTER = Rails.root.join("app/views/shared/_footer.html.erb")
+  # The footer is the engine's site footer now; its links are declared as
+  # facts in the initializer (config.site_footer), not drawn in a partial.
+  FOOTER = Rails.root.join("config/initializers/studio.rb")
   SIDEBAR = Rails.root.join("app/views/components/_gear_sidebar.html.erb")
   RULES_PAGE = Rails.root.join("app/views/pages/turf_totals_v1.html.erb")
   NFL_RULES_PAGE = Rails.root.join("app/views/pages/turf_monster_v1.html.erb")
@@ -89,14 +91,16 @@ class NavbarBrandTest < ActionView::TestCase
   RULES_LINK_SURFACES = %w[
     app/views/**/*.erb
     app/helpers/**/*.rb
+    config/initializers/studio.rb
   ].freeze
 
-  # The two spellings a Rules link is written in: the plain `link_to "Rules",
-  # <path>` and the hub tile's `name: "Rules", url: <path>`. The character class
+  # The three spellings a Rules link is written in: the plain `link_to "Rules",
+  # <path>`, the hub tile's `name: "Rules", url: <path>`, and the site footer's
+  # fact row `[ "Rules", view.<path> ]` in config/initializers/studio.rb. The character class
   # carries DIGITS deliberately — both rules routes are versioned
   # (turf_monster_v1_path), and an [a-z_]+ class matches NEITHER, which is a
   # sweep that reads nothing and reports a clean site.
-  RULES_LINK = /"Rules",\s*(?:url:\s*)?([a-z0-9_]+_path)/
+  RULES_LINK = /"Rules",\s*(?:url:\s*)?(?:view\.)?([a-z0-9_]+_path)/
 
   def rules_links
     RULES_LINK_SURFACES.flat_map { |glob| Dir[Rails.root.join(glob)] }.flat_map do |file|
@@ -116,8 +120,8 @@ class NavbarBrandTest < ActionView::TestCase
                     "the navbar's two, the footer's and the transparency hub's"
     assert_equal 2, files.count("app/views/layouts/_navbar.html.erb"),
                  "the bar draws Rules twice — desktop nav and mobile sub-navbar"
-    assert_includes files, "app/views/shared/_footer.html.erb",
-                    "the footer's Rules link must be in the sweep"
+    assert_includes files, "config/initializers/studio.rb",
+                    "the site footer's Rules link must be in the sweep"
     assert_includes files, "app/views/transparency/show.html.erb",
                     "the transparency hub's Rules tile must be in the sweep"
 

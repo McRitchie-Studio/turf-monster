@@ -1910,10 +1910,13 @@
       <%= yield %>
     </div>
 
-    <%# Global footer — brand + site-legitimacy links (About / Contact / Terms /
-        Privacy) + on-chain transparency pages. Rendered in the app layout only;
-        the landing funnel layout omits it on purpose to keep the CTA focused. %>
-    <%= render "shared/footer" %>
+    <%# Global footer: studio-engine's site footer, configured in
+        config/initializers/studio.rb (config.site_footer). Brand, the
+        site-legitimacy links (About / Contact / Terms / Privacy / Responsible
+        Gaming / State Eligibility) and the on-chain transparency pages. Rendered
+        in the app layout only; the landing funnel layout omits it on purpose to
+        keep the CTA focused. %>
+    <%= studio_site_footer %>
 
     <%= render "shared/solana_errors" %>
     <%# Per-modal card widths. MUST render ABOVE the host: the host merges this
