@@ -615,14 +615,15 @@ test.describe("Contest live page", () => {
     // frame put back on the halfway line fails this, which a `h-[62%]` string
     // comparison would not notice if the seam moved some other way.
     //
-    // POLLED, BECAUSE THE WHEEL IS STILL ROLLING when the class lands. The
-    // class is set as the 520ms roll STARTS, so a single read here lands
-    // mid-transform: measured 5.6px off the floor on a served headshot, which
-    // is the card in flight, not the card at rest. While the headshot came off
-    // S3 the picture's own network latency happened to absorb most of the
-    // roll; serving it locally removed that cushion. The tolerances are the
-    // same; the question is asked of the wheel at rest. A card that never
-    // lands, or lands in the wrong place, still fails here on the timeout.
+    // POLLED, BECAUSE THE WHEEL CAN STILL BE ROLLING when this is read. The
+    // class is set as the 520ms roll STARTS, so a single read can land
+    // mid-transform, with the card in flight rather than at rest. Measured on
+    // a developer machine with the headshot served by routeHeadshots: three
+    // single reads of 3.4, 5.0 and 5.8px off the floor, against a tolerance of
+    // 2, while the same run on CI passed. Which side of the race a machine
+    // lands on is its speed, not the page. The tolerances are unchanged; the
+    // question is asked of the wheel at rest. A card that never lands, or
+    // lands in the wrong place, still fails here on the timeout.
     const geometry = () =>
       page.evaluate((slug) => {
         const tile = document.querySelector(`[data-focus-slug="${slug}"]`);
@@ -818,10 +819,10 @@ test.describe("Contest live page", () => {
     // same frame and must not. Measured here rather than asserted as a class,
     // because "pt-5" is only a proxy for where the rows actually land.
     //
-    // POLLED: the class drops as the roll BACK starts, so one read lands with
-    // the list still on its way down. That race is the 85.78px this asserted
-    // once on accepted at 05:09 UTC on 2026-10-03, before the headshot broke
-    // anything, and it passed on the retry. Same tolerance, asked at rest.
+    // POLLED: the class drops as the roll BACK starts, so one read can land
+    // with the list still on its way down. That race is the 85.78px this
+    // asserted on CI on 2026-10-03 before passing on its retry, and the 18,
+    // 28 and 48px it read locally. Same tolerance, asked at rest.
     const listCrossesSeam = () =>
       page.evaluate((slug) => {
         const tile = document.querySelector(`[data-focus-slug="${slug}"]`);
