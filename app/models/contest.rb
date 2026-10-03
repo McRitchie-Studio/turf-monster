@@ -513,8 +513,10 @@ class Contest < ApplicationRecord
       loop do
         attempts += 1
         break if attempts > slots * 100
-        # Pick the contest's required number of non-locked PICKABLE matchups.
-        available = matchups.reject(&:locked?).map(&:id) & matchup_ids
+        # Pick the contest's required number of PICKABLE matchups whose team has
+        # not kicked off yet (SlateMatchup#pick_locked?, as a set).
+        started = SlateMatchup.started_team_slugs(slate_id)
+        available = matchups.reject { |m| m.locked? || started.include?(m.team_slug) }.map(&:id) & matchup_ids
         next if available.size < picks_required
         combo = available.sample(picks_required).sort
         break unless existing_combos.include?(combo)
@@ -675,9 +677,9 @@ class Contest < ApplicationRecord
       payout_amounts:        payout_amounts,
       prize_pool:            Solana::Config.dollars_to_lamports(guaranteed / 100.0),
       season_id:             season_id || SeasonConfig.current_season_id,
-      # Derived lock (v0.17): mirror the displayed start → on-chain lock_timestamp.
-      # nil starts_in_at → 0 = no scheduled lock (manual-only).
-      lock_timestamp:        starts_in_at&.to_i || 0
+      # Derived lock (v0.17): mirror #locks_at → on-chain lock_timestamp.
+      # nil → 0 = no scheduled lock (manual-only).
+      lock_timestamp:        locks_at&.to_i || 0
     }
   end
 
@@ -725,21 +727,42 @@ class Contest < ApplicationRecord
     Contests::WinnerNotifier.call(self)
   end
 
+  # THE LOCK: the moment every entry door shuts. `contests.starts_at` is the
+  # lock column despite its name — it is what create mirrors to the chain's
+  # lock_timestamp and what confirm_lock_time writes back — so an explicit value
+  # wins. Blank, the slate's default applies (Contest::LockRule: 11:00 Denver on
+  # an NFL slate's opening Sunday, the first kickoff for every other sport).
+  #
+  # Every create path stamps that default into starts_at
+  # (ContestsController#default_start_for_slate), so in practice the column is
+  # set and the fallback serves only a contest created with it blank.
   def locks_at
-    starts_in_at
+    starts_at || slate&.default_contest_lock_at
   end
 
+  # Kept as the lock's older name: the header countdown, the landing pages and
+  # the create refusal read it, and every one of them means the entry deadline.
+  # The slate's first GAME is #first_kickoff_at — on an NFL slate with a
+  # Thursday game the two are three days apart.
   def starts_in_at
-    starts_at || slate&.first_game_starts_at || slate&.starts_at
+    locks_at
+  end
+
+  # When the slate's first game kicks off, whatever the lock. For display only;
+  # nothing gates on it.
+  def first_kickoff_at
+    slate&.first_game_starts_at || slate&.starts_at
   end
 
   # Derived lock state (v0.17). The authoritative lock lives on-chain
   # (enter_contest rejects once Clock time >= lock_timestamp); this mirrors it
-  # from `starts_at` for UI + advisory pre-checks. nil starts_at = no scheduled
-  # lock (manual-only) → never derived-locked. A settled contest reads locked.
+  # from #locks_at for UI + advisory pre-checks. No lock = manual-only → never
+  # derived-locked. A settled contest reads locked.
   def locked?
     return true if settled?
-    starts_in_at.present? && Time.current >= starts_in_at
+
+    at = locks_at
+    at.present? && Time.current >= at
   end
 
   # Derived conclusion state (v0.18). Mirrors the on-chain conclusion_timestamp

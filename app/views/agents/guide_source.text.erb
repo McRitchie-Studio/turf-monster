@@ -209,7 +209,7 @@ A team that has not played has `team_score: null`, which is not zero. In a multi
 
 There are two, and both are enforced by the server whatever your clock says.
 
-- **The contest lock, `locks_at`.** From this moment no entry can be created and no pick changed, in any entry, for any team. A contest with `locks_at: null` has no scheduled lock.
+- **The contest lock, `locks_at`.** From this moment no entry can be created and no pick changed, in any entry, for any team. A contest with `locks_at: null` has no scheduled lock. An NFL contest locks at 11:00 America/Denver on its opening Sunday, so Thursday and London games kick off before it.
 - **The per-team kickoff lock, `teams[].locked`.** A team whose first game has kicked off cannot be added to an entry or dropped from one, even if the contest itself has not locked yet. This only bites when a contest's lock is later than a kickoff on its board. A new entry may not contain a locked team. An edit may keep a locked team that is already in the entry and change the other picks around it.
 
 `games[].kickoff_at` gives each game's start. After the contest locks, every team reads `locked: true`.

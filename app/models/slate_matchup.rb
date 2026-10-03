@@ -225,8 +225,38 @@ class SlateMatchup < ApplicationRecord
   # each with the reason it is allowed to write a price. Read that list rather
   # than trusting a count here, which is exactly the kind of number that rots.
 
-  def locked?
-    game&.kickoff_at.present? && game.kickoff_at <= Time.current
+  # THIS ROW's game has kicked off (as of `now`).
+  def locked?(now = Time.current)
+    game&.kickoff_at.present? && game.kickoff_at <= now
+  end
+
+  # THE TEAM can no longer be picked, added or dropped: its FIRST game in this
+  # slate has kicked off. On a single-week slate that is this row's game. On a
+  # span slate a team has a row per week, and the pickable row
+  # (Contest#pickable_matchup_ids) is normally the earliest — but
+  # Slate#matchups_by_team sorts a row with no kickoff FIRST, so a TBD game would
+  # make that row read unlocked while the team's real first game is under way.
+  # Asking every row of the team closes that, whichever row was picked.
+  #
+  # It matters because an NFL contest now locks on Sunday (Contest::LockRule):
+  # from Thursday's kickoff until then the contest is open while some teams are
+  # already playing, and only this keeps those teams out of a new entry.
+  # Every pick writer gates on it — Entry#toggle_selection!, #update_picks!,
+  # #assert_enterable! (enter / prepare / confirm / managed / agent API / fill!),
+  # and ContestsController#prepare_entry.
+  def pick_locked?(now = Time.current)
+    return true if locked?(now)
+    return false unless slate_id && team_slug
+
+    self.class.started_team_slugs(slate_id, now, team_slugs: [team_slug]).any?
+  end
+
+  # Team slugs in `slate_id` with at least one game that has kicked off — the
+  # set-at-once form of #pick_locked? for a caller choosing among many teams.
+  def self.started_team_slugs(slate_id, now = Time.current, team_slugs: nil)
+    scope = joins(:game).where(slate_id: slate_id).where("games.kickoff_at <= ?", now)
+    scope = scope.where(team_slug: team_slugs) if team_slugs
+    scope.distinct.pluck(:team_slug)
   end
 
   # On a SPAN slate a team has several rows, and two of them can share an

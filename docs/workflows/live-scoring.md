@@ -64,7 +64,7 @@ Every link in that chain, with its owner:
 | `Game#update_scores_from_goals!` — sums points | `app/models/game.rb:66-71` |
 | `Game#update_slate_matchups!` — sets `SlateMatchup#goals` | `:74-84` |
 | `Game#score_affected_contests!` — re-scores open contests | `:94-106` |
-| `Entry#score!` | `app/models/entry.rb:211-214` |
+| `Entry#score!` | `app/models/entry.rb:232-235` |
 | `Selection#compute_points!` | `app/models/selection.rb:23-44` |
 | `Contest::LiveBroadcast.goal_scored` — the per-contest live page | `app/models/contest/live_broadcast.rb:34-44` |
 | `Nfl::LiveBroadcast.scoring_event` — the league board at `/live` | `app/services/nfl/live_broadcast.rb:29-46` |
@@ -327,14 +327,14 @@ These are guards with reproductions behind them, not defensive padding.
   settled tier's money stands on does not move either way:
   `Game#score_affected_contests!` (`app/models/game.rb:94-106`) scopes to
   `status: [:open]`, so its stored score — written by `Entry#score!`
-  (`app/models/entry.rb:211-214`) — and its `Selection#points` are never recomputed.
+  (`app/models/entry.rb:232-235`) — and its `Selection#points` are never recomputed.
   `Nfl::LiveScores::PollCycle#coscored`
   (`app/services/nfl/live_scores/poll_cycle.rb:223-231`) reports that case, so the
   trade is visible in the watch log rather than silent.
 
   It reads `Contest#status`, never `onchain_settled`: `grade!` writes
   `settled` and only then attempts `Contest#settle_onchain!`
-  (`app/models/contest.rb:685-687`), so a graded, paid-out contest routinely reads
+  (`app/models/contest.rb:687-689`), so a graded, paid-out contest routinely reads
   `onchain_settled` false.
 - **It will not un-complete a finished game.** A stale scoreboard row would
   otherwise re-open a settled game and re-fire the FINAL broadcast.
