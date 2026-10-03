@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { reseed, allowMotion, loginAdmin, createActiveEntry } = require("./helpers");
+const { reseed, allowMotion, loginAdmin, createActiveEntry, routeHeadshots } = require("./helpers");
 
 // The league-wide live scoreboard at /live.
 //
@@ -8,6 +8,9 @@ const { reseed, allowMotion, loginAdmin, createActiveEntry } = require("./helper
 // reload — the whole reason the page exists. The dev toolbar is the injector,
 // standing in for a real NFL scoring play.
 test.beforeEach(async ({ request }) => await reseed(request));
+
+// Headshots come from the repo, never the bucket: routeHeadshots in helpers.js.
+test.beforeEach(async ({ page }) => await routeHeadshots(page));
 
 // `:visible` runs through the selectors below because the board draws every
 // game TWICE — once as a hero tile in the focus panel, once as a card in the
@@ -611,23 +614,35 @@ test.describe("Contest live page", () => {
     // words. The bleed is bought by the FRAME starting above that seam — so a
     // frame put back on the halfway line fails this, which a `h-[62%]` string
     // comparison would not notice if the seam moved some other way.
-    const geometry = await page.evaluate((slug) => {
-      const tile = document.querySelector(`[data-focus-slug="${slug}"]`);
-      const rows = tile.querySelector('[data-role="team-rows"]').getBoundingClientRect();
-      const frame = tile.querySelector('[data-role="event-feed-frame"]').getBoundingClientRect();
-      const shown = [...tile.querySelectorAll('[data-role="scorer-card"]')].find((c) => {
-        const r = c.getBoundingClientRect();
-        return (r.top + r.bottom) / 2 > frame.top && (r.top + r.bottom) / 2 < frame.bottom;
-      });
-      const img = shown.querySelector('[data-role="scorer-headshot"]').getBoundingClientRect();
-      return {
-        flushGap: rows.bottom - img.bottom,
-        bleed: rows.top + rows.height / 2 - img.top,
-      };
-    }, gameSlug);
+    //
+    // POLLED, BECAUSE THE WHEEL CAN STILL BE ROLLING when this is read. The
+    // class is set as the 520ms roll STARTS, so a single read can land
+    // mid-transform, with the card in flight rather than at rest. Measured on
+    // a developer machine with the headshot served by routeHeadshots: three
+    // single reads of 3.4, 5.0 and 5.8px off the floor, against a tolerance of
+    // 2, while the same run on CI passed. Which side of the race a machine
+    // lands on is its speed, not the page. The tolerances are unchanged; the
+    // question is asked of the wheel at rest. A card that never lands, or
+    // lands in the wrong place, still fails here on the timeout.
+    const geometry = () =>
+      page.evaluate((slug) => {
+        const tile = document.querySelector(`[data-focus-slug="${slug}"]`);
+        const rows = tile.querySelector('[data-role="team-rows"]').getBoundingClientRect();
+        const frame = tile.querySelector('[data-role="event-feed-frame"]').getBoundingClientRect();
+        const shown = [...tile.querySelectorAll('[data-role="scorer-card"]')].find((c) => {
+          const r = c.getBoundingClientRect();
+          return (r.top + r.bottom) / 2 > frame.top && (r.top + r.bottom) / 2 < frame.bottom;
+        });
+        if (!shown) return { flushGap: Number.MAX_SAFE_INTEGER, bleed: -Number.MAX_SAFE_INTEGER };
+        const img = shown.querySelector('[data-role="scorer-headshot"]').getBoundingClientRect();
+        return {
+          flushGap: rows.bottom - img.bottom,
+          bleed: rows.top + rows.height / 2 - img.top,
+        };
+      }, gameSlug);
 
-    expect(Math.abs(geometry.flushGap)).toBeLessThan(2);
-    expect(geometry.bleed).toBeGreaterThan(10);
+    await expect.poll(async () => Math.abs((await geometry()).flushGap)).toBeLessThan(2);
+    await expect.poll(async () => (await geometry()).bleed).toBeGreaterThan(10);
 
     // The card is genuinely on screen, not merely class-swapped: a transform
     // typo would leave it parked below the rail while the class said otherwise.
@@ -803,13 +818,19 @@ test.describe("Contest live page", () => {
     // the two team rows meet so the PORTRAIT can cross it; the list rides the
     // same frame and must not. Measured here rather than asserted as a class,
     // because "pt-5" is only a proxy for where the rows actually land.
-    const listCrossesSeam = await page.evaluate((slug) => {
-      const tile = document.querySelector(`[data-focus-slug="${slug}"]`);
-      const rows = tile.querySelector('[data-role="team-rows"]').getBoundingClientRect();
-      const feed = tile.querySelector('[data-test="live-focus-events"]').getBoundingClientRect();
-      return rows.top + rows.height / 2 - feed.top;
-    }, gameSlug);
-    expect(listCrossesSeam).toBeLessThan(2);
+    //
+    // POLLED: the class drops as the roll BACK starts, so one read can land
+    // with the list still on its way down. That race is the 85.78px this
+    // asserted on CI on 2026-10-03 before passing on its retry, and the 18,
+    // 28 and 48px it read locally. Same tolerance, asked at rest.
+    const listCrossesSeam = () =>
+      page.evaluate((slug) => {
+        const tile = document.querySelector(`[data-focus-slug="${slug}"]`);
+        const rows = tile.querySelector('[data-role="team-rows"]').getBoundingClientRect();
+        const feed = tile.querySelector('[data-test="live-focus-events"]').getBoundingClientRect();
+        return rows.top + rows.height / 2 - feed.top;
+      }, gameSlug);
+    await expect.poll(listCrossesSeam).toBeLessThan(2);
 
     // THE LIST IS BACK IN THE WINDOW — measured as POSITION, not as content.
     //
