@@ -26,6 +26,13 @@ class ContestLiveRenderTest < ActionDispatch::IntegrationTest
 
     @played = games(:past_game)        # team-a vs team-b, completed
     @upcoming = games(:future_game)    # team-c vs team-d, scheduled
+    # BOTH IN THE WEEK BEING PLAYED. The board shows one week at a time
+    # (Contest::WeekWindow), and the fixtures sit a decade apart. update_column,
+    # because Game is Sluggable too and a save would re-stamp the slug the
+    # matchups below are about to be pointed at.
+    week = Contest::WeekWindow.start_for(Time.current)
+    @played.update_column(:kickoff_at, week)
+    @upcoming.update_column(:kickoff_at, week + 7.days - 1.second)
     slate_matchups(:m1).update!(game_slug: @played.slug)
     slate_matchups(:m2).update!(game_slug: @played.slug)
     slate_matchups(:m3).update!(game_slug: @upcoming.slug)
@@ -56,6 +63,22 @@ class ContestLiveRenderTest < ActionDispatch::IntegrationTest
   # Assert on the league board's own marker, so a future divergence — someone
   # reintroducing a contest-only card — fails here rather than being noticed
   # months later in a screenshot.
+  # [integration] A span contest's slate holds every week's games; the board
+  # draws only the week being played. Next week's game used to sit in the strip
+  # at 0-0 beside tonight's.
+  test "leaves next week's games off the strip and the focus panel" do
+    later = Game.create!(home_team_slug: "team-e", away_team_slug: "team-f",
+                         kickoff_at: @upcoming.kickoff_at + 5.days, status: "scheduled")
+    slate_matchups(:m5).update!(game_slug: later.slug)
+
+    get_live
+
+    assert_response :success
+    assert_select "[data-test='live-focus-game'][data-focus-slug='#{@upcoming.slug}']", 1
+    assert_select "[data-test='live-focus-game'][data-focus-slug='#{later.slug}']", 0
+    assert_select "[data-test='live-focus-game']", 2
+  end
+
   test "draws each game with the league scoreboard's tile" do
     get_live
 
