@@ -61,6 +61,43 @@ module Dev
     # Goes through Game#conclude!, the SAME path the ESPN poller takes when the
     # feed reports FINAL — so what this button reveals is the real final
     # broadcast, not a mock of one.
+    # POST /dev/live_scores/record_play
+    #
+    # One line of play-by-play, the way the poller would have stored it: a
+    # GamePlay row, then the same broadcast a polling cycle sends. `kind` is one
+    # of GamePlay::KINDS; a "timeout" also spends one of the team's three, so
+    # the pips on the feed can be watched counting down.
+    #
+    # It puts the game IN PROGRESS, because that is the only state in which a
+    # play can arrive and the only one in which the feed shows timeouts. `Clear`
+    # puts it back.
+    def record_play
+      # "first_down" is the toolbar's word for an ordinary snap that moved the
+      # chains — the one kind of play the focus card's rail lists.
+      first_down = params[:kind] == "first_down"
+      kind = first_down ? "play" : (params[:kind].presence || "play")
+      return render_error("Unknown play kind: #{kind}") unless GamePlay::KINDS.include?(kind)
+
+      team = [@game.home_team, @game.away_team].compact.find { |side| side.slug == params[:team_slug] }
+      sequence = @game.plays.maximum(:sequence).to_i + 1
+
+      @game.update!(live_attributes_after(kind, team))
+      play = @game.plays.create!(
+        external_id: "dev-#{@game.id}-#{sequence}", sequence: sequence, kind: kind,
+        play_type: kind.humanize, team_slug: team&.slug, period: @game.period, clock: @game.clock,
+        first_down: first_down,
+        down_distance: (kind == "play" ? "#{%w[1st 2nd 3rd].sample} & #{rand(1..10)} at #{team&.short_name} #{rand(20..45)}" : nil),
+        text: params[:text].presence || synthetic_play_text(kind, team, sequence)
+      )
+
+      Contest::LiveBroadcast.plays_changed(@game)
+
+      render json: { success: true, play: { external_id: play.external_id, kind: play.kind, text: play.text },
+                     game: game_json(@game.reload) }
+    rescue StandardError => e
+      render_error(e.message)
+    end
+
     def conclude_game
       @game.conclude!
 
@@ -77,7 +114,9 @@ module Dev
     # and one broadcast is both faster and what a reset should look like.
     def clear_game
       @game.goals.delete_all
-      @game.update!(status: "scheduled", period: nil, clock: nil, status_detail: nil)
+      @game.plays.delete_all
+      @game.update!(status: "scheduled", period: nil, clock: nil, status_detail: nil,
+                    home_timeouts: nil, away_timeouts: nil)
       @game.update_scores_from_goals!
 
       Contest::LiveBroadcast.score_changed(@game, event: :goal_removed)
@@ -99,6 +138,37 @@ module Dev
     # to assert on a known name instead of whoever the roster happened to offer.
     # Returns nil freely: a desk seeded without athletes still records the goal,
     # and the card simply does not reveal.
+    # The game as it stands after this play: live, with a clock, and — for a
+    # team's own timeout — one fewer of its three.
+    def live_attributes_after(kind, team)
+      attributes = {
+        status: "in_progress",
+        period: @game.period || 1,
+        clock: @game.clock.presence || "15:00",
+        home_timeouts: @game.home_timeouts || 3,
+        away_timeouts: @game.away_timeouts || 3
+      }
+      if kind == "timeout" && team
+        column = team.slug == @game.home_team_slug ? :home_timeouts : :away_timeouts
+        attributes[column] = [attributes[column] - 1, 0].max
+      end
+      attributes
+    end
+
+    def synthetic_play_text(kind, team, sequence)
+      name = team&.short_name || "Offense"
+      case kind
+      when "timeout"  then "Timeout ##{sequence} by #{name}."
+      when "penalty"  then "PENALTY on #{name}, False Start, 5 yards - No Play."
+      when "break"    then "Two-Minute Warning"
+      when "turnover" then "#{name} pass intercepted."
+      when "sack"     then "#{name} quarterback sacked for -7 yards."
+      when "kick"     then "#{name} punts 44 yards."
+      when "score"    then "#{name} 12 Yd Run."
+      else                 "#{name} up the middle for #{rand(1..12)} yards."
+      end
+    end
+
     TOUCHDOWN_POSITIONS = %w[WR RB TE QB].freeze
     FIELD_GOAL_POSITIONS = %w[K].freeze
 

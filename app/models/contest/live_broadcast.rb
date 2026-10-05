@@ -23,6 +23,10 @@ class Contest
   #                                         chain so a flurry reads in order.
   #                                         See contests/_live_script.
   #
+  # PLUS SIX PER GAME, on the same stream, for the play-by-play — see
+  # #plays_changed. They are not part of the four above: a score sends those,
+  # a play sends these, and neither count changes the other.
+  #
   # THE COUNT IS LOAD-BEARING and Contest::LiveBroadcastTest asserts it. Each
   # broadcast below is individually rescued, so a partial that raises in
   # broadcast context never arrives and fails nothing — the count is the only
@@ -54,6 +58,41 @@ class Contest
           replace_leaderboard(contest)
           replace_games(contest)
           replace_focus(contest)
+        end
+      end
+
+      # A play was stored, or the situation moved (the clock, the down, a
+      # timeout). SIX SMALL TARGETS, per game rather than per contest, and
+      # deliberately NOT the focus panel:
+      #
+      #   game_<slug>_status  (update)  — the rail's top third: clock and down
+      #   game_<slug>_field   (update)  — its middle: who has the ball, and where
+      #   game_<slug>_rail    (update)  — its bottom: scores, turnovers, first downs
+      #   game_<slug>_plays   (update)  — the play-by-play under the tile
+      #   game_<slug>_timeouts_<team>  (update, one per side)  — the bar at the
+      #                                  left of each team's row, as timeouts left
+      #
+      # The focus panel hosts the scoring animations, and this fires every
+      # polling interval of a live game. Replacing the panel that often would
+      # wipe a touchdown's takeover mid-flight; updating leaves inside it
+      # cannot. A score still replaces the whole panel, and redraws all of
+      # these from the same rows on its way.
+      GAME_TARGETS = {
+        "status" => "live/game_status",
+        "field"  => "live/game_field",
+        "rail"   => "live/game_rail_events",
+        "plays"  => "contests/live_plays"
+      }.freeze
+
+      def plays_changed(game)
+        return unless game
+
+        affected_contests(game).each do |contest|
+          GAME_TARGETS.each { |suffix, partial| update_game(contest, game, suffix, partial) }
+          # And each side's timeouts, on the bar at the left of its own row.
+          [game.away_team, game.home_team].compact.each do |team|
+            update_game(contest, game, "timeouts_#{team.slug}", "live/game_timeouts", team: team)
+          end
         end
       end
 
@@ -112,6 +151,17 @@ class Contest
           target:  "contest_#{contest.id}_focus",
           partial: "contests/live_focus",
           locals:  contest.games_by_phase.merge(contest: contest)
+        )
+      rescue => e
+        ErrorLog.capture!(e)
+      end
+
+      def update_game(contest, game, suffix, partial, **locals)
+        Turbo::StreamsChannel.broadcast_update_to(
+          [contest, :live],
+          target:  "game_#{game.slug}_#{suffix}",
+          partial: partial,
+          locals:  { game: game, **locals }
         )
       rescue => e
         ErrorLog.capture!(e)

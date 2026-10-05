@@ -240,6 +240,20 @@
      `overscroll-behavior-x: contain` stops a horizontal fling at the end of the
      strip from turning into a browser back-navigation, which on a trackpad is
      one flick away and would throw the reader off a live page. */
+  /* THE PLAY-BY-PLAY. Bar hidden like the other feeds on this page. The newest
+     row is redrawn with the rest on every update, so `animation` on it plays
+     each time a play lands and never otherwise — which is exactly "this one is
+     new" without the page having to remember what it has already shown. */
+  .tt-play-feed { scrollbar-width: none; overscroll-behavior-y: contain; }
+  .tt-play-feed::-webkit-scrollbar { display: none; }
+  .tt-play-feed > li:last-child { border-bottom: 0; }
+  .tt-play-latest { animation: tt-play-in 0.9s ease-out; }
+  @keyframes tt-play-in {
+    from { background: rgba(74, 222, 128, 0.16); transform: translateY(-4px); opacity: 0.4; }
+    to   { background: transparent; transform: none; opacity: 1; }
+  }
+  @media (prefers-reduced-motion: reduce) { .tt-play-latest { animation: none; } }
+
   .tt-games-strip {
     scrollbar-width: none;
     overscroll-behavior-x: contain;

@@ -51,6 +51,18 @@
         </button>
       <% end %>
 
+      <%# The play-by-play injector: one line of the feed, the way a polling
+          cycle would have stored it. A timeout also spends one of the selected
+          team's three. %>
+      <% [["play", "Play"], ["first_down", "1st"], ["turnover", "TO"], ["timeout", "T/O"], ["penalty", "Flag"]].each do |kind, label| %>
+        <button type="button" @click="recordPlay('<%= kind %>')" :disabled="busy"
+                data-test="dev-play-<%= kind %>"
+                title="Record a <%= kind %> in the selected game's play-by-play"
+                class="px-2 py-1 rounded-md text-xs font-medium bg-surface text-secondary border border-subtle hover:text-heading disabled:opacity-40 transition whitespace-nowrap">
+          <%= label %>
+        </button>
+      <% end %>
+
       <button type="button" @click="concludeGame()" :disabled="busy"
               data-test="dev-score-conclude"
               title="Mark the selected game FINAL — reveals the final graphic"
@@ -88,6 +100,10 @@
           record(scoring_type) {
             const { game_slug, team_slug } = this.split();
             return this.post('/dev/live_scores/record', { game_slug, team_slug, scoring_type });
+          },
+          recordPlay(kind) {
+            const { game_slug, team_slug } = this.split();
+            return this.post('/dev/live_scores/record_play', { game_slug, team_slug, kind });
           },
           clearGame() {
             const { game_slug } = this.split();

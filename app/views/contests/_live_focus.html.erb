@@ -27,6 +27,13 @@
          data-focus-slug="<%= game.slug %>"
          style="<%= "display: none" unless game.slug == default_slug %>">
       <%= render "live/game_tile", game: game, scorers: true, size: :hero %>
+      <%# THE PLAY-BY-PLAY, under the game it belongs to and switched with it.
+          The wrapper owns the id and survives every update; a play redraws only
+          what is inside it, and a score — which replaces this whole panel —
+          redraws it from the same rows. %>
+      <div id="game_<%= game.slug %>_plays">
+        <%= render "contests/live_plays", game: game %>
+      </div>
     </div>
   <% end %>
 <% else %>

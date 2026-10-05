@@ -104,6 +104,9 @@ class ContestLockingTest < ActiveSupport::TestCase
   end
 
   test "games_by_phase buckets games by status + kickoff" do
+    # Mid-week, so "an hour ago" and "tomorrow" are the same NFL week on any day
+    # this runs — the board shows one week at a time (Contest::WeekWindow).
+    travel_to ActiveSupport::TimeZone["America/Denver"].local(2026, 10, 1, 12, 0)
     active   = Game.create!(home_team_slug: "team-a", away_team_slug: "team-b", kickoff_at: 1.hour.ago,      status: "scheduled")
     upcoming = Game.create!(home_team_slug: "team-c", away_team_slug: "team-d", kickoff_at: 1.day.from_now,  status: "scheduled")
     done     = Game.create!(home_team_slug: "team-e", away_team_slug: "team-f", kickoff_at: 2.hours.ago,     status: "completed")
@@ -116,5 +119,23 @@ class ContestLockingTest < ActiveSupport::TestCase
     assert_includes phases[:upcoming],  upcoming
     assert_includes phases[:completed], done
     assert_not_includes phases[:active], upcoming
+  end
+
+  test "games_by_phase shows one week of a multi-week contest" do
+    denver = ActiveSupport::TimeZone["America/Denver"]
+    travel_to denver.local(2026, 10, 4, 21, 18) # Sunday night, week 4
+
+    tonight   = Game.create!(home_team_slug: "team-a", away_team_slug: "team-b", kickoff_at: denver.local(2026, 10, 4, 18, 20), status: "in_progress")
+    monday    = Game.create!(home_team_slug: "team-c", away_team_slug: "team-d", kickoff_at: denver.local(2026, 10, 5, 18, 15), status: "scheduled")
+    next_week = Game.create!(home_team_slug: "team-e", away_team_slug: "team-f", kickoff_at: denver.local(2026, 10, 11, 14, 25), status: "scheduled")
+    slate_matchups(:m1).update!(game_slug: tonight.slug)
+    slate_matchups(:m3).update!(game_slug: monday.slug)
+    slate_matchups(:m5).update!(game_slug: next_week.slug)
+
+    assert_equal [tonight, monday], @contest.games_by_phase.values.flatten
+
+    # Tuesday 7:00 AM Denver: the board turns over.
+    travel_to denver.local(2026, 10, 6, 7, 0)
+    assert_equal [next_week], @contest.games_by_phase.values.flatten
   end
 end

@@ -1215,7 +1215,7 @@
 # link inside the guide's text lands its section clear of the navbar (through Turbo the jump
 # ignored the heading's scroll margin). Derived with bin/e2e-lane-derive --write on a tree
 # level with origin/accepted.
-total_specs: 375
+total_specs: 377
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1576,7 +1576,7 @@ allowed_skips: 4
 # proving the lock flow POSTs the Phantom-signed wire to confirm_lock_time and the page makes
 # no RPC call (the browser broadcast 403'd on mainnet). Runs in chromium, no skip. Derived with
 # bin/e2e-lane-derive --write on this tree.
-executed: 354
+executed: 356
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

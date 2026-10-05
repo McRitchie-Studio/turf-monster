@@ -117,8 +117,15 @@
               style="width: 34%;
                      background: linear-gradient(90deg, transparent, <%= palette[:accent] %>, transparent)"></span>
 
-        <span class="nfl-rail relative rounded-full flex-shrink-0 <%= hero ? "w-1.5 h-14" : "w-1 h-8" %>"
-              style="background: <%= palette[:accent] %>"></span>
+        <% if hero %>
+          <%# The hero's bar counts the team's timeouts — see live/_game_timeouts.
+              Still `.nfl-rail`, so the scoring pulse finds it as before. %>
+          <span class="nfl-rail relative flex-shrink-0 w-2 h-14"
+                id="game_<%= game.slug %>_timeouts_<%= team&.slug %>"><%= render "live/game_timeouts", game: game, team: team %></span>
+        <% else %>
+          <span class="nfl-rail relative rounded-full flex-shrink-0 w-1 h-8"
+                style="background: <%= palette[:accent] %>"></span>
+        <% end %>
         <span class="relative leading-none flex-shrink-0 <%= hero ? "text-4xl" : "text-xl" %>"
               style="text-shadow: <%= palette[:mascot_shadow] %>"><%= team&.emoji %></span>
         <%# Same colour convention as contests/_multi_week_team_card: the MASCOT
@@ -204,8 +211,19 @@
             moving the seam to make room for the picture below moved the words
             with it. So the seam does not move; the frame BELOW reaches up past
             it instead (see its own note). %>
-        <% plays = game.goals.sort_by { |goal| [goal.minute || 0, goal.id] }.reverse %>
-        <div class="relative h-1/2 w-full flex-shrink-0 overflow-hidden"
+        <%# THREE THIRDS AT REST (Alex, 2026-10-04): where the game is up to,
+            where the ball is, and what has happened. The rail used to be two
+            halves, with the possession line squeezed under the down and nothing
+            to show WHERE on the field any of it was.
+
+            THE HALVES COME BACK FOR A SCORE. Everything said above and below
+            about the seam, the reach and the portrait still holds — during the
+            takeover. A rule in live/_score_animations watches for either wheel
+            turning (`:has(.tt-revealing, .tt-status-revealing)`) and, while one
+            is, gives the words their half, folds the field away, and lets the
+            portrait's frame reach 1.25rem past the seam exactly as before. At
+            rest each of the three is `h-1/3`. %>
+        <div class="relative h-1/3 w-full flex-shrink-0 overflow-hidden"
              data-role="status-frame" data-test="live-focus-status">
           <div class="tt-status-track absolute inset-x-0 top-0 h-[200%] flex flex-col">
 
@@ -218,62 +236,11 @@
                 is the date and kickoff we have already printed above it in the
                 reader's own zone. %>
             <div class="h-1/2 flex flex-col items-center justify-center gap-1 px-2 py-2"
+                 id="game_<%= game.slug %>_status"
                  data-role="status-game">
-              <% if game.live? %>
-                <%# THE CLOCK LINE. `status_detail` says the same thing in
-                    ESPN's words ("11:49 - 3rd"); this says it in ours, and
-                    only one of them gets the line. %>
-                <div class="flex items-center justify-center gap-2">
-                  <% if game.period_clock_label %>
-                    <span class="text-xs font-bold uppercase tracking-wider text-white/60 tabular-nums"
-                          data-test="live-focus-clock"><%= game.period_clock_label %></span>
-                  <% end %>
-                  <span class="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-red-400">
-                    <span class="h-2 w-2 rounded-full bg-red-500 animate-pulse"></span> Live
-                  </span>
-                </div>
-
-                <%# THE BIG LINE — the down, in the slot the kickoff time used
-                    to hold. Between possessions and at the half ESPN sends no
-                    situation at all, so the detail stands in — but only when it
-                    is not the clock we just printed above ("11:49 - 3rd" is;
-                    "Halftime" is not). Repeating the clock in a bigger font
-                    would be the loudest line on the card saying nothing new. %>
-                <% detail = game.status_detail.presence %>
-                <% detail = nil if detail && game.clock.present? && detail.include?(game.clock) %>
-                <% headline = game.down_distance_label || detail %>
-                <% if headline %>
-                  <span class="text-lg font-bold text-white/90 leading-none truncate max-w-full"
-                        data-test="live-focus-down"><%= headline %></span>
-                <% end %>
-
-                <% if game.possession_line %>
-                  <span class="text-sm font-mono text-white/80 truncate max-w-full"
-                        data-test="live-focus-possession"><%= game.possession_line %></span>
-                <% end %>
-              <% else %>
-                <% if game.kickoff_at %>
-                  <time datetime="<%= game.kickoff_at.utc.iso8601 %>" data-role="kickoff-date"
-                        class="text-xs font-bold uppercase tracking-wider text-white/60"><%= game.kickoff_at.utc.strftime("%b %-d") %></time>
-                  <time datetime="<%= game.kickoff_at.utc.iso8601 %>" data-role="kickoff"
-                        class="text-lg font-bold text-white/90 leading-none"><%= game.kickoff_at.utc.strftime("%a %-I:%M %p") %></time>
-                <% end %>
-
-                <%# FINAL earns its line; a scheduled game's does not. The
-                    detail rides alongside only when it says MORE than the badge
-                    — "Final/OT" survives, a second "Final" does not, and a
-                    scheduled game's restatement of the kickoff never appears. %>
-                <% if game.completed? %>
-                  <% detail = game.status_detail.presence %>
-                  <% detail = nil if detail && detail.casecmp("final").zero? %>
-                  <div class="flex items-center justify-center gap-2">
-                    <span class="text-xs font-bold uppercase tracking-wider text-white/70">Final</span>
-                    <% if detail %>
-                      <span class="text-sm font-mono text-white/80 truncate"><%= detail %></span>
-                    <% end %>
-                  </div>
-                <% end %>
-              <% end %>
+              <%# Its own partial, so a play can refresh it without repainting
+                  the tile around it — see live/_game_status. %>
+              <%= render "live/game_status", game: game %>
             </div>
 
             <%# PANE 2 — WHAT JUST HAPPENED. Empty and parked below the window
@@ -300,10 +267,22 @@
           </div>
         </div>
 
+        <%# THE MIDDLE THIRD — who has the ball and where on the field. The
+            wrapper owns the id; a play updates what is inside it. %>
+        <div class="relative h-1/3 w-full flex-shrink-0 overflow-hidden flex flex-col items-center justify-center gap-1.5 px-2"
+             id="game_<%= game.slug %>_field"
+             data-role="field-frame" data-test="live-focus-field-frame">
+          <%= render "live/game_field", game: game %>
+        </div>
+
         <%# THE EVENTS, newest first. A feed that grows downward pushes the play
             you care about out of a fixed-height rail; newest-first keeps the last
-            score where the eye already is, and the rest scroll. %>
-        <% if plays.any? %>
+            score where the eye already is, and the rest scroll.
+
+            ALWAYS RENDERED NOW, even for a game with nothing in it yet. It used
+            to appear with the first score; but the list inside is a stream
+            target, and a game's first first-down has to have somewhere to land. %>
+        <% if hero %>
           <%# THE FADE IS AN OVERLAY, NOT A MASK ON THE SCROLLER, and that choice
               is what keeps a two-play game honest. A mask fades the container's
               last 24px whether or not anything is under them, so a short list
@@ -344,7 +323,7 @@
               A percentage margin could not do this — percentage margins resolve
               against the container's WIDTH, and this rail is wider than it is
               tall, so -12% would have pulled it up by 48px instead of 28. %>
-          <div class="relative h-[calc(50%+1.25rem)] -mt-5 min-h-0 w-full overflow-hidden"
+          <div class="relative h-1/3 min-h-0 w-full overflow-hidden"
                data-role="event-feed-frame" data-fade-top="0" data-fade-bottom="1">
             <div class="tt-event-track absolute inset-x-0 top-0 h-[300%] flex flex-col">
 
@@ -357,19 +336,14 @@
                   reads as a layout fault. Padding, not a shorter pane: the
                   panes are thirds of the track and the wheel's arithmetic
                   depends on them staying equal. %>
-              <div class="relative h-1/3 flex flex-col justify-center pt-5 pb-1.5">
+              <%# NO REACH TO PAY BACK AT REST any more: the frame only reaches
+                  past the seam during a takeover, when this pane is rolled out
+                  of the window. So the list simply fills its third. %>
+              <div class="relative h-1/3 flex flex-col justify-center py-1">
                 <div class="tt-event-feed min-h-0 overflow-y-auto space-y-1 pointer-events-auto"
+                     id="game_<%= game.slug %>_rail"
                      data-test="live-focus-events">
-              <% plays.each do |play| %>
-                <% scoring_team = play.team_slug == game.home_team_slug ? home : away %>
-                <div class="flex items-center justify-center gap-1.5 text-xs leading-tight whitespace-nowrap">
-                  <span class="text-sm"><%= scoring_team&.emoji %></span>
-                  <span class="text-white/85 font-medium truncate"><%= play.scoring_label.presence || "Score" %></span>
-                  <% if play.points %>
-                    <span class="font-mono font-bold text-white/60">+<%= play.points %></span>
-                  <% end %>
-                </div>
-              <% end %>
+                  <%= render "live/game_rail_events", game: game %>
                 </div>
 
             <%# THE FADES SWELL FROM THE MIDDLE and die at the sides. A linear
@@ -387,9 +361,9 @@
             <%# top-5, matching the pane's own reach-back: the fade says "there
                 is more above" and has to sit at the top of the LIST, not at the
                 top of a frame the list no longer starts at. %>
-            <span class="tt-fade tt-fade-top pointer-events-none absolute inset-x-0 top-5 h-6"
+            <span class="tt-fade tt-fade-top pointer-events-none absolute inset-x-0 top-0 h-5"
                   style="background: radial-gradient(ellipse at 50% 0%, rgba(8, 10, 16, 0.95) 0%, rgba(8, 10, 16, 0) 72%)"></span>
-            <span class="tt-fade tt-fade-bottom pointer-events-none absolute inset-x-0 bottom-0 h-8"
+            <span class="tt-fade tt-fade-bottom pointer-events-none absolute inset-x-0 bottom-0 h-5"
                   style="background: radial-gradient(ellipse at 50% 100%, rgba(8, 10, 16, 0.95) 0%, rgba(8, 10, 16, 0) 72%)"></span>
               </div>
 
@@ -403,12 +377,19 @@
                   The page normalises back onto card A between events (see
                   settleWheel), so the roll is always downward and B is always
                   free for whatever comes next. %>
-              <div class="relative h-1/3" data-role="scorer-pane" data-pane="a">
-                <%= render "live/focus_scorer_card" %>
-              </div>
-              <div class="relative h-1/3" data-role="scorer-pane" data-pane="b">
-                <%= render "live/focus_scorer_card" %>
-              </div>
+              <%# ONLY ONCE THE GAME HAS A SCORE, as before. The frame itself is
+                  always here now (the list is a stream target), but a card with
+                  nobody to show stays out of a scoreless game's markup — and
+                  the first touchdown still arrives with the panel replacement
+                  that brings these in. %>
+              <% if game.goals.any? %>
+                <div class="relative h-1/3" data-role="scorer-pane" data-pane="a">
+                  <%= render "live/focus_scorer_card" %>
+                </div>
+                <div class="relative h-1/3" data-role="scorer-pane" data-pane="b">
+                  <%= render "live/focus_scorer_card" %>
+                </div>
+              <% end %>
             </div>
           </div>
         <% end %>

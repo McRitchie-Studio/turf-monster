@@ -136,4 +136,45 @@ class GameSituationTest < ActiveSupport::TestCase
     assert_nil @game.down_distance_label
     assert_equal "at TMB 13", @game.field_spot_label
   end
+
+  # ── where the ball is, for the drawn field ───────────────────────────────
+  #
+  # 0..100 from the AWAY goal line: the field is drawn away-left, home-right.
+
+  def field_game(**attributes)
+    Game.new(home_team: teams(:team_a), away_team: teams(:team_b), **attributes)
+  end
+
+  test "reads the ball's yard line from the feed's own label" do
+    assert_equal 13, field_game(possession_text: "TMB 13").ball_yard_line, "on the away side: yards from its goal line"
+    assert_equal 87, field_game(possession_text: "TMA 13").ball_yard_line, "on the home side: counted back from the far end"
+    assert_equal 50, field_game(possession_text: "50").ball_yard_line
+  end
+
+  test "draws no ball it cannot place" do
+    assert_nil field_game(possession_text: nil).ball_yard_line
+    assert_nil field_game(possession_text: "XYZ 20").ball_yard_line, "a team that is not in this game"
+    assert_nil field_game(possession_text: "somewhere").ball_yard_line
+  end
+
+  test "the chains are ahead of the offence, whichever way it is going" do
+    away_ball = field_game(possession_text: "TMB 13", down_distance: "3rd & 9", possession_team_slug: "team-b")
+    home_ball = field_game(possession_text: "TMB 13", down_distance: "3rd & 9", possession_team_slug: "team-a")
+
+    assert_equal 22, away_ball.line_to_gain_yard_line, "the away side attacks toward 100"
+    assert_equal 4,  home_ball.line_to_gain_yard_line, "the home side attacks toward 0"
+  end
+
+  test "goal to go puts the chains on the goal line" do
+    assert_equal 100, field_game(possession_text: "TMA 3", down_distance: "1st & Goal at TMA 3",
+                                 possession_team_slug: "team-b").line_to_gain_yard_line
+    assert_equal 0, field_game(possession_text: "TMB 3", down_distance: "1st & Goal",
+                               possession_team_slug: "team-a").line_to_gain_yard_line
+  end
+
+  test "no chains without a ball, a possession or a distance" do
+    assert_nil field_game(possession_text: "TMB 13", down_distance: "3rd & 9").line_to_gain_yard_line
+    assert_nil field_game(possession_text: nil, down_distance: "3rd & 9", possession_team_slug: "team-b").line_to_gain_yard_line
+    assert_nil field_game(possession_text: "TMB 13", down_distance: nil, possession_team_slug: "team-b").line_to_gain_yard_line
+  end
 end

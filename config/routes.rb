@@ -82,6 +82,7 @@ Rails.application.routes.draw do
     post "dev/live_scores/record",     to: "dev/live_scores#record",     as: :dev_live_scores_record
     post "dev/live_scores/clear_game", to: "dev/live_scores#clear_game", as: :dev_live_scores_clear_game
     post "dev/live_scores/conclude_game", to: "dev/live_scores#conclude_game", as: :dev_live_scores_conclude_game
+    post "dev/live_scores/record_play", to: "dev/live_scores#record_play", as: :dev_live_scores_record_play
   end
 
   # Two versioned rules pages, one per SEASON — not one per brand. turf-totals-v1

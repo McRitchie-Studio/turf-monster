@@ -162,10 +162,50 @@
       appears only once the pointer is already there. The fade at each end says
       it instead. The bar is hidden here; the fades live in the markup, where
       they can be the rail's own colour. %>
+  /* THE RAIL IS THREE THIRDS AT REST AND TWO HALVES DURING A SCORE.
+     At rest the hero tile's rail stacks status, field and feed at a third each
+     (`h-1/3` in the markup). When either wheel turns for a scoring takeover the
+     rail goes back to the layout the takeover was designed in: the words get
+     their half, the field folds away, and the portrait's frame takes the other
+     half plus a 1.25rem reach past the seam so the head crosses it.
+
+     `:has()` on the rail, because the two wheels are driven separately and
+     either one turning is a takeover. Height only on three small boxes inside
+     an absolutely-placed rail, so nothing outside the rail reflows; the tracks
+     inside are positioned in percentages and follow their frames. */
+  [data-test="live-focus-rail"] > [data-role="status-frame"],
+  [data-test="live-focus-rail"] > [data-role="field-frame"],
+  [data-test="live-focus-rail"] > [data-role="event-feed-frame"] {
+    transition: height 520ms cubic-bezier(0.22, 1, 0.36, 1),
+                margin-top 520ms cubic-bezier(0.22, 1, 0.36, 1),
+                opacity 260ms ease;
+  }
+  [data-test="live-focus-rail"]:has(.tt-revealing, .tt-status-revealing) > [data-role="status-frame"] {
+    height: 50%;
+  }
+  [data-test="live-focus-rail"]:has(.tt-revealing, .tt-status-revealing) > [data-role="field-frame"] {
+    height: 0;
+    opacity: 0;
+  }
+  [data-test="live-focus-rail"]:has(.tt-revealing, .tt-status-revealing) > [data-role="event-feed-frame"] {
+    height: calc(50% + 1.25rem);
+    margin-top: -1.25rem;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    [data-test="live-focus-rail"] > [data-role="status-frame"],
+    [data-test="live-focus-rail"] > [data-role="field-frame"],
+    [data-test="live-focus-rail"] > [data-role="event-feed-frame"] { transition: none; }
+  }
+
   .tt-event-feed { scrollbar-width: none; }
   .tt-event-feed::-webkit-scrollbar { display: none; }
   .tt-fade { opacity: 1; transition: opacity .25s ease; }
   [data-fade-top="0"]    > .tt-fade-top    { opacity: 0; }
+  /* The top fade sits inside the list's PANE, a level below the frame that
+     carries the attribute, so the child rule above never reached it and the
+     newest event — the one the rail exists to show — was always drawn half
+     dissolved. Matched as a descendant here. */
+  [data-role="event-feed-frame"][data-fade-top="0"] .tt-fade-top { opacity: 0; }
   [data-fade-bottom="0"] > .tt-fade-bottom { opacity: 0; }
 
   /* Respect the system setting. The board still updates and the score still

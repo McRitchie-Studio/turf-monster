@@ -33,6 +33,31 @@ class Contest::LiveBroadcastTest < ActiveSupport::TestCase
     end
   end
 
+  # A play is FOUR small updates, per game — the rail's three thirds and the
+  # play feed under the tile — and never the focus panel, which hosts the
+  # scoring animations and would lose one mid-flight if it were replaced every
+  # poll.
+  test "plays_changed updates the game's rail and play feed, not the focus panel" do
+    @game.update!(status: "in_progress", period: 4, clock: "3:42", home_timeouts: 1, away_timeouts: 3)
+    GamePlay.create!(game_slug: @game.slug, external_id: "P1", sequence: 1, kind: "timeout",
+                     text: "Timeout #2 by TMA at 03:42.", period: 4, clock: "3:42")
+
+    streams = capture_turbo_stream_broadcasts([@contest, :live]) do
+      Contest::LiveBroadcast.plays_changed(@game)
+    end
+
+    assert_equal %w[field plays rail status timeouts_team-a timeouts_team-b].map { |part| "game_#{@game.slug}_#{part}" }, streams.map { |s| s["target"] }.sort
+    assert_equal %w[update], streams.map { |s| s["action"] }.uniq
+    assert_includes streams.map(&:to_html).join, "Timeout #2 by TMA at 03:42."
+    assert_includes streams.map(&:to_html).join, "Q4 · 3:42"
+  end
+
+  test "plays_changed tells a settled contest nothing" do
+    @contest.update!(status: "settled")
+
+    assert_empty capture_turbo_stream_broadcasts([@contest, :live]) { Contest::LiveBroadcast.plays_changed(@game) }
+  end
+
   test "affected_contests includes a live contest and excludes a settled one" do
     assert_includes Contest::LiveBroadcast.affected_contests(@game), @contest
     @contest.update!(status: "settled")

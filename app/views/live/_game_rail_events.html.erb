@@ -1,0 +1,19 @@
+<%# THE RAIL'S FEED — scores, turnovers and first downs, newest first.
+    Locals: game (Game).
+
+    Rendered inside #game_<slug>_rail (the tile owns that scroller), which
+    Contest::LiveBroadcast.plays_changed updates, so a first down reaches the
+    card without the focus panel being replaced. What belongs here and in what
+    order is Live::RailFeed's decision; this only draws it. %>
+<% teams = [game.home_team, game.away_team].compact.index_by(&:slug) %>
+<% Live::RailFeed.for(game).each do |item| %>
+  <div class="flex items-center justify-center gap-1.5 text-xs leading-tight whitespace-nowrap"
+       data-test="live-focus-event" data-event-kind="<%= item.kind %>">
+    <span class="text-sm"><%= teams[item.team_slug]&.emoji %></span>
+    <span class="font-medium truncate <%= item.kind == "first_down" ? "text-white/60" : "text-white/85" %>"
+          style="<%= "color: #f87171" if item.kind == "turnover" %>"><%= item.label %></span>
+    <% if item.points %>
+      <span class="font-mono font-bold text-white/60">+<%= item.points %></span>
+    <% end %>
+  </div>
+<% end %>

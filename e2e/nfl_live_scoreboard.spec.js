@@ -1341,3 +1341,140 @@ test.describe("Contest live page", () => {
   });
 
 });
+
+// THE PLAY-BY-PLAY under the focused game.
+//
+// What only a browser can show: a play stored on the SERVER appears on an
+// already-open board, in the feed of the game it belongs to, with no reload —
+// and it does so WITHOUT replacing the focus panel, which is the property the
+// two per-game stream targets exist for. A Rails test sees the two streams
+// leave; this sees them land in a DOM that Alpine and a MutationObserver are
+// also writing to.
+async function recordPlay(page, gameSlug, teamSlug, kind, text) {
+  const status = await page.evaluate(async ([game, team, playKind, playText]) => {
+    const token = document.querySelector('meta[name="csrf-token"]');
+    const res = await fetch("/dev/live_scores/record_play", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": token ? token.content : "" },
+      body: JSON.stringify({ game_slug: game, team_slug: team, kind: playKind, text: playText }),
+    });
+    return res.status;
+  }, [gameSlug, teamSlug, kind, text]);
+  expect(status).toBe(200);
+}
+
+// Back to kickoff: no plays, no goals, not in progress. `reseed` does not
+// rebuild the database between specs, and record_play puts a game IN PROGRESS —
+// a state every other spec that opens this contest would then inherit.
+async function clearGame(page, gameSlug) {
+  const status = await page.evaluate(async (game) => {
+    const token = document.querySelector('meta[name="csrf-token"]');
+    const res = await fetch("/dev/live_scores/clear_game", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": token ? token.content : "" },
+      body: JSON.stringify({ game_slug: game }),
+    });
+    return res.status;
+  }, gameSlug);
+  expect(status).toBe(200);
+}
+
+// Open the live page on a game that is at kickoff, and say which game it is.
+// Cleared BEFORE the page the test watches is loaded, so the clear's own
+// broadcast (which replaces the focus panel) cannot land mid-assertion.
+//
+// A LOOP, because clearing a game can change which one the page opens on: a
+// spec earlier in this file leaves a game with a score, the page leads with it,
+// and once it is cleared the page leads with the next. It settles when the game
+// the page opens on is the one just cleared.
+async function openLiveAtKickoff(page) {
+  await openLive(page, CONTEST);
+  const focused = page.locator('[data-test="live-focus-game"]:visible');
+
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const gameSlug = await focused.getAttribute("data-focus-slug");
+    await clearGame(page, gameSlug);
+    await page.goto(`/contests/${CONTEST}/live`);
+    await expect(focused).toHaveCount(1);
+    if ((await focused.getAttribute("data-focus-slug")) === gameSlug) return gameSlug;
+  }
+  throw new Error("the live page never settled on a game at kickoff");
+}
+
+test.describe("Contest live page play-by-play", () => {
+  let touched = null;
+
+  test.afterEach(async ({ page }) => {
+    await loginAdmin(page);
+    if (touched) {
+      await page.goto(`/contests/${CONTEST}`);
+      await clearGame(page, touched);
+      touched = null;
+    }
+    await setLock(page, CONTEST, 3600);
+  });
+
+  test("a play and a timeout reach the open board without a reload", async ({ page }) => {
+    await loginAdmin(page);
+    const gameSlug = touched = await openLiveAtKickoff(page);
+
+    const focused = page.locator('[data-test="live-focus-game"]:visible');
+    await expect(focused).toHaveCount(1);
+    const teamSlug = await focused.locator("[data-team-slug]").first().getAttribute("data-team-slug");
+
+    // MARK THE TILE. If a play replaced the focus panel this node would be
+    // thrown away with it, and the mark would be gone.
+    await focused.locator('[data-test="live-game-tile"]').evaluate((el) => el.setAttribute("data-e2e-mark", "kept"));
+
+    const feed = focused.locator('[data-test="live-plays"]');
+    await expect(feed).toHaveCount(0);
+
+    // NO reload from here on.
+    await recordPlay(page, gameSlug, teamSlug, "play", "E2E runner up the middle for 4 yards.");
+
+    await expect(feed).toBeVisible({ timeout: 10000 });
+    const rows = feed.locator('[data-test="live-play"]');
+    await expect(rows).toHaveCount(1);
+    // COLLAPSED AT REST: one line, the newest play in it, the list shut.
+    await expect(feed.locator('[data-test="live-plays-latest"]')).toContainText("E2E runner up the middle");
+    await expect(rows.first()).toBeHidden();
+    // Open it. The state lives on the page wrapper, so the NEXT play — which
+    // replaces everything inside this panel — must find it still open.
+    await feed.locator('[data-test="live-plays-toggle"]').click();
+    await expect(rows.first()).toBeVisible();
+    await expect(rows.first()).toContainText("E2E runner up the middle for 4 yards.");
+    // The game went live with all three timeouts a side.
+    const pips = focused.locator(`[data-test="live-focus-timeouts"][data-team-slug="${teamSlug}"]`);
+    await expect(pips).toHaveAttribute("data-timeouts", "3");
+
+    await recordPlay(page, gameSlug, teamSlug, "timeout", "Timeout #1 by E2E.");
+
+    // Newest first, marked as a timeout, and the team is one short.
+    await expect(rows).toHaveCount(2, { timeout: 10000 });
+    await expect(rows.first()).toHaveAttribute("data-play-kind", "timeout");
+    await expect(rows.first()).toBeVisible();
+    await expect(rows.first()).toContainText("Timeout #1 by E2E.");
+    await expect(pips).toHaveAttribute("data-timeouts", "2");
+
+    // The tile's status pane was refreshed in place: the game now reads live.
+    await expect(focused.locator('[data-test="live-focus-clock"]')).toBeVisible();
+    // And the tile itself is the node we marked — the panel was never replaced.
+    await expect(focused.locator('[data-test="live-game-tile"]')).toHaveAttribute("data-e2e-mark", "kept");
+  });
+
+  test("the feed follows the game you switch to", async ({ page }) => {
+    await loginAdmin(page);
+    const opened = touched = await openLiveAtKickoff(page);
+
+    const visible = () => page.locator('[data-test="live-focus-game"]:visible');
+    const teamSlug = await visible().locator("[data-team-slug]").first().getAttribute("data-team-slug");
+
+    await recordPlay(page, opened, teamSlug, "play", "Only on the first game.");
+    await expect(visible().locator('[data-test="live-play"]')).toHaveCount(1, { timeout: 10000 });
+
+    await page.locator(`[data-test="live-game-chip"]:not([data-game-slug="${opened}"])`).first().click();
+
+    await expect(visible()).not.toHaveAttribute("data-focus-slug", opened);
+    await expect(page.locator('[data-test="live-play"]:visible')).toHaveCount(0);
+  });
+});
