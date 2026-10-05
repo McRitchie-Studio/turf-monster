@@ -556,7 +556,12 @@ module Nfl
             PlaySync.call(game: game, rows: [row.last_play].compact, team_for: method(:team_for), amend: false)
           end
 
-        Contest::LiveBroadcast.plays_changed(game) if created.any? || situation_moved
+        # The play-by-play panel is redrawn only for a play. The clock moves
+        # every cycle, and redrawing an open list for it reset the reader's
+        # scroll and replayed the newest row's entrance with nothing new in it.
+        if created.any? || situation_moved
+          Contest::LiveBroadcast.plays_changed(game, plays: created.any?)
+        end
       rescue Espn::Client::Error => e
         @anomalies << Anomaly.new(kind: "plays_fetch_failed", detail: "#{row.external_id}: #{e.message}")
       rescue StandardError => e

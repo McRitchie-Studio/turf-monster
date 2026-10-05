@@ -52,6 +52,17 @@ class Contest::LiveBroadcastTest < ActiveSupport::TestCase
     assert_includes streams.map(&:to_html).join, "Q4 · 3:42"
   end
 
+  test "plays_changed without a new play leaves the play-by-play panel alone" do
+    @game.update!(status: "in_progress")
+
+    streams = capture_turbo_stream_broadcasts([@contest, :live]) do
+      Contest::LiveBroadcast.plays_changed(@game, plays: false)
+    end
+
+    assert_equal 5, streams.length
+    assert_not_includes streams.map { |s| s["target"] }, "game_#{@game.slug}_plays"
+  end
+
   test "plays_changed tells a settled contest nothing" do
     @contest.update!(status: "settled")
 
