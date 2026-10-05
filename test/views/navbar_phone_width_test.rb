@@ -105,7 +105,7 @@ class NavbarPhoneWidthTest < ActiveSupport::TestCase
     # is the bug rather than the fix.
     assert_match(/<h1 class="nav-title[^"]*"><span class="dm-salmon truncate">Turf<\/span>/, src,
                  "the wordmark's first word must clip itself")
-    assert_match(/<span class="dm-yellow text-primary truncate">Monster<\/span>/, src,
+    assert_match(/<span class="dm-yellow tm-wordmark truncate">Monster<\/span>/, src,
                  "the wordmark's second word must clip itself")
     refute_match(/<h1 class="nav-title[^"]*\btruncate\b/, src,
                  "truncate belongs on the spans; on the flex container it clips the wrong box")
