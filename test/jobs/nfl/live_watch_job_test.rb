@@ -75,6 +75,17 @@ class NflLiveWatchJobTest < ActiveSupport::TestCase
     end
   end
 
+  # An unsettled final the week rolled past sits at "in_progress" for good.
+  test "a game stranded in progress long after its kickoff does not hold the loop open" do
+    with_loop do
+      stuck = game(status: "in_progress", kickoff_at: 6.hours.ago)
+      assert Nfl::LiveWatchJob.watching?, "overtime behind a weather delay is still a game being played"
+
+      stuck.update!(kickoff_at: 2.days.ago)
+      assert_not Nfl::LiveWatchJob.watching?
+    end
+  end
+
   test "a second start while a chain is running does nothing" do
     game(status: "in_progress", kickoff_at: 1.hour.ago)
 

@@ -48,6 +48,10 @@ module Nfl
     # live is still worth watching — for a while. A postponed game sits in that
     # state for good, and must not hold the loop open all week.
     LATE_START = 4.hours
+    # A game stranded at "in_progress" (an unsettled final the week rolled past)
+    # never leaves that state by itself, and must not hold the loop open either.
+    # Past this it is the floor's to repair, at the floor's pace.
+    LIVE_WINDOW = 12.hours
 
     class << self
       def enabled? = ENV["NFL_LIVE_WATCH"].to_s.downcase != "off"
@@ -62,7 +66,7 @@ module Nfl
       # five-minute floor keeps current whether or not this loop is running.
       def watching?(now = Time.current)
         games = Game.nfl
-        games.where(status: "in_progress").exists? ||
+        games.where(status: "in_progress", kickoff_at: (now - LIVE_WINDOW)..).exists? ||
           games.where(status: "scheduled", kickoff_at: (now - LATE_START)..(now + LEAD_IN)).exists?
       end
 
