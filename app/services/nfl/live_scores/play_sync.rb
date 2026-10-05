@@ -64,6 +64,14 @@ module Nfl
         # Two cycles overlapped (the five-minute floor and the tight loop can)
         # and the other one wrote this play first. It is written; not new to us.
         nil
+      rescue ActiveRecord::RecordInvalid => e
+        # The same overlap, caught one step earlier: GamePlay validates the id
+        # is unused before the index gets to refuse it, so the usual loser of
+        # the race raises THIS, not RecordNotUnique. Only that one failure is
+        # an overlap; any other invalid row is a real fault and still raises.
+        raise unless e.record.errors.of_kind?(:external_id, :taken)
+
+        nil
       end
 
       def amend(play, row)

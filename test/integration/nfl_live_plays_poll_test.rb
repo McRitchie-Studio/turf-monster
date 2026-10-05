@@ -137,6 +137,33 @@ class NflLivePlaysPollTest < ActionDispatch::IntegrationTest
     assert_nil game.home_timeouts
   end
 
+  # The five-minute floor and the tight loop can run at once. The loser of the
+  # race to store a play trips GamePlay's own uniqueness VALIDATION, which
+  # raises before the index can — and that used to abort the rest of the sync.
+  test "a play another cycle stored first is skipped, and the rest still land" do
+    cycle(StubClient.new(scoreboard: scoreboard(last: "EV1101"), summaries: { "EV1" => drives("EV1101") }))
+    rows = Nfl::Espn::Plays.rows_from(drives("EV1101", "EV1102", "EV1103"))
+    stale_lookup = GamePlay.method(:where)
+
+    # The lookup that says "we do not hold EV1101" — as it would have read a
+    # moment before the other cycle committed.
+    created = GamePlay.stub(:where, ->(*args, **kw) { kw.key?(:external_id) ? GamePlay.none : stale_lookup.call(*args, **kw) }) do
+      Nfl::LiveScores::PlaySync.call(game: game, rows: rows, team_for: ->(_) { nil })
+    end
+
+    assert_equal %w[EV1102 EV1103], created.map(&:external_id)
+    assert_equal 3, game.plays.count
+  end
+
+  test "an invalid play that is not a duplicate still raises" do
+    cycle(StubClient.new(scoreboard: scoreboard(last: "EV1101"), summaries: { "EV1" => drives("EV1101") }))
+    row = Nfl::Espn::Plays.rows_from(drives("EV1102")).first.with(kind: "fireworks")
+
+    assert_raises(ActiveRecord::RecordInvalid) do
+      Nfl::LiveScores::PlaySync.call(game: game, rows: [row], team_for: ->(_) { nil })
+    end
+  end
+
   # ── what an open board is told ───────────────────────────────────────────
 
   test "a new play updates the game's rail and its play feed, and nothing else" do
@@ -173,8 +200,22 @@ class NflLivePlaysPollTest < ActionDispatch::IntegrationTest
       cycle(StubClient.new(scoreboard: scoreboard(last: "EV1101", home_timeouts: 1)))
     end
 
-    assert_equal 6, streams.length
+    # Five, not six: the tile is refreshed, the play-by-play panel is not —
+    # no play arrived, and redrawing an open list would reset its scroll.
+    assert_equal 5, streams.length
+    assert_not_includes streams.map { |stream| stream["target"] }, "game_team-a-vs-team-b-pre4_plays"
     assert_equal 1, game.home_timeouts
+  end
+
+  # Kickoff: the game goes live a cycle before its first play is stored. The
+  # panel's empty state hangs on that, and an empty list has no scroll to lose.
+  test "a live game with no play stored yet still gets its play-by-play panel" do
+    contest = live_contest_on("team-a-vs-team-b-pre4")
+
+    streams = capture_turbo_stream_broadcasts([contest, :live]) { cycle(StubClient.new(scoreboard: scoreboard(last: nil))) }
+
+    feed = streams.find { |stream| stream["target"] == "game_team-a-vs-team-b-pre4_plays" }
+    assert_includes feed&.to_html.to_s, "Waiting for the first play."
   end
 
   private

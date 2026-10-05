@@ -43,7 +43,7 @@ ESPN scoreboard  ->  Nfl::LiveScores::PollCycle
 ```
 
 Nothing in the poller writes a score directly. `Nfl::LiveScores::PollCycle#record_play`
-writes `Goal` rows (`app/services/nfl/live_scores/poll_cycle.rb:628-653`) and the
+writes `Goal` rows (`app/services/nfl/live_scores/poll_cycle.rb:633-658`) and the
 existing callbacks carry them the rest of the way, which is why a hand-recorded goal
 and a fed one behave identically. On `Goal`, the `after_create :refresh_game_scores`
 declaration (`app/models/goal.rb:46`) runs `Goal#refresh_game_scores` (`:156-158`),
@@ -318,11 +318,11 @@ citations below name (`app/services/nfl/live_scores/poll_cycle.rb`).
 | Kind | Raised in | Means | What to do |
 |---|---|---|---|
 | `fetch_failed` | `#process` (`app/services/nfl/live_scores/poll_cycle.rb:344`) | One game's summary did not arrive | Ignore once. Twice on the same game: report it. |
-| `unknown_team` | `#upsert_game` (`:373`) and `#record_play` (`:631`) | An abbreviation resolved to no team | **Escalate.** A team that cannot be matched silently never scores. |
-| `score_drift` | `#detect_drift` (`:695-704`) | Our summed events disagree with the feed's total | Ignore a single cycle mid-play; persisting means a play was missed. |
+| `unknown_team` | `#upsert_game` (`:373`) and `#record_play` (`:636`) | An abbreviation resolved to no team | **Escalate.** A team that cannot be matched silently never scores. |
+| `score_drift` | `#detect_drift` (`:700-709`) | Our summed events disagree with the feed's total | Ignore a single cycle mid-play; persisting means a play was missed. |
 | `degraded_feed` | `#process` (`:298`) and `#sync_scoring_plays` (`:470`, `:492`) | The feed declined to answer — an absent `scoringPlays` key, zero plays against goals we hold, or a blank score on a live game | The cycle **refuses to act**. Investigate if it persists. |
 | `status_regression` | `#status_for` (`:441`) | A stale row reported an earlier state for a completed game | Informational; the game keeps its completed status. |
-| `recap_push_failed` | `#push_recap` (`:680-689`) | The studio hub could not be told a game finished | Informational. The game IS settled; only the content idea is missing. |
+| `recap_push_failed` | `#push_recap` (`:685-694`) | The studio hub could not be told a game finished | Informational. The game IS settled; only the content idea is missing. |
 | `unsettled_final` | `#process` (`:320`) | The feed says FINAL but our events disagree with its total | The game is **not settled**. It settles on the next reconciling cycle. |
 | `cycle_error` | `#process` (`:351`) | An unexpected exception, captured to `ErrorLog` | A bug. Read the ErrorLog. |
 | `settled_contest` | `#refusal` (`:236-245`) | EVERY contest on this ONE game's slate is settled, so this game was skipped. The rest of the slot still ran | Expected on a finished week. Override deliberately with `bin/nfl-live-poll --allow-settled`. |
