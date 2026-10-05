@@ -207,6 +207,17 @@ class NflLivePlaysPollTest < ActionDispatch::IntegrationTest
     assert_equal 1, game.home_timeouts
   end
 
+  # Kickoff: the game goes live a cycle before its first play is stored. The
+  # panel's empty state hangs on that, and an empty list has no scroll to lose.
+  test "a live game with no play stored yet still gets its play-by-play panel" do
+    contest = live_contest_on("team-a-vs-team-b-pre4")
+
+    streams = capture_turbo_stream_broadcasts([contest, :live]) { cycle(StubClient.new(scoreboard: scoreboard(last: nil))) }
+
+    feed = streams.find { |stream| stream["target"] == "game_team-a-vs-team-b-pre4_plays" }
+    assert_includes feed&.to_html.to_s, "Waiting for the first play."
+  end
+
   private
 
   def live_contest_on(game_slug)
