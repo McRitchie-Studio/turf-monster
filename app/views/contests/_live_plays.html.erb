@@ -74,14 +74,14 @@
               left and ON TOP (the receiver over the passer on a completion).
               A player we hold a portrait for shows it; one we only have a name
               for shows initials; a play that names nobody shows its team. %>
-          <%# OUT OF THE FLOW, hung off the left of the words. The words are
-              what has to sit under the rail's column — the rail centres
-              "🐦 Interception", so its label starts half a mark right of
-              centre, and the pl-5 below gives these words the same offset. If
-              the portraits took part in the centring, one, two or three of
-              them would push the word a different distance each time. %>
+          <%# OUT OF THE FLOW, floated into the space to the left of the words
+              (Alex, 2026-10-05). The two lines of words are CENTRED in this
+              third, exactly under the rail's centred column, and centred
+              against each other. If the portraits took part in that centring,
+              one, two or three of them would push the words a different
+              distance each time. %>
           <span class="absolute top-1/2 -translate-y-1/2 flex items-center" data-test="live-plays-avatars"
-                style="right: calc(100% - 0.75rem)">
+                style="right: calc(100% + 0.5rem)">
             <% if names.empty? %>
               <span class="h-7 w-7 rounded-full flex items-center justify-center text-sm"
                     style="background: <%= normalize_hex(side&.card_background) || "#3a3f4b" %>; box-shadow: 0 0 0 2px <%= side ? team_card_palette(side)[:accent] : "rgba(255,255,255,0.3)" %>">
@@ -117,7 +117,7 @@
 
           <%# WHAT, in the board's bold white; the DETAIL under it in the two
               colours of the team that ran the play. %>
-          <span class="min-w-0 leading-tight pl-5" data-test="live-plays-words">
+          <span class="min-w-0 leading-tight text-center" data-test="live-plays-words">
             <span class="block text-sm font-extrabold text-heading truncate" data-test="live-plays-result"><%= latest.result_label %></span>
             <% if latest.detail_label %>
               <span class="inline-block max-w-full truncate text-xs font-bold" data-test="live-plays-detail"

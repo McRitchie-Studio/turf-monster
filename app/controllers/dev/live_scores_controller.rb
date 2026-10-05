@@ -38,6 +38,11 @@ module Dev
       # for a withdrawn one and deleted out from under the demo.
       scorer = pick_scorer(team, scoring_type)
 
+      # THE PLAY BEHIND THE SCORE, written first. On the real feed a touchdown
+      # arrives as a play AND a scoring event in the same cycle; a goal alone
+      # left the play-by-play showing whatever happened before it.
+      record_scoring_play(team, scoring_type, scorer)
+
       goal = @game.goals.create!(
         team_slug: team.slug,
         points: Goal.points_for(scoring_type),
@@ -169,6 +174,25 @@ module Dev
       spot = "#{holder.short_name} #{rand(20..45)}"
       { possession_team_slug: holder.slug, possession_text: spot,
         down_distance: "#{kind == "turnover" ? "1st" : %w[1st 2nd 3rd].sample} & 10 at #{spot}" }
+    end
+
+    # The feed's line for a score, as a GamePlay. The extra point and the
+    # two-point try are folded into the touchdown's own play by ESPN, so they
+    # write none of their own.
+    def record_scoring_play(team, scoring_type, scorer)
+      who = scorer ? "#{scorer.person.first_name[0]}.#{scorer.person.last_name}" : roster_name(team, %w[RB WR], "R.Runner")
+      type, yards, text =
+        case scoring_type
+        when "touchdown"  then y = rand(2..38); ["Rushing Touchdown", y, "#{who} left tackle for #{y} yards, TOUCHDOWN."]
+        when "field_goal" then y = rand(24..54); ["Field Goal Good", nil, "#{who} #{y} yard field goal is GOOD."]
+        when "safety"     then ["Safety", nil, "#{who} tackled in the end zone, SAFETY."]
+        else return
+        end
+
+      sequence = @game.plays.maximum(:sequence).to_i + 1
+      @game.plays.create!(external_id: "dev-#{@game.id}-#{sequence}", sequence: sequence, kind: "score",
+                          play_type: type, yards: yards, text: text, team_slug: team.slug,
+                          period: @game.period, clock: @game.clock)
     end
 
     # ONE PLAY, WRITTEN THE WAY ESPN WRITES IT — its type, its yardage, and

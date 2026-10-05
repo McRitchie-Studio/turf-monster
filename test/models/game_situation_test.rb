@@ -178,6 +178,18 @@ class GameSituationTest < ActiveSupport::TestCase
     assert_nil field_game(possession_text: "TMB 13", down_distance: nil, possession_team_slug: "team-b").line_to_gain_yard_line
   end
 
+  # The feed's down text carries the yard line; the banner prints the yard
+  # line again as its own phrase, so it must take the down alone.
+  test "the down label is the down without its spot" do
+    live = ->(down) { Game.new(status: "in_progress", down_distance: down) }
+
+    assert_equal "3rd & 10", live.("3rd & 10 at ARI 34").down_label
+    assert_equal "1st & Goal", live.("1st & Goal at CAR 3").down_label
+    assert_equal "3rd & 9", live.("3rd & 9").down_label
+    assert_nil live.(nil).down_label
+    assert_nil Game.new(status: "scheduled", down_distance: "3rd & 9 at ARI 3").down_label
+  end
+
   # ── the venue, in its two halves ─────────────────────────────────────────
 
   test "splits a venue into the building and the place at the first comma" do
