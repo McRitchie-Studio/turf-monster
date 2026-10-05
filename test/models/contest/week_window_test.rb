@@ -32,6 +32,15 @@ class Contest::WeekWindowTest < ActiveSupport::TestCase
     assert_equal 7, start.hour
   end
 
+  test "a game on the DST Sunday itself is in the same week as its Thursday" do
+    # A 23- or 25-hour day: midnight plus seven hours is 6 AM (or 8), not 7.
+    fall, spring = at(2026, 10, 27, 7, 0), at(2026, 3, 3, 7, 0)
+
+    assert_equal fall,   Contest::WeekWindow.start_for(at(2026, 11, 1, 11, 0))
+    assert_equal fall,   Contest::WeekWindow.start_for(at(2026, 10, 29, 18, 15))
+    assert_equal spring, Contest::WeekWindow.start_for(at(2026, 3, 8, 12, 0))
+  end
+
   test "a UTC instant is read in Denver, not on its own calendar day" do
     # Tuesday 10/6 02:15 UTC is Monday Night Football, 8:15 PM Denver on 10/5.
     monday_night = Time.utc(2026, 10, 6, 2, 15)

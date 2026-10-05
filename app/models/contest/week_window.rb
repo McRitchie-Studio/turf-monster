@@ -32,7 +32,7 @@ class Contest
     # The start of the week that contains `time`.
     def start_for(time)
       local = time.in_time_zone(ZONE)
-      start = local.beginning_of_day + START_HOUR.hours
+      start = local.change(hour: START_HOUR) # wall-clock 7: midnight + 7.hours is 6 AM on the fall-back Sunday
       start -= 1.day until start.wday == START_WDAY && start <= local
       start
     end
