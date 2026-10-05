@@ -24,6 +24,55 @@ class DevLiveScoresTest < ActionDispatch::IntegrationTest
     )
   end
 
+  # The play-by-play injector enters where a polling cycle does: a GamePlay
+  # row, then the two per-game updates — and no score moves, because a play is
+  # not a goal.
+  test "record_play stores a play, spends a timeout and tells the open board" do
+    contest = contests(:one)
+    contest.update!(starts_at: 1.hour.ago, status: "open")
+    slate_matchups(:m1).update!(game_slug: @game.slug)
+
+    streams = capture_turbo_stream_broadcasts([contest, :live]) do
+      post dev_live_scores_record_play_path,
+           params: { game_slug: @game.slug, team_slug: @home.slug, kind: "timeout" }, as: :json
+    end
+
+    assert_response :success
+    play = @game.reload.plays.sole
+    assert_equal "timeout", play.kind
+    assert_equal @home.slug, play.team_slug
+    assert_equal [2, 3], [@game.home_timeouts, @game.away_timeouts]
+    assert_equal 0, @game.goals.count
+    assert_equal %w[field plays rail status timeouts_team-a timeouts_team-b].map { |part| "game_#{@game.slug}_#{part}" }, streams.map { |s| s["target"] }.sort
+  end
+
+  test "record_play can move the chains, which puts the play on the rail" do
+    post dev_live_scores_record_play_path,
+         params: { game_slug: @game.slug, team_slug: @home.slug, kind: "first_down" }, as: :json
+
+    assert_response :success
+    assert_equal ["play", true], @game.reload.plays.sole.then { |play| [play.kind, play.first_down] }
+    assert_equal %w[first_down], Live::RailFeed.for(@game).map(&:kind)
+  end
+
+  test "record_play refuses a kind the feed has no word for" do
+    post dev_live_scores_record_play_path,
+         params: { game_slug: @game.slug, team_slug: @home.slug, kind: "fireworks" }, as: :json
+
+    assert_response :unprocessable_entity
+    assert_equal 0, GamePlay.count
+  end
+
+  test "clear_game takes the plays and the timeout count with it" do
+    post dev_live_scores_record_play_path,
+         params: { game_slug: @game.slug, team_slug: @home.slug, kind: "play" }, as: :json
+    post dev_live_scores_clear_game_path, params: { game_slug: @game.slug }, as: :json
+
+    assert_response :success
+    assert_equal 0, @game.reload.plays.count
+    assert_nil @game.home_timeouts
+  end
+
   test "each scoring type records its own point value" do
     { "touchdown" => 6, "field_goal" => 3, "two_point" => 2, "pat" => 1, "safety" => 2 }
       .each_with_index do |(type, points), index|

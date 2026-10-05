@@ -60,7 +60,7 @@ PendingTransaction.delete_all  if defined?(PendingTransaction)
 OutboundRequest.delete_all     if defined?(OutboundRequest)
 ErrorLog.delete_all            if defined?(ErrorLog)
 Message.delete_all             if defined?(Message)
-Goal.delete_all                if defined?(Goal)
+[Goal, GamePlay].each(&:delete_all) # scoring events, and the play-by-play beside them
 ApiKey.delete_all                 # FK → users; a key from a prior run would block User.delete_all
 
 # Users — wipe + reset the PK sequence so seeded users land at IDs 1..5.

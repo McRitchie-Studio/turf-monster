@@ -79,6 +79,7 @@ module Nfl
         @allow_settled = allow_settled
         @changes = []
         @anomalies = []
+        @summaries = {}
       end
 
       def call
@@ -333,6 +334,11 @@ module Nfl
         end
 
         detect_drift(game, row)
+
+        # LAST, and behind its own rescue: the play-by-play is something to
+        # watch, and nothing above it — a score, a settlement — may ever wait on
+        # it or fail because of it.
+        sync_plays(game, row)
       rescue Espn::Client::Error => e
         # One bad game must not cost us the other fifteen.
         @anomalies << Anomaly.new(kind: "fetch_failed", detail: "#{row.external_id}: #{e.message}")
@@ -383,10 +389,16 @@ module Nfl
           # "NE 3" — frozen on a card that has said FINAL for an hour.
           down_distance: row.down_distance,
           possession_text: row.possession_text,
-          possession_team_slug: possession_slug_for(row)
+          possession_team_slug: possession_slug_for(row),
+          # Timeouts left ride the same block and the same rule: nil when ESPN
+          # stops sending them, so a final card does not keep counting.
+          home_timeouts: row.home_timeouts, away_timeouts: row.away_timeouts
         )
         game.slug = slug_for(row, home, away) if game.slug.blank?
         game.save!
+        # Remembered for #sync_plays, which runs last and must know whether the
+        # card's situation moved even when no new play arrived with it.
+        @situation_moved = (game.saved_changes.keys & SITUATION_COLUMNS).any?
         game
       end
 
@@ -448,7 +460,7 @@ module Nfl
       # plays when a touchdown is overturned on review, and a Goal that
       # outlives its play would leave a contest scored on points nobody scored.
       def sync_scoring_plays(game, row)
-        payload = client.summary(event_id: row.external_id)
+        payload = summary_for(row)
 
         # THE FEED DECLINED TO ANSWER. An absent scoringPlays key is not an
         # empty game — it is a degraded 200 — and reconciling against it deletes
@@ -500,6 +512,85 @@ module Nfl
           @changes << change_for(game.reload, "reversed", team: goal.team, points: -goal.points,
                                                           scoring_type: goal.scoring_type)
         end
+      end
+
+      # ONE SUMMARY PER GAME PER CYCLE, whoever asks first. The scoring
+      # reconciliation and the play-by-play both read the same ~600 KB payload,
+      # and a touchdown is exactly the cycle on which both want it.
+      def summary_for(row)
+        @summaries[row.external_id] ||= client.summary(event_id: row.external_id)
+      end
+
+      # What the focus card shows between scores. A change to any of these is
+      # worth telling an open board about, play or no play.
+      SITUATION_COLUMNS = %w[
+        status period clock status_detail down_distance possession_text
+        possession_team_slug home_timeouts away_timeouts
+      ].freeze
+
+      # THE PLAY-BY-PLAY. Written for a reader watching the board, never read by
+      # anything that scores — see GamePlay.
+      #
+      # WHAT IT COSTS. The scoreboard already names every live game's most
+      # recent play, so the ordinary case spends NO request: that one row is
+      # stored and the cycle moves on. A summary is read in two cases only:
+      #
+      #   1. it is already in hand, because the score moved this cycle;
+      #   2. this is the FOCUS game — the one the board leads with — and the
+      #      scoreboard names a play we do not hold. The summary then fills in
+      #      every play since the last look, so the game people are actually
+      #      watching has no gaps, with its clock and down on each line.
+      #
+      # So a full Sunday afternoon costs one extra request per cycle, not nine,
+      # and the other eight games still get a feed — one that can miss a play
+      # when two land inside a single polling interval.
+      def sync_plays(game, row)
+        situation_moved = @situation_moved
+        @situation_moved = false
+        return unless row.status == "in_progress" || @summaries.key?(row.external_id)
+
+        created =
+          if (payload = play_summary_for(game, row))
+            PlaySync.call(game: game, rows: Espn::Plays.rows_from(payload), team_for: method(:team_for))
+          else
+            PlaySync.call(game: game, rows: [row.last_play].compact, team_for: method(:team_for), amend: false)
+          end
+
+        Contest::LiveBroadcast.plays_changed(game) if created.any? || situation_moved
+      rescue Espn::Client::Error => e
+        @anomalies << Anomaly.new(kind: "plays_fetch_failed", detail: "#{row.external_id}: #{e.message}")
+      rescue StandardError => e
+        ErrorLog.capture!(e)
+        @anomalies << Anomaly.new(kind: "plays_error", detail: "#{row.external_id}: #{e.class}: #{e.message}")
+      end
+
+      # The summary to read plays from, or nil when the scoreboard's one row is
+      # all this game gets this cycle. A summary with no `drives` block is the
+      # feed declining to answer, and is treated as no summary at all.
+      def play_summary_for(game, row)
+        payload = @summaries[row.external_id]
+        payload ||= summary_for(row) if backfill_plays?(game, row)
+
+        payload if Espn::Plays.reported?(payload)
+      end
+
+      def backfill_plays?(game, row)
+        return false unless row.last_play
+        return false unless focus_game_slug(game) == game.slug
+
+        !GamePlay.exists?(external_id: row.last_play.external_id)
+      end
+
+      # The game the board leads with, for the slot this row belongs to. Asked
+      # of the same ladder the pages use (Live::FocusGame), once per cycle.
+      def focus_game_slug(game)
+        @focus_game_slugs ||= {}
+        slot = [game.season_year, game.season_type, game.week]
+        return @focus_game_slugs[slot] if @focus_game_slugs.key?(slot)
+
+        @focus_game_slugs[slot] = ::Live::FocusGame.call(
+          Game.nfl.in_season_slot(year: slot[0], season_type: slot[1], week: slot[2]).to_a
+        )
       end
 
       # ESPN AMENDS A PLAY IT HAS ALREADY REPORTED, and the try is why.

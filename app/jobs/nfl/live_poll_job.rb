@@ -54,10 +54,21 @@ module Nfl
       nil
     else
       log(result)
+      start_watch
       result
     end
 
     private
+
+    # Hand over to the tight loop when there is a game to watch (see
+    # LiveWatchJob). After the cycle, so its gate reads statuses this tick just
+    # wrote; and rescued, because this job's own duty — the floor — is already
+    # done and must not be failed by a convenience stacked on top of it.
+    def start_watch
+      LiveWatchJob.ensure_running
+    rescue StandardError => e
+      ErrorLog.capture!(e)
+    end
 
     def log(result)
       return if result.quiet?

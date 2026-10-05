@@ -1,0 +1,32 @@
+<%# ONE TEAM'S TIMEOUTS, drawn as the bar at the left of its row on the hero
+    tile. Locals: game (Game), team (Team).
+
+    THE BAR WAS DECORATION (Alex, 2026-10-04): a strip of the team's accent
+    that said nothing the name beside it did not. It is now three segments, one
+    per timeout, lit while the team still holds it — so the count sits beside
+    the team it belongs to rather than in a legend somewhere else. Spent ones
+    go dark from the TOP, so what is left reads as a level.
+
+    Only while the game is being played and the feed is counting. Otherwise it
+    is the plain bar it always was, because a scheduled game has spent nothing
+    and a final one has nothing left to spend.
+
+    The tile gives the wrapper the id game_<slug>_timeouts_<team slug>, and
+    Contest::LiveBroadcast.plays_changed updates what is inside it. %>
+<%
+  accent = team_card_palette(team)[:accent]
+  left = team&.slug == game.home_team_slug ? game.home_timeouts : game.away_timeouts
+%>
+<% if game.live? && left %>
+  <span class="flex flex-col gap-1 h-full w-full" data-test="live-focus-timeouts"
+        data-team-slug="<%= team&.slug %>" data-timeouts="<%= left %>"
+        role="img" aria-label="<%= pluralize(left, "timeout") %> left"
+        title="<%= pluralize(left, "timeout") %> left">
+    <% 3.times do |segment| %>
+      <span class="flex-1 rounded-full"
+            style="background: <%= segment >= 3 - left ? accent : "rgba(255, 255, 255, 0.22)" %>"></span>
+    <% end %>
+  </span>
+<% else %>
+  <span class="block h-full w-full rounded-full" style="background: <%= accent %>"></span>
+<% end %>

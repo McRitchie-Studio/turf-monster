@@ -16,6 +16,8 @@ class Game < ApplicationRecord
   belongs_to :advancing_team, class_name: "Team", foreign_key: :advancing_team_slug, primary_key: :slug, optional: true
   belongs_to :survivor_round, optional: true
   has_many :goals, foreign_key: :game_slug, primary_key: :slug, dependent: :destroy
+  # Every play, scoring or not: the live board's play-by-play. See GamePlay.
+  has_many :plays, class_name: "GamePlay", foreign_key: :game_slug, primary_key: :slug, dependent: :delete_all
   has_many :nfl_team_total_projections, foreign_key: :game_slug, primary_key: :slug, dependent: :destroy
 
   # Games are shared across sports — the World Cup contests live in this same
@@ -221,6 +223,43 @@ class Game < ApplicationRecord
     # Both sides are already loaded on any board that renders this, so the
     # comparison is done in memory rather than firing a third query per tile.
     [ home_team, away_team ].compact.find { |team| team.slug == possession_team_slug }
+  end
+
+  # WHERE THE BALL IS, as yards from the AWAY team's goal line (0..100) — the
+  # one number a drawn field needs. The focus card draws the away end zone on
+  # the left and the home one on the right, so this is also "how far across".
+  #
+  # Read from `possession_text`, which is ESPN's own yard-line label ("CAR 32",
+  # or a bare "50" at midfield): the side of the field, then the yards from
+  # THAT team's goal line. nil whenever the label is missing or names a team
+  # that is not in this game — a ball drawn in a guessed place is worse than no
+  # ball.
+  def ball_yard_line
+    text = possession_text.to_s.strip
+    return 50 if text == "50"
+
+    side, yards = text.match(/\A([A-Z]{2,4})\s+(\d{1,2})\z/)&.captures
+    return nil unless side
+
+    side = Nfl::Espn::TeamMap.canonical(side)
+    if side == away_team&.short_name    then yards.to_i
+    elsif side == home_team&.short_name then 100 - yards.to_i
+    end
+  end
+
+  # WHERE THE CHAINS ARE: the line to gain, on the same 0..100 scale. The away
+  # team attacks toward 100 and the home team toward 0, and "& Goal" puts the
+  # line on the goal line itself. nil when there is no ball, no possession, or
+  # no distance to read.
+  def line_to_gain_yard_line
+    ball = ball_yard_line
+    return nil unless ball && possession_team_slug.present?
+
+    toward = possession_team_slug == away_team_slug ? 1 : -1
+    return (toward.positive? ? 100 : 0) if down_distance.to_s.match?(/&\s*goal/i)
+
+    to_go = down_distance.to_s[/&\s*(\d+)/, 1]
+    to_go && (ball + (toward * to_go.to_i)).clamp(0, 100)
   end
 
   # "3rd & 9", "4th & Goal". Verbatim from ESPN — pluralising downs and knowing

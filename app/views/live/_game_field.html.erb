@@ -1,0 +1,79 @@
+<%# WHO HAS THE BALL, AND WHERE — the middle third of the hero tile's rail.
+    Locals: game (Game).
+
+    Its own partial for the reason live/_game_status is: it changes every snap,
+    and Contest::LiveBroadcast.plays_changed updates just this (the tile gives
+    its wrapper the id game_<slug>_field) without repainting the tile.
+
+    THE FIELD IS DRAWN AWAY-LEFT, HOME-RIGHT, matching the tile's own order —
+    the away team is the top row, and reading order makes top-then-bottom into
+    left-then-right. Each end zone wears its team's field colour, so "driving
+    toward the blue end" is readable before any number is.
+
+    The end zones take 8% a side and the hundred yards share the 84% between,
+    which is where every `left:` below comes from. Inline colours and sizes
+    throughout: these are positions computed per snap, and a utility class
+    cannot be computed. %>
+<%
+  away = game.away_team
+  home = game.home_team
+  ball = game.live? ? game.ball_yard_line : nil
+  gain = game.live? ? game.line_to_gain_yard_line : nil
+  across = ->(yards) { (8 + (yards * 0.84)).round(2) }
+  away_field = normalize_hex(away&.card_background) || "#3a3f4b"
+  home_field = normalize_hex(home&.card_background) || "#3a3f4b"
+%>
+<% if game.live? %>
+  <%# THE DOWN, OVER THE FIELD IT DESCRIBES. This line used to read "DET on
+      ARI 41"; the ball below is now drawn as the offence's own mark, so who
+      has it no longer needs saying in words, and the down and the spot do.
+      The possession line stands in only when the feed sends no down. %>
+  <% if game.down_distance_label %>
+    <span class="text-lg font-bold text-white/90 leading-none truncate max-w-full"
+          data-test="live-focus-down"><%= game.down_distance_label %></span>
+  <% elsif game.possession_line %>
+    <span class="text-sm font-mono text-white/80 truncate max-w-full leading-none"
+          data-test="live-focus-possession"><%= game.possession_line %></span>
+  <% end %>
+
+  <div class="relative w-full max-w-[18rem] h-5 rounded overflow-hidden"
+       data-test="live-focus-field"
+       data-ball="<%= ball %>" data-line-to-gain="<%= gain %>"
+       role="img"
+       aria-label="<%= game.possession_line || "Field position unknown" %>"
+       style="background:
+                repeating-linear-gradient(90deg, transparent 0, transparent calc(8.4% - 1px), rgba(255,255,255,0.28) calc(8.4% - 1px), rgba(255,255,255,0.28) 8.4%) 8% 0 / 100% 100% no-repeat,
+                linear-gradient(180deg, #1f6b3a, #17512c);
+              box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18);">
+    <span class="absolute inset-y-0 left-0" style="width: 8%; background: <%= away_field %>; box-shadow: inset -1px 0 0 rgba(255,255,255,0.5)"></span>
+    <span class="absolute inset-y-0 right-0" style="width: 8%; background: <%= home_field %>; box-shadow: inset 1px 0 0 rgba(255,255,255,0.5)"></span>
+
+    <% if ball && gain && gain != ball %>
+      <%# What is left to make, as a band from the ball to the chains. %>
+      <span class="absolute inset-y-0" data-test="live-focus-field-to-go"
+            style="left: <%= across.([ball, gain].min) %>%; width: <%= ((gain - ball).abs * 0.84).round(2) %>%; background: rgba(250, 204, 21, 0.28)"></span>
+      <span class="absolute inset-y-0" data-test="live-focus-field-gain"
+            style="left: <%= across.(gain) %>%; width: 2px; margin-left: -1px; background: #facc15"></span>
+    <% end %>
+
+    <% if ball %>
+      <%# THE BALL IS THE TEAM THAT HAS IT (Alex, 2026-10-04). A white dot said
+          where; the offence's own mark says where AND whose, which the line
+          above otherwise has to be read for. A plain dot remains for the snap
+          on which the feed names a spot but no possession. %>
+      <% holder = game.possession_team %>
+      <% if holder&.emoji.present? %>
+        <span class="absolute top-1/2 leading-none" data-test="live-focus-field-ball"
+              data-team-slug="<%= holder.slug %>"
+              style="left: <%= across.(ball) %>%; transform: translate(-50%, -50%); font-size: 0.95rem;
+                     filter: drop-shadow(0 0 2px rgba(8, 10, 16, 0.9)) drop-shadow(0 0 4px rgba(8, 10, 16, 0.6));
+                     transition: left 600ms ease"><%= holder.emoji %></span>
+      <% else %>
+        <span class="absolute top-1/2 rounded-full" data-test="live-focus-field-ball"
+              style="left: <%= across.(ball) %>%; width: 0.6rem; height: 0.6rem; margin: -0.3rem 0 0 -0.3rem;
+                     background: #fff; box-shadow: 0 0 0 2px rgba(8, 10, 16, 0.75), 0 0 6px rgba(255,255,255,0.6);
+                     transition: left 600ms ease"></span>
+      <% end %>
+    <% end %>
+  </div>
+<% end %>

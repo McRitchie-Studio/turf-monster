@@ -46,13 +46,64 @@ class LiveFocusSituationRenderTest < ActionDispatch::IntegrationTest
     rail_for(slug)&.css("[data-test='live-focus-#{role}']")&.first&.text&.strip
   end
 
-  test "a live game spends the rail on the clock, the down and the possession" do
+  test "a live game spends the rail's top third on the clock alone" do
     get live_path
 
     assert_response :success
     assert_equal "Q3 · 6:06", line(@live.slug, "clock")
-    assert_equal "3rd & 9", line(@live.slug, "down")
-    assert_equal "TMB on TMB 13", line(@live.slug, "possession")
+    assert_nil line(@live.slug, "down"), "the down moved to the middle third, over the field"
+    assert_nil line(@live.slug, "possession")
+  end
+
+  # ── THE MIDDLE THIRD: WHO HAS THE BALL, AND WHERE ────────────────────────
+  #
+  # The field is drawn away-left, home-right, with 8% end zones and the hundred
+  # yards across the 84% between. TMB is the away side here and has the ball on
+  # its own 13, third and nine: the ball sits 13 yards in from the left goal
+  # line and the chains are at the 22.
+  def field_for(slug)
+    css_select("[data-focus-slug='#{slug}'] [data-role='field-frame']").first
+  end
+
+  test "the middle third names who has the ball and draws where" do
+    get live_path
+
+    field = field_for(@live.slug)
+    assert_equal "game_#{@live.slug}_field", field["id"]
+    # The down, not "TMB on TMB 13": the ball below is drawn as the offence's
+    # own mark, so who has it is not said twice.
+    assert_equal "3rd & 9", field.css("[data-test='live-focus-down']").first.text.strip
+    assert_empty field.css("[data-test='live-focus-possession']")
+
+    drawn = field.css("[data-test='live-focus-field']").first
+    assert_equal %w[13 22], [drawn["data-ball"], drawn["data-line-to-gain"]]
+    assert_includes field.css("[data-test='live-focus-field-ball']").first["style"], "left: 18.92%"
+    # The ball is drawn as the team that has it.
+    assert_equal "team-b", field.css("[data-test='live-focus-field-ball']").first["data-team-slug"]
+    assert_equal teams(:team_b).emoji, field.css("[data-test='live-focus-field-ball']").first.text.strip
+    assert_includes field.css("[data-test='live-focus-field-gain']").first["style"], "left: 26.48%"
+  end
+
+  test "with no down the middle third falls back to naming who has the ball" do
+    @live.update!(down_distance: nil)
+    get live_path
+
+    assert_equal "TMB on TMB 13", field_for(@live.slug).css("[data-test='live-focus-possession']").first.text.strip
+  end
+
+  test "the top third says where the game is played, above a bold clock" do
+    @live.update_column(:venue, "Arrowhead Stadium, Kansas City, MO")
+    get live_path
+
+    assert_equal "Arrowhead Stadium, Kansas City, MO", line(@live.slug, "venue")
+    clock = rail_for(@live.slug).css("[data-test='live-focus-clock']").first
+    assert_includes clock["class"].split, "font-extrabold"
+  end
+
+  test "a game nobody is playing draws no field" do
+    get live_path
+
+    assert_empty field_for(@scheduled.slug).css("[data-test='live-focus-field']")
   end
 
   # THE KICKOFF IS GONE FROM A LIVE GAME'S RAIL. The date a game started is not
@@ -101,14 +152,14 @@ class LiveFocusSituationRenderTest < ActionDispatch::IntegrationTest
     @live.update!(down_distance: nil, status_detail: "Halftime", clock: "0:00", period: 2)
     get live_path
 
-    assert_equal "Halftime", line(@live.slug, "down")
+    assert_equal "Halftime", line(@live.slug, "detail")
   end
 
   test "a live game with no down does not restate its own clock in the big line" do
     @live.update!(down_distance: nil)
     get live_path
 
-    assert_nil line(@live.slug, "down"),
+    assert_nil line(@live.slug, "detail"),
       "'6:06 - 3rd' is the clock line again — the rail leaves the slot empty rather than echo it"
     assert_equal "Q3 · 6:06", line(@live.slug, "clock")
   end
@@ -163,31 +214,43 @@ class LiveFocusSituationRenderTest < ActionDispatch::IntegrationTest
   # as it was. So the status block keeps h-1/2 and the frame below reaches up
   # past it instead, by a fixed 1.25rem.
   #
+  # THAT IS NOW THE TAKEOVER'S LAYOUT, NOT THE RESTING ONE (Alex, 2026-10-04).
+  # At rest the rail is three thirds — status, field, feed — and the markup says
+  # h-1/3 on each. The halves and the reach come back for the length of a score,
+  # from one rule in live/_score_animations keyed on either wheel turning. Both
+  # halves of that are pinned below: the thirds in the markup, the takeover in
+  # the stylesheet.
+  #
   # PINNED AS A PAIR. The height and the negative margin have to agree or the
   # rail's floor stops being the card's edge: half plus the overlap, started an
   # overlap early, lands the bottom back on H whatever H is. Nothing else in the
   # suite would notice them drifting apart, and the e2e spec that measures the
   # RESULT (flush at the bottom, crossing the divider at the top) runs in a lane
   # this one does not.
-  test "the status block keeps the rows' seam for its words" do
+  test "at rest the rail is three thirds: status, field, feed" do
     score!(@live)
     get live_path
 
-    status = css_select("[data-focus-slug='#{@live.slug}'] [data-role='status-frame']").first
-    assert_includes status["class"].split, "h-1/2",
-      "the words centre in the same box they always did"
+    rail = css_select("[data-focus-slug='#{@live.slug}'] [data-test='live-focus-rail']").first
+    thirds = rail.element_children.map { |child| child["data-role"] }
+
+    assert_equal %w[status-frame field-frame event-feed-frame], thirds
+    rail.element_children.each do |child|
+      assert_includes child["class"].split, "h-1/3", "#{child['data-role']} takes a third at rest"
+    end
   end
 
-  test "the portrait's frame reaches above the seam and still ends on the floor" do
-    score!(@live)
+  test "a score gives the words their half back and lets the portrait reach past the seam" do
     get live_path
 
-    frame = css_select("[data-focus-slug='#{@live.slug}'] [data-role='event-feed-frame']").first
-    classes = frame["class"].split
-
-    assert_includes classes, "-mt-5", "the frame starts 1.25rem above the seam"
-    assert_includes classes, "h-[calc(50%+1.25rem)]",
-      "and is that much taller, so its floor is still the card's edge"
+    css = response.body
+    takeover = /\[data-test="live-focus-rail"\]:has\(\.tt-revealing, \.tt-status-revealing\) > \[data-role="%s"\] \{\s*%s/
+    assert_match format(takeover.source, "status-frame", "height: 50%;").then { |s| Regexp.new(s) }, css,
+      "the words centre in the same half they always did"
+    assert_match format(takeover.source, "field-frame", "height: 0;").then { |s| Regexp.new(s) }, css,
+      "the field folds away for the length of the takeover"
+    assert_match format(takeover.source, "event-feed-frame", 'height: calc\(50% \+ 1\.25rem\);\s*margin-top: -1\.25rem;').then { |s| Regexp.new(s) }, css,
+      "the frame is half plus the reach and starts the reach early, so its floor is still the card's edge"
   end
 
   # ONLY THE PORTRAIT GETS THE OVERLAP.
@@ -199,17 +262,20 @@ class LiveFocusSituationRenderTest < ActionDispatch::IntegrationTest
   #
   # Padding on the pane, not a shorter pane: the panes are thirds of a 300%
   # track and the wheel's arithmetic depends on them staying equal.
-  test "the events list pays back the frame's reach so only the portrait bleeds" do
+  #
+  # AT REST THERE IS NO REACH TO PAY BACK: the frame only reaches during a
+  # takeover, when the list pane is rolled out of the window. So the list fills
+  # its third from the top, and its fade sits at the top of the frame.
+  test "the events list fills its third, with its fade at the top of it" do
     score!(@live)
     get live_path
 
     frame = css_select("[data-focus-slug='#{@live.slug}'] [data-role='event-feed-frame']").first
     list  = frame.css("[data-test='live-focus-events']").first.parent
 
-    assert_includes list["class"].split, "pt-5",
-      "the list starts at the seam, not at the top of a frame that reaches past it"
-    assert_includes frame.css(".tt-fade-top").first["class"].split, "top-5",
-      "and its fade follows it — the fade marks the top of the LIST"
+    assert_not_includes list["class"].split, "pt-5"
+    assert_includes frame.css(".tt-fade-top").first["class"].split, "top-0",
+      "the fade marks the top of the LIST"
   end
 
   # The event pane is hidden from assistive tech until the page fills it in.

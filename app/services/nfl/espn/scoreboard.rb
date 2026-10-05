@@ -20,8 +20,19 @@ module Nfl
         # only while a game is actually being played: ESPN omits the block
         # before kickoff and after the final whistle, and these three then
         # parse to nil, which is what the caller writes through.
-        :down_distance, :possession_text, :possession_abbr
-      )
+        :down_distance, :possession_text, :possession_abbr,
+        # THE PLAY-BY-PLAY's free half. The same situation block names the most
+        # recent play and how many timeouts each side has left, so a cycle
+        # learns both for every live game without a second request. `last_play`
+        # is an Nfl::Espn::Plays::Row or nil.
+        :last_play, :home_timeouts, :away_timeouts
+      ) do
+        # Defaulted, so a row built without them (every row before the
+        # play-by-play existed) still stands.
+        def initialize(last_play: nil, home_timeouts: nil, away_timeouts: nil, **rest)
+          super(last_play: last_play, home_timeouts: home_timeouts, away_timeouts: away_timeouts, **rest)
+        end
+      end
 
       def self.rows_from(payload)
         (payload["events"] || []).filter_map { |event| row_from(event) }
@@ -56,7 +67,12 @@ module Nfl
           detail:      type["shortDetail"],
           down_distance:   text_from(situation["downDistanceText"]),
           possession_text: text_from(situation["possessionText"]),
-          possession_abbr: possession_abbr_from(situation, competitors)
+          possession_abbr: possession_abbr_from(situation, competitors),
+          last_play:       Plays.row_from_last_play(
+            situation, competitors: competitors, period: status["period"], clock: status["displayClock"]
+          ),
+          home_timeouts:   timeouts_from(situation["homeTimeouts"]),
+          away_timeouts:   timeouts_from(situation["awayTimeouts"])
         )
       end
 
@@ -70,6 +86,17 @@ module Nfl
 
         stripped = value.to_s.strip
         stripped.empty? ? nil : stripped
+      end
+
+      # Timeouts left, 0..3. Absent before kickoff and after the whistle, and
+      # nil then rather than 0 — "none left" is a fact about a live game, and a
+      # scheduled one has not spent any.
+      def self.timeouts_from(value)
+        return nil if value.nil? || value.to_s.strip.empty?
+
+        Integer(value).clamp(0, 3)
+      rescue ArgumentError, TypeError
+        nil
       end
 
       # WHO HAS THE BALL, as a team ABBREVIATION rather than ESPN's competitor
