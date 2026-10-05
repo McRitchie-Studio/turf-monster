@@ -142,7 +142,7 @@ class ContestLiveRenderTest < ActionDispatch::IntegrationTest
 
     shown = css_select("[data-test='live-focus-game']").reject { |el| el["style"].to_s.include?("display: none") }
     assert_equal @upcoming.slug, shown.first["data-focus-slug"]
-    assert_select "[x-data=?]", "{ focus: '#{@upcoming.slug}' }"
+    assert_select "[x-data=?]", "{ focus: '#{@upcoming.slug}', plays: false }"
   end
 
   # The chip and the full tile draw the same game, and a score has to light both.
@@ -243,6 +243,19 @@ class ContestLiveRenderTest < ActionDispatch::IntegrationTest
     assert_select "[data-test='live-play'][data-play-id='EV101']", text: /A\.Runner up the middle for 4 yards\./
   end
 
+  # Open, the list took more of the page than the game above it. At rest it is
+  # one line; the toggle's state lives on the page wrapper, outside the stream
+  # target, so a play arriving does not close a list the reader opened.
+  test "the play-by-play is collapsed to one line until it is opened" do
+    start_game_with_plays
+    get_live
+
+    assert_select "[x-data*='plays: false']", 1
+    assert_select "#game_#{@upcoming.slug}_plays [data-test='live-plays-list'][x-show='plays'][style*='display: none']", 1
+    assert_select "#game_#{@upcoming.slug}_plays [data-test='live-plays-toggle']", 1
+    assert_select "#game_#{@upcoming.slug}_plays [data-test='live-plays-latest']", text: /Two-Minute Warning/
+  end
+
   test "timeouts, flags and breaks are marked as what they are" do
     start_game_with_plays
     get_live
@@ -253,12 +266,13 @@ class ContestLiveRenderTest < ActionDispatch::IntegrationTest
     assert_select "[data-test='live-play'][data-play-kind='play']", text: /Flag|Timeout\b(?! #)/, count: 0
   end
 
-  test "each side's remaining timeouts are counted on the feed" do
+  # On the bar at the left of each team's own row, not in a legend.
+  test "each side's remaining timeouts are counted on its own row" do
     start_game_with_plays
     get_live
 
-    assert_select "[data-test='live-plays-timeouts-team'][data-team-slug='#{@upcoming.home_team_slug}'][data-timeouts='1']", 1
-    assert_select "[data-test='live-plays-timeouts-team'][data-team-slug='#{@upcoming.away_team_slug}'][data-timeouts='3']", 1
+    assert_select "#game_#{@upcoming.slug}_timeouts_#{@upcoming.home_team_slug} [data-test='live-focus-timeouts'][data-timeouts='1']", 1
+    assert_select "#game_#{@upcoming.slug}_timeouts_#{@upcoming.away_team_slug} [data-test='live-focus-timeouts'][data-timeouts='3']", 1
   end
 
   test "a live game with no play yet says so; a scheduled game shows no feed" do

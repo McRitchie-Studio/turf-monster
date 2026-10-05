@@ -46,7 +46,7 @@ class Contest::LiveBroadcastTest < ActiveSupport::TestCase
       Contest::LiveBroadcast.plays_changed(@game)
     end
 
-    assert_equal %w[field plays rail status].map { |part| "game_#{@game.slug}_#{part}" }, streams.map { |s| s["target"] }.sort
+    assert_equal %w[field plays rail status timeouts_team-a timeouts_team-b].map { |part| "game_#{@game.slug}_#{part}" }, streams.map { |s| s["target"] }.sort
     assert_equal %w[update], streams.map { |s| s["action"] }.uniq
     assert_includes streams.map(&:to_html).join, "Timeout #2 by TMA at 03:42."
     assert_includes streams.map(&:to_html).join, "Q4 · 3:42"

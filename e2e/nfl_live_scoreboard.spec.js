@@ -1435,9 +1435,16 @@ test.describe("Contest live page play-by-play", () => {
     await expect(feed).toBeVisible({ timeout: 10000 });
     const rows = feed.locator('[data-test="live-play"]');
     await expect(rows).toHaveCount(1);
+    // COLLAPSED AT REST: one line, the newest play in it, the list shut.
+    await expect(feed.locator('[data-test="live-plays-latest"]')).toContainText("E2E runner up the middle");
+    await expect(rows.first()).toBeHidden();
+    // Open it. The state lives on the page wrapper, so the NEXT play — which
+    // replaces everything inside this panel — must find it still open.
+    await feed.locator('[data-test="live-plays-toggle"]').click();
+    await expect(rows.first()).toBeVisible();
     await expect(rows.first()).toContainText("E2E runner up the middle for 4 yards.");
     // The game went live with all three timeouts a side.
-    const pips = feed.locator(`[data-test="live-plays-timeouts-team"][data-team-slug="${teamSlug}"]`);
+    const pips = focused.locator(`[data-test="live-focus-timeouts"][data-team-slug="${teamSlug}"]`);
     await expect(pips).toHaveAttribute("data-timeouts", "3");
 
     await recordPlay(page, gameSlug, teamSlug, "timeout", "Timeout #1 by E2E.");
@@ -1445,6 +1452,7 @@ test.describe("Contest live page play-by-play", () => {
     // Newest first, marked as a timeout, and the team is one short.
     await expect(rows).toHaveCount(2, { timeout: 10000 });
     await expect(rows.first()).toHaveAttribute("data-play-kind", "timeout");
+    await expect(rows.first()).toBeVisible();
     await expect(rows.first()).toContainText("Timeout #1 by E2E.");
     await expect(pips).toHaveAttribute("data-timeouts", "2");
 

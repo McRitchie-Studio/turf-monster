@@ -43,7 +43,7 @@ class DevLiveScoresTest < ActionDispatch::IntegrationTest
     assert_equal @home.slug, play.team_slug
     assert_equal [2, 3], [@game.home_timeouts, @game.away_timeouts]
     assert_equal 0, @game.goals.count
-    assert_equal %w[field plays rail status].map { |part| "game_#{@game.slug}_#{part}" }, streams.map { |s| s["target"] }.sort
+    assert_equal %w[field plays rail status timeouts_team-a timeouts_team-b].map { |part| "game_#{@game.slug}_#{part}" }, streams.map { |s| s["target"] }.sort
   end
 
   test "record_play can move the chains, which puts the play on the rail" do

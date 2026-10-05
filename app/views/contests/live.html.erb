@@ -41,7 +41,7 @@
     } catch (e) { /* bad JSON or storage unavailable: stay on the live board */ }
   })();
 </script>
-<div class="max-w-7xl mx-auto px-4 py-6" x-data="{ focus: '<%= @focus_slug %>' }">
+<div class="max-w-7xl mx-auto px-4 py-6" x-data="{ focus: '<%= @focus_slug %>', plays: false }">
   <%# Single live stream for all real-time read updates (strip / focus /
       leaderboard / goal-feed). Chat keeps its own [@contest, :messages]
       subscription inside the chat panel — don't duplicate it here.

@@ -24,7 +24,14 @@
   home_field = normalize_hex(home&.card_background) || "#3a3f4b"
 %>
 <% if game.live? %>
-  <% if game.possession_line %>
+  <%# THE DOWN, OVER THE FIELD IT DESCRIBES. This line used to read "DET on
+      ARI 41"; the ball below is now drawn as the offence's own mark, so who
+      has it no longer needs saying in words, and the down and the spot do.
+      The possession line stands in only when the feed sends no down. %>
+  <% if game.down_distance_label %>
+    <span class="text-lg font-bold text-white/90 leading-none truncate max-w-full"
+          data-test="live-focus-down"><%= game.down_distance_label %></span>
+  <% elsif game.possession_line %>
     <span class="text-sm font-mono text-white/80 truncate max-w-full leading-none"
           data-test="live-focus-possession"><%= game.possession_line %></span>
   <% end %>
@@ -69,8 +76,4 @@
       <% end %>
     <% end %>
   </div>
-<% elsif game.venue.present? %>
-  <%# No ball to place before kickoff or after the whistle. Where the game is
-      played is the one fact about its place that still holds. %>
-  <span class="text-xs font-medium text-white/60 truncate max-w-full" data-test="live-focus-venue"><%= game.venue %></span>
 <% end %>

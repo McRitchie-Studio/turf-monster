@@ -16,7 +16,6 @@
     runs once per game in the week, and most of a week is not being played. %>
 <%
   plays = game.status == "scheduled" ? [] : game.plays.newest_first.limit(GamePlay::FEED_LIMIT).to_a
-  sides = [[game.away_team, game.away_timeouts], [game.home_team, game.home_timeouts]]
   # What marks a play that is not an ordinary snap. Inline colours, not
   # utilities: these four are the feed's whole vocabulary and must not depend
   # on which classes the last stylesheet build happened to scan.
@@ -29,37 +28,33 @@
   }
 %>
 <% if plays.any? || game.live? %>
-  <div class="card p-0 mt-3 overflow-hidden" data-test="live-plays" data-game-slug="<%= game.slug %>">
-    <div class="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-subtle">
-      <h2 class="text-sm font-bold uppercase tracking-wider text-secondary whitespace-nowrap">Play by Play</h2>
+  <%# COLLAPSED BY DEFAULT (Alex, 2026-10-04): open, the list took more of the
+      page than the game above it. At rest this is one line — the heading, the
+      newest play, the timeouts — and the list opens on a click.
 
-      <%# TIMEOUTS LEFT, three pips a side. Only while the game is being played:
-          ESPN stops sending the count at the whistle, and a final card that
-          still showed two left would be counting something that is over. %>
-      <% if game.live? && sides.any? { |_, left| left } %>
-        <div class="flex items-center gap-4" data-test="live-plays-timeouts">
-          <% sides.each do |team, left| %>
-            <% next if left.nil? %>
-            <span class="inline-flex items-center gap-1.5 text-xs font-bold text-secondary"
-                  title="<%= team&.short_name %>: <%= pluralize(left, "timeout") %> left"
-                  data-test="live-plays-timeouts-team" data-team-slug="<%= team&.slug %>" data-timeouts="<%= left %>">
-              <span><%= team&.emoji %></span>
-              <span class="tabular-nums"><%= team&.short_name %></span>
-              <span class="inline-flex items-center gap-0.5" aria-hidden="true">
-                <% 3.times do |pip| %>
-                  <span class="h-2 w-2 rounded-full"
-                        style="background: <%= pip < left ? "#fb923c" : "rgba(148, 163, 184, 0.25)" %>"></span>
-                <% end %>
-              </span>
-              <span class="sr-only"><%= pluralize(left, "timeout") %> left</span>
-            </span>
-          <% end %>
-        </div>
-      <% end %>
+      `plays` lives on the page wrapper beside `focus` (contests/live.html.erb),
+      OUTSIDE this stream target, for the reason `focus` does: a play replaces
+      everything in here every twenty seconds, and a toggle stored among it
+      would close itself each time. The inline display:none is the first-paint
+      state, so the list does not flash open before Alpine boots. %>
+  <div class="card p-0 mt-3 overflow-hidden" data-test="live-plays" data-game-slug="<%= game.slug %>">
+    <div class="flex items-center justify-between gap-3 px-4 py-2">
+      <button type="button" class="flex items-center gap-2 min-w-0 flex-1 text-left"
+              data-test="live-plays-toggle"
+              @click="plays = !plays" :aria-expanded="plays.toString()" aria-expanded="false">
+        <span class="text-xs text-muted transition-transform" :class="plays && 'rotate-90'" aria-hidden="true">&#9656;</span>
+        <h2 class="text-sm font-bold uppercase tracking-wider text-secondary whitespace-nowrap">Play by Play</h2>
+        <% if plays.first %>
+          <span class="min-w-0 truncate text-xs text-muted" x-show="!plays" data-test="live-plays-latest">
+            <%= [plays.first.clock_label, plays.first.text].compact.join(" · ") %>
+          </span>
+        <% end %>
+      </button>
     </div>
 
     <% if plays.any? %>
-      <ol class="tt-play-feed max-h-72 overflow-y-auto" data-test="live-plays-list">
+      <ol class="tt-play-feed max-h-72 overflow-y-auto border-t border-subtle" data-test="live-plays-list"
+          x-show="plays" style="display: none">
         <% plays.each_with_index do |play, index| %>
           <% ink = kind_ink[play.kind] %>
           <% team = [game.away_team, game.home_team].compact.find { |side| side.slug == play.team_slug } %>
@@ -100,7 +95,8 @@
         <% end %>
       </ol>
     <% else %>
-      <p class="px-4 py-4 text-sm text-muted" data-test="live-plays-empty">Waiting for the first play.</p>
+      <p class="px-4 py-3 text-sm text-muted border-t border-subtle" data-test="live-plays-empty"
+         x-show="plays" style="display: none">Waiting for the first play.</p>
     <% end %>
   </div>
 <% end %>

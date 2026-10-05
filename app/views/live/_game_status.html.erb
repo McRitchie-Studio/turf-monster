@@ -7,13 +7,20 @@
     seconds would wipe one mid-flight. So Contest::LiveBroadcast.plays_changed
     updates just this (the tile gives its wrapper the id game_<slug>_status)
     and the clock, the down and the ball keep moving between scores. %>
+<%# WHERE IT IS PLAYED, first, in every state: "Lumen Field, Seattle, WA",
+    "Tottenham Hotspur Stadium, London". It is the one line here that never
+    changes, which is why it is the quietest. %>
+<% if game.venue.present? %>
+  <span class="text-[11px] font-medium text-white/60 truncate max-w-full leading-none"
+        data-test="live-focus-venue"><%= game.venue %></span>
+<% end %>
 <% if game.live? %>
   <%# THE CLOCK LINE. `status_detail` says the same thing in
       ESPN's words ("11:49 - 3rd"); this says it in ours, and
       only one of them gets the line. %>
   <div class="flex items-center justify-center gap-2">
     <% if game.period_clock_label %>
-      <span class="text-xs font-bold uppercase tracking-wider text-white/60 tabular-nums"
+      <span class="text-lg font-extrabold uppercase tracking-wide text-white tabular-nums leading-none"
             data-test="live-focus-clock"><%= game.period_clock_label %></span>
     <% end %>
     <span class="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-red-400">
@@ -29,14 +36,15 @@
       would be the loudest line on the card saying nothing new. %>
   <% detail = game.status_detail.presence %>
   <% detail = nil if detail && game.clock.present? && detail.include?(game.clock) %>
-  <% headline = game.down_distance_label || detail %>
-  <% if headline %>
+  <%# THE DOWN MOVED TO THE MIDDLE THIRD (Alex, 2026-10-04), over the field it
+      describes — see live/_game_field. What is left for this line is the
+      detail that stands in when there is no down at all: "Halftime", "End of
+      3rd". The clock above took the size the down used to have. %>
+  <% if detail && game.down_distance_label.blank? %>
     <span class="text-lg font-bold text-white/90 leading-none truncate max-w-full"
-          data-test="live-focus-down"><%= headline %></span>
+          data-test="live-focus-detail"><%= detail %></span>
   <% end %>
 
-  <%# Who has the ball is no longer said here: it moved to the middle third,
-      beside the field that shows where (live/_game_field). %>
 <% else %>
   <% if game.kickoff_at %>
     <time datetime="<%= game.kickoff_at.utc.iso8601 %>" data-role="kickoff-date"

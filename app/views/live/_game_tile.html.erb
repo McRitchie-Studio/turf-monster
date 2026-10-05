@@ -117,8 +117,15 @@
               style="width: 34%;
                      background: linear-gradient(90deg, transparent, <%= palette[:accent] %>, transparent)"></span>
 
-        <span class="nfl-rail relative rounded-full flex-shrink-0 <%= hero ? "w-1.5 h-14" : "w-1 h-8" %>"
-              style="background: <%= palette[:accent] %>"></span>
+        <% if hero %>
+          <%# The hero's bar counts the team's timeouts — see live/_game_timeouts.
+              Still `.nfl-rail`, so the scoring pulse finds it as before. %>
+          <span class="nfl-rail relative flex-shrink-0 w-2 h-14"
+                id="game_<%= game.slug %>_timeouts_<%= team&.slug %>"><%= render "live/game_timeouts", game: game, team: team %></span>
+        <% else %>
+          <span class="nfl-rail relative rounded-full flex-shrink-0 w-1 h-8"
+                style="background: <%= palette[:accent] %>"></span>
+        <% end %>
         <span class="relative leading-none flex-shrink-0 <%= hero ? "text-4xl" : "text-xl" %>"
               style="text-shadow: <%= palette[:mascot_shadow] %>"><%= team&.emoji %></span>
         <%# Same colour convention as contests/_multi_week_team_card: the MASCOT

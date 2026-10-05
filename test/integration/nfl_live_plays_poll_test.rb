@@ -145,7 +145,7 @@ class NflLivePlaysPollTest < ActionDispatch::IntegrationTest
 
     streams = capture_turbo_stream_broadcasts([contest, :live]) { cycle(client) }
 
-    assert_equal %w[field plays rail status].map { |part| "game_team-a-vs-team-b-pre4_#{part}" },
+    assert_equal %w[field plays rail status timeouts_team-a timeouts_team-b].map { |part| "game_team-a-vs-team-b-pre4_#{part}" },
                  streams.map { |stream| stream["target"] }.sort
     assert_equal %w[update], streams.map { |stream| stream["action"] }.uniq
     feed = streams.find { |stream| stream["target"].end_with?("_plays") }.to_html
@@ -173,7 +173,7 @@ class NflLivePlaysPollTest < ActionDispatch::IntegrationTest
       cycle(StubClient.new(scoreboard: scoreboard(last: "EV1101", home_timeouts: 1)))
     end
 
-    assert_equal 4, streams.length
+    assert_equal 6, streams.length
     assert_equal 1, game.home_timeouts
   end
 

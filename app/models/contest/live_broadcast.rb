@@ -23,7 +23,7 @@ class Contest
   #                                         chain so a flurry reads in order.
   #                                         See contests/_live_script.
   #
-  # PLUS FOUR PER GAME, on the same stream, for the play-by-play — see
+  # PLUS SIX PER GAME, on the same stream, for the play-by-play — see
   # #plays_changed. They are not part of the four above: a score sends those,
   # a play sends these, and neither count changes the other.
   #
@@ -62,13 +62,15 @@ class Contest
       end
 
       # A play was stored, or the situation moved (the clock, the down, a
-      # timeout). FOUR SMALL TARGETS, per game rather than per contest, and
+      # timeout). SIX SMALL TARGETS, per game rather than per contest, and
       # deliberately NOT the focus panel:
       #
       #   game_<slug>_status  (update)  — the rail's top third: clock and down
       #   game_<slug>_field   (update)  — its middle: who has the ball, and where
       #   game_<slug>_rail    (update)  — its bottom: scores, turnovers, first downs
       #   game_<slug>_plays   (update)  — the play-by-play under the tile
+      #   game_<slug>_timeouts_<team>  (update, one per side)  — the bar at the
+      #                                  left of each team's row, as timeouts left
       #
       # The focus panel hosts the scoring animations, and this fires every
       # polling interval of a live game. Replacing the panel that often would
@@ -87,6 +89,10 @@ class Contest
 
         affected_contests(game).each do |contest|
           GAME_TARGETS.each { |suffix, partial| update_game(contest, game, suffix, partial) }
+          # And each side's timeouts, on the bar at the left of its own row.
+          [game.away_team, game.home_team].compact.each do |team|
+            update_game(contest, game, "timeouts_#{team.slug}", "live/game_timeouts", team: team)
+          end
         end
       end
 
@@ -150,12 +156,12 @@ class Contest
         ErrorLog.capture!(e)
       end
 
-      def update_game(contest, game, suffix, partial)
+      def update_game(contest, game, suffix, partial, **locals)
         Turbo::StreamsChannel.broadcast_update_to(
           [contest, :live],
           target:  "game_#{game.slug}_#{suffix}",
           partial: partial,
-          locals:  { game: game }
+          locals:  { game: game, **locals }
         )
       rescue => e
         ErrorLog.capture!(e)
