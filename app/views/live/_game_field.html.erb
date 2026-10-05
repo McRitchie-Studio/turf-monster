@@ -50,10 +50,23 @@
     <% end %>
 
     <% if ball %>
-      <span class="absolute top-1/2 rounded-full" data-test="live-focus-field-ball"
-            style="left: <%= across.(ball) %>%; width: 0.6rem; height: 0.6rem; margin: -0.3rem 0 0 -0.3rem;
-                   background: #fff; box-shadow: 0 0 0 2px rgba(8, 10, 16, 0.75), 0 0 6px rgba(255,255,255,0.6);
-                   transition: left 600ms ease"></span>
+      <%# THE BALL IS THE TEAM THAT HAS IT (Alex, 2026-10-04). A white dot said
+          where; the offence's own mark says where AND whose, which the line
+          above otherwise has to be read for. A plain dot remains for the snap
+          on which the feed names a spot but no possession. %>
+      <% holder = game.possession_team %>
+      <% if holder&.emoji.present? %>
+        <span class="absolute top-1/2 leading-none" data-test="live-focus-field-ball"
+              data-team-slug="<%= holder.slug %>"
+              style="left: <%= across.(ball) %>%; transform: translate(-50%, -50%); font-size: 0.95rem;
+                     filter: drop-shadow(0 0 2px rgba(8, 10, 16, 0.9)) drop-shadow(0 0 4px rgba(8, 10, 16, 0.6));
+                     transition: left 600ms ease"><%= holder.emoji %></span>
+      <% else %>
+        <span class="absolute top-1/2 rounded-full" data-test="live-focus-field-ball"
+              style="left: <%= across.(ball) %>%; width: 0.6rem; height: 0.6rem; margin: -0.3rem 0 0 -0.3rem;
+                     background: #fff; box-shadow: 0 0 0 2px rgba(8, 10, 16, 0.75), 0 0 6px rgba(255,255,255,0.6);
+                     transition: left 600ms ease"></span>
+      <% end %>
     <% end %>
   </div>
 <% elsif game.venue.present? %>

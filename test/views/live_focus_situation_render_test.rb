@@ -75,6 +75,9 @@ class LiveFocusSituationRenderTest < ActionDispatch::IntegrationTest
     drawn = field.css("[data-test='live-focus-field']").first
     assert_equal %w[13 22], [drawn["data-ball"], drawn["data-line-to-gain"]]
     assert_includes field.css("[data-test='live-focus-field-ball']").first["style"], "left: 18.92%"
+    # The ball is drawn as the team that has it.
+    assert_equal "team-b", field.css("[data-test='live-focus-field-ball']").first["data-team-slug"]
+    assert_equal teams(:team_b).emoji, field.css("[data-test='live-focus-field-ball']").first.text.strip
     assert_includes field.css("[data-test='live-focus-field-gain']").first["style"], "left: 26.48%"
   end
 
