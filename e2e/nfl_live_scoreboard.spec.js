@@ -1436,7 +1436,7 @@ test.describe("Contest live page play-by-play", () => {
     const rows = feed.locator('[data-test="live-play"]');
     await expect(rows).toHaveCount(1);
     // COLLAPSED AT REST: one line, the newest play in it, the list shut.
-    await expect(feed.locator('[data-test="live-plays-latest"]')).toContainText("E2E runner up the middle");
+    await expect(feed.locator('[data-test="live-plays-latest"]')).toHaveAttribute("title", /E2E runner up the middle/);
     await expect(rows.first()).toBeHidden();
     // Open it. The state lives on the page wrapper, so the NEXT play — which
     // replaces everything inside this panel — must find it still open.
@@ -1477,4 +1477,91 @@ test.describe("Contest live page play-by-play", () => {
     await expect(visible()).not.toHaveAttribute("data-focus-slug", opened);
     await expect(page.locator('[data-test="live-play"]:visible')).toHaveCount(0);
   });
+
+  // THE TURNOVER. Everything here is the page's own doing: no response says
+  // "flash", and the down line that arrives is simply drawn in new colours.
+  // The page has to notice a turnover row it has not seen and an offence that
+  // changed, announce the one and wipe the other — once, and only for the
+  // game on screen.
+  test("an interception flashes on the rail and the down line changes hands", async ({ page }) => {
+    await allowMotion(page);
+    await loginAdmin(page);
+    const gameSlug = touched = await openLiveAtKickoff(page);
+
+    const focused = page.locator('[data-test="live-focus-game"]:visible');
+    const teams = await focused.locator('[data-role="team-row"]').evaluateAll((rows) => rows.map((row) => row.dataset.teamSlug));
+    const [offence, defence] = teams;
+
+    // A snap first, so somebody has the ball and the line has colours to lose.
+    await recordPlay(page, gameSlug, offence, "play", "E2E runner up the middle for 4 yards.");
+    const down = focused.locator('[data-test="live-focus-down-count"]');
+    await expect(down).toHaveAttribute("data-offence", offence, { timeout: 10000 });
+    await expect(focused.locator('[data-test="live-turnover-flash"]')).toHaveCount(0);
+    const before = await down.getAttribute("data-ink");
+
+    await recordPlay(page, gameSlug, offence, "turnover", "E2E pass INTERCEPTED.");
+
+    // (1) named, in the rail, for the team that took it.
+    const flash = focused.locator('[data-test="live-turnover-flash"]');
+    await expect(flash).toBeVisible({ timeout: 10000 });
+    await expect(flash).toContainText("Interception");
+    // (2) the ball is the other side's, and the old colours are being wiped off.
+    await expect(down).toHaveAttribute("data-offence", defence);
+    const ghost = down.locator(".tt-possession-ghost");
+    await expect(ghost).toHaveCount(1);
+    expect(await ghost.evaluate((el) => el.style.backgroundImage)).toContain("linear-gradient");
+    expect(await down.getAttribute("data-ink")).not.toBe(before);
+
+    // Both clean up after themselves, and neither comes back on its own.
+    await expect(flash).toHaveCount(0, { timeout: 8000 });
+    await expect(ghost).toHaveCount(0, { timeout: 8000 });
+
+    // An ordinary snap afterwards redraws the same rail and field: the
+    // turnover is still listed, and must not be announced a second time.
+    await recordPlay(page, gameSlug, defence, "play", "E2E runner again.");
+    await expect(focused.locator('[data-test="live-plays-latest"]')).toHaveAttribute("title", /E2E runner again\./, { timeout: 10000 });
+    await expect(flash).toHaveCount(0);
+  });
+
+  // A PHONE STILL SHOWS WHERE THE BALL IS. The rail's middle third is 80px and
+  // holds the clock, the field and the down. At phone width the clock row used
+  // to wrap, the three came to 85px, and the field strip — which clips its own
+  // contents, so flexbox shrinks it first — rendered 0px tall. Nothing a class
+  // assertion reads would notice: only measured boxes do.
+  for (const width of [360, 390, 430]) {
+    test(`a live game's field and down fit the rail at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await loginAdmin(page);
+      const gameSlug = touched = await openLiveAtKickoff(page);
+      const focused = page.locator('[data-test="live-focus-game"]:visible');
+      const teamSlug = await focused.locator("[data-team-slug]").first().getAttribute("data-team-slug");
+
+      await recordPlay(page, gameSlug, teamSlug, "first_down");
+      await expect(focused.locator('[data-test="live-focus-down-count"]')).toBeVisible({ timeout: 10000 });
+
+      const boxes = await focused.evaluate((tile) => {
+        const box = (sel) => { const r = tile.querySelector(sel).getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, height: r.height, width: r.width }; };
+        return {
+          frame: box('[data-role="field-frame"]'), strip: box('[data-test="live-focus-field"]'),
+          clock: box('[data-test="live-focus-clock-row"]'), down: box('[data-test="live-focus-down-count"]'),
+          ball: box('[data-test="live-focus-field-ball"]'),
+        };
+      });
+
+      // The strip is its full 20px, with the ball on it.
+      expect(boxes.strip.height).toBeGreaterThanOrEqual(19);
+      expect(boxes.ball.height).toBeGreaterThan(0);
+      // The clock stayed on one line.
+      expect(boxes.clock.height).toBeLessThan(24);
+      // All three rows are inside the third, top to bottom and side to side.
+      for (const row of [boxes.clock, boxes.strip, boxes.down]) {
+        expect(row.top).toBeGreaterThanOrEqual(boxes.frame.top - 0.5);
+        expect(row.bottom).toBeLessThanOrEqual(boxes.frame.bottom + 0.5);
+      }
+      for (const row of [boxes.clock, boxes.down]) {
+        expect(row.left).toBeGreaterThanOrEqual(boxes.frame.left - 0.5);
+        expect(row.right).toBeLessThanOrEqual(boxes.frame.right + 0.5);
+      }
+    });
+  }
 });
