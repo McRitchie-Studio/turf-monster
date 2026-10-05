@@ -68,9 +68,7 @@ module Nfl
           down_distance:   text_from(situation["downDistanceText"]),
           possession_text: text_from(situation["possessionText"]),
           possession_abbr: possession_abbr_from(situation, competitors),
-          last_play:       Plays.row_from_last_play(
-            situation, competitors: competitors, period: status["period"], clock: status["displayClock"]
-          ),
+          last_play:       last_play_from(situation, competitors, status),
           home_timeouts:   timeouts_from(situation["homeTimeouts"]),
           away_timeouts:   timeouts_from(situation["awayTimeouts"])
         )
@@ -86,6 +84,19 @@ module Nfl
 
         stripped = value.to_s.strip
         stripped.empty? ? nil : stripped
+      end
+
+      # THE LAST PLAY MAY NEVER COST THE ROW. This parse runs inside the row the
+      # cycle SCORES from, so it is the one place the play-by-play sits upstream
+      # of a contest's points — and the block it reads is the least stable part
+      # of a feed we do not own. Any shape it cannot read is "no last play":
+      # the feed is one line short for a cycle and the score is untouched.
+      def self.last_play_from(situation, competitors, status)
+        Plays.row_from_last_play(
+          situation, competitors: competitors, period: status["period"], clock: status["displayClock"]
+        )
+      rescue StandardError
+        nil
       end
 
       # Timeouts left, 0..3. Absent before kickoff and after the whistle, and

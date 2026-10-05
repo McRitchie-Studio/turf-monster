@@ -84,11 +84,19 @@ class Contest
         "plays"  => "contests/live_plays"
       }.freeze
 
-      def plays_changed(game)
+      #
+      # `plays: false` is a cycle in which the situation moved but no play was
+      # stored: everything on the tile is refreshed and the play-by-play panel
+      # is left exactly as the reader has it.
+      def plays_changed(game, plays: true)
         return unless game
 
         affected_contests(game).each do |contest|
-          GAME_TARGETS.each { |suffix, partial| update_game(contest, game, suffix, partial) }
+          GAME_TARGETS.each do |suffix, partial|
+            next if suffix == "plays" && !plays
+
+            update_game(contest, game, suffix, partial)
+          end
           # And each side's timeouts, on the bar at the left of its own row.
           [game.away_team, game.home_team].compact.each do |team|
             update_game(contest, game, "timeouts_#{team.slug}", "live/game_timeouts", team: team)

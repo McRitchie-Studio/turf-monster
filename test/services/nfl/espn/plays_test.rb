@@ -166,6 +166,23 @@ class Nfl::Espn::PlaysTest < ActiveSupport::TestCase
     assert_nil row.away_timeouts
   end
 
+  # This parse runs inside the row the cycle scores from. A last-play block in
+  # a shape nobody has seen must cost the feed a line, never the row.
+  test "a malformed last play costs the feed a line, never the scoring row" do
+    [{ "type" => "Rush" }, { "team" => "8" }, { "period" => 4 }].each do |broken|
+      payload = scoreboard
+      payload["events"].first["competitions"].first["situation"]["lastPlay"].merge!(broken)
+      row = Nfl::Espn::Scoreboard.rows_from(payload).first
+
+      assert_not_nil row, "the row survives #{broken.inspect}"
+      assert_equal 32, row.home_score
+    end
+
+    payload = scoreboard
+    payload["events"].first["competitions"].first["situation"]["lastPlay"] = "not a play"
+    assert_nil Nfl::Espn::Scoreboard.rows_from(payload).first.last_play
+  end
+
   test "a scoreboard row built without the new fields still stands" do
     row = Nfl::Espn::Scoreboard::Row.new(
       external_id: "1", season_year: 2026, season_type: 2, week: 4, kickoff_at: nil, status: "scheduled",
