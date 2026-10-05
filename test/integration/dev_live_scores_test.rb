@@ -43,7 +43,16 @@ class DevLiveScoresTest < ActionDispatch::IntegrationTest
     assert_equal @home.slug, play.team_slug
     assert_equal [2, 3], [@game.home_timeouts, @game.away_timeouts]
     assert_equal 0, @game.goals.count
-    assert_equal ["game_#{@game.slug}_plays", "game_#{@game.slug}_status"], streams.map { |s| s["target"] }.sort
+    assert_equal %w[field plays rail status].map { |part| "game_#{@game.slug}_#{part}" }, streams.map { |s| s["target"] }.sort
+  end
+
+  test "record_play can move the chains, which puts the play on the rail" do
+    post dev_live_scores_record_play_path,
+         params: { game_slug: @game.slug, team_slug: @home.slug, kind: "first_down" }, as: :json
+
+    assert_response :success
+    assert_equal ["play", true], @game.reload.plays.sole.then { |play| [play.kind, play.first_down] }
+    assert_equal %w[first_down], Live::RailFeed.for(@game).map(&:kind)
   end
 
   test "record_play refuses a kind the feed has no word for" do

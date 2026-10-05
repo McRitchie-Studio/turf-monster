@@ -54,7 +54,7 @@
       <%# The play-by-play injector: one line of the feed, the way a polling
           cycle would have stored it. A timeout also spends one of the selected
           team's three. %>
-      <% [["play", "Play"], ["timeout", "T/O"], ["penalty", "Flag"]].each do |kind, label| %>
+      <% [["play", "Play"], ["first_down", "1st"], ["turnover", "TO"], ["timeout", "T/O"], ["penalty", "Flag"]].each do |kind, label| %>
         <button type="button" @click="recordPlay('<%= kind %>')" :disabled="busy"
                 data-test="dev-play-<%= kind %>"
                 title="Record a <%= kind %> in the selected game's play-by-play"

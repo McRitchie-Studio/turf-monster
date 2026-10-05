@@ -28,6 +28,10 @@ class GamePlay < ApplicationRecord
   validates :kind, inclusion: { in: KINDS }
 
   scope :newest_first, -> { order(sequence: :desc) }
+  # What the focus card's rail lists beside the scores: the plays that changed
+  # who has the ball, or kept it. Scores are not here — the rail reads those
+  # from goals, which know what each was worth.
+  scope :for_rail, -> { where(kind: "turnover").or(where(first_down: true)) }
 
   # ESPN's play id is the game's event id with a counter on the end
   # ("401872978" + "4422"), so the counter alone orders a game's plays. A play

@@ -23,9 +23,9 @@ class Contest
   #                                         chain so a flurry reads in order.
   #                                         See contests/_live_script.
   #
-  # PLUS TWO PER GAME, on the same stream, for the play-by-play — see
-  # #plays_changed. They are not part of the four: a score sends four, a play
-  # sends two, and neither count changes the other.
+  # PLUS FOUR PER GAME, on the same stream, for the play-by-play — see
+  # #plays_changed. They are not part of the four above: a score sends those,
+  # a play sends these, and neither count changes the other.
   #
   # THE COUNT IS LOAD-BEARING and Contest::LiveBroadcastTest asserts it. Each
   # broadcast below is individually rescued, so a partial that raises in
@@ -62,23 +62,31 @@ class Contest
       end
 
       # A play was stored, or the situation moved (the clock, the down, a
-      # timeout). TWO SMALL TARGETS, per game rather than per contest, and
+      # timeout). FOUR SMALL TARGETS, per game rather than per contest, and
       # deliberately NOT the focus panel:
       #
-      #   game_<slug>_status  (update)  — the hero tile's clock/down/ball pane
+      #   game_<slug>_status  (update)  — the rail's top third: clock and down
+      #   game_<slug>_field   (update)  — its middle: who has the ball, and where
+      #   game_<slug>_rail    (update)  — its bottom: scores, turnovers, first downs
       #   game_<slug>_plays   (update)  — the play-by-play under the tile
       #
       # The focus panel hosts the scoring animations, and this fires every
       # polling interval of a live game. Replacing the panel that often would
-      # wipe a touchdown's takeover mid-flight; updating two leaves inside it
-      # cannot. A score still replaces the whole panel, and redraws both of
+      # wipe a touchdown's takeover mid-flight; updating leaves inside it
+      # cannot. A score still replaces the whole panel, and redraws all of
       # these from the same rows on its way.
+      GAME_TARGETS = {
+        "status" => "live/game_status",
+        "field"  => "live/game_field",
+        "rail"   => "live/game_rail_events",
+        "plays"  => "contests/live_plays"
+      }.freeze
+
       def plays_changed(game)
         return unless game
 
         affected_contests(game).each do |contest|
-          update_game_status(contest, game)
-          update_game_plays(contest, game)
+          GAME_TARGETS.each { |suffix, partial| update_game(contest, game, suffix, partial) }
         end
       end
 
@@ -142,22 +150,11 @@ class Contest
         ErrorLog.capture!(e)
       end
 
-      def update_game_status(contest, game)
+      def update_game(contest, game, suffix, partial)
         Turbo::StreamsChannel.broadcast_update_to(
           [contest, :live],
-          target:  "game_#{game.slug}_status",
-          partial: "live/game_status",
-          locals:  { game: game }
-        )
-      rescue => e
-        ErrorLog.capture!(e)
-      end
-
-      def update_game_plays(contest, game)
-        Turbo::StreamsChannel.broadcast_update_to(
-          [contest, :live],
-          target:  "game_#{game.slug}_plays",
-          partial: "contests/live_plays",
+          target:  "game_#{game.slug}_#{suffix}",
+          partial: partial,
           locals:  { game: game }
         )
       rescue => e

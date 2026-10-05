@@ -72,7 +72,10 @@ module Dev
     # play can arrive and the only one in which the feed shows timeouts. `Clear`
     # puts it back.
     def record_play
-      kind = params[:kind].presence || "play"
+      # "first_down" is the toolbar's word for an ordinary snap that moved the
+      # chains — the one kind of play the focus card's rail lists.
+      first_down = params[:kind] == "first_down"
+      kind = first_down ? "play" : (params[:kind].presence || "play")
       return render_error("Unknown play kind: #{kind}") unless GamePlay::KINDS.include?(kind)
 
       team = [@game.home_team, @game.away_team].compact.find { |side| side.slug == params[:team_slug] }
@@ -82,6 +85,7 @@ module Dev
       play = @game.plays.create!(
         external_id: "dev-#{@game.id}-#{sequence}", sequence: sequence, kind: kind,
         play_type: kind.humanize, team_slug: team&.slug, period: @game.period, clock: @game.clock,
+        first_down: first_down,
         down_distance: (kind == "play" ? "#{%w[1st 2nd 3rd].sample} & #{rand(1..10)} at #{team&.short_name} #{rand(20..45)}" : nil),
         text: params[:text].presence || synthetic_play_text(kind, team, sequence)
       )

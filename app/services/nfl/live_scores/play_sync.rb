@@ -54,7 +54,7 @@ module Nfl
 
       def create(row)
         GamePlay.create!(
-          attributes_for(row).merge(
+          attributes_for(row).compact.merge(
             game_slug: @game.slug,
             external_id: row.external_id,
             sequence: GamePlay.sequence_for(row.external_id, @game.external_id)
@@ -80,7 +80,8 @@ module Nfl
           kind: row.kind, play_type: row.play_type, text: row.text,
           team_slug: @team_for.call(row.team_abbr)&.slug,
           period: row.period, clock: row.clock, down_distance: row.down_distance,
-          yards: row.yards, home_score: row.home_score, away_score: row.away_score
+          yards: row.yards, home_score: row.home_score, away_score: row.away_score,
+          first_down: row.first_down
         }
       end
     end

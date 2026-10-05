@@ -22,7 +22,10 @@ module Nfl
     module Plays
       Row = Data.define(
         :external_id, :play_type, :kind, :text, :team_abbr,
-        :period, :clock, :down_distance, :yards, :home_score, :away_score
+        :period, :clock, :down_distance, :yards, :home_score, :away_score,
+        # Did this play move the chains? nil when the source cannot say — the
+        # caller must then leave whatever it already holds alone.
+        :first_down
       )
 
       # What a play IS to someone glancing at the feed. The board marks these
@@ -84,7 +87,23 @@ module Nfl
         id = play.dig("team", "id").to_s
         holder = Array(competitors).find { |competitor| competitor["id"].to_s == id }
 
-        row_from(play, team_abbr: holder&.dig("team", "abbreviation"), period: period, clock: clock)
+        row = row_from(play, team_abbr: holder&.dig("team", "abbreviation"), period: period, clock: clock)
+        row&.with(first_down: first_down_from_situation?(row, play, situation))
+      end
+
+      # THE SCOREBOARD'S GUESS AT A FIRST DOWN. Its copy of a play has no down
+      # before or after, so the only evidence is the situation the play left
+      # behind: the same team still has the ball, it is first down, and the
+      # play was an ordinary snap that gained ground. A new drive cannot fool
+      # it — the play before a drive's first snap is a kick or a turnover, never
+      # an ordinary snap by the team now holding the ball. The summary's copy,
+      # when it arrives, overrules this with the real before-and-after.
+      def self.first_down_from_situation?(row, play, situation)
+        row.kind == "play" &&
+          situation["down"].to_i == 1 &&
+          play["statYardage"].to_i.positive? &&
+          situation["possession"].to_s == play.dig("team", "id").to_s &&
+          situation["possession"].to_s.present?
       end
 
       def self.row_from(play, team_abbr: nil, period: nil, clock: nil)
@@ -97,10 +116,12 @@ module Nfl
         text = play["text"].to_s.squish
         return nil if type.empty? && text.empty?
 
+        kind = kind_for(type, play)
+
         Row.new(
           external_id:   id,
           play_type:     type.presence,
-          kind:          kind_for(type, play),
+          kind:          kind,
           text:          text.presence || type,
           team_abbr:     team_abbr,
           period:        play.dig("period", "number") || period,
@@ -108,8 +129,28 @@ module Nfl
           down_distance: play.dig("start", "downDistanceText").presence,
           yards:         play["statYardage"],
           home_score:    play["homeScore"],
-          away_score:    play["awayScore"]
+          away_score:    play["awayScore"],
+          first_down:    first_down?(play, kind)
         )
+      end
+
+      # MOVED THE CHAINS: an ordinary snap that started on some down with a
+      # distance to make, made it, and left the SAME team on first down. Read
+      # from the play's own before-and-after, which only the summary carries —
+      # nil without them, so "cannot say" never reads as "did not".
+      #
+      # Ordinary snaps only. A touchdown is a score, an interception return is
+      # a turnover, and a penalty that hands over a first down moved nobody.
+      def self.first_down?(play, kind)
+        start = play["start"]
+        finish = play["end"]
+        return nil unless start.is_a?(Hash) && finish.is_a?(Hash) && start.key?("down") && finish.key?("down")
+        return false unless kind == "play"
+
+        start["down"].to_i.positive? && start["distance"].to_i.positive? &&
+          finish["down"].to_i == 1 &&
+          start.dig("team", "id").to_s == finish.dig("team", "id").to_s &&
+          play["statYardage"].to_i >= start["distance"].to_i
       end
 
       # The flags outrank the type's wording where ESPN sets them: a pass that

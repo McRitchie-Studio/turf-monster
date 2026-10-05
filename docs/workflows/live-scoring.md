@@ -116,9 +116,9 @@ holds the board overnight (rung 3) and Monday night football takes it at 8:15
 Monday morning, twelve hours before its kickoff (rung 2).
 
 **The order is a tiebreak, never an override.** The `focus_rank` column on `games`
-(`db/schema.rb:386`) is a position in ONE list covering the whole week — unique per
+(`db/schema.rb:387`) is a position in ONE list covering the whole week — unique per
 season slot (year + season type + week) through the partial index
-`index_games_on_focus_rank_per_slot` (`db/schema.rb:406`), and validated as a positive
+`index_games_on_focus_rank_per_slot` (`db/schema.rb:407`), and validated as a positive
 integer on `Game` (`app/models/game.rb:47`). `Live::FocusGame.best_ranked` reads it
 (`app/services/live/focus_game.rb:112`) only WITHIN the set a rung has already made
 eligible, which is what stops the marquee game of the week from sitting on the board
@@ -179,7 +179,7 @@ and a bad minute must not end a watch.
 
 **It is idempotent.** Every scoring event is keyed on ESPN's own play id
 (`external_id`) under the unique partial index
-`index_goals_on_external_id_when_present` (`db/schema.rb:427`), and
+`index_goals_on_external_id_when_present` (`db/schema.rb:428`), and
 `Nfl::LiveScores::PollCycle#sync_scoring_plays` indexes what it already holds by that
 id before writing (`app/services/nfl/live_scores/poll_cycle.rb:480-481`) — so a second
 identical cycle writes nothing and an interrupted one resumes by being run again.
@@ -244,11 +244,23 @@ one polling interval. The play sync runs last in a cycle, behind its own rescue,
 so a summary that will not arrive is reported as `plays_fetch_failed` and costs
 the score nothing.
 
-A stored play, or a moved clock, down or timeout count, sends two small updates
+A stored play, or a moved clock, down or timeout count, sends four small updates
 per game to each live contest's board (`Contest::LiveBroadcast.plays_changed`): the
-focus tile's status pane and the play feed under it. It does not replace the focus
-panel, which hosts the scoring animations and would lose one mid-flight if it were
-redrawn every twenty seconds.
+three thirds of the focus tile's rail and the play feed under the tile. It does not
+replace the focus panel, which hosts the scoring animations and would lose one
+mid-flight if it were redrawn every twenty seconds.
+
+**THE FOCUS TILE'S RAIL IS THREE THIRDS AT REST.** Top: the quarter, the clock and
+the down. Middle: who has the ball, and a drawn field with the ball and the line
+to gain on it, away end zone left and home end zone right; `Game#ball_yard_line`
+reads the position from ESPN's own yard-line label, so it needs no column of its
+own. Bottom: scores, turnovers and first downs, newest first, ordered across goals
+and plays by `Live::RailFeed`. A play is a first down when it was an ordinary snap
+that made its distance and left the same team with the ball; the summary says so
+from the play's own before-and-after, and the scoreboard's copy infers it from the
+situation the play left. During a scoring takeover the rail returns to the two
+halves the takeover was designed in, by one `:has()` rule in
+`live/_score_animations`.
 
 **WHY A TRIPWIRE IS THE OTHER HALF.** A cron fails exactly as quietly as no cron:
 on 2026-08-25 a merge resolution dropped `active_job: true` from every entry in
@@ -372,7 +384,7 @@ These are guards with reproductions behind them, not defensive padding.
   otherwise re-open a settled game and re-fire the FINAL broadcast.
 - **It will not store an id-less play.** `play["id"].to_s` yields `""`, which the
   unique index `index_goals_on_external_id_when_present` covers with its
-  `WHERE external_id IS NOT NULL` predicate (`db/schema.rb:427`) — so a second id-less
+  `WHERE external_id IS NOT NULL` predicate (`db/schema.rb:428`) — so a second id-less
   play anywhere in the league would collide across games.
 
 ## The studio recap push

@@ -139,13 +139,13 @@ class NflLivePlaysPollTest < ActionDispatch::IntegrationTest
 
   # ── what an open board is told ───────────────────────────────────────────
 
-  test "a new play updates the game's status pane and its play feed, and nothing else" do
+  test "a new play updates the game's rail and its play feed, and nothing else" do
     contest = live_contest_on("team-a-vs-team-b-pre4")
     client = StubClient.new(scoreboard: scoreboard(last: "EV1101"), summaries: { "EV1" => drives("EV1101") })
 
     streams = capture_turbo_stream_broadcasts([contest, :live]) { cycle(client) }
 
-    assert_equal %w[game_team-a-vs-team-b-pre4_plays game_team-a-vs-team-b-pre4_status],
+    assert_equal %w[field plays rail status].map { |part| "game_team-a-vs-team-b-pre4_#{part}" },
                  streams.map { |stream| stream["target"] }.sort
     assert_equal %w[update], streams.map { |stream| stream["action"] }.uniq
     feed = streams.find { |stream| stream["target"].end_with?("_plays") }.to_html
@@ -173,7 +173,7 @@ class NflLivePlaysPollTest < ActionDispatch::IntegrationTest
       cycle(StubClient.new(scoreboard: scoreboard(last: "EV1101", home_timeouts: 1)))
     end
 
-    assert_equal 2, streams.length
+    assert_equal 4, streams.length
     assert_equal 1, game.home_timeouts
   end
 

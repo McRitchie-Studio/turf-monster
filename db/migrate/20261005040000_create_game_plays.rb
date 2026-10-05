@@ -28,6 +28,10 @@ class CreateGamePlays < ActiveRecord::Migration[8.1]
       t.string  :clock
       t.string  :down_distance
       t.integer :yards
+      # Moved the chains. The focus card's rail lists these beside the scores
+      # and turnovers, and working it out again on every render would mean
+      # keeping each play's before-and-after down just to throw them away.
+      t.boolean :first_down, null: false, default: false
       t.integer :home_score
       t.integer :away_score
       t.timestamps

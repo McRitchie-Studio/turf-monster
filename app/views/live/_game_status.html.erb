@@ -35,10 +35,8 @@
           data-test="live-focus-down"><%= headline %></span>
   <% end %>
 
-  <% if game.possession_line %>
-    <span class="text-sm font-mono text-white/80 truncate max-w-full"
-          data-test="live-focus-possession"><%= game.possession_line %></span>
-  <% end %>
+  <%# Who has the ball is no longer said here: it moved to the middle third,
+      beside the field that shows where (live/_game_field). %>
 <% else %>
   <% if game.kickoff_at %>
     <time datetime="<%= game.kickoff_at.utc.iso8601 %>" data-role="kickoff-date"

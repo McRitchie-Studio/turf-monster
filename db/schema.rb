@@ -360,6 +360,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_05_040000) do
     t.datetime "created_at", null: false
     t.string "down_distance"
     t.string "external_id", null: false
+    t.boolean "first_down", default: false, null: false
     t.string "game_slug", null: false
     t.integer "home_score"
     t.string "kind", default: "play", null: false

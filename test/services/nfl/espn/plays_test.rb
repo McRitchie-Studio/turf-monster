@@ -79,6 +79,52 @@ class Nfl::Espn::PlaysTest < ActiveSupport::TestCase
     assert_equal "play",     Nfl::Espn::Plays.row_from(unknown).kind
   end
 
+  # ── first downs ──────────────────────────────────────────────────────────
+
+  # 4th & 5 at the CAR 10, a 7-yard catch, 1st & Goal: the chains moved.
+  test "a snap that makes the distance and keeps the ball is a first down" do
+    assert rows.last.first_down
+    assert_equal 14, rows.count(&:first_down)
+    assert_equal %w[play], rows.select(&:first_down).map(&:kind).uniq
+  end
+
+  test "a first down is an ordinary snap that kept the ball, and nothing else" do
+    snap = lambda do |overrides|
+      { "id" => "1", "type" => { "text" => "Rush" }, "text" => "x", "statYardage" => 12,
+        "start" => { "down" => 2, "distance" => 8, "team" => { "id" => "8" } },
+        "end" => { "down" => 1, "distance" => 10, "team" => { "id" => "8" } } }.deep_merge(overrides)
+    end
+    first_down = ->(overrides = {}) { Nfl::Espn::Plays.row_from(snap.(overrides)).first_down }
+
+    assert first_down.()
+    assert_not first_down.("statYardage" => 5), "short of the sticks"
+    assert_not first_down.("end" => { "team" => { "id" => "29" } }), "the other side has it: a turnover or a kick"
+    assert_not first_down.("start" => { "down" => 0 }), "a kickoff has no down to convert"
+    assert_not first_down.("type" => { "text" => "Penalty" }), "a flag that hands over a first down moved nobody"
+    assert_not first_down.("type" => { "text" => "Rushing Touchdown" }), "a touchdown is a score"
+  end
+
+  # "Cannot say" must never read as "did not" — the scoreboard's copy would
+  # otherwise erase a first down the summary had already recorded.
+  test "a play with no before-and-after says nothing about a first down" do
+    assert_nil Nfl::Espn::Plays.row_from({ "id" => "1", "type" => { "text" => "Rush" }, "text" => "x" }).first_down
+  end
+
+  # The scoreboard's copy has no down of its own, so it reads the situation the
+  # play left behind: same team, first down, ground gained.
+  test "the scoreboard infers a first down from the situation the play left" do
+    row = Nfl::Espn::Scoreboard.rows_from(scoreboard).first
+    assert row.last_play.first_down, "1st & Goal for DET after a 7-yard DET catch"
+
+    second_down = scoreboard
+    second_down["events"].first["competitions"].first["situation"]["down"] = 2
+    assert_not Nfl::Espn::Scoreboard.rows_from(second_down).first.last_play.first_down
+
+    changed_hands = scoreboard
+    changed_hands["events"].first["competitions"].first["situation"]["possession"] = "29"
+    assert_not Nfl::Espn::Scoreboard.rows_from(changed_hands).first.last_play.first_down
+  end
+
   test "a play with no id, or with nothing to say, is skipped" do
     assert_nil Nfl::Espn::Plays.row_from({ "id" => " ", "text" => "x" })
     assert_nil Nfl::Espn::Plays.row_from({ "id" => "1", "text" => "", "type" => {} })
