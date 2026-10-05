@@ -1522,4 +1522,46 @@ test.describe("Contest live page play-by-play", () => {
     await expect(focused.locator('[data-test="live-plays-latest"]')).toHaveAttribute("title", /E2E runner again\./, { timeout: 10000 });
     await expect(flash).toHaveCount(0);
   });
+
+  // A PHONE STILL SHOWS WHERE THE BALL IS. The rail's middle third is 80px and
+  // holds the clock, the field and the down. At phone width the clock row used
+  // to wrap, the three came to 85px, and the field strip — which clips its own
+  // contents, so flexbox shrinks it first — rendered 0px tall. Nothing a class
+  // assertion reads would notice: only measured boxes do.
+  for (const width of [360, 390, 430]) {
+    test(`a live game's field and down fit the rail at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await loginAdmin(page);
+      const gameSlug = touched = await openLiveAtKickoff(page);
+      const focused = page.locator('[data-test="live-focus-game"]:visible');
+      const teamSlug = await focused.locator("[data-team-slug]").first().getAttribute("data-team-slug");
+
+      await recordPlay(page, gameSlug, teamSlug, "first_down");
+      await expect(focused.locator('[data-test="live-focus-down-count"]')).toBeVisible({ timeout: 10000 });
+
+      const boxes = await focused.evaluate((tile) => {
+        const box = (sel) => { const r = tile.querySelector(sel).getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, height: r.height, width: r.width }; };
+        return {
+          frame: box('[data-role="field-frame"]'), strip: box('[data-test="live-focus-field"]'),
+          clock: box('[data-test="live-focus-clock-row"]'), down: box('[data-test="live-focus-down-count"]'),
+          ball: box('[data-test="live-focus-field-ball"]'),
+        };
+      });
+
+      // The strip is its full 20px, with the ball on it.
+      expect(boxes.strip.height).toBeGreaterThanOrEqual(19);
+      expect(boxes.ball.height).toBeGreaterThan(0);
+      // The clock stayed on one line.
+      expect(boxes.clock.height).toBeLessThan(24);
+      // All three rows are inside the third, top to bottom and side to side.
+      for (const row of [boxes.clock, boxes.strip, boxes.down]) {
+        expect(row.top).toBeGreaterThanOrEqual(boxes.frame.top - 0.5);
+        expect(row.bottom).toBeLessThanOrEqual(boxes.frame.bottom + 0.5);
+      }
+      for (const row of [boxes.clock, boxes.down]) {
+        expect(row.left).toBeGreaterThanOrEqual(boxes.frame.left - 0.5);
+        expect(row.right).toBeLessThanOrEqual(boxes.frame.right + 0.5);
+      }
+    });
+  }
 });

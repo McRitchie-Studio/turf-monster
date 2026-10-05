@@ -26,19 +26,30 @@
 <% if game.live? %>
   <%# THE CLOCK HEADS THIS THIRD, over the field. `status_detail` says the
       same thing in ESPN's words ("11:49 - 3rd"); this says it in ours, and only
-      one of them gets the line. It wraps rather than clips: at phone width the
-      rail is narrower than the clock and the LIVE badge side by side. %>
-  <div class="flex flex-wrap items-center justify-center gap-x-2 gap-y-0.5 max-w-full">
+      one of them gets the line.
+
+      ONE LINE, AT EVERY WIDTH. This third is 80px tall and holds three rows:
+      this, the field, the down. When the row wrapped at phone width (the rail
+      is about 100px wide there) the three came to 85px, and the field strip —
+      the only one of them that clips — was squeezed to nothing: a phone showed
+      no ball position at all. So below `sm` the clock steps down a size and the
+      LIVE badge keeps its dot and drops its word, and nothing here may wrap. %>
+  <div class="flex flex-shrink-0 flex-nowrap items-center justify-center gap-1 sm:gap-2 max-w-full whitespace-nowrap"
+       data-test="live-focus-clock-row">
     <% if game.period_clock_label %>
-      <span class="text-lg font-extrabold uppercase tracking-wide text-white tabular-nums leading-none"
+      <span class="text-xs sm:text-lg font-extrabold uppercase sm:tracking-wide text-white tabular-nums leading-none"
             data-test="live-focus-clock"><%= game.period_clock_label %></span>
     <% end %>
     <span class="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-red-400">
-      <span class="h-2 w-2 rounded-full bg-red-500 animate-pulse"></span> Live
+      <span class="h-2 w-2 rounded-full bg-red-500 animate-pulse"></span>
+      <span class="hidden sm:inline">Live</span><span class="sr-only sm:hidden">Live</span>
     </span>
   </div>
 
-  <div class="relative w-full max-w-[18rem] h-5 rounded overflow-hidden"
+  <%# flex-shrink-0 IS LOAD-BEARING: the strip clips its own contents, so in a
+      column that runs out of room it is the child flexbox shrinks first — to
+      zero, silently. It gives up nothing; the rows around it are sized to fit. %>
+  <div class="relative flex-shrink-0 w-full max-w-[18rem] h-5 rounded overflow-hidden"
        data-test="live-focus-field"
        data-ball="<%= ball %>" data-line-to-gain="<%= gain %>"
        role="img"
@@ -101,19 +112,22 @@
                     "linear-gradient(90deg, #{team_card_palette(away)[:accent]}, #{team_card_palette(home)[:accent]})"
   %>
   <% if down.present? %>
-    <span class="flex items-baseline justify-center gap-1.5 max-w-full leading-none" data-test="live-focus-down">
+    <span class="flex flex-shrink-0 items-baseline justify-center gap-1 sm:gap-1.5 max-w-full leading-none" data-test="live-focus-down">
       <%# data-offence / data-ink are for contests/_live_turnover_script: this
           node is REPLACED on every play, so the page remembers who had the
           ball and in what colours, and wipes the old pair away when the ball
           changes hands. %>
-      <span class="relative inline-block text-base font-extrabold whitespace-nowrap" data-test="live-focus-down-count"
+      <span class="relative inline-block flex-shrink-0 text-xs sm:text-base font-extrabold whitespace-nowrap" data-test="live-focus-down-count"
             data-offence="<%= offence&.slug %>"
             data-ink="<%= ink %>"
             style="background: <%= ink %>;
                    -webkit-background-clip: text; background-clip: text; color: transparent;
                    filter: drop-shadow(0 1px 1px rgba(8, 10, 16, 0.9))"><%= down %></span>
       <% if spot.present? %>
-        <span class="text-xs font-medium text-white/60 truncate" data-test="live-focus-down-spot">at <%= spot %></span>
+        <%# The spot is the part that gives way: at phone width the rail is
+            about 100px and the down alone fills it, so the spot is left to the
+            ball drawn above, which says the same thing. %>
+        <span class="hidden sm:inline text-xs font-medium text-white/60 whitespace-nowrap" data-test="live-focus-down-spot">at <%= spot %></span>
       <% end %>
     </span>
   <% elsif detail %>

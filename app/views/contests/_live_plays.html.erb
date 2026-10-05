@@ -66,7 +66,13 @@
         <%# CENTRED, like the rail's own rows directly above it: the rail lists
             "Interception" centred in its third, and this says the same word
             centred in the same third, so the two read as one column. %>
+        <%# ITS OWN DARK GROUND, in both themes. The rail above is dark whatever
+            the theme, and the detail line below is drawn in team colours chosen
+            to read on dark; on the light theme's pale card that ink fell to
+            about 2:1. So this third carries the rail's surface down with it,
+            which is also what makes the two read as one column. %>
         <div class="flex items-center justify-center gap-3 min-w-0 sm:w-1/3 px-4 py-2"
+             style="background: rgba(8, 10, 16, 0.82)"
              data-test="live-plays-latest" data-play-id="<%= latest.external_id %>" data-play-kind="<%= latest.kind %>"
              title="<%= latest.text %>">
           <span class="relative inline-flex items-center max-w-full" data-test="live-plays-group">
@@ -118,7 +124,7 @@
           <%# WHAT, in the board's bold white; the DETAIL under it in the two
               colours of the team that ran the play. %>
           <span class="min-w-0 leading-tight text-center" data-test="live-plays-words">
-            <span class="block text-sm font-extrabold text-heading truncate" data-test="live-plays-result"><%= latest.result_label %></span>
+            <span class="block text-sm font-extrabold text-white truncate" data-test="live-plays-result"><%= latest.result_label %></span>
             <% if latest.detail_label %>
               <span class="inline-block max-w-full truncate text-xs font-bold" data-test="live-plays-detail"
                     style="background: <%= side ? team_two_tone_ink(side) : "linear-gradient(90deg, #cbd5e1, #94a3b8)" %>;

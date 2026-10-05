@@ -291,6 +291,14 @@
     margin-top: 0.2rem; font-weight: 700; font-size: 0.7rem; letter-spacing: 0.06em;
     text-transform: uppercase; color: rgba(255, 255, 255, 0.8);
   }
+  /* AT PHONE WIDTH THE RAIL IS ABOUT 100PX — narrower than "INTERCEPTION". The
+     flash is hung on the rail (a third of the tile, at its right edge), so
+     reaching two rail-widths left spans the whole tile: the announcement gets
+     the full row and clips nothing. */
+  @media (max-width: 639px) {
+    .tt-turnover-flash { left: -200%; }
+    .tt-turnover-flash .tt-turnover-label { font-size: 0.95rem; }
+  }
   @keyframes tt-turnover-flash {
     0%   { opacity: 0; transform: translateX(42%) skewX(-14deg); }
     9%   { opacity: 1; transform: translateX(-3%) skewX(4deg); }

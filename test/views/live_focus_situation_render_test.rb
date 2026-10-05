@@ -95,7 +95,7 @@ class LiveFocusSituationRenderTest < ActionDispatch::IntegrationTest
     assert_not_includes count["style"], helpers.team_card_palette(teams(:team_a))[:accent]
     assert_includes count["style"], "background-clip: text"
 
-    assert_equal "at TMA 32", spot.text.strip
+    assert_equal "at TMA 32", spot.text.squish
     assert_includes spot["class"].split, "text-xs"
     assert_not_includes spot["class"].split, "font-extrabold"
   end
@@ -117,6 +117,22 @@ class LiveFocusSituationRenderTest < ActionDispatch::IntegrationTest
     accents = [teams(:team_b), teams(:team_a)].map { |team| helpers.team_card_palette(team)[:accent] }
     style = field_for(@live.slug).css("[data-test='live-focus-down-count']").first["style"]
     assert_includes style, "linear-gradient(90deg, #{accents.first}, #{accents.last})"
+  end
+
+  # THE STRIP MAY NOT SHRINK and the clock row may not wrap: this third is 80px
+  # with three rows in it, and the strip clips its own contents, so flexbox
+  # squeezes it first — to zero, at phone width, which is what shipped to
+  # review. The measured half of this lives in e2e (a class cannot see a box);
+  # these are the two classes that failure was the absence of.
+  test "the field strip refuses to shrink and the clock row refuses to wrap" do
+    get live_path
+
+    field = field_for(@live.slug)
+    assert_includes field.css("[data-test='live-focus-field']").first["class"].split, "flex-shrink-0"
+    row = field.css("[data-test='live-focus-clock-row']").first["class"].split
+    assert_includes row, "flex-nowrap"
+    assert_includes row, "whitespace-nowrap"
+    assert_not_includes row, "flex-wrap"
   end
 
   test "a down with no spot prints the down alone" do
