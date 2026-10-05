@@ -285,4 +285,20 @@ class Game < ApplicationRecord
 
     "at #{possession_text}"
   end
+
+  # THE VENUE, IN ITS TWO HALVES. `venue` is one string, stadium first and then
+  # where it is: "Caesars Superdome, New Orleans, LA", "Tottenham Hotspur
+  # Stadium, London, England". The focus card leads with the place and puts the
+  # building under it, so it needs them apart — split at the FIRST comma,
+  # because the place may carry commas of its own and a stadium's name does not.
+  #
+  # A venue with no comma is a building we cannot place: it is all stadium, and
+  # there is no location to print above it.
+  def venue_stadium
+    venue.to_s.split(",", 2).first.to_s.strip.presence
+  end
+
+  def venue_location
+    venue.to_s.split(",", 2)[1].to_s.strip.presence
+  end
 end

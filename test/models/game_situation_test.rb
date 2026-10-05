@@ -177,4 +177,20 @@ class GameSituationTest < ActiveSupport::TestCase
     assert_nil field_game(possession_text: nil, down_distance: "3rd & 9", possession_team_slug: "team-b").line_to_gain_yard_line
     assert_nil field_game(possession_text: "TMB 13", down_distance: nil, possession_team_slug: "team-b").line_to_gain_yard_line
   end
+
+  # ── the venue, in its two halves ─────────────────────────────────────────
+
+  test "splits a venue into the building and the place at the first comma" do
+    game = Game.new(venue: "Tottenham Hotspur Stadium, London, England")
+
+    assert_equal "Tottenham Hotspur Stadium", game.venue_stadium
+    assert_equal "London, England", game.venue_location
+  end
+
+  test "a venue with no comma is all building; a blank one is neither" do
+    assert_equal "Neutral Site", Game.new(venue: "Neutral Site").venue_stadium
+    assert_nil Game.new(venue: "Neutral Site").venue_location
+    assert_nil Game.new(venue: " ").venue_stadium
+    assert_nil Game.new(venue: nil).venue_location
+  end
 end

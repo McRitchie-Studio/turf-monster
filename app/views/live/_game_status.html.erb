@@ -7,12 +7,21 @@
     seconds would wipe one mid-flight. So Contest::LiveBroadcast.plays_changed
     updates just this (the tile gives its wrapper the id game_<slug>_status)
     and the clock, the down and the ball keep moving between scores. %>
-<%# WHERE IT IS PLAYED, first, in every state: "Lumen Field, Seattle, WA",
-    "Tottenham Hotspur Stadium, London". It is the one line here that never
-    changes, which is why it is the quietest. %>
-<% if game.venue.present? %>
-  <span class="text-[11px] font-medium text-white/60 truncate max-w-full leading-none"
-        data-test="live-focus-venue"><%= game.venue %></span>
+<%# WHERE IT IS PLAYED, first, in every state — the PLACE in bold and the
+    building under it (Alex, 2026-10-05): "New Orleans, LA" over "Caesars
+    Superdome", "London, England" over "Tottenham Hotspur Stadium". A reader
+    knows a game by its city before its stadium, and one line holding both ran
+    the width of the rail in the quietest type on the card.
+
+    A venue we hold only a building for prints that building in the bold line:
+    it is the one thing we know about where. %>
+<% if game.venue_stadium %>
+  <span class="text-base font-extrabold text-white truncate max-w-full leading-tight"
+        data-test="live-focus-location"><%= game.venue_location || game.venue_stadium %></span>
+  <% if game.venue_location %>
+    <span class="text-xs font-medium text-white/60 truncate max-w-full leading-none"
+          data-test="live-focus-stadium"><%= game.venue_stadium %></span>
+  <% end %>
 <% end %>
 <% if game.live? %>
   <%# THE CLOCK LINE. `status_detail` says the same thing in
@@ -45,26 +54,6 @@
           data-test="live-focus-detail"><%= detail %></span>
   <% end %>
 
-<% else %>
-  <% if game.kickoff_at %>
-    <time datetime="<%= game.kickoff_at.utc.iso8601 %>" data-role="kickoff-date"
-          class="text-xs font-bold uppercase tracking-wider text-white/60"><%= game.kickoff_at.utc.strftime("%b %-d") %></time>
-    <time datetime="<%= game.kickoff_at.utc.iso8601 %>" data-role="kickoff"
-          class="text-lg font-bold text-white/90 leading-none"><%= game.kickoff_at.utc.strftime("%a %-I:%M %p") %></time>
-  <% end %>
-
-  <%# FINAL earns its line; a scheduled game's does not. The
-      detail rides alongside only when it says MORE than the badge
-      — "Final/OT" survives, a second "Final" does not, and a
-      scheduled game's restatement of the kickoff never appears. %>
-  <% if game.completed? %>
-    <% detail = game.status_detail.presence %>
-    <% detail = nil if detail && detail.casecmp("final").zero? %>
-    <div class="flex items-center justify-center gap-2">
-      <span class="text-xs font-bold uppercase tracking-wider text-white/70">Final</span>
-      <% if detail %>
-        <span class="text-sm font-mono text-white/80 truncate"><%= detail %></span>
-      <% end %>
-    </div>
-  <% end %>
+<%# A game that is not being played says WHEN in the middle third now
+    (live/_game_field), which leaves this third to the place alone. %>
 <% end %>

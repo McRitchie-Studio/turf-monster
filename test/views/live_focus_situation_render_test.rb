@@ -91,11 +91,18 @@ class LiveFocusSituationRenderTest < ActionDispatch::IntegrationTest
     assert_equal "TMB on TMB 13", field_for(@live.slug).css("[data-test='live-focus-possession']").first.text.strip
   end
 
-  test "the top third says where the game is played, above a bold clock" do
+  # The place in bold, the building under it: a reader knows a game by its
+  # city before its stadium.
+  test "the top third leads with the place in bold, the stadium under it, above a bold clock" do
     @live.update_column(:venue, "Arrowhead Stadium, Kansas City, MO")
     get live_path
 
-    assert_equal "Arrowhead Stadium, Kansas City, MO", line(@live.slug, "venue")
+    assert_equal "Kansas City, MO", line(@live.slug, "location")
+    assert_equal "Arrowhead Stadium", line(@live.slug, "stadium")
+    location = rail_for(@live.slug).css("[data-test='live-focus-location']").first
+    assert_includes location["class"].split, "font-extrabold"
+    lines = rail_for(@live.slug).css("[data-test='live-focus-location'], [data-test='live-focus-stadium']")
+    assert_equal %w[live-focus-location live-focus-stadium], lines.map { |node| node["data-test"] }
     clock = rail_for(@live.slug).css("[data-test='live-focus-clock']").first
     assert_includes clock["class"].split, "font-extrabold"
   end
@@ -128,20 +135,41 @@ class LiveFocusSituationRenderTest < ActionDispatch::IntegrationTest
   test "a scheduled game's rail drops ESPN's restatement of the kickoff" do
     get live_path
 
-    rail = rail_for(@scheduled.slug)
-    assert_not_includes rail.text, "9/10",
+    said = rail_for(@scheduled.slug).text + field_for(@scheduled.slug).text
+    assert_not_includes said, "9/10",
       "the feed's own kickoff restatement must not appear under the kickoff"
-    assert_not_includes rail.text, "EDT"
+    assert_not_includes said, "EDT"
   end
 
-  test "a scheduled game keeps the date and the kickoff the browser rewrites" do
+  # WHEN, IN THE MIDDLE THIRD — not stacked under the venue in the top one,
+  # where three lines shared a box built for two.
+  test "a scheduled game says when in the middle third, in the reader's own zone" do
     get live_path
 
-    rail = rail_for(@scheduled.slug)
-    assert_equal 1, rail.css("time[data-role='kickoff-date']").size
-    assert_equal 1, rail.css("time[data-role='kickoff']").size
-    assert_empty rail.css("[data-test='live-focus-down']"),
+    field = field_for(@scheduled.slug)
+    assert_equal 1, field.css("time[data-role='kickoff-date']").size
+    assert_equal 1, field.css("time[data-role='kickoff']").size
+    assert_empty rail_for(@scheduled.slug).css("time"),
+      "the top third is the place alone"
+    assert_empty field.css("[data-test='live-focus-down']"),
       "a game nobody is playing has no down"
+  end
+
+  test "a finished game says Final in the middle third" do
+    @scheduled.update_columns(status: "completed", status_detail: "Final/OT")
+    get live_path
+
+    assert_includes field_for(@scheduled.slug).text, "Final"
+    assert_includes field_for(@scheduled.slug).text, "Final/OT"
+    assert_not_includes rail_for(@scheduled.slug).text, "Final"
+  end
+
+  test "a venue with no place prints the building alone, in the bold line" do
+    @live.update_column(:venue, "Neutral Site Stadium")
+    get live_path
+
+    assert_equal "Neutral Site Stadium", line(@live.slug, "location")
+    assert_nil line(@live.slug, "stadium")
   end
 
   # BETWEEN POSSESSIONS AND AT THE HALF there is no situation at all — ESPN
