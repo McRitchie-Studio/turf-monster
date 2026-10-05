@@ -46,13 +46,57 @@ class LiveFocusSituationRenderTest < ActionDispatch::IntegrationTest
     rail_for(slug)&.css("[data-test='live-focus-#{role}']")&.first&.text&.strip
   end
 
-  test "a live game spends the rail's top third on the clock alone" do
+  def field_line(slug, role)
+    field_for(slug)&.css("[data-test='live-focus-#{role}']")&.first&.text&.squish
+  end
+
+  # The top third is the place alone; everything that moves is in the middle.
+  test "a live game's top third carries no clock, down or possession" do
     get live_path
 
     assert_response :success
-    assert_equal "Q3 · 6:06", line(@live.slug, "clock")
-    assert_nil line(@live.slug, "down"), "the down moved to the middle third, over the field"
+    assert_nil line(@live.slug, "clock"), "the clock moved to the middle third, over the field"
+    assert_nil line(@live.slug, "down")
     assert_nil line(@live.slug, "possession")
+  end
+
+  # CLOCK, FIELD, DOWN — in that order, top to bottom (Alex, 2026-10-05).
+  test "the middle third reads clock, then field, then down" do
+    get live_path
+
+    order = field_for(@live.slug).css(
+      "[data-test='live-focus-clock'], [data-test='live-focus-field'], [data-test='live-focus-down']"
+    ).map { |node| node["data-test"] }
+
+    assert_equal %w[live-focus-clock live-focus-field live-focus-down], order
+    assert_equal "Q3 · 6:06", field_line(@live.slug, "clock")
+  end
+
+  # Two voices: the down bold in both teams' accents, the spot small and quiet.
+  test "the down is bold in the two teams' colours and the spot is muted beside it" do
+    @live.update!(down_distance: "3rd & 10 at TMA 32")
+    get live_path
+
+    field = field_for(@live.slug)
+    count = field.css("[data-test='live-focus-down-count']").first
+    spot  = field.css("[data-test='live-focus-down-spot']").first
+
+    assert_equal "3rd & 10", count.text.strip
+    assert_includes count["class"].split, "font-extrabold"
+    accents = [teams(:team_b), teams(:team_a)].map { |team| ApplicationController.helpers.team_card_palette(team)[:accent] }
+    assert_includes count["style"], "linear-gradient(90deg, #{accents.first}, #{accents.last})"
+    assert_includes count["style"], "background-clip: text"
+
+    assert_equal "at TMA 32", spot.text.strip
+    assert_includes spot["class"].split, "text-xs"
+    assert_not_includes spot["class"].split, "font-extrabold"
+  end
+
+  test "a down with no spot prints the down alone" do
+    get live_path
+
+    assert_equal "3rd & 9", field_line(@live.slug, "down")
+    assert_empty field_for(@live.slug).css("[data-test='live-focus-down-spot']")
   end
 
   # ── THE MIDDLE THIRD: WHO HAS THE BALL, AND WHERE ────────────────────────
@@ -72,7 +116,7 @@ class LiveFocusSituationRenderTest < ActionDispatch::IntegrationTest
     assert_equal "game_#{@live.slug}_field", field["id"]
     # The down, not "TMB on TMB 13": the ball below is drawn as the offence's
     # own mark, so who has it is not said twice.
-    assert_equal "3rd & 9", field.css("[data-test='live-focus-down']").first.text.strip
+    assert_equal "3rd & 9", field.css("[data-test='live-focus-down']").first.text.squish
     assert_empty field.css("[data-test='live-focus-possession']")
 
     drawn = field.css("[data-test='live-focus-field']").first
@@ -93,7 +137,7 @@ class LiveFocusSituationRenderTest < ActionDispatch::IntegrationTest
 
   # The place in bold, the building under it: a reader knows a game by its
   # city before its stadium.
-  test "the top third leads with the place in bold, the stadium under it, above a bold clock" do
+  test "the top third leads with the place in bold, the stadium under it" do
     @live.update_column(:venue, "Arrowhead Stadium, Kansas City, MO")
     get live_path
 
@@ -103,7 +147,7 @@ class LiveFocusSituationRenderTest < ActionDispatch::IntegrationTest
     assert_includes location["class"].split, "font-extrabold"
     lines = rail_for(@live.slug).css("[data-test='live-focus-location'], [data-test='live-focus-stadium']")
     assert_equal %w[live-focus-location live-focus-stadium], lines.map { |node| node["data-test"] }
-    clock = rail_for(@live.slug).css("[data-test='live-focus-clock']").first
+    clock = field_for(@live.slug).css("[data-test='live-focus-clock']").first
     assert_includes clock["class"].split, "font-extrabold"
   end
 
@@ -180,16 +224,16 @@ class LiveFocusSituationRenderTest < ActionDispatch::IntegrationTest
     @live.update!(down_distance: nil, status_detail: "Halftime", clock: "0:00", period: 2)
     get live_path
 
-    assert_equal "Halftime", line(@live.slug, "detail")
+    assert_equal "Halftime", field_line(@live.slug, "detail")
   end
 
   test "a live game with no down does not restate its own clock in the big line" do
     @live.update!(down_distance: nil)
     get live_path
 
-    assert_nil line(@live.slug, "detail"),
+    assert_nil field_line(@live.slug, "detail"),
       "'6:06 - 3rd' is the clock line again — the rail leaves the slot empty rather than echo it"
-    assert_equal "Q3 · 6:06", line(@live.slug, "clock")
+    assert_equal "Q3 · 6:06", field_line(@live.slug, "clock")
   end
 
   # ── THE WHEEL ─────────────────────────────────────────────────────────────

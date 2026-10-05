@@ -314,7 +314,8 @@ class ContestLiveRenderTest < ActionDispatch::IntegrationTest
     start_game_with_plays
     get_live
 
-    assert_select "#game_#{@upcoming.slug}_status[data-role='status-game'] [data-test='live-focus-clock']", text: "Q4 · 3:42"
+    assert_select "#game_#{@upcoming.slug}_status[data-role='status-game']", 1
+    assert_select "#game_#{@upcoming.slug}_field[data-role='field-frame'] [data-test='live-focus-clock']", text: "Q4 · 3:42"
   end
 
   test "the hero tile carries a scorer card, hidden at rest" do

@@ -24,17 +24,19 @@
   home_field = normalize_hex(home&.card_background) || "#3a3f4b"
 %>
 <% if game.live? %>
-  <%# THE DOWN, OVER THE FIELD IT DESCRIBES. This line used to read "DET on
-      ARI 41"; the ball below is now drawn as the offence's own mark, so who
-      has it no longer needs saying in words, and the down and the spot do.
-      The possession line stands in only when the feed sends no down. %>
-  <% if game.down_distance_label %>
-    <span class="text-lg font-bold text-white/90 leading-none truncate max-w-full"
-          data-test="live-focus-down"><%= game.down_distance_label %></span>
-  <% elsif game.possession_line %>
-    <span class="text-sm font-mono text-white/80 truncate max-w-full leading-none"
-          data-test="live-focus-possession"><%= game.possession_line %></span>
-  <% end %>
+  <%# THE CLOCK HEADS THIS THIRD, over the field. `status_detail` says the
+      same thing in ESPN's words ("11:49 - 3rd"); this says it in ours, and only
+      one of them gets the line. It wraps rather than clips: at phone width the
+      rail is narrower than the clock and the LIVE badge side by side. %>
+  <div class="flex flex-wrap items-center justify-center gap-x-2 gap-y-0.5 max-w-full">
+    <% if game.period_clock_label %>
+      <span class="text-lg font-extrabold uppercase tracking-wide text-white tabular-nums leading-none"
+            data-test="live-focus-clock"><%= game.period_clock_label %></span>
+    <% end %>
+    <span class="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-red-400">
+      <span class="h-2 w-2 rounded-full bg-red-500 animate-pulse"></span> Live
+    </span>
+  </div>
 
   <div class="relative w-full max-w-[18rem] h-5 rounded overflow-hidden"
        data-test="live-focus-field"
@@ -76,6 +78,39 @@
       <% end %>
     <% end %>
   </div>
+
+  <%# THE DOWN, UNDER THE FIELD IT DESCRIBES. Two voices in one line: the DOWN
+      is what changes the game, so it is bold and wears both teams' accents run
+      together — the same two colours the tile is painted in, so the eye ties
+      the line to this game before reading it; the SPOT repeats what the ball
+      above already shows, so it is small and quiet.
+
+      Between possessions and at the half ESPN sends no situation at all, so
+      the detail stands in ("Halftime", "End of 3rd") — but only when it is not
+      the clock already printed above. With neither, who has the ball does. %>
+  <%
+    down, spot = game.down_distance_label.to_s.split(/\s+at\s+/, 2)
+    detail = game.status_detail.presence
+    detail = nil if detail && game.clock.present? && detail.include?(game.clock)
+    accents = [away, home].map { |team| team_card_palette(team)[:accent] }
+  %>
+  <% if down.present? %>
+    <span class="flex items-baseline justify-center gap-1.5 max-w-full leading-none" data-test="live-focus-down">
+      <span class="text-base font-extrabold whitespace-nowrap" data-test="live-focus-down-count"
+            style="background: linear-gradient(90deg, <%= accents.first %>, <%= accents.last %>);
+                   -webkit-background-clip: text; background-clip: text; color: transparent;
+                   filter: drop-shadow(0 1px 1px rgba(8, 10, 16, 0.9))"><%= down %></span>
+      <% if spot.present? %>
+        <span class="text-xs font-medium text-white/60 truncate" data-test="live-focus-down-spot">at <%= spot %></span>
+      <% end %>
+    </span>
+  <% elsif detail %>
+    <span class="text-sm font-bold text-white/90 leading-none truncate max-w-full"
+          data-test="live-focus-detail"><%= detail %></span>
+  <% elsif game.possession_line %>
+    <span class="text-xs font-mono text-white/80 truncate max-w-full leading-none"
+          data-test="live-focus-possession"><%= game.possession_line %></span>
+  <% end %>
 <% else %>
   <%# NOT BEING PLAYED: the middle third says WHEN (Alex, 2026-10-05). The date
       and kickoff used to share the top third with the venue, three lines in a
