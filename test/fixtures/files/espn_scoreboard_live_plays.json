@@ -1,0 +1,82 @@
+{
+ "season": {
+  "type": 2,
+  "year": 2026
+ },
+ "week": {
+  "number": 4
+ },
+ "events": [
+  {
+   "id": "401872978",
+   "date": "2026-10-05T00:20Z",
+   "season": {
+    "year": 2026,
+    "type": 2,
+    "slug": "regular-season"
+   },
+   "week": {
+    "number": 4
+   },
+   "competitions": [
+    {
+     "competitors": [
+      {
+       "id": "29",
+       "homeAway": "home",
+       "score": "32",
+       "team": {
+        "id": "29",
+        "abbreviation": "CAR"
+       }
+      },
+      {
+       "id": "8",
+       "homeAway": "away",
+       "score": "19",
+       "team": {
+        "id": "8",
+        "abbreviation": "DET"
+       }
+      }
+     ],
+     "status": {
+      "period": 4,
+      "displayClock": "3:42",
+      "type": {
+       "state": "in",
+       "completed": false,
+       "shortDetail": "3:42 - 4th"
+      }
+     },
+     "situation": {
+      "lastPlay": {
+       "id": "4018729784422",
+       "type": {
+        "id": "24",
+        "text": "Pass Reception",
+        "abbreviation": "REC"
+       },
+       "text": " (Shotgun) J.Goff pass short right to S.LaPorta to CAR 3 for 7 yards (D.Lloyd; Z.Wheatley).",
+       "scoreValue": 0,
+       "team": {
+        "id": "8"
+       },
+       "statYardage": 7
+      },
+      "down": 1,
+      "yardLine": 3,
+      "distance": 3,
+      "downDistanceText": "1st & Goal at CAR 3",
+      "shortDownDistanceText": "1st & Goal",
+      "possessionText": "CAR 3",
+      "isRedZone": true,
+      "homeTimeouts": 1,
+      "awayTimeouts": 3,
+      "possession": "8"
+     }
+    }
+   ]
+  }
+ ]
+}

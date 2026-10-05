@@ -218,62 +218,11 @@
                 is the date and kickoff we have already printed above it in the
                 reader's own zone. %>
             <div class="h-1/2 flex flex-col items-center justify-center gap-1 px-2 py-2"
+                 id="game_<%= game.slug %>_status"
                  data-role="status-game">
-              <% if game.live? %>
-                <%# THE CLOCK LINE. `status_detail` says the same thing in
-                    ESPN's words ("11:49 - 3rd"); this says it in ours, and
-                    only one of them gets the line. %>
-                <div class="flex items-center justify-center gap-2">
-                  <% if game.period_clock_label %>
-                    <span class="text-xs font-bold uppercase tracking-wider text-white/60 tabular-nums"
-                          data-test="live-focus-clock"><%= game.period_clock_label %></span>
-                  <% end %>
-                  <span class="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-red-400">
-                    <span class="h-2 w-2 rounded-full bg-red-500 animate-pulse"></span> Live
-                  </span>
-                </div>
-
-                <%# THE BIG LINE — the down, in the slot the kickoff time used
-                    to hold. Between possessions and at the half ESPN sends no
-                    situation at all, so the detail stands in — but only when it
-                    is not the clock we just printed above ("11:49 - 3rd" is;
-                    "Halftime" is not). Repeating the clock in a bigger font
-                    would be the loudest line on the card saying nothing new. %>
-                <% detail = game.status_detail.presence %>
-                <% detail = nil if detail && game.clock.present? && detail.include?(game.clock) %>
-                <% headline = game.down_distance_label || detail %>
-                <% if headline %>
-                  <span class="text-lg font-bold text-white/90 leading-none truncate max-w-full"
-                        data-test="live-focus-down"><%= headline %></span>
-                <% end %>
-
-                <% if game.possession_line %>
-                  <span class="text-sm font-mono text-white/80 truncate max-w-full"
-                        data-test="live-focus-possession"><%= game.possession_line %></span>
-                <% end %>
-              <% else %>
-                <% if game.kickoff_at %>
-                  <time datetime="<%= game.kickoff_at.utc.iso8601 %>" data-role="kickoff-date"
-                        class="text-xs font-bold uppercase tracking-wider text-white/60"><%= game.kickoff_at.utc.strftime("%b %-d") %></time>
-                  <time datetime="<%= game.kickoff_at.utc.iso8601 %>" data-role="kickoff"
-                        class="text-lg font-bold text-white/90 leading-none"><%= game.kickoff_at.utc.strftime("%a %-I:%M %p") %></time>
-                <% end %>
-
-                <%# FINAL earns its line; a scheduled game's does not. The
-                    detail rides alongside only when it says MORE than the badge
-                    — "Final/OT" survives, a second "Final" does not, and a
-                    scheduled game's restatement of the kickoff never appears. %>
-                <% if game.completed? %>
-                  <% detail = game.status_detail.presence %>
-                  <% detail = nil if detail && detail.casecmp("final").zero? %>
-                  <div class="flex items-center justify-center gap-2">
-                    <span class="text-xs font-bold uppercase tracking-wider text-white/70">Final</span>
-                    <% if detail %>
-                      <span class="text-sm font-mono text-white/80 truncate"><%= detail %></span>
-                    <% end %>
-                  </div>
-                <% end %>
-              <% end %>
+              <%# Its own partial, so a play can refresh it without repainting
+                  the tile around it — see live/_game_status. %>
+              <%= render "live/game_status", game: game %>
             </div>
 
             <%# PANE 2 — WHAT JUST HAPPENED. Empty and parked below the window

@@ -211,6 +211,74 @@ class ContestLiveRenderTest < ActionDispatch::IntegrationTest
   # The card the focus panel swaps its events list for. What this pins is the
   # STATE the animation reads from — the hooks, and which tiles get one — since
   # the motion itself is the operator's call at the QA stop.
+  # ── THE PLAY-BY-PLAY ─────────────────────────────────────────────────────
+  # [component] The feed under the focus game, as markup: newest first, each
+  # kind marked, timeouts counted, and both stream targets present for the
+  # broadcaster to find.
+
+  def start_game_with_plays
+    @upcoming.update_columns(status: "in_progress", period: 4, clock: "3:42", home_timeouts: 1, away_timeouts: 3)
+    [
+      [101, "play",    "Rush",    "A.Runner up the middle for 4 yards.", "1st & 10 at TMC 25"],
+      [102, "penalty", "Penalty", "PENALTY on TMC, False Start, 5 yards.", nil],
+      [103, "timeout", "Timeout", "Timeout #2 by TMC at 03:42.", nil],
+      [104, "break",   "Two-minute warning", "Two-Minute Warning", nil]
+    ].each do |sequence, kind, type, text, down|
+      GamePlay.create!(game_slug: @upcoming.slug, external_id: "EV#{sequence}", sequence: sequence, kind: kind,
+                       play_type: type, text: text, period: 4, clock: "3:42", down_distance: down,
+                       team_slug: @upcoming.home_team_slug)
+    end
+  end
+
+  test "the focus game carries its play-by-play, newest first" do
+    start_game_with_plays
+    get_live
+
+    assert_select "#game_#{@upcoming.slug}_plays [data-test='live-plays-list']" do
+      assert_select "[data-test='live-play']", 4
+      assert_select "[data-test='live-play']:first-child[data-play-id='EV104']", 1
+      assert_select "[data-test='live-play']:last-child[data-play-id='EV101']", 1
+    end
+    assert_select "[data-test='live-play'][data-play-id='EV101']", text: /1st & 10 at TMC 25/
+    assert_select "[data-test='live-play'][data-play-id='EV101']", text: /A\.Runner up the middle for 4 yards\./
+  end
+
+  test "timeouts, flags and breaks are marked as what they are" do
+    start_game_with_plays
+    get_live
+
+    assert_select "[data-test='live-play'][data-play-kind='timeout']", text: /Timeout\s+Timeout #2 by TMC/m
+    assert_select "[data-test='live-play'][data-play-kind='penalty']", text: /Flag/
+    assert_select "[data-test='live-play'][data-play-kind='break']", text: /Two-Minute Warning/
+    assert_select "[data-test='live-play'][data-play-kind='play']", text: /Flag|Timeout\b(?! #)/, count: 0
+  end
+
+  test "each side's remaining timeouts are counted on the feed" do
+    start_game_with_plays
+    get_live
+
+    assert_select "[data-test='live-plays-timeouts-team'][data-team-slug='#{@upcoming.home_team_slug}'][data-timeouts='1']", 1
+    assert_select "[data-test='live-plays-timeouts-team'][data-team-slug='#{@upcoming.away_team_slug}'][data-timeouts='3']", 1
+  end
+
+  test "a live game with no play yet says so; a scheduled game shows no feed" do
+    @upcoming.update_columns(status: "in_progress")
+    get_live
+    assert_select "#game_#{@upcoming.slug}_plays [data-test='live-plays-empty']", 1
+
+    @upcoming.update_columns(status: "scheduled")
+    get_live
+    # The wrapper stays — it is the stream target the first play arrives in.
+    assert_select "#game_#{@upcoming.slug}_plays", 1
+    assert_select "#game_#{@upcoming.slug}_plays [data-test='live-plays']", 0
+  end
+
+  test "the status pane is addressable, so a play can refresh the clock alone" do
+    start_game_with_plays
+    get_live
+
+    assert_select "#game_#{@upcoming.slug}_status[data-role='status-game'] [data-test='live-focus-clock']", text: "Q4 · 3:42"
+  end
 
   test "the hero tile carries a scorer card, hidden at rest" do
     score!(@played)

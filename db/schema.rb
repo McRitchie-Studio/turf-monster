@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_01_130000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_05_040000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -354,10 +354,31 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_130000) do
     t.index ["target_type", "target_id"], name: "index_error_logs_on_target_type_and_target_id"
   end
 
+  create_table "game_plays", force: :cascade do |t|
+    t.integer "away_score"
+    t.string "clock"
+    t.datetime "created_at", null: false
+    t.string "down_distance"
+    t.string "external_id", null: false
+    t.string "game_slug", null: false
+    t.integer "home_score"
+    t.string "kind", default: "play", null: false
+    t.integer "period"
+    t.string "play_type"
+    t.bigint "sequence", null: false
+    t.string "team_slug"
+    t.text "text"
+    t.datetime "updated_at", null: false
+    t.integer "yards"
+    t.index ["external_id"], name: "index_game_plays_on_external_id", unique: true
+    t.index ["game_slug", "sequence"], name: "index_game_plays_on_game_slug_and_sequence"
+  end
+
   create_table "games", force: :cascade do |t|
     t.string "advancing_team_slug"
     t.integer "away_score"
     t.string "away_team_slug", null: false
+    t.integer "away_timeouts"
     t.string "clock"
     t.datetime "created_at", null: false
     t.string "down_distance"
@@ -365,6 +386,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_130000) do
     t.integer "focus_rank"
     t.integer "home_score"
     t.string "home_team_slug", null: false
+    t.integer "home_timeouts"
     t.datetime "kickoff_at"
     t.integer "period"
     t.string "possession_team_slug"

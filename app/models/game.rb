@@ -16,6 +16,8 @@ class Game < ApplicationRecord
   belongs_to :advancing_team, class_name: "Team", foreign_key: :advancing_team_slug, primary_key: :slug, optional: true
   belongs_to :survivor_round, optional: true
   has_many :goals, foreign_key: :game_slug, primary_key: :slug, dependent: :destroy
+  # Every play, scoring or not: the live board's play-by-play. See GamePlay.
+  has_many :plays, class_name: "GamePlay", foreign_key: :game_slug, primary_key: :slug, dependent: :delete_all
   has_many :nfl_team_total_projections, foreign_key: :game_slug, primary_key: :slug, dependent: :destroy
 
   # Games are shared across sports — the World Cup contests live in this same

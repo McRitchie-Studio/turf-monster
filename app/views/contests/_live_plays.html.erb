@@ -1,0 +1,106 @@
+<%# THE PLAY-BY-PLAY for one game — what is happening between the scores.
+    Locals: game (Game).
+
+    Rendered inside #game_<slug>_plays (contests/_live_focus owns that wrapper),
+    which Contest::LiveBroadcast.plays_changed updates whenever the poller
+    stores a new play. So this is pure content, with no outer id, and the whole
+    list is redrawn each time: forty short rows is about 10KB, and a redraw
+    cannot drift from what a fresh page load would show the way an appended row
+    can.
+
+    NEWEST FIRST, for the reason the scoring rail is: a feed that grows downward
+    pushes the play you are waiting for out of a fixed-height box. A redraw
+    also puts the scroller back at the top, which is where the new play is.
+
+    A scheduled game has no plays and asks the database for none — this partial
+    runs once per game in the week, and most of a week is not being played. %>
+<%
+  plays = game.status == "scheduled" ? [] : game.plays.newest_first.limit(GamePlay::FEED_LIMIT).to_a
+  sides = [[game.away_team, game.away_timeouts], [game.home_team, game.home_timeouts]]
+  # What marks a play that is not an ordinary snap. Inline colours, not
+  # utilities: these four are the feed's whole vocabulary and must not depend
+  # on which classes the last stylesheet build happened to scan.
+  kind_ink = {
+    "score"    => "#4ade80",
+    "turnover" => "#f87171",
+    "penalty"  => "#facc15",
+    "timeout"  => "#fb923c",
+    "sack"     => "#c4b5fd"
+  }
+%>
+<% if plays.any? || game.live? %>
+  <div class="card p-0 mt-3 overflow-hidden" data-test="live-plays" data-game-slug="<%= game.slug %>">
+    <div class="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-subtle">
+      <h2 class="text-sm font-bold uppercase tracking-wider text-secondary whitespace-nowrap">Play by Play</h2>
+
+      <%# TIMEOUTS LEFT, three pips a side. Only while the game is being played:
+          ESPN stops sending the count at the whistle, and a final card that
+          still showed two left would be counting something that is over. %>
+      <% if game.live? && sides.any? { |_, left| left } %>
+        <div class="flex items-center gap-4" data-test="live-plays-timeouts">
+          <% sides.each do |team, left| %>
+            <% next if left.nil? %>
+            <span class="inline-flex items-center gap-1.5 text-xs font-bold text-secondary"
+                  title="<%= team&.short_name %>: <%= pluralize(left, "timeout") %> left"
+                  data-test="live-plays-timeouts-team" data-team-slug="<%= team&.slug %>" data-timeouts="<%= left %>">
+              <span><%= team&.emoji %></span>
+              <span class="tabular-nums"><%= team&.short_name %></span>
+              <span class="inline-flex items-center gap-0.5" aria-hidden="true">
+                <% 3.times do |pip| %>
+                  <span class="h-2 w-2 rounded-full"
+                        style="background: <%= pip < left ? "#fb923c" : "rgba(148, 163, 184, 0.25)" %>"></span>
+                <% end %>
+              </span>
+              <span class="sr-only"><%= pluralize(left, "timeout") %> left</span>
+            </span>
+          <% end %>
+        </div>
+      <% end %>
+    </div>
+
+    <% if plays.any? %>
+      <ol class="tt-play-feed max-h-72 overflow-y-auto" data-test="live-plays-list">
+        <% plays.each_with_index do |play, index| %>
+          <% ink = kind_ink[play.kind] %>
+          <% team = [game.away_team, game.home_team].compact.find { |side| side.slug == play.team_slug } %>
+          <% if play.kind == "break" %>
+            <%# A break in play is a divider, not an event: the quarter ending
+                and the two-minute warning belong to nobody, so they carry no
+                team and sit centred between the plays either side. %>
+            <li class="px-4 py-1.5 text-center text-[11px] font-bold uppercase tracking-wider text-muted border-b border-subtle"
+                data-test="live-play" data-play-kind="break" data-play-id="<%= play.external_id %>">
+              <%= play.text.to_s.sub(/\.\z/, "") %>
+            </li>
+          <% else %>
+            <li class="flex items-start gap-3 px-4 border-b border-subtle <%= index.zero? ? "py-3 tt-play-latest" : "py-2" %>"
+                data-test="live-play" data-play-kind="<%= play.kind %>" data-play-id="<%= play.external_id %>"
+                style="<%= "box-shadow: inset 3px 0 0 #{ink};" if ink %>">
+              <span class="w-16 flex-shrink-0 pt-0.5 text-[11px] font-mono font-bold tabular-nums text-muted">
+                <%= play.clock_label %>
+              </span>
+              <span class="flex-shrink-0 w-5 text-center leading-none pt-0.5"><%= team&.emoji %></span>
+              <span class="min-w-0 flex-1">
+                <% if play.label || play.down_distance.present? %>
+                  <span class="flex flex-wrap items-center gap-x-2 gap-y-0.5 mb-0.5">
+                    <% if play.label %>
+                      <span class="text-[10px] font-black uppercase tracking-wider"
+                            style="color: <%= ink %>"><%= play.label %></span>
+                    <% end %>
+                    <% if play.down_distance.present? %>
+                      <span class="text-[11px] font-semibold text-muted"><%= play.down_distance %></span>
+                    <% end %>
+                  </span>
+                <% end %>
+                <span class="block leading-snug <%= index.zero? ? "text-sm font-semibold text-heading" : "text-[13px] text-secondary" %>">
+                  <%= play.text %>
+                </span>
+              </span>
+            </li>
+          <% end %>
+        <% end %>
+      </ol>
+    <% else %>
+      <p class="px-4 py-4 text-sm text-muted" data-test="live-plays-empty">Waiting for the first play.</p>
+    <% end %>
+  </div>
+<% end %>

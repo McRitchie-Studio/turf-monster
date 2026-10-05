@@ -23,6 +23,10 @@ class Contest
   #                                         chain so a flurry reads in order.
   #                                         See contests/_live_script.
   #
+  # PLUS TWO PER GAME, on the same stream, for the play-by-play — see
+  # #plays_changed. They are not part of the four: a score sends four, a play
+  # sends two, and neither count changes the other.
+  #
   # THE COUNT IS LOAD-BEARING and Contest::LiveBroadcastTest asserts it. Each
   # broadcast below is individually rescued, so a partial that raises in
   # broadcast context never arrives and fails nothing — the count is the only
@@ -54,6 +58,27 @@ class Contest
           replace_leaderboard(contest)
           replace_games(contest)
           replace_focus(contest)
+        end
+      end
+
+      # A play was stored, or the situation moved (the clock, the down, a
+      # timeout). TWO SMALL TARGETS, per game rather than per contest, and
+      # deliberately NOT the focus panel:
+      #
+      #   game_<slug>_status  (update)  — the hero tile's clock/down/ball pane
+      #   game_<slug>_plays   (update)  — the play-by-play under the tile
+      #
+      # The focus panel hosts the scoring animations, and this fires every
+      # polling interval of a live game. Replacing the panel that often would
+      # wipe a touchdown's takeover mid-flight; updating two leaves inside it
+      # cannot. A score still replaces the whole panel, and redraws both of
+      # these from the same rows on its way.
+      def plays_changed(game)
+        return unless game
+
+        affected_contests(game).each do |contest|
+          update_game_status(contest, game)
+          update_game_plays(contest, game)
         end
       end
 
@@ -112,6 +137,28 @@ class Contest
           target:  "contest_#{contest.id}_focus",
           partial: "contests/live_focus",
           locals:  contest.games_by_phase.merge(contest: contest)
+        )
+      rescue => e
+        ErrorLog.capture!(e)
+      end
+
+      def update_game_status(contest, game)
+        Turbo::StreamsChannel.broadcast_update_to(
+          [contest, :live],
+          target:  "game_#{game.slug}_status",
+          partial: "live/game_status",
+          locals:  { game: game }
+        )
+      rescue => e
+        ErrorLog.capture!(e)
+      end
+
+      def update_game_plays(contest, game)
+        Turbo::StreamsChannel.broadcast_update_to(
+          [contest, :live],
+          target:  "game_#{game.slug}_plays",
+          partial: "contests/live_plays",
+          locals:  { game: game }
         )
       rescue => e
         ErrorLog.capture!(e)
