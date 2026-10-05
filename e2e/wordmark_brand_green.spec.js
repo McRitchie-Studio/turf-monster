@@ -43,7 +43,7 @@ for (const [theme, { ink }] of Object.entries(THEMES)) {
     await expect(footerWord).toHaveCSS("color", BRAND_GREEN);
 
     // Not moved: green TEXT still reads the per-theme ink...
-    await expect(page.locator('main a.text-primary[href^="mailto:"]').first()).toHaveCSS("color", ink);
+    await expect(page.locator('a.text-primary[href^="mailto:"]').first()).toHaveCSS("color", ink);
     // ...the primary button still wears the darker fill under its white label...
     const signIn = page.locator("header a.btn-primary", { hasText: "Sign in" }).first();
     await expect(signIn).toHaveCSS("background-color", PRIMARY_FILL);

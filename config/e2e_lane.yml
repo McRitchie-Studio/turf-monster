@@ -1215,7 +1215,11 @@
 # link inside the guide's text lands its section clear of the navbar (through Turbo the jump
 # ignored the heading's scroll margin). Derived with bin/e2e-lane-derive --write on a tree
 # level with origin/accepted.
-total_specs: 377
+# 377 -> 379 (wordmark-returns-to-brand-green): two specs in e2e/wordmark_brand_green.spec.js,
+# one per theme. Each reads the COMPUTED colour of the navbar and footer logotype (#4BAF50)
+# and that a green text link, the primary button fill and a footer link hover did not move.
+# Derived with bin/e2e-lane-derive --write on a tree level with origin/accepted.
+total_specs: 379
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1576,7 +1580,10 @@ allowed_skips: 4
 # proving the lock flow POSTs the Phantom-signed wire to confirm_lock_time and the page makes
 # no RPC call (the browser broadcast 403'd on mainnet). Runs in chromium, no skip. Derived with
 # bin/e2e-lane-derive --write on this tree.
-executed: 356
+# 356 -> 358 (wordmark-returns-to-brand-green): the two logotype specs described beside
+# total_specs above. Both run in the chromium lane and neither skips, so excluded holds at 17
+# and allowed_skips at 4. Derived with bin/e2e-lane-derive --write on this tree.
+executed: 358
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a
