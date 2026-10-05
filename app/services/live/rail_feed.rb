@@ -14,7 +14,9 @@ module Live
   # toolbar) has no id, so it is placed after the last play that existed when
   # it was written — which is where it happened.
   class RailFeed
-    Item = Data.define(:kind, :team_slug, :label, :points, :order)
+    # `id` names the event across redraws: the page announces a turnover once,
+    # and the list it reads is redrawn on every play.
+    Item = Data.define(:id, :kind, :team_slug, :label, :points, :order)
 
     # A game has roughly forty first downs. The rail is for what is happening
     # now; this is a couple of drives deep and the rest scrolls off.
@@ -46,7 +48,7 @@ module Live
 
     def scores
       @game.goals.map do |goal|
-        Item.new(kind: "score", team_slug: goal.team_slug, label: goal.scoring_label.presence || "Score",
+        Item.new(id: "goal-#{goal.id}", kind: "score", team_slug: goal.team_slug, label: goal.scoring_label.presence || "Score",
                  points: goal.points, order: order_for(goal))
       end
     end
@@ -55,10 +57,10 @@ module Live
       if play.kind == "turnover"
         # The team that TOOK the ball, not the one that lost it: the row leads
         # with a team's mark, and a mark beside "Interception" reads as theirs.
-        Item.new(kind: "turnover", team_slug: other_side(play.team_slug), label: turnover_label(play),
+        Item.new(id: "play-#{play.external_id}", kind: "turnover", team_slug: other_side(play.team_slug), label: turnover_label(play),
                  points: nil, order: [play.sequence, 0, 0])
       else
-        Item.new(kind: "first_down", team_slug: play.team_slug, label: "First Down",
+        Item.new(id: "play-#{play.external_id}", kind: "first_down", team_slug: play.team_slug, label: "First Down",
                  points: nil, order: [play.sequence, 0, 0])
       end
     end

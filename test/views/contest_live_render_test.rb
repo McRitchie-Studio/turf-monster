@@ -277,6 +277,47 @@ class ContestLiveRenderTest < ActionDispatch::IntegrationTest
     assert_select "#game_#{@upcoming.slug}_plays [data-test='live-plays-list'][x-show='plays'][style*='display: none']", 1
     assert_select "#game_#{@upcoming.slug}_plays [data-test='live-plays-toggle']", 1
     assert_select "#game_#{@upcoming.slug}_plays [data-test='live-plays-latest']", text: /Two-Minute Warning/
+    assert_select "#game_#{@upcoming.slug}_plays [data-test='live-plays-clock']", text: "Q4 · 3:42"
+  end
+
+  # The newest play, under the rail: WHAT in bold, the DETAIL in the team's two
+  # colours, and WHO as overlapping portraits — the receiver leftmost and on
+  # top of the passer. The clock stays with the heading on the other side.
+  test "the bar summarises the newest play as a result, a detail and its players" do
+    @upcoming.update_columns(status: "in_progress", period: 2, clock: "7:25")
+    GamePlay.create!(game_slug: @upcoming.slug, external_id: "EV900", sequence: 900, kind: "play", yards: 7,
+                     play_type: "Pass Reception", period: 2, clock: "7:25", team_slug: @upcoming.home_team_slug,
+                     text: "(Shotgun) J.Goff pass short right to S.LaPorta to TMD 3 for 7 yards (D.Lloyd; Z.Wheatley).")
+    get_live
+
+    latest = css_select("#game_#{@upcoming.slug}_plays [data-test='live-plays-latest']").first
+    assert_equal "Completion", latest.css("[data-test='live-plays-result']").first.text.strip
+    assert_includes latest.css("[data-test='live-plays-result']").first["class"].split, "font-extrabold"
+
+    detail = latest.css("[data-test='live-plays-detail']").first
+    assert_equal "7 yard pass", detail.text.strip
+    assert_includes detail["style"], ApplicationController.helpers.team_two_tone_ink(@upcoming.home_team)
+
+    avatars = latest.css("[data-test='live-plays-avatar']")
+    assert_equal %w[S.LaPorta J.Goff], avatars.map { |node| node["data-player"] }
+    assert_equal %w[SL JG], avatars.map { |node| node.text.strip }, "no portrait on file: initials"
+    assert_operator avatars.first["style"][/z-index: (\d)/, 1].to_i, :>, avatars.last["style"][/z-index: (\d)/, 1].to_i,
+      "the receiver sits on top of the passer"
+    assert_includes avatars.last["style"], "margin-left: -0.75rem", "and they overlap"
+    assert_not_includes avatars.first["style"], "margin-left"
+
+    assert_no_match(/Shotgun|Lloyd|7:25/, latest.text)
+    assert_includes latest["title"], "(Shotgun) J.Goff pass short right"
+  end
+
+  test "a play that names nobody shows its team in the avatar slot" do
+    start_game_with_plays
+    get_live
+
+    latest = css_select("#game_#{@upcoming.slug}_plays [data-test='live-plays-latest']").first
+    assert_empty latest.css("[data-test='live-plays-avatar']")
+    assert_equal 1, latest.css("[data-test='live-plays-avatars'] > span").size
+    assert_equal "Two-Minute Warning", latest.css("[data-test='live-plays-result']").first.text.strip
   end
 
   test "timeouts, flags and breaks are marked as what they are" do

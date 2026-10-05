@@ -92,12 +92,24 @@
     down, spot = game.down_distance_label.to_s.split(/\s+at\s+/, 2)
     detail = game.status_detail.presence
     detail = nil if detail && game.clock.present? && detail.include?(game.clock)
-    accents = [away, home].map { |team| team_card_palette(team)[:accent] }
+    # THE OFFENCE'S OWN TWO COLOURS (Alex, 2026-10-05): Detroit with the ball
+    # reads silver into Honolulu blue (LiveBoardHelper#team_two_tone_ink). The
+    # line is about the team that has it, and the pair changing hands with the
+    # ball is the cue. With no possession to read, one accent from each side.
+    offence = game.possession_team
+    ink = offence ? team_two_tone_ink(offence) :
+                    "linear-gradient(90deg, #{team_card_palette(away)[:accent]}, #{team_card_palette(home)[:accent]})"
   %>
   <% if down.present? %>
     <span class="flex items-baseline justify-center gap-1.5 max-w-full leading-none" data-test="live-focus-down">
-      <span class="text-base font-extrabold whitespace-nowrap" data-test="live-focus-down-count"
-            style="background: linear-gradient(90deg, <%= accents.first %>, <%= accents.last %>);
+      <%# data-offence / data-ink are for contests/_live_turnover_script: this
+          node is REPLACED on every play, so the page remembers who had the
+          ball and in what colours, and wipes the old pair away when the ball
+          changes hands. %>
+      <span class="relative inline-block text-base font-extrabold whitespace-nowrap" data-test="live-focus-down-count"
+            data-offence="<%= offence&.slug %>"
+            data-ink="<%= ink %>"
+            style="background: <%= ink %>;
                    -webkit-background-clip: text; background-clip: text; color: transparent;
                    filter: drop-shadow(0 1px 1px rgba(8, 10, 16, 0.9))"><%= down %></span>
       <% if spot.present? %>

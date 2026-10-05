@@ -72,8 +72,11 @@ class LiveFocusSituationRenderTest < ActionDispatch::IntegrationTest
     assert_equal "Q3 · 6:06", field_line(@live.slug, "clock")
   end
 
-  # Two voices: the down bold in both teams' accents, the spot small and quiet.
-  test "the down is bold in the two teams' colours and the spot is muted beside it" do
+  # Two voices: the down bold in the OFFENCE's own two colours, the spot small
+  # and quiet. TMB has the ball here, so the line is TMB's accent into TMB's
+  # field — and changes hands with the ball.
+  test "the down is bold in the offence's two colours and the spot is muted beside it" do
+    teams(:team_b).update_columns(color_dark: "#0076B6", color_light: "#B0B7BC", color_disposition: "dark")
     @live.update!(down_distance: "3rd & 10 at TMA 32")
     get live_path
 
@@ -83,13 +86,37 @@ class LiveFocusSituationRenderTest < ActionDispatch::IntegrationTest
 
     assert_equal "3rd & 10", count.text.strip
     assert_includes count["class"].split, "font-extrabold"
-    accents = [teams(:team_b), teams(:team_a)].map { |team| ApplicationController.helpers.team_card_palette(team)[:accent] }
-    assert_includes count["style"], "linear-gradient(90deg, #{accents.first}, #{accents.last})"
+    helpers = ApplicationController.helpers
+    offence = teams(:team_b).reload
+    accent  = helpers.team_card_palette(offence)[:accent]
+    field   = helpers.normalize_hex(offence.card_background)
+    assert_not_equal accent, field, "the fixture must give the offence two different colours"
+    assert_includes count["style"], "linear-gradient(90deg, #{accent}, #{field})"
+    assert_not_includes count["style"], helpers.team_card_palette(teams(:team_a))[:accent]
     assert_includes count["style"], "background-clip: text"
 
     assert_equal "at TMA 32", spot.text.strip
     assert_includes spot["class"].split, "text-xs"
     assert_not_includes spot["class"].split, "font-extrabold"
+  end
+
+  # Atlanta's and Las Vegas's field is pure black: unreadable on this scrim.
+  test "an offence whose field is too dark to read has it lifted toward white" do
+    teams(:team_b).update_columns(color_dark: "#000000", color_light: "#A71930", color_disposition: "dark")
+    get live_path
+
+    style = field_for(@live.slug).css("[data-test='live-focus-down-count']").first["style"]
+    assert_includes style, "color-mix(in srgb, #000000 45%, #ffffff)"
+  end
+
+  test "with no possession the down falls back to the two teams' accents" do
+    @live.update!(possession_team_slug: nil)
+    get live_path
+
+    helpers = ApplicationController.helpers
+    accents = [teams(:team_b), teams(:team_a)].map { |team| helpers.team_card_palette(team)[:accent] }
+    style = field_for(@live.slug).css("[data-test='live-focus-down-count']").first["style"]
+    assert_includes style, "linear-gradient(90deg, #{accents.first}, #{accents.last})"
   end
 
   test "a down with no spot prints the down alone" do

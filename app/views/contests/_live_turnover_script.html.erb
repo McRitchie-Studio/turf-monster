@@ -1,0 +1,134 @@
+<%# THE TURNOVER — a flash that names it, and the down line changing colours.
+    Locals: contest.
+
+    ITS OWN SCRIPT, beside contests/_live_script and deliberately not inside
+    it. That script runs the scoring takeover: a queue, two wheels, a portrait
+    that must decode off screen. A turnover needs none of it, and wiring one
+    into that chain would put a second kind of event into machinery tuned for
+    one. This reads what the server already draws and decides nothing.
+
+    NO BROADCAST OF ITS OWN. A play already updates the rail's feed and the
+    field (Contest::LiveBroadcast.plays_changed), and both carry what this
+    needs: each feed row has a stable data-event-id and says if it is a
+    turnover, and the down line says who has the ball and in what two colours.
+    So "a turnover just happened" is "a turnover row I have not seen", and
+    "the ball changed hands" is "the down line names a different offence than
+    it did". The page remembers; the server stays stateless about it.
+
+    WHAT IT MUST NOT DO:
+      · announce the turnovers already on the board at first paint — the first
+        scan only records them;
+      · announce one twice when a score replaces the whole focus panel — the
+        memory is keyed by game slug and event id, not by node;
+      · flash on a game the reader is not watching — a hidden tile's events
+        are recorded and stay silent. %>
+<script>
+  (function () {
+    var focus = document.getElementById('contest_<%= contest.id %>_focus');
+    if (!focus) return;
+    var announcer = document.getElementById('contest_<%= contest.id %>_announcer');
+
+    var seen = {};      // gameSlug -> { eventId: true }
+    var offence = {};   // gameSlug -> { slug, ink }: who had the ball, in what colours
+
+    function visible(el) { return !!(el && el.offsetParent !== null); }
+
+    // (1) THE FLASH. Appended to the RAIL, not to the middle third it covers:
+    // that third is a stream target and is replaced by the very play that
+    // caused this, which would take the flash with it mid-entrance.
+    function flash(tile, row) {
+      var rail = tile.querySelector('[data-test="live-focus-rail"]');
+      if (!rail) return;
+      var old = rail.querySelector('.tt-turnover-flash');
+      if (old) old.remove();
+
+      var node = document.createElement('div');
+      node.className = 'tt-turnover-flash';
+      node.setAttribute('data-test', 'live-turnover-flash');
+      if (row.dataset.eventAccent) node.style.setProperty('--tt-turnover', row.dataset.eventAccent);
+
+      var emoji = document.createElement('span');
+      emoji.className = 'tt-turnover-emoji';
+      emoji.textContent = row.dataset.eventEmoji || '';
+      var words = document.createElement('span');
+      words.className = 'tt-turnover-words';
+      var label = document.createElement('span');
+      label.className = 'tt-turnover-label';
+      label.textContent = row.dataset.eventLabel || 'Turnover';
+      var team = document.createElement('span');
+      team.className = 'tt-turnover-team';
+      team.textContent = row.dataset.eventTeam ? row.dataset.eventTeam + ' ball' : '';
+      words.appendChild(label);
+      words.appendChild(team);
+      node.appendChild(emoji);
+      node.appendChild(words);
+
+      node.addEventListener('animationend', function (e) { if (e.target === node) node.remove(); });
+      rail.appendChild(node);
+
+      if (announcer) {
+        announcer.textContent = (row.dataset.eventLabel || 'Turnover') +
+          (row.dataset.eventTeam ? '. ' + row.dataset.eventTeam + ' ball.' : '.');
+      }
+    }
+
+    // (2) THE WIPE. `count` is already drawn in the NEW offence's colours. A
+    // ghost carrying the same words in the OLD pair is laid over it and wiped
+    // away, so the change reads as one colour giving way to the other.
+    //
+    // Not under reduced motion: the stylesheet switches the wipe off there, so
+    // the ghost's animationend would never come and it would sit on the line
+    // for good. The colours have already changed; that is the whole message.
+    var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)');
+    function wipe(count, oldInk) {
+      if (!oldInk || (still && still.matches)) return;
+      var stale = count.querySelector('.tt-possession-ghost');
+      if (stale) stale.remove();
+
+      var ghost = document.createElement('span');
+      ghost.className = 'tt-possession-ghost';
+      ghost.setAttribute('aria-hidden', 'true');
+      ghost.textContent = count.textContent;
+      ghost.style.backgroundImage = oldInk;
+      ghost.addEventListener('animationend', function () {
+        ghost.remove();
+        count.classList.remove('tt-possession-flip');
+      });
+      count.appendChild(ghost);
+      count.classList.add('tt-possession-flip');
+    }
+
+    function scan(live) {
+      focus.querySelectorAll('[data-test="live-focus-game"]').forEach(function (tile) {
+        var slug = tile.dataset.focusSlug;
+        var known = seen[slug] || (seen[slug] = {});
+        var showing = visible(tile);
+
+        // Newest first in the DOM, so the first unseen turnover is the latest.
+        var fresh = null;
+        tile.querySelectorAll('[data-test="live-focus-event"][data-event-kind="turnover"]').forEach(function (row) {
+          var id = row.dataset.eventId;
+          if (!id || known[id]) return;
+          known[id] = true;
+          if (!fresh) fresh = row;
+        });
+        if (live && showing && fresh) flash(tile, fresh);
+
+        var count = tile.querySelector('[data-test="live-focus-down-count"]');
+        if (!count || !count.dataset.offence) return;   // no down this snap: keep who had it last
+        var before = offence[slug];
+        var now = { slug: count.dataset.offence, ink: count.dataset.ink || '' };
+        offence[slug] = now;
+        if (live && showing && before && before.slug !== now.slug &&
+            !count.querySelector('.tt-possession-ghost')) {
+          wipe(count, before.ink);
+        }
+      });
+    }
+
+    // First paint records and stays silent. After that every redraw is read.
+    scan(false);
+    new MutationObserver(function () { scan(true); })
+      .observe(focus, { childList: true, subtree: true });
+  })();
+</script>
