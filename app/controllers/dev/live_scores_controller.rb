@@ -38,6 +38,11 @@ module Dev
       # for a withdrawn one and deleted out from under the demo.
       scorer = pick_scorer(team, scoring_type)
 
+      # THE PLAY BEHIND THE SCORE, written first. On the real feed a touchdown
+      # arrives as a play AND a scoring event in the same cycle; a goal alone
+      # left the play-by-play showing whatever happened before it.
+      record_scoring_play(team, scoring_type, scorer)
+
       goal = @game.goals.create!(
         team_slug: team.slug,
         points: Goal.points_for(scoring_type),
@@ -81,13 +86,14 @@ module Dev
       team = [@game.home_team, @game.away_team].compact.find { |side| side.slug == params[:team_slug] }
       sequence = @game.plays.maximum(:sequence).to_i + 1
 
-      @game.update!(live_attributes_after(kind, team))
+      script = play_script(kind, team, sequence)
+      @game.update!(live_attributes_after(kind, team).merge(possession_after(kind, team)))
       play = @game.plays.create!(
         external_id: "dev-#{@game.id}-#{sequence}", sequence: sequence, kind: kind,
-        play_type: kind.humanize, team_slug: team&.slug, period: @game.period, clock: @game.clock,
+        play_type: script[:type], yards: script[:yards], team_slug: team&.slug, period: @game.period, clock: @game.clock,
         first_down: first_down,
         down_distance: (kind == "play" ? "#{%w[1st 2nd 3rd].sample} & #{rand(1..10)} at #{team&.short_name} #{rand(20..45)}" : nil),
-        text: params[:text].presence || synthetic_play_text(kind, team, sequence)
+        text: params[:text].presence || script[:text]
       )
 
       Contest::LiveBroadcast.plays_changed(@game)
@@ -155,18 +161,80 @@ module Dev
       attributes
     end
 
-    def synthetic_play_text(kind, team, sequence)
+    # WHO HAS THE BALL after this play, and where — so the rail has a down to
+    # print and a turnover has somebody to hand the ball to. The selected team
+    # is the OFFENCE: a snap keeps it there; a turnover gives the ball to the
+    # other side. Anything else (a timeout, a flag) leaves the ball where it is.
+    def possession_after(kind, team)
+      return {} unless team && %w[play turnover].include?(kind)
+
+      holder = kind == "turnover" ? ([@game.home_team, @game.away_team].compact - [team]).first : team
+      return {} unless holder
+
+      spot = "#{holder.short_name} #{rand(20..45)}"
+      { possession_team_slug: holder.slug, possession_text: spot,
+        down_distance: "#{kind == "turnover" ? "1st" : %w[1st 2nd 3rd].sample} & 10 at #{spot}" }
+    end
+
+    # The feed's line for a score, as a GamePlay. The extra point and the
+    # two-point try are folded into the touchdown's own play by ESPN, so they
+    # write none of their own.
+    def record_scoring_play(team, scoring_type, scorer)
+      who = scorer ? "#{scorer.person.first_name[0]}.#{scorer.person.last_name}" : roster_name(team, %w[RB WR], "R.Runner")
+      type, yards, text =
+        case scoring_type
+        when "touchdown"  then y = rand(2..38); ["Rushing Touchdown", y, "#{who} left tackle for #{y} yards, TOUCHDOWN."]
+        when "field_goal" then y = rand(24..54); ["Field Goal Good", nil, "#{who} #{y} yard field goal is GOOD."]
+        when "safety"     then ["Safety", nil, "#{who} tackled in the end zone, SAFETY."]
+        else return
+        end
+
+      sequence = @game.plays.maximum(:sequence).to_i + 1
+      @game.plays.create!(external_id: "dev-#{@game.id}-#{sequence}", sequence: sequence, kind: "score",
+                          play_type: type, yards: yards, text: text, team_slug: team.slug,
+                          period: @game.period, clock: @game.clock)
+    end
+
+    # ONE PLAY, WRITTEN THE WAY ESPN WRITES IT — its type, its yardage, and
+    # a line of text with players in it — so the board's summary (result,
+    # detail, portraits) has the same things to read that a real play gives it.
+    # Players come off the team's own roster when the dev database holds one,
+    # so a seeded headshot can appear; otherwise stand-in names.
+    def play_script(kind, team, sequence)
       name = team&.short_name || "Offense"
+      other = ([@game.home_team, @game.away_team].compact - [team]).first
+      qb = roster_name(team, %w[QB], "Q.Passer")
+      wr = roster_name(team, %w[WR TE], "W.Catcher")
+      rb = roster_name(team, %w[RB], "R.Runner")
+      db = roster_name(other, %w[CB S DB LB], "D.Hawk")
+      yards = rand(3..28)
+
       case kind
-      when "timeout"  then "Timeout ##{sequence} by #{name}."
-      when "penalty"  then "PENALTY on #{name}, False Start, 5 yards - No Play."
-      when "break"    then "Two-Minute Warning"
-      when "turnover" then "#{name} pass intercepted."
-      when "sack"     then "#{name} quarterback sacked for -7 yards."
-      when "kick"     then "#{name} punts 44 yards."
-      when "score"    then "#{name} 12 Yd Run."
-      else                 "#{name} up the middle for #{rand(1..12)} yards."
+      when "timeout"  then { type: "Timeout", text: "Timeout ##{sequence} by #{name}." }
+      when "penalty"  then { type: "Penalty", text: "PENALTY on #{name}-#{rb}, False Start, 5 yards, enforced at #{name} 30 - No Play." }
+      when "break"    then { type: "Two-minute warning", text: "Two-Minute Warning" }
+      when "turnover" then { type: "Pass Interception Return",
+                             text: "(Shotgun) #{qb} pass short middle intended for #{wr} INTERCEPTED by #{db} at #{other&.short_name} 30. #{db} to #{other&.short_name} 35 for 5 yards.", yards: 5 }
+      when "sack"     then { type: "Sack", yards: -7, text: "(Shotgun) #{qb} sacked at #{name} 23 for -7 yards (#{db})." }
+      when "kick"     then { type: "Punt", text: "#{rb} punts 44 yards to #{other&.short_name} 20, fair catch." }
+      when "score"    then { type: "Rushing Touchdown", yards: 12, text: "#{rb} left tackle for 12 yards, TOUCHDOWN." }
+      else
+        if sequence.odd?
+          { type: "Pass Reception", yards: yards, text: "(Shotgun) #{qb} pass short right to #{wr} to #{other&.short_name} 30 for #{yards} yards (#{db})." }
+        else
+          { type: "Rush", yards: yards - 5, text: "#{rb} up the middle to #{name} 40 for #{yards - 5} yards (#{db})." }
+        end
       end
+    end
+
+    # "J.Goff" for a rostered player at one of these positions, else the
+    # stand-in. Deterministic (first by id), so a demo names the same passer
+    # from one play to the next.
+    def roster_name(team, positions, fallback)
+      athlete = team && Athlete.football.for_team(team.slug).where(position: positions).includes(:person).order(:id).first
+      return fallback unless athlete
+
+      "#{athlete.person.first_name[0]}.#{athlete.person.last_name}"
     end
 
     TOUCHDOWN_POSITIONS = %w[WR RB TE QB].freeze

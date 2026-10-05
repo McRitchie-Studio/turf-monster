@@ -55,6 +55,23 @@ class DevLiveScoresTest < ActionDispatch::IntegrationTest
     assert_equal %w[first_down], Live::RailFeed.for(@game).map(&:kind)
   end
 
+  # On the real feed a score is a play AND a scoring event. A goal alone left
+  # the play-by-play showing whatever happened before the touchdown.
+  test "a recorded touchdown also writes the play behind it" do
+    post dev_live_scores_record_path,
+         params: { game_slug: @game.slug, team_slug: @home.slug, scoring_type: "touchdown" }, as: :json
+
+    assert_response :success
+    play = @game.reload.plays.sole
+    assert_equal ["score", "Touchdown"], [play.kind, play.result_label]
+    assert_match(/\A\d+ yard rush\z/, play.detail_label)
+    assert_equal 1, @game.goals.count
+
+    post dev_live_scores_record_path,
+         params: { game_slug: @game.slug, team_slug: @home.slug, scoring_type: "pat" }, as: :json
+    assert_equal 1, @game.reload.plays.count, "the extra point rides the touchdown's own play"
+  end
+
   test "record_play refuses a kind the feed has no word for" do
     post dev_live_scores_record_play_path,
          params: { game_slug: @game.slug, team_slug: @home.slug, kind: "fireworks" }, as: :json

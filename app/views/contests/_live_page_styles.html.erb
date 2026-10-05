@@ -261,4 +261,85 @@
   }
   .tt-games-strip::-webkit-scrollbar { display: none; }
 
+  /* ── THE TURNOVER ─────────────────────────────────────────────────────────
+     Two things happen when the ball changes hands (contests/_live_turnover_script):
+
+     1. A FLASH across the rail's middle third names it — "INTERCEPTION", in the
+        colour of the team that took the ball. It lands hard, holds long enough
+        to read, and leaves. One keyframe set, so its exit cannot be orphaned
+        by a redraw: the node removes itself on animationend.
+     2. The down line WIPES from the old offence's two colours to the new one's.
+        The line itself is already the new colours (the server drew it); a
+        ghost wearing the old pair sits on top and is wiped away left to right,
+        with a bright edge travelling along the cut. */
+  .tt-turnover-flash {
+    position: absolute; left: 0; right: 0; top: 33.333%; height: 33.334%;
+    z-index: 5; pointer-events: none;
+    display: flex; align-items: center; justify-content: center; gap: 0.4rem;
+    background: linear-gradient(90deg, rgba(8, 10, 16, 0) 0%, rgba(8, 10, 16, 0.98) 14%, rgba(8, 10, 16, 0.98) 86%, rgba(8, 10, 16, 0) 100%);
+    border-top: 2px solid var(--tt-turnover, #f87171);
+    border-bottom: 2px solid var(--tt-turnover, #f87171);
+    animation: tt-turnover-flash 3600ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .tt-turnover-flash > .tt-turnover-emoji { font-size: 1.5rem; line-height: 1; }
+  .tt-turnover-flash > .tt-turnover-words { display: flex; flex-direction: column; align-items: flex-start; line-height: 1; }
+  .tt-turnover-flash .tt-turnover-label {
+    font-weight: 900; font-size: 1.05rem; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--tt-turnover, #f87171); text-shadow: 0 0 12px var(--tt-turnover, #f87171);
+  }
+  .tt-turnover-flash .tt-turnover-team {
+    margin-top: 0.2rem; font-weight: 700; font-size: 0.7rem; letter-spacing: 0.06em;
+    text-transform: uppercase; color: rgba(255, 255, 255, 0.8);
+  }
+  /* AT PHONE WIDTH THE RAIL IS ABOUT 100PX — narrower than "INTERCEPTION". The
+     flash is hung on the rail (a third of the tile, at its right edge), so
+     reaching two rail-widths left spans the whole tile: the announcement gets
+     the full row and clips nothing. */
+  @media (max-width: 639px) {
+    .tt-turnover-flash { left: -200%; }
+    .tt-turnover-flash .tt-turnover-label { font-size: 0.95rem; }
+  }
+  @keyframes tt-turnover-flash {
+    0%   { opacity: 0; transform: translateX(42%) skewX(-14deg); }
+    9%   { opacity: 1; transform: translateX(-3%) skewX(4deg); }
+    14%  { transform: translateX(1.5%) skewX(-2deg); }
+    19%  { transform: translateX(0) skewX(0); }
+    82%  { opacity: 1; transform: translateX(0); }
+    100% { opacity: 0; transform: translateX(-30%) skewX(10deg); }
+  }
+
+  .tt-possession-ghost {
+    position: absolute; inset: 0; pointer-events: none; white-space: nowrap;
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    animation: tt-possession-wipe 1100ms cubic-bezier(0.65, 0, 0.35, 1) 250ms both;
+  }
+  @keyframes tt-possession-wipe {
+    from { clip-path: inset(0 0 0 0); }
+    to   { clip-path: inset(0 0 0 100%); }
+  }
+  /* The bright edge on the cut, and a small lift so the change is felt. */
+  .tt-possession-flip { animation: tt-possession-pop 1350ms ease-out both; }
+  .tt-possession-flip::after {
+    content: ""; position: absolute; top: -15%; bottom: -15%; width: 3px; left: 0;
+    background: #fff; box-shadow: 0 0 10px 2px rgba(255, 255, 255, 0.9); border-radius: 2px;
+    animation: tt-possession-edge 1100ms cubic-bezier(0.65, 0, 0.35, 1) 250ms both;
+  }
+  @keyframes tt-possession-edge {
+    0%   { left: 0; opacity: 0; }
+    8%   { opacity: 1; }
+    92%  { opacity: 1; }
+    100% { left: 100%; opacity: 0; }
+  }
+  @keyframes tt-possession-pop {
+    0%   { transform: scale(1); }
+    22%  { transform: scale(1.18); }
+    100% { transform: scale(1); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .tt-turnover-flash { animation: tt-turnover-hold 3600ms linear both; }
+    .tt-possession-ghost, .tt-possession-flip, .tt-possession-flip::after { animation: none; }
+    .tt-possession-ghost { display: none; }
+    @keyframes tt-turnover-hold { 0%, 90% { opacity: 1; } 100% { opacity: 0; } }
+  }
+
 </style>

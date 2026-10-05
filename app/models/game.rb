@@ -285,4 +285,29 @@ class Game < ApplicationRecord
 
     "at #{possession_text}"
   end
+
+  # THE VENUE, IN ITS TWO HALVES. `venue` is one string, stadium first and then
+  # where it is: "Caesars Superdome, New Orleans, LA", "Tottenham Hotspur
+  # Stadium, London, England". The focus card leads with the place and puts the
+  # building under it, so it needs them apart — split at the FIRST comma,
+  # because the place may carry commas of its own and a stadium's name does not.
+  #
+  # A venue with no comma is a building we cannot place: it is all stadium, and
+  # there is no location to print above it.
+  def venue_stadium
+    venue.to_s.split(",", 2).first.to_s.strip.presence
+  end
+
+  def venue_location
+    venue.to_s.split(",", 2)[1].to_s.strip.presence
+  end
+
+  # THE DOWN WITHOUT ITS SPOT: "3rd & 10" out of ESPN's "3rd & 10 at ARI 34".
+  # The feed's down text carries the yard line; #field_spot_label carries it
+  # too, as its own phrase. Anything that prints the two side by side must take
+  # the down from HERE, or it reads "3rd & 10 at ARI 34 at ARI 34" — which is
+  # what the scoring banner did.
+  def down_label
+    down_distance_label.to_s.split(/\s+at\s+/, 2).first.presence
+  end
 end
