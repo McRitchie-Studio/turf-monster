@@ -2183,6 +2183,39 @@ html:not(.dark) {
   --color-primary-badge-ink: var(--color-primary-700);
 }
 
+/* ── The WORDMARK: the brand green, as a logotype ─────────────────────────────
+   "Turf Monster" set as a logotype is the BRAND, not body text, so it wears
+   the brand green #4BAF50 in both themes, as it did until 2026-09-16.
+
+   WHY A TOKEN OF ITS OWN. That day the primary went #4BAF50 -> #2E7D32 (white
+   button labels) and `text-primary` moved to --color-primary-ink (#81C784 in
+   the dark theme). Both were right for buttons and for text, and both
+   repainted the logotype as a side effect: pale #81C784 in the dark navbar,
+   dark #2E7D32 in the light one and in the footer in both themes. The
+   operator read the pale one as "whiter than normal" (2026-10-03).
+
+   CONTRAST, STATED RATHER THAN HIDDEN. A logotype is exempt from WCAG 1.4.3,
+   so nothing below is a failure, but these are the numbers:
+     dark   6.28:1 navbar/page (#1A1535), 6.51:1 footer, 4.01:1 card
+     light  2.66:1 navbar/page (#F8FAFC), 2.50:1 footer, 2.78:1 white card
+   So NEVER reach for this on anything a person has to read: links, buttons,
+   badges and copy keep `text-primary` and the ink.
+
+   .tm-wordmark is the class this app puts on its own logotype markup. The
+   footer is the engine partial, whose accent word reads --ftr-primary; that
+   variable also paints the footer link hovers and the social chips, so it is
+   left alone and the accent ELEMENT is targeted instead. Two classes, and
+   unlayered, because the engine styles the element from an inline style
+   block that comes later in the document.
+   Guards: test/views/wordmark_brand_green_test.rb, e2e/wordmark_brand_green.spec.js. */
+:root {
+  --tm-wordmark: #4baf50;
+}
+.tm-wordmark,
+.ftr .ftr-wordmark-accent {
+  color: var(--tm-wordmark);
+}
+
 /* ── The violet INK: violet used as SMALL TEXT ────────────────────────────────
    WHICH VIOLET DO I REACH FOR?
 
