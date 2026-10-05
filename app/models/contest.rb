@@ -807,7 +807,7 @@ class Contest < ApplicationRecord
   # Shared by ContestsController#live and Contest::LiveBroadcast so the buckets
   # never drift.
   def games_by_phase(now = Time.current)
-    games = matchups.includes(game: [:home_team, :away_team, { goals: :player }]).map(&:game).compact.uniq
+    games = WeekWindow.current(matchups.includes(game: [:home_team, :away_team, { goals: :player }]).map(&:game).compact.uniq, now)
     # Classify each game once so the active/upcoming split has a single source of
     # truth — no mirrored negation to keep in sync.
     buckets = games.group_by do |g|
