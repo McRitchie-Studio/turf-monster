@@ -18,7 +18,7 @@
   <%# THE CLOCK LINE. `status_detail` says the same thing in
       ESPN's words ("11:49 - 3rd"); this says it in ours, and
       only one of them gets the line. %>
-  <div class="flex items-center justify-center gap-2">
+  <div class="flex flex-wrap items-center justify-center gap-x-2 gap-y-0.5 max-w-full">
     <% if game.period_clock_label %>
       <span class="text-lg font-extrabold uppercase tracking-wide text-white tabular-nums leading-none"
             data-test="live-focus-clock"><%= game.period_clock_label %></span>
