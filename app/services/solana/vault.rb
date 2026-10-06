@@ -853,10 +853,7 @@ module Solana
     def read_vault_state(commitment: "confirmed")
       pda, _ = vault_state_pda
       info = client.get_account_info(Keypair.encode_base58(pda), commitment: commitment)
-      unless info.is_a?(Hash) && info.key?("value")
-        raise PrizePoolUnreadable, "getAccountInfo for the #{contest_slug} prize pool answered without a value key: #{info.inspect[0, 200]}"
-      end
-      return nil if info["value"].nil?
+      return nil unless info&.dig("value")
 
       data = Base64.decode64(info["value"]["data"][0])
 
@@ -3086,10 +3083,7 @@ module Solana
     def get_season(season_id, commitment: "confirmed")
       pda, _ = season_pda(season_id)
       info = client.get_account_info(Keypair.encode_base58(pda), commitment: commitment)
-      unless info.is_a?(Hash) && info.key?("value")
-        raise PrizePoolUnreadable, "getAccountInfo for the #{contest_slug} prize pool answered without a value key: #{info.inspect[0, 200]}"
-      end
-      return nil if info["value"].nil?
+      return nil unless info&.dig("value")
       decode_season({ "pubkey" => Keypair.encode_base58(pda), "account" => info["value"] })
     end
 
