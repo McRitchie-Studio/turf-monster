@@ -23,7 +23,7 @@ module TurfMonster
     # Please, add to the `ignore` list any other `lib` subdirectories that do
     # not contain `.rb` files, or that should not be reloaded or eager loaded.
     # Common ones are `templates`, `generators`, or `middleware`, for example.
-    config.autoload_lib(ignore: %w[active_storage assets tasks storage_backend.rb])
+    config.autoload_lib(ignore: %w[active_storage assets tasks storage_backend.rb response_compression.rb])
 
     # Use Sidekiq for background jobs
     config.active_job.queue_adapter = :sidekiq
