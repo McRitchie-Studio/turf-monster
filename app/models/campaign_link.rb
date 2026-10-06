@@ -26,6 +26,13 @@
 # landing page made later with the same slug, and then the campaign the
 # operator is actively sharing keeps working.
 #
+# AN EXPERIMENT can be bound (metadata "experiment" => a PageExperiment slug).
+# The hop then puts the visitor into a variant (or keeps the one they hold) and
+# names it in the URL, ?v=<key>, so the landing is explicit and shareable; see
+# Studio::LinksController#follow_campaign_link and PageExperimentTracking. The
+# page splits its visitors with or without a bound link; binding only makes the
+# split visible in the address bar.
+#
 # DISABLING sets expires_at (the column every Studio::Link already honours);
 # a disabled link sends a click to the home page with no reference. Links are
 # never deleted from the admin: one printed in a bio or on a flyer keeps being
@@ -50,6 +57,7 @@ class CampaignLink < Studio::Link
   # Keys this link's own reference replaces on the target, so the link's name
   # is the one counted even when the target path already carried one.
   ATTRIBUTION_KEYS = ReferralVisit::ATTRIBUTION_PARAMS
+  VARIANT_KEY = PageExperiment::VARIANT_PARAM
 
   default_scope { where(kind: "referral", linkable_id: nil).where("metadata @> ?", { campaign: true }.to_json) }
 
@@ -63,6 +71,7 @@ class CampaignLink < Studio::Link
   validate :token_not_a_landing_page, if: :will_save_change_to_token?
   validate :target_path_is_a_local_page
   validate :reference_present
+  validate :experiment_exists
 
   # The live-or-disabled campaign named by a /l/ token, or nil. Exact first,
   # then lowercased, so /l/TT finds "tt".
@@ -98,6 +107,22 @@ class CampaignLink < Studio::Link
     self.metadata = metadata.merge("reference" => ReferralVisit.normalize_reference(value))
   end
 
+  def experiment_slug
+    metadata["experiment"]
+  end
+
+  def experiment_slug=(value)
+    slug = value.to_s.strip.downcase.presence
+    self.metadata = slug ? metadata.merge("experiment" => slug) : metadata.except("experiment")
+  end
+
+  # The bound experiment when it is running, else nil.
+  def running_experiment
+    return nil if experiment_slug.blank?
+
+    PageExperiment.active.includes(:variants).find_by(slug: experiment_slug)
+  end
+
   # --- status -----------------------------------------------------------------
 
   def active?
@@ -118,11 +143,15 @@ class CampaignLink < Studio::Link
   # own query string and fragment survive, as does `extra` (the query the
   # short link itself carried, e.g. utm_*), except any r/reference in either:
   # this link's reference is the one that counts.
-  def destination(extra = {})
+  #
+  # `variant`, when given, is appended as ?v=<key> and replaces any v the
+  # target or the query carried (the visitor's assignment is the one shown).
+  def destination(extra = {}, variant: nil)
     uri = URI.parse(target_path)
     pairs = URI.decode_www_form(uri.query.to_s) + extra.to_h.map { |k, v| [k.to_s, v.to_s] }
-    pairs.reject! { |key, _| ATTRIBUTION_KEYS.include?(key) }
+    pairs.reject! { |key, _| ATTRIBUTION_KEYS.include?(key) || (variant && key == VARIANT_KEY) }
     pairs << ["r", reference]
+    pairs << [VARIANT_KEY, variant] if variant
     uri.query = URI.encode_www_form(pairs)
     uri.to_s
   end
@@ -172,5 +201,11 @@ class CampaignLink < Studio::Link
 
   def reference_present
     errors.add(:reference, "can't be blank") if reference.blank?
+  end
+
+  def experiment_exists
+    return if experiment_slug.blank? || PageExperiment.exists?(slug: experiment_slug)
+
+    errors.add(:base, "Experiment #{experiment_slug.inspect} does not exist")
   end
 end

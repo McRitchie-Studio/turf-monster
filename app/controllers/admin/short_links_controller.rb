@@ -56,7 +56,7 @@ module Admin
     end
 
     def short_link_params
-      params.require(:campaign_link).permit(:token, :target_path, :reference)
+      params.require(:campaign_link).permit(:token, :target_path, :reference, :experiment_slug)
     end
   end
 end

@@ -25,7 +25,7 @@
 module PageExperimentTracking
   extend ActiveSupport::Concern
 
-  VARIANT_PARAM = "v".freeze
+  VARIANT_PARAM = PageExperiment::VARIANT_PARAM
 
   included do
     helper_method :page_experiment_assignment

@@ -27,6 +27,8 @@ class PageExperiment < ApplicationRecord
   COOKIE_PREFIX = "exp_".freeze
   COOKIE_TTL = 90.days
   CONTROL_KEY = "control".freeze
+  # The URL parameter that names a variant: ?v=<key>.
+  VARIANT_PARAM = "v".freeze
 
   # How one request came by its variant (Assignment#source).
   # `source` is :param, :cookie, :bot or :sampled; `bot` is whether the

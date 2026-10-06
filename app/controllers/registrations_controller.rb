@@ -15,6 +15,8 @@ class RegistrationsController < ApplicationController
     @user = User.new(user_params)
     # First-touch funnel attribution from the cookie, as the other signup paths do.
     @user.reference = cookies[:reference].to_s.first(64) if @user.reference.blank? && cookies[:reference].present?
+    # And the page experiment variant the visitor was shown (PageExperimentTracking).
+    @user.assign_attributes(experiment_attribution) if @user.experiment_slug.blank?
     # Underwriting compliance: account creation requires the legal-age
     # attestation, same as every other signup flow (magic link / Google /
     # wallet). This POST has no live UI (GET /signup redirects to /signin),

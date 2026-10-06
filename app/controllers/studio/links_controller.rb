@@ -82,11 +82,18 @@ module Studio
     # at once instead of parking it for a second request, so a visitor who
     # opens the bio link and leaves after one page is still counted. A client
     # that keeps no cookies still records nothing.
+    #
+    # A link bound to a running experiment also puts the visitor into a
+    # variant here (or keeps the one they hold, or the ?v= the link carried)
+    # and names it on the landing, ?v=<key>. A bot is not assigned and its
+    # landing carries no v: the page shows it the control.
     def follow_campaign_link(campaign)
       return redirect_to(root_path) unless campaign.active?
 
       set_referral_visitor_cookie
-      redirect_to campaign.destination(request.query_parameters), status: :found
+      assignment = (experiment = campaign.running_experiment) && resolve_experiment_assignment(experiment)
+      variant = assignment&.key if assignment&.counted?
+      redirect_to campaign.destination(request.query_parameters, variant: variant), status: :found
     end
 
     # Attribution cookie the signup flow reads (same :reference cookie the legacy

@@ -748,4 +748,13 @@ Rails.application.routes.draw do
   namespace :admin do
     resources :drop_signups, only: [:index]
   end
+
+  # Page A/B tests (PageExperiment). The beacon the page's CTAs and first
+  # paint send (ExperimentEventsController, CSRF on, throttled in
+  # rack_attack.rb), and the admin's experiments with their report. At the end
+  # of the file for the same no-citation-moves reason as above.
+  post "experiment-events", to: "experiment_events#create", as: :experiment_events, format: false
+  namespace :admin do
+    resources :experiments, only: %i[index show new create edit update], param: :slug
+  end
 end
