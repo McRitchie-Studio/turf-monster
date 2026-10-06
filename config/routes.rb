@@ -757,4 +757,6 @@ Rails.application.routes.draw do
   namespace :admin do
     resources :experiments, only: %i[index show new create edit update], param: :slug
   end
+  # The e2e lane's experiment fixture (TestController#seed_page_experiment).
+  post "test/seed_page_experiment", to: "test#seed_page_experiment" unless Rails.env.production?
 end
