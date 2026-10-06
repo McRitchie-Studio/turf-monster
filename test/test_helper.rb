@@ -125,6 +125,27 @@ module ActiveSupport
     # Single-process locally (the fork segfaults), parallel in CI — see TestParallelism.
     parallelize(workers: TEST_WORKERS)
 
+    # Rewrites a contest row the way the retired World Cup survivor format left
+    # one: its game type and format, and no slate unless keep_slate. Raw SQL,
+    # because the game_type enum no longer accepts the value. Returns the
+    # reloaded contest, which reads as Contest#retired_format?.
+    # Every ContestBundle names the slate it is played on; this makes that slate
+    # exist so a bundle provisions against test fixtures.
+    def seed_bundle_slate!(key)
+      name = ContestBundle.spec_for(key)[:contest][:slate_name]
+      Slate.find_or_create_by!(name: name) do |slate|
+        slate.sport = "fifa"
+        slate.starts_at = 30.days.from_now
+      end
+    end
+
+    def write_retired_format!(contest, keep_slate: false)
+      sql = "game_type = 'world_cup_survivor', contest_type = 'survivor_wc_free'"
+      sql += ", slate_id = NULL" unless keep_slate
+      Contest.where(id: contest.id).update_all(sql)
+      contest.reload
+    end
+
     # SimpleCov + Rails parallel testing: each test runs in a forked worker, and
     # unless each worker writes its resultset under a UNIQUE command_name they
     # overwrite each other — collapsing the report to one worker's coverage

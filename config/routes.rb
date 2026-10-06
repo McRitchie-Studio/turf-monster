@@ -55,7 +55,8 @@ Rails.application.routes.draw do
   # looking at. See WalletProbeController for the full why.
   get "wallet_probe" => "wallet_probe#show", as: :wallet_probe
   root "contests#index"
-  get "world-cup", "world_cup", to: redirect("/", status: 301) # the retired World Cup home
+  get "world-cup", to: redirect("/", status: 301) # the retired World Cup home, both spellings
+  get "world_cup", to: redirect("/", status: 301)
 
   # League-wide live NFL scoreboard. Public and read-only — the visual medium
   # for the semi-live score feed, kept current between page loads by the

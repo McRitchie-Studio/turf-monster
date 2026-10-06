@@ -1,23 +1,24 @@
 require "test_helper"
 
 class ContestBundleTest < ActiveSupport::TestCase
-  # Uses the "survivor" bundle — it needs no slate, so it provisions cleanly
-  # against test fixtures. (On-chain creation auto-skips in the test env.)
+  # Uses the "world_cup" bundle against the slate it names, seeded in setup.
+  # (On-chain creation auto-skips in the test env.)
+  setup { seed_bundle_slate!("world_cup") }
 
   test "generate! creates the contest and its landing page" do
     assert_difference ["Contest.count", "LandingPage.count"], 1 do
-      ContestBundle.generate!("survivor", creator: users(:alex))
+      ContestBundle.generate!("world_cup", creator: users(:alex))
     end
-    lp = LandingPage.find_by(slug: "survivor")
+    lp = LandingPage.find_by(slug: "world-cup")
     assert lp.active?
-    assert_equal "gradient", lp.background_style
-    assert_equal "World Cup Survivor Free Roll", lp.contest.name
+    assert_equal "circles", lp.background_style
+    assert_equal "World Cup $1000 Turf Total Contest", lp.contest.name
   end
 
   test "generate! is idempotent" do
-    ContestBundle.generate!("survivor", creator: users(:alex))
+    ContestBundle.generate!("world_cup", creator: users(:alex))
     assert_no_difference ["Contest.count", "LandingPage.count"] do
-      ContestBundle.generate!("survivor", creator: users(:alex))
+      ContestBundle.generate!("world_cup", creator: users(:alex))
     end
   end
 

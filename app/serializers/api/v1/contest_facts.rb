@@ -43,6 +43,8 @@ module Api
       # TEAMS, capped at six: a pick is a team, and a span slate holds several
       # rows per team, so a four-team span asks for four, not six.
       def picks_required(contest)
+        return 0 if contest.retired_format?
+
         teams = @teams[contest.slate_id]
         return Contest::TURF_TOTALS_DEFAULT_PICKS_REQUIRED if teams.zero?
 

@@ -285,8 +285,8 @@ class Api::V1::EntryWritesTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "POST unsupported_contest: a survivor contest is not entered through the API" do
-    @contest.update!(game_type: :world_cup_survivor, slate: nil)
+  test "POST unsupported_contest: a retired-format contest is not entered through the API" do
+    write_retired_format!(@contest)
     enter
     assert_refused "unsupported_contest"
   end
@@ -570,13 +570,14 @@ class Api::V1::EntryWritesTest < ActionDispatch::IntegrationTest
     assert_equal [false, false], flags.call
   end
 
-  test "editable is false in a cancelled contest, and accepting_entries false for a survivor contest" do
+  test "editable is false in a cancelled contest, and accepting_entries false for a retired-format contest" do
     entry = entered
     @contest.update!(onchain_cancelled: true)
     api_get api_v1_entry_path(entry.slug)
     assert_equal false, json.dig("entry", "editable")
 
-    @contest.update!(onchain_cancelled: false, game_type: :world_cup_survivor)
+    @contest.update!(onchain_cancelled: false)
+    write_retired_format!(@contest, keep_slate: true)
     api_get api_v1_contests_path
     assert_equal [false], json["contests"].map { |contest| contest["accepting_entries"] }.uniq
   end

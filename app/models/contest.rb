@@ -266,12 +266,15 @@ class Contest < ApplicationRecord
     matchups_for_team(team_slug).first&.turf_score
   end
 
+  # A retired format takes no entries, so it asks for no picks and allows none.
   def picks_required
+    return 0 if retired_format?
+
     self.class.picks_required_for_slate(slate)
   end
 
   def max_entries_per_user
-    3
+    retired_format? ? 0 : 3
   end
 
   # A contest whose game type or format the app no longer runs. Its row stays

@@ -255,13 +255,15 @@ class Api::V1::ContestsControllerTest < ActionDispatch::IntegrationTest
     assert_response :not_found
   end
 
-  test "a survivor contest is served with its game type, a note and no team rows" do
-    @contest.update!(game_type: :world_cup_survivor, slate: nil)
+  # A row the retired World Cup survivor format wrote: raw SQL, because the
+  # enum no longer accepts the value.
+  test "a retired-format contest is served as a record: no game type, a note and no team rows" do
+    Contest.where(id: @contest.id).update_all("game_type = 'world_cup_survivor', contest_type = 'survivor_wc_free', slate_id = NULL")
 
     api_get api_v1_contest_path("test-contest")
 
     assert_response :success
-    assert_equal [false, "world_cup_survivor"], json["contest"].values_at("supported", "game_type")
+    assert_equal [false, nil], json["contest"].values_at("supported", "game_type")
     assert json["contest"]["note"].present?
     assert_equal [], json["teams"]
 
