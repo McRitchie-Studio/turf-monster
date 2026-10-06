@@ -1,0 +1,65 @@
+<%# locals: (report:)
+    One experiment's variants side by side (ExperimentReport): visitors, hits,
+    each CTA's taps, email and account signups, each as a count and per 100
+    visitors, and the significance hint against the control. Every cell
+    carries data-cell and its row data-variant-row, which the tests read. %>
+<% control_key = report.control_row&.key %>
+<div class="card overflow-x-auto" data-experiment-report="<%= report.experiment.slug %>">
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="border-b border-subtle text-left text-muted text-[10px] uppercase tracking-wide">
+        <th class="px-3 py-2">Variant</th>
+        <th class="px-3 py-2 text-right">Weight</th>
+        <th class="px-3 py-2 text-right">Visitors</th>
+        <th class="px-3 py-2 text-right">Hits<sup>*</sup></th>
+        <% report.ctas.each do |name, label| %>
+          <th class="px-3 py-2 text-right" data-col="cta-<%= name %>"><%= label %> taps</th>
+        <% end %>
+        <th class="px-3 py-2 text-right">Email signups</th>
+        <th class="px-3 py-2 text-right">Accounts</th>
+        <th class="px-3 py-2">Email signups vs control</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% report.rows.each do |row| %>
+        <% hint = report.significance[row.key] %>
+        <tr class="border-b border-subtle align-top" data-variant-row="<%= row.key %>">
+          <td class="px-3 py-2">
+            <span class="font-mono text-heading"><%= row.key %></span>
+            <% if row.key == control_key %><span class="ml-1 text-[10px] font-bold uppercase text-muted">control</span><% end %>
+            <% if row.variant.label.present? %><div class="text-xs text-secondary"><%= row.variant.label %></div><% end %>
+          </td>
+          <td class="px-3 py-2 font-mono text-right text-secondary" data-cell="weight"><%= row.variant.weight %></td>
+          <td class="px-3 py-2 font-mono text-right text-heading" data-cell="visitors"><%= number_with_delimiter(row.visitors) %></td>
+          <td class="px-3 py-2 font-mono text-right text-secondary" data-cell="hits"><%= number_with_delimiter(row.hits) %></td>
+          <% report.ctas.each_key do |name| %>
+            <td class="px-3 py-2 font-mono text-right" data-cell="cta-<%= name %>">
+              <%= number_with_delimiter(row.ctas[name]) %>
+              <span class="block text-[10px] text-muted" data-cell="cta-<%= name %>-rate"><%= row.cta_rate(name) || "—" %> / 100</span>
+            </td>
+          <% end %>
+          <td class="px-3 py-2 font-mono text-right" data-cell="email">
+            <%= row.email_signups %>
+            <span class="block text-[10px] text-muted" data-cell="email-rate"><%= row.email_rate || "—" %> / 100</span>
+          </td>
+          <td class="px-3 py-2 font-mono text-right" data-cell="accounts">
+            <%= row.account_signups %>
+            <span class="block text-[10px] text-muted" data-cell="account-rate"><%= row.account_rate || "—" %> / 100</span>
+          </td>
+          <td class="px-3 py-2 text-xs" data-cell="significance" data-verdict="<%= hint&.verdict %>">
+            <% if hint %>
+              <span class="<%= %i[ahead behind].include?(hint.verdict) ? 'font-semibold text-heading' : 'text-muted' %>"><%= hint.label %></span>
+            <% else %>
+              <span class="text-muted">Baseline</span>
+            <% end %>
+          </td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+  <p class="px-3 py-2 text-xs text-muted border-t border-subtle">
+    <sup>*</sup> A hit is one visitor seeing one variant on one day; visitors counts each person once. Taps are one per visitor per button per day.
+    Rates are per 100 visitors. The significance hint is a two-proportion z-test on email signups, shown only once both arms
+    have <%= ExperimentReport::MIN_VISITORS %> visitors; nothing is called ahead above p = <%= ExperimentReport::ALPHA %>.
+  </p>
+</div>

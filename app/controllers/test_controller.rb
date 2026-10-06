@@ -765,6 +765,14 @@ class TestController < ApplicationController
     render json: { ok: true, held: slugs }
   end
 
+  # Puts the /turf-monster-v2 headline experiment in its shipped shape and
+  # running (PageExperimentSeeds, reset: true), for e2e/page_experiments.spec.js.
+  # Counts are left alone: the spec reads its own deltas.
+  def seed_page_experiment
+    experiment = PageExperimentSeeds.turf_monster_v2!(reset: true)
+    render json: { ok: true, slug: experiment.slug, variants: experiment.variants.map(&:key) }
+  end
+
   private
 
   def require_dev_walkthrough

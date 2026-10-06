@@ -44,6 +44,20 @@
         One name per placement; never reuse one for a different channel.
       </p>
     </div>
+
+    <div>
+      <%= f.label :experiment_slug, "A/B experiment", class: "text-muted text-[10px] uppercase tracking-wide block mb-1" %>
+      <%= f.select :experiment_slug,
+            options_for_select(PageExperiment.order(:name).map { |e| ["#{e.name} (#{e.slug})#{' — paused' unless e.active?}", e.slug] },
+                               short_link.experiment_slug),
+            { include_blank: "None" },
+            class: "#{field_class} font-mono", style: field_style, data: { test: "short-link-experiment" } %>
+      <p class="text-muted text-xs mt-1">
+        Optional. A click is put into one of the experiment&rsquo;s variants and lands with
+        <span class="font-mono">?v=&lt;variant&gt;</span>. Results are on
+        <%= link_to "Experiments", admin_experiments_path, class: "text-primary hover:underline" %>.
+      </p>
+    </div>
   </div>
 
   <div class="flex items-center gap-3">

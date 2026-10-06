@@ -1,0 +1,42 @@
+<% content_for(:title, "Experiments — Turf Monster") %>
+
+<div class="max-w-7xl mx-auto px-4 py-8 space-y-6">
+  <div class="flex flex-wrap items-start justify-between gap-4">
+    <div>
+      <h1 class="text-2xl font-extrabold text-heading mb-2">Experiments</h1>
+      <p class="text-secondary text-sm max-w-3xl">
+        Page A/B tests. Each visitor to an experiment&rsquo;s page is put into one variant by weight and kept there
+        (a cookie per experiment); <span class="font-mono">?v=&lt;variant&gt;</span> in the URL shows a variant on purpose.
+        Bots see the control and are not counted. Counts are kept for <%= ExperimentEvent::RETENTION.in_days.to_i %> days.
+      </p>
+    </div>
+    <%= link_to "New Experiment", new_admin_experiment_path, class: "btn btn-primary btn-sm" %>
+  </div>
+
+  <% window = ExperimentReport.normalize_window(params[:days]) %>
+  <%= render "admin/experiments/window_nav", window: window, path_for: ->(key) { admin_experiments_path(days: key) } %>
+
+  <% if @experiments.empty? %>
+    <div class="card p-10 text-center text-muted">No experiments yet. Create the first one.</div>
+  <% end %>
+
+  <% @experiments.each do |experiment| %>
+    <section class="space-y-3" data-experiment="<%= experiment.slug %>">
+      <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h2 class="text-lg font-bold text-heading">
+          <%= link_to experiment.name, admin_experiment_path(experiment.slug, days: window), class: "hover:underline" %>
+        </h2>
+        <span class="font-mono text-xs text-secondary"><%= experiment.page_path %></span>
+        <% if experiment.active? %>
+          <span class="text-[10px] font-bold px-2 py-0.5 rounded-full" style="background: rgb(var(--color-primary-500-rgb) / 0.15); color: var(--color-primary-badge-ink); border: 1px solid rgb(var(--color-primary-500-rgb) / 0.4);">RUNNING</span>
+        <% else %>
+          <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-inset text-muted border border-subtle">PAUSED</span>
+        <% end %>
+        <% Array(@short_links[experiment.slug]).each do |link| %>
+          <span class="font-mono text-xs text-muted">/l/<%= link.token %></span>
+        <% end %>
+      </div>
+      <%= render "admin/experiments/report_table", report: @reports[experiment.slug] %>
+    </section>
+  <% end %>
+</div>

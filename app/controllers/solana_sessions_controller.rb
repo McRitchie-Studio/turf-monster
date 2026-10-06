@@ -57,7 +57,8 @@ class SolanaSessionsController < ApplicationController
     user ||= User.new(
       web3_solana_address: pubkey_b58,
       age_attested_at: (Time.current if age_attestation_required?),
-      reference: cookies[:reference].presence&.first(64) # first-touch funnel attribution
+      reference: cookies[:reference].presence&.first(64), # first-touch funnel attribution
+      **experiment_attribution # the page experiment variant it was shown
     )
 
     rescue_and_log(target: user) do

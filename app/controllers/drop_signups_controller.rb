@@ -21,6 +21,10 @@
 # and signed up later is still credited. Counting visits is not this
 # controller's job.
 #
+# VARIANT is the page experiment the visitor was in (experiment_slug +
+# variant_key, from the sticky exp_<slug> cookie; PageExperimentTracking
+# #experiment_attribution), read the same way and for the same reason.
+#
 # JSON for the Alpine form; a plain form post (no JS) redirects back to the
 # section with a flash the page reads to draw its success or error state.
 class DropSignupsController < ApplicationController
@@ -40,7 +44,8 @@ class DropSignupsController < ApplicationController
         source: attribution_param || params[:source].presence || cookies[:reference],
         ip: request.remote_ip,
         user_agent: request.user_agent,
-        user: current_user
+        user: current_user,
+        **experiment_attribution
       )
     end
 

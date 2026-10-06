@@ -176,7 +176,8 @@ class MagicLinksController < ApplicationController
     reset_prior_session!
     user = User.new(email: result.email,
                     age_attested_at: (Time.current if age_attestation_required?),
-                    reference: cookies[:reference].presence&.to_s&.first(64))
+                    reference: cookies[:reference].presence&.to_s&.first(64),
+                    **experiment_attribution)
     Studio.configure_new_user.call(user)
     rescue_and_log(target: user) do
       user.save!

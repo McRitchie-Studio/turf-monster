@@ -144,7 +144,7 @@ Phantom must be installed in the browser or available via mobile deep link.
      mapped into balance advice (closed 2026-09-09; see `docs/AUTH.md`).
 
 6. **Server verifies + creates User.** `SolanaSessionsController#verify` —
-   `app/controllers/solana_sessions_controller.rb:25-107`.
+   `app/controllers/solana_sessions_controller.rb:25-108`.
    - Signature check: `Solana::SessionAuth#verify_solana_signature!`
      (`studio-engine: app/controllers/concerns/solana/session_auth.rb`) runs
      pure-Ruby ed25519 through `Solana::AuthVerifier.verify!` — nonce
@@ -175,13 +175,13 @@ Phantom must be installed in the browser or available via mobile deep link.
        `CreateOnchainUserAccountJob.perform_later` (`:811-813`). Async — the
        user is logged in before the on-chain PDA finalizes.
    - `cookies.delete(:reference)` consumes the cookie only for a new signup
-     (`app/controllers/solana_sessions_controller.rb:66`).
+     (`app/controllers/solana_sessions_controller.rb:67`).
    - `set_app_session(user)` writes `session[:turf_user_id]` +
      `session[:session_token]` and clears any stale on-chain flag
      (`app/controllers/application_controller.rb:36-69`, `:44`).
      `promote_to_onchain_session!` then grants it (`:598-603`) — that write is
      what `onchain_session?` reads (`:577-580`), and `verify` calls it at
-     `app/controllers/solana_sessions_controller.rb:81`. It lives in
+     `app/controllers/solana_sessions_controller.rb:82`. It lives in
      `ApplicationController` because the login and wallet-link paths used to
      drift apart.
    - Response: `render json: { success: true, redirect: redirect, new_user:
