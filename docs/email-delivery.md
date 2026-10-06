@@ -113,6 +113,9 @@ when the outbox renders the mail, not when it is queued:
 - **Abuse bound**: `drop_signups/ip` (10/h) and `drop_signups/email` (5/h)
   throttle the form, and the claim caps the confirmation at one per address per
   drop whatever the IP. Previews: `/rails/mailers/drop_signup_mailer`.
+- **Images**: none today. `DropSignupMailer.hero_image_resolver` (nil) is the seam
+  for the planned email-image system: a callable `(kind, variant, signup)` that
+  returns `{ url:, alt: }`, drawn by the `branded_mailer` banner slot.
 
 ## Cutover Checklist
 
