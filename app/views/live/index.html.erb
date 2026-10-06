@@ -217,19 +217,21 @@
     // machine already knows. The <time> element's datetime attribute is the
     // source of truth, so this is idempotent — running it twice on the same node
     // reformats from the attribute, never from its own previous output.
+    var KICKOFF_FORMATS = {
+      kickoff:     { weekday: 'short', hour: 'numeric', minute: '2-digit' },
+      'played-on': { weekday: 'short', month: 'short', day: 'numeric' }
+    };
     function formatKickoffs(root) {
       var scope = root || document;
       Array.prototype.forEach.call(
-        scope.querySelectorAll('time[data-role="kickoff"]'),
+        scope.querySelectorAll('time[data-role="kickoff"], time[data-role="played-on"]'),
         function (el) {
           var iso = el.getAttribute('datetime');
           if (!iso) return;
           var when = new Date(iso);
           if (isNaN(when.getTime())) return;   // keep the server fallback
           try {
-            var next = when.toLocaleString(undefined, {
-              weekday: 'short', hour: 'numeric', minute: '2-digit'
-            });
+            var next = when.toLocaleString(undefined, KICKOFF_FORMATS[el.getAttribute('data-role')]);
             // WRITE ONLY ON CHANGE — this guard is what stops an infinite loop,
             // not a micro-optimisation.
             //

@@ -121,6 +121,25 @@ class ContestLockingTest < ActiveSupport::TestCase
     assert_not_includes phases[:active], upcoming
   end
 
+  # The strip reads active, then upcoming, then the week's finals OLDEST
+  # first — so from Monday night it wraps to Thursday and runs forward to
+  # Sunday night (Alex, 2026-10-05). The page still opens on the latest final.
+  test "games_by_phase lists finals oldest first, so the strip wraps through the week" do
+    denver = ActiveSupport::TimeZone["America/Denver"]
+    travel_to denver.local(2026, 10, 5, 19, 30) # Monday night, week 5
+
+    thursday = Game.create!(home_team_slug: "team-a", away_team_slug: "team-b", kickoff_at: denver.local(2026, 10, 1, 18, 15), status: "completed")
+    sunday   = Game.create!(home_team_slug: "team-c", away_team_slug: "team-d", kickoff_at: denver.local(2026, 10, 4, 18, 20), status: "completed")
+    monday   = Game.create!(home_team_slug: "team-e", away_team_slug: "team-f", kickoff_at: denver.local(2026, 10, 5, 18, 15), status: "in_progress")
+    slate_matchups(:m1).update!(game_slug: thursday.slug)
+    slate_matchups(:m3).update!(game_slug: sunday.slug)
+    slate_matchups(:m5).update!(game_slug: monday.slug)
+
+    phases = @contest.games_by_phase
+    assert_equal [monday, thursday, sunday], phases.values_at(:active, :upcoming, :completed).flatten
+    assert_equal [thursday, sunday], phases[:completed]
+  end
+
   test "games_by_phase shows one week of a multi-week contest" do
     denver = ActiveSupport::TimeZone["America/Denver"]
     travel_to denver.local(2026, 10, 4, 21, 18) # Sunday night, week 4
