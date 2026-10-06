@@ -83,6 +83,13 @@ pending_transaction_sweeper:
   description: Flip stale entry-flow PendingTransactions (pending/submitted older than 1h) to failed so admin reports surface real backlogs only.
   queue: default
 
+referral_visit_prune:
+  cron: "29 4 * * *"     # daily at 04:29 UTC (off-peak, after the two sweepers above)
+  class: ReferralVisitPruneJob
+  active_job: true
+  description: Delete referral_visits rows older than ReferralVisit::RETENTION (400 days).
+  queue: default
+
 pending_deposit_reconciler:
   cron: "*/15 * * * *"   # every 15 minutes
   class: PendingDepositReconcilerJob

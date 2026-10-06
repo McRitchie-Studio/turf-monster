@@ -18,6 +18,11 @@ class ReferralReport
   WINDOWS = { "7" => 7, "30" => 30, "all" => nil }.freeze
   DEFAULT_WINDOW = "30"
   TOP_PATHS = 3
+  # The table lists this many references, most clicks first, and counts the
+  # rest. Anyone can mint a reference by putting one in a link, so the list of
+  # distinct references is not ours to bound; the table is.
+  # (Admin::FreeEntriesController caps its free-text sources the same way.)
+  TOP_REFERENCES = 50
   EMAIL_MODEL_NAME = "DropSignup"
 
   Row = Struct.new(:reference, :clicks, :visitors, :top_paths, :email_signups, :account_signups,
@@ -74,18 +79,25 @@ class ReferralReport
     days && (@today - (days - 1))
   end
 
+  # The TOP_REFERENCES rows with the most clicks.
   def rows
-    @rows ||= build_rows
+    @rows ||= with_top_paths(all_rows.first(TOP_REFERENCES))
   end
 
+  # How many references the table leaves out.
+  def hidden_references
+    [all_rows.size - TOP_REFERENCES, 0].max
+  end
+
+  # Over every reference, listed or not.
   def totals
     @totals ||= Row.new(
       reference: "All references",
-      clicks: rows.sum(&:clicks),
+      clicks: all_rows.sum(&:clicks),
       visitors: visits.distinct.count(:visitor_id),
       top_paths: [],
-      email_signups: (emails? ? rows.sum { |r| r.email_signups.to_i } : nil),
-      account_signups: rows.sum(&:account_signups)
+      email_signups: (emails? ? all_rows.sum { |r| r.email_signups.to_i } : nil),
+      account_signups: all_rows.sum(&:account_signups)
     )
   end
 
@@ -144,24 +156,33 @@ class ReferralReport
     scope.pluck(:created_at).each_with_object(Hash.new(0)) { |at, h| h[at.to_date] += 1 }
   end
 
-  def build_rows
-    clicks = visits.group(:reference).count
-    visitors = visits.group(:reference).distinct.count(:visitor_id)
-    paths = visits.group(:reference, :landing_path).count
-    accounts = account_scope.group(normalized(User.arel_table[:reference])).count
-    emails = emails? ? email_scope.group(normalized(email_model.arel_table[:source])).count : {}
+  # Every reference, most clicks first, without top paths.
+  def all_rows
+    @all_rows ||= begin
+      clicks = visits.group(:reference).count
+      visitors = visits.group(:reference).distinct.count(:visitor_id)
+      accounts = account_scope.group(normalized(User.arel_table[:reference])).count
+      emails = emails? ? email_scope.group(normalized(email_model.arel_table[:source])).count : {}
+
+      references = (clicks.keys | accounts.keys | emails.keys).compact
+      references.map do |ref|
+        Row.new(reference: ref, clicks: clicks[ref].to_i, visitors: visitors[ref].to_i,
+                top_paths: [],
+                email_signups: (emails? ? emails[ref].to_i : nil),
+                account_signups: accounts[ref].to_i)
+      end.sort_by { |r| [-r.clicks, -r.account_signups, -r.email_signups.to_i, r.reference] }
+    end
+  end
+
+  # Fills top_paths for the listed rows only, in one query scoped to them.
+  def with_top_paths(listed)
+    paths = visits.where(reference: listed.map(&:reference)).group(:reference, :landing_path).count
 
     top_paths = Hash.new { |h, k| h[k] = [] }
     paths.sort_by { |(_, path), count| [-count, path.to_s] }.each do |(ref, path), count|
       top_paths[ref] << [path, count] if top_paths[ref].size < TOP_PATHS
     end
 
-    references = (clicks.keys | accounts.keys | emails.keys).compact
-    references.map do |ref|
-      Row.new(reference: ref, clicks: clicks[ref].to_i, visitors: visitors[ref].to_i,
-              top_paths: top_paths[ref],
-              email_signups: (emails? ? emails[ref].to_i : nil),
-              account_signups: accounts[ref].to_i)
-    end.sort_by { |r| [-r.clicks, -r.account_signups, -r.email_signups.to_i, r.reference] }
+    listed.each { |row| row.top_paths = top_paths[row.reference] }
   end
 end

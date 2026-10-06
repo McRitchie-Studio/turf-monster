@@ -445,6 +445,33 @@ class Rack::Attack
     req.ip if req.post? && req.path.match?(API_KEY_MINT_PATH)
   end
 
+  ### Throttle: referral click recording — table-growth backstop
+  # Any page GET carrying ?reference=<name> (and the /lp/ and vanity paths) can
+  # write a referral_visits row (ReferralVisitTracking). The cookie gate there
+  # stops a cookieless script, but a client can make up a new visitor cookie on
+  # every request, and each one is a new row. So every write is counted per
+  # client address, and past REFERRAL_VISIT_LIMIT in REFERRAL_VISIT_PERIOD the
+  # click is not recorded.
+  #
+  # NOT A 429. The page is always served; only the count is dropped. A viral
+  # link sends many people through one carrier NAT address, and they must still
+  # get the page. A person follows a few links a minute; the limit is far above
+  # that and far below a loop. Keyed on req.ip, the address the Heroku router
+  # wrote (config/initializers/forwarded_headers.rb). Asked by the controller
+  # rather than matched here because only the controller knows a request is
+  # about to write. A cache that cannot be read drops the count, never the page.
+  REFERRAL_VISIT_LIMIT = 20
+  REFERRAL_VISIT_PERIOD = 1.minute
+
+  def self.referral_visit_allowed?(req)
+    return true unless enabled
+
+    cache.count("referral_visits/ip:#{req.ip}", REFERRAL_VISIT_PERIOD.to_i) <= REFERRAL_VISIT_LIMIT
+  rescue StandardError => e
+    Rails.logger.warn("[rack-attack] referral visit count failed: #{e.class}")
+    false
+  end
+
   ### Response: throttled requests get 429
   # Tier tag drives the client: tier-1 "general" 429s open the global wait
   # modal (via authedFetch); "auth"-surface 429s keep their own inline UX.
