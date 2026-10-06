@@ -156,7 +156,7 @@
         <div class="flex flex-wrap gap-2">
           <% if @contest.open? && !@contest.locked? %>
             <% active_count = @contest.active_entry_count %>
-            <% if @contest.max_entries.nil? || active_count < (@contest.max_entries || @contest.format_config[:max_entries]) %>
+            <% if AppFlags.test_scaffolding? && (@contest.max_entries.nil? || active_count < (@contest.max_entries || @contest.format_config[:max_entries])) %>
               <%= button_to "Fill", fill_contest_path(@contest), method: :post, class: "btn btn-secondary btn-sm" %>
             <% end %>
             <button type="button" onclick="lockContestViaPhantom('<%= @contest.slug %>', 0)" class="btn btn-sm bg-yellow-600 hover:bg-yellow-500 text-white">Lock</button>
@@ -169,6 +169,8 @@
           <% end %>
         </div>
       </div>
+      <%# Test actions (ContestsController::TEST_ACTIONS) render only while ENABLE_TEST_SCAFFOLDING is on. %>
+      <% if AppFlags.test_scaffolding? %>
       <!-- Simulate actions -->
       <div class="card p-4">
         <p class="text-xs font-semibold text-muted mb-2 uppercase tracking-wide">Simulate</p>
@@ -176,12 +178,16 @@
           <% next_game = @contest.matchups.pending.includes(:game).select { |m| m.game.present? }.sort_by { |m| m.game.kickoff_at || Time.current }.first %>
           <% if next_game %>
             <%= button_to "Next Game", simulate_game_contest_path(@contest), method: :post, class: "btn btn-primary btn-sm" %>
-            <%= button_to "Next 5", simulate_batch_contest_path(@contest, count: 5), method: :post, class: "btn btn-outline btn-sm" %>
-            <%= button_to "Next 20", simulate_batch_contest_path(@contest, count: 20), method: :post, class: "btn btn-outline btn-sm" %>
+            <%= button_to "Next 5", simulate_batch_contest_path(@contest, count: 5), method: :post, class: "btn btn-outline btn-sm",
+                  data: { turbo_confirm: "Simulate the next 5 games? Their scores are shared by every contest on this slate." } %>
+            <%= button_to "Next 20", simulate_batch_contest_path(@contest, count: 20), method: :post, class: "btn btn-outline btn-sm",
+                  data: { turbo_confirm: "Simulate the next 20 games? Their scores are shared by every contest on this slate." } %>
           <% end %>
-          <%= button_to "All", jump_contest_path(@contest), method: :post, class: "btn btn-outline btn-sm" %>
+          <%= button_to "All", jump_contest_path(@contest), method: :post, class: "btn btn-outline btn-sm",
+                data: { turbo_confirm: "Simulate every remaining game and settle this contest?" } %>
         </div>
       </div>
+      <% end %>
     </div>
   </div>
 <% end %>

@@ -1,4 +1,5 @@
 require "test_helper"
+require "minitest/mock"
 
 class AppFlagsTest < ActiveSupport::TestCase
   # AppFlags reads ENV directly — save/restore the var around each case.
@@ -20,6 +21,14 @@ class AppFlagsTest < ActiveSupport::TestCase
 
   test "test_scaffolding? is false when the env var is unset" do
     with_env(nil) { assert_not AppFlags.test_scaffolding? }
+  end
+
+  # The contest test actions (jump, simulate, fill, reset) hang off this flag, so
+  # a production boot with no env var set must read it as off.
+  test "test_scaffolding? is false in production when the env var is unset" do
+    Rails.stub :env, ActiveSupport::EnvironmentInquirer.new("production") do
+      with_env(nil) { assert_not AppFlags.test_scaffolding? }
+    end
   end
 
   test "test_scaffolding? is true only for a 'true' value" do
