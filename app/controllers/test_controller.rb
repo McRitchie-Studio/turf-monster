@@ -747,6 +747,27 @@ class TestController < ApplicationController
     redirect_to quest_walk_path(open: params[:open])
   end
 
+  # Arrange "no contest is open to enter" for e2e/turf_monster_v2.spec.js, whose
+  # subject is the notify-me modal the page opens in exactly that state
+  # (NextContest). The e2e seed always has open contests, and rows a spec writes
+  # outlive it (reseed does not rebuild the database), so this is a PAIR:
+  #   hold: "true"   flags every open, not-yet-coming-soon contest coming_soon
+  #                  and returns their slugs
+  #   hold: "false"  with slugs: [...] puts exactly those back
+  # The spec releases in afterEach, so a failing assertion cannot strand them.
+  def hold_open_contests
+    if params[:hold].to_s == "false"
+      slugs = Array(params[:slugs])
+      Contest.where(slug: slugs).update_all(coming_soon: false)
+      return render json: { ok: true, released: slugs }
+    end
+
+    held = Contest.open.where(coming_soon: false)
+    slugs = held.pluck(:slug)
+    held.update_all(coming_soon: true)
+    render json: { ok: true, held: slugs }
+  end
+
   private
 
   def require_dev_walkthrough

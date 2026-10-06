@@ -38,3 +38,10 @@
 <template x-if="$store.modals.current().id === 'cosign-rejected'">
   <%= render "modals/cosign_rejected" %>
 </template>
+<%# The slate-drop notify card (countdown + notify-me form). Opened from
+    /turf-monster-v2's call to action when no contest is open to enter;
+    NextContest makes that call. Registered here, the app's one list, rather
+    than in a layout block. %>
+<template x-if="$store.modals.current().id === 'drop-notify'">
+  <%= render "modals/drop_notify" %>
+</template>

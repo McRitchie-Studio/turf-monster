@@ -707,6 +707,7 @@ Rails.application.routes.draw do
     get  "test/user_info/:slug",          to: "test#user_info"
     post "test/warm_entry_tokens",        to: "test#warm_entry_tokens"
     post "test/set_age_verified",         to: "test#set_age_verified"
+    post "test/hold_open_contests",       to: "test#hold_open_contests"
   end
 
   # The quest walkthrough — a DEV-ONLY page for walking the gear sidebar's
@@ -718,5 +719,23 @@ Rails.application.routes.draw do
   if Rails.env.development? || Rails.env.test?
     get  "test/quest_walk", to: "test#quest_walk",     as: :quest_walk
     post "test/quest_walk", to: "test#set_quest_walk", as: :set_quest_walk
+  end
+
+  # The explainer that will become /about: what the game is, the next slate
+  # drop, how to play. /about itself is untouched until that swap is its own
+  # task. The notify-me form posts to drop-signups (anonymous; CSRF on;
+  # throttled in rack_attack.rb). `format: false` because the throttles match
+  # the exact path, and a .json suffix would otherwise reach the same action
+  # unthrottled; the form asks for JSON with an Accept header instead.
+  #
+  # AT THE END OF THE FILE ON PURPOSE: docs/workflows cite config/routes.rb by
+  # line number, and appending here shifts none of them.
+  get  "turf-monster-v2", to: "pages#turf_monster_v2", as: :turf_monster_v2
+  post "drop-signups", to: "drop_signups#create", as: :drop_signups, format: false
+
+  # Slate-drop "notify me" list (/turf-monster-v2). Read-only, newest first;
+  # .csv exports it for the drop email.
+  namespace :admin do
+    resources :drop_signups, only: [:index]
   end
 end
