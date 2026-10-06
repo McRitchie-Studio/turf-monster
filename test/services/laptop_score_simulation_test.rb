@@ -1,8 +1,8 @@
 require "test_helper"
 
 # [unit] The hero laptop's simulated game (LaptopScoreSimulation): it opens at
-# away 3, home 7, alternates touchdowns away first, stops short of absurd
-# scores, and is in-memory only — every record readonly, nothing written.
+# away 3, home 7, alternates touchdowns away first, stops at the touchdown
+# that takes the combined score to 50, and is in-memory only — every record readonly, nothing written.
 class LaptopScoreSimulationTest < ActiveSupport::TestCase
   setup do
     @game = games(:future_game)
@@ -21,7 +21,7 @@ class LaptopScoreSimulationTest < ActiveSupport::TestCase
     assert_equal [[@game.away_team_slug, "Field Goal", 3], [@game.home_team_slug, "Touchdown", 7]], labels
   end
 
-  test "six touchdowns, alternating sides away first, then it loops; never past 45" do
+  test "touchdowns alternate away first and stop at the first combined score of 50 or more" do
     assert_equal [[3, 7], [10, 7], [10, 14], [17, 14], [17, 21], [24, 21], [24, 28]], scores
     assert_equal LaptopScoreSimulation::TOUCHDOWNS + 1, @sim.frames.size
     scorers = @sim.frames.drop(1).map { |f| f.team.slug }
@@ -32,7 +32,10 @@ class LaptopScoreSimulationTest < ActiveSupport::TestCase
       assert_equal 7, frame.goal.points
       assert_includes frame.game.goals, frame.goal, "the rail lists the touchdown it just scored"
     end
-    assert_operator scores.flatten.max, :<=, 45
+    totals = scores.map(&:sum)
+    assert_operator totals.last, :>=, LaptopScoreSimulation::STOP_AT, "the last frame reaches the cap"
+    assert totals[0...-1].all? { |t| t < LaptopScoreSimulation::STOP_AT }, "and no earlier frame does: it stops there"
+    assert_equal 6, LaptopScoreSimulation::TOUCHDOWNS
   end
 
   test "the clock runs and the ball moves from frame to frame" do
