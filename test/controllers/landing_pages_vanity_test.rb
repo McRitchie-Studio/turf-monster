@@ -69,6 +69,14 @@ class LandingPagesVanityTest < ActionDispatch::IntegrationTest
     assert_redirected_to root_path(reference: "tiktok-bio")
   end
 
+  test "an explicit ?r= in the link wins over the slug on the fallback" do
+    get "/tiktok", params: { r: "tiktok-bio" }
+
+    assert_redirected_to root_path(reference: "tiktok", r: "tiktok-bio")
+    follow_redirect!
+    assert_equal "tiktok-bio", cookies[:reference], "r outranks the slug's reference on the landing"
+  end
+
   test "an inactive tiktok page falls back for the public" do
     tiktok_page(active: false)
 

@@ -36,6 +36,17 @@ class DropSignupsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "newsletter", DropSignup.last.source
   end
 
+  test "an r on the post names the source exactly as reference does" do
+    post_json(email: "short@example.com", r: "tiktok-bio")
+    assert_equal "tiktok-bio", DropSignup.last.source
+  end
+
+  test "a page opened with ?r= carries it into the form's hidden reference" do
+    get turf_monster_v2_path(r: "tiktok-bio")
+    assert_response :success
+    assert_select "input[type=hidden][name=reference][value=tiktok-bio]"
+  end
+
   test "the client cannot choose the slate" do
     post_json(email: "fan@example.com", slate_key: "made-up-drop")
     assert_equal NextSlateDrop::SLATE_KEY, DropSignup.last.slate_key

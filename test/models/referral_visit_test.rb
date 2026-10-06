@@ -162,4 +162,38 @@ class ReferralVisitTest < ActiveSupport::TestCase
     assert_equal 1, ReferralVisit.prune(today: today)
     assert_equal [cutoff, today], ReferralVisit.order(:visited_on).pluck(:visited_on)
   end
+  # --- the ?r= alias -----------------------------------------------------------
+
+  def attribution(hash)
+    ReferralVisit.attribution_from(ActionController::Parameters.new(hash))
+  end
+
+  test "?r= names a reference exactly as ?reference= does" do
+    assert_equal "tiktok-bio", attribution(r: "tiktok-bio")
+    assert_equal "tiktok-bio", attribution(reference: "tiktok-bio")
+  end
+
+  test "r wins when both are present" do
+    assert_equal "short", attribution(r: "short", reference: "long")
+  end
+
+  test "a blank r falls back to reference" do
+    assert_equal "long", attribution(r: "  ", reference: "long")
+  end
+
+  test "the value is stripped and capped like a reference, and keeps its case" do
+    assert_equal "TikTok", attribution(r: "  TikTok  ")
+    assert_equal 64, attribution(r: "x" * 100).length
+  end
+
+  test "no reference, a blank one, or a non-string one names nothing" do
+    assert_nil attribution({})
+    assert_nil attribution(r: "", reference: " ")
+    assert_nil attribution(r: ["a"], reference: { "b" => "c" })
+  end
+
+  test "a coinflow checkout return names no reference under either spelling" do
+    assert_nil attribution(coinflow: "return", reference: "purchase-123")
+    assert_nil attribution(coinflow: "return", r: "purchase-123")
+  end
 end

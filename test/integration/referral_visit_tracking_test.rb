@@ -33,6 +33,21 @@ class ReferralVisitTrackingTest < ActionDispatch::IntegrationTest
 
   # The click is parked until the visitor cookie comes back, so a client that
   # keeps no cookies writes nothing however often it asks.
+  test "?r= counts a click exactly as ?reference= does, and both name one row" do
+    returning_visitor
+    assert_difference "ReferralVisit.count", 1 do
+      get root_path, params: { r: "tiktok-bio" }, headers: BROWSER.dup
+      get root_path, params: { reference: "tiktok-bio" }, headers: BROWSER.dup
+    end
+    assert_equal "tiktok-bio", ReferralVisit.sole.reference
+  end
+
+  test "when a link carries both, the click counts under r only" do
+    returning_visitor
+    get root_path, params: { r: "short", reference: "long" }, headers: BROWSER.dup
+    assert_equal ["short"], ReferralVisit.pluck(:reference)
+  end
+
   test "a first click without the visitor cookie writes nothing until the cookie comes back" do
     assert_no_difference "ReferralVisit.count" do
       get root_path, params: { reference: "tiktok", utm_source: "TikTok" }, headers: BROWSER.dup
@@ -184,6 +199,14 @@ class ReferralVisitTrackingTest < ActionDispatch::IntegrationTest
     assert_no_difference "ReferralVisit.count" do
       get tokens_buy_path, params: { coinflow: "return", reference: "cfp-123" }, headers: BROWSER.dup
     end
+  end
+
+  test "a coinflow checkout return carrying r is not a click either" do
+    returning_visitor
+    assert_no_difference "ReferralVisit.count" do
+      get root_path, params: { coinflow: "return", r: "purchase-abc" }, headers: BROWSER.dup
+    end
+    assert_nil cookies[:reference].presence, "nor is it captured as first-touch attribution"
   end
 
   test "a database failure while counting does not break the page" do
