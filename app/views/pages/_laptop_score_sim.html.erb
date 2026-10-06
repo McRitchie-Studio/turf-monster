@@ -10,6 +10,9 @@
                                real wrapper ids (pages/_laptop_live)
       live/_score_banner       the banner it raises
       a hidden goal feed       the node a real score appends
+      the showcase board       when the contest has no real entries
+                               (LaptopShowcaseEntrants::Script), each frame's
+                               board, re-ranked by the live script
 
     Each frame is what Contest::LiveBroadcast.goal_scored would send: the
     focus tile and strip chip at the new score, then the goal-feed node.
@@ -25,7 +28,25 @@
     IT RUNS ONLY WHEN IT CAN BE SEEN: from xl (below it the laptop is not
     drawn), while the laptop is on screen, and while the tab is visible. Under
     prefers-reduced-motion it never starts, and the laptop holds the static
-    opening frame. After the last frame it loops back to the opening one. %>
+    opening frame; if reduced motion turns ON mid-visit (the media query is
+    watched, not read once), it stops for good and puts the opening frame
+    back. IT STOPS AT THE LAST FRAME (Alex, 2026-10-06): the touchdown that
+    takes the combined score to LaptopScoreSimulation::STOP_AT (50) is held,
+    with no loop back to 3-7, and the timer and every listener are cleared
+    then, so nothing idles.
+
+    IT LEAVES NOTHING BEHIND. Turbo keeps the document across a visit, so a
+    listener on document, window or a media query outlives the page it was
+    for, and retains it. Every one of them is removed on turbo:visit,
+    turbo:before-render and pagehide (not a bfcache one), whether the timer is
+    running or paused; before this a paused laptop leaked one set per visit.
+
+    STATE FOR THE TESTS, on the sim root: data-sim is "reduced" (never
+    started), "paused", "running", "done" (held on the last frame) or
+    "stopped"; data-armed is set the first
+    time a timer is armed and never cleared; data-frame is the frame last
+    drawn. window.__laptopSimLive counts drivers wired and not yet torn
+    down (0 or 1 on a healthy page). %>
 <%# The live script's goal feed. The two holds are shortened from the live
     page's 50s and 45s so a score cools before the next one lands. %>
 <div id="contest_<%= contest.id %>_goal_feed" class="hidden" aria-hidden="true"
@@ -36,11 +57,14 @@
      data-contest-id="<%= contest.id %>"
      data-opening="<%= sim.opening.game.away_score %>-<%= sim.opening.game.home_score %>">
   <%# Frames 1..TOUCHDOWNS. Frame 0, the opening 3-7, is the snapshot itself;
-      the driver copies it on load to loop back to. %>
+      the driver copies it on load, to put back if reduced motion turns on. %>
   <% frames.each do |frame| %>
     <template data-frame="<%= frame[:index] %>" data-part="tile"><%= frame[:tile].html_safe %></template>
     <template data-frame="<%= frame[:index] %>" data-part="chip"><%= frame[:chip].html_safe %></template>
     <template data-frame="<%= frame[:index] %>" data-part="feed"><%= frame[:feed].html_safe %></template>
+    <% if frame[:board] %>
+      <template data-frame="<%= frame[:index] %>" data-part="board"><%= frame[:board].html_safe %></template>
+    <% end %>
   <% end %>
 </div>
 <%= render "live/score_banner" %>
@@ -51,8 +75,8 @@
     if (!root || root.dataset.wired) return;   // once per page, across Turbo visits
     root.dataset.wired = '1';
 
-    var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (reduced) return;                         // the static opening frame
+    var motion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)');
+    if (motion && motion.matches) { root.dataset.sim = 'reduced'; return; } // the static opening frame
 
     var id      = root.dataset.contestId;
     var slug    = root.dataset.gameSlug;
@@ -60,6 +84,8 @@
     var feed    = document.getElementById('contest_' + id + '_goal_feed');
     var focus   = document.getElementById('contest_' + id + '_focus');
     var games   = document.getElementById('contest_' + id + '_games');
+    // Present only for the scripted showcase board (pages/_laptop_live).
+    var board   = document.getElementById('contest_' + id + '_leaderboard');
     var laptop  = root.closest('[data-test="laptop-mock"]') || root;
     var wide    = window.matchMedia('(min-width: 1280px)');
     var tileAt  = '[data-test="live-focus-game"][data-focus-slug="' + slug + '"]';
@@ -68,13 +94,15 @@
     if (!feed || !focus || count < 2) return;
 
     // FRAME 0 IS THE PAGE AS IT LOADED: copies of the opening tile and chip,
-    // taken before anything moves, are what the loop comes back to.
+    // taken before anything moves, put back if reduced motion turns on.
     var opening = {
       tile: focus.querySelector(tileAt) && focus.querySelector(tileAt).cloneNode(true),
-      chip: games && games.querySelector(chipAt) && games.querySelector(chipAt).cloneNode(true)
+      chip: games && games.querySelector(chipAt) && games.querySelector(chipAt).cloneNode(true),
+      board: board ? board.innerHTML : null
     };
 
-    var index = 0, timer = null, onScreen = false, observer = null;
+    var index = 0, timer = null, onScreen = false, observer = null, live = true;
+    window.__laptopSimLive = (window.__laptopSimLive || 0) + 1;
 
     function part(i, name) {
       if (i === 0) return opening[name] || null;
@@ -94,6 +122,14 @@
     function show(i) {
       swap(focus, tileAt, part(i, 'tile'));
       swap(games, chipAt, part(i, 'chip'));
+      // THE SHOWCASE BOARD, when there is one: replaced whole, as a broadcast
+      // updates the live board, so the live script re-ranks it (the slide, the
+      // wash, the rank badge, the score pop).
+      if (board) {
+        var next = i === 0 ? opening.board
+                 : (root.querySelector('template[data-frame="' + i + '"][data-part="board"]') || {}).innerHTML;
+        if (next != null) board.innerHTML = next;
+      }
       var node = part(i, 'feed');
       if (node) feed.appendChild(node.cloneNode(true));
       root.dataset.frame = String(i);
@@ -101,28 +137,58 @@
 
     function step() {
       if (!root.isConnected) return stop(true);  // Turbo left the page
-      index = (index + 1) % count;
+      index += 1;
       show(index);
+      // The last frame is the cap: hold it, clear the timer, drop the listeners.
+      if (index >= count - 1) { stop(true); root.dataset.sim = 'done'; }
     }
 
     function running() {
       return root.isConnected && wide.matches && onScreen && document.visibilityState === 'visible';
     }
     function sync() {
-      if (running()) { if (!timer) timer = setInterval(step, every); }
-      else if (timer) { clearInterval(timer); timer = null; }
+      if (!live) return;
+      if (running()) {
+        if (!timer) { timer = setInterval(step, every); root.dataset.armed = '1'; }
+        root.dataset.sim = 'running';
+      } else {
+        if (timer) { clearInterval(timer); timer = null; }
+        root.dataset.sim = 'paused';
+      }
     }
+    // Detach removes EVERY listener this driver added, paused or not.
     function stop(detach) {
       if (timer) { clearInterval(timer); timer = null; }
-      if (detach) {
+      if (detach && live) {
+        live = false;
+        root.dataset.sim = 'stopped';
+        window.__laptopSimLive = Math.max(0, (window.__laptopSimLive || 1) - 1);
         document.removeEventListener('visibilitychange', sync);
         if (wide.removeEventListener) wide.removeEventListener('change', sync);
+        if (motion && motion.removeEventListener) motion.removeEventListener('change', onMotion);
+        document.removeEventListener('turbo:visit', leave);
+        document.removeEventListener('turbo:before-render', leave);
+        window.removeEventListener('pagehide', onPageHide);
         if (observer) observer.disconnect();
       }
     }
+    function leave() { stop(true); }
+    function onPageHide(event) { if (!event.persisted) stop(true); }
+    // Reduced motion switched on mid-visit: stop, and hold the opening frame.
+    function onMotion(event) {
+      if (!event.matches) return;
+      stop(true);
+      index = 0;
+      show(0);
+    }
 
+    root.dataset.sim = 'paused';
     document.addEventListener('visibilitychange', sync);
     if (wide.addEventListener) wide.addEventListener('change', sync);
+    if (motion && motion.addEventListener) motion.addEventListener('change', onMotion);
+    document.addEventListener('turbo:visit', leave);
+    document.addEventListener('turbo:before-render', leave);
+    window.addEventListener('pagehide', onPageHide);
     if ('IntersectionObserver' in window) {
       observer = new IntersectionObserver(function (entries) {
         onScreen = entries.some(function (e) { return e.isIntersecting; });

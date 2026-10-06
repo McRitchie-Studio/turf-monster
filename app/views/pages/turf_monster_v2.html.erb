@@ -28,6 +28,10 @@
     exit at once and leave a frozen frame (banner up). No guest state lives only
     in this page's DOM, so a fresh fetch loses nothing (turbo_snapshot_cache.js). %>
 <% turbo_exempts_page_from_cache if @laptop_sim %>
+<%# THE PHONE SUBHEAD, in one place to edit (Alex, 2026-10-06: "play around"
+    with it). Shown below md, where the hero stacks; the long subhead below is
+    unchanged from md up. About three lines at 375 and 390. %>
+<% mobile_subhead = "Every point your teams score counts, times their multiplier. Underdogs score big." %>
 <% dropped   = NextSlateDrop.dropped? %>
 <% remaining = NextSlateDrop.remaining %>
 <% top_score = TurfMonsterRules.turf_score_for_rank(1) %>
@@ -133,17 +137,20 @@
         phone its room. %>
     <div class="grid items-center gap-12 md:grid-cols-2 xl:gap-8">
       <div class="text-center md:text-left">
-        <span class="inline-block px-3 py-1 rounded-full border border-white/25 bg-white/10 text-white text-xs font-bold uppercase tracking-widest">NFL 2026</span>
         <%# ONE SENTENCE PER LINE at every width: three block spans, each kept
             whole (whitespace-nowrap), at a size whose longest line, "Stack
             points.", still fits the hero at 375px. %>
-        <h1 class="mt-5 text-[2rem] sm:text-5xl md:text-6xl font-extrabold leading-tight text-white">
+        <h1 class="text-[2rem] sm:text-5xl md:text-6xl font-extrabold leading-tight text-white">
           <span class="block whitespace-nowrap">Pick 6 teams.</span>
           <span class="block whitespace-nowrap">Stack points.</span>
           <span class="block whitespace-nowrap">Get paid.</span>
         </h1>
+        <%# Two spans, one shown per width, by CSS alone: the hidden one is
+            display:none, so a screen reader hears exactly one. The phone
+            copy lives in mobile_subhead at the top of this view. %>
         <p class="mt-5 text-lg text-white/80 max-w-xl mx-auto md:mx-0" data-test="v2-subhead">
-          Choose 6 NFL teams. Every point they score over the three-week slate counts, times their Turf Score. Underdogs carry the bigger multiplier, so a smart longshot beats the favorite.
+          <span class="md:hidden" data-test="v2-subhead-mobile"><%= mobile_subhead %></span>
+          <span class="hidden md:inline" data-test="v2-subhead-desktop">Choose 6 NFL teams. Every point they score over the three-week slate counts, times their Turf Score. Underdogs carry the bigger multiplier, so a smart longshot beats the favorite.</span>
         </p>
         <div class="mt-8 flex justify-center md:justify-start">
           <%= render "pages/next_contest_cta", pick: @next_contest, test_id: "v2-hero-cta" %>
@@ -215,7 +222,7 @@
             --phone-x/--phone-y. The hero's xl bottom padding is what makes room
             for it below the shifted phone (see the section). %>
         <figcaption class="relative z-10 mt-4 w-[18rem] text-center text-xs text-white/70 xl:translate-x-[var(--phone-x)] xl:translate-y-[var(--phone-y)]">
-          Real cards from the Weeks 1&ndash;3 board.<span class="sr-only"> Behind the phone, a laptop shows the live contests lobby.</span>
+          Pick Six Teams per Entry<span class="sr-only">. Behind the phone, a laptop shows the live contests lobby.</span>
         </figcaption>
       </figure>
     </div>

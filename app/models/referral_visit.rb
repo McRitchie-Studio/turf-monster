@@ -10,8 +10,9 @@
 # under concurrent requests without a read first.
 #
 # NEVER BREAKS A PAGE. `.record` is called from a before_action on every page
-# (ReferralVisitTracking), so it rescues every error, logs it, and returns
-# false. A click lost to a database hiccup costs a count; a raise here would
+# (ReferralVisitTracking), so it rescues every error, records it
+# (.report_failure: the Rails log and ErrorLog), and returns false. A click
+# lost to a database hiccup costs a count; a raise here would
 # cost the visitor the page.
 #
 # References are normalized (stripped, downcased, first 64 characters) so
@@ -113,8 +114,23 @@ class ReferralVisit < ApplicationRecord
     )
     true
   rescue StandardError => e
-    Rails.logger.warn("[referral_visit] not recorded ref=#{ref.inspect} #{e.class}: #{e.message}")
+    report_failure(e, "not recorded ref=#{ref.inspect}")
     false
+  end
+
+  # A swallowed tracking failure, recorded where the operator triages errors
+  # (ErrorLog, /admin/error_logs, which fans out to Sentry) as well as the
+  # Rails log. NEVER RAISES: it runs inside the rescue of a before_action on
+  # every page, and the failure it reports is often the database, which is
+  # where ErrorLog writes too. A capture that fails is logged and dropped.
+  # (`rescue_and_log` is not the tool here; it re-raises.)
+  def self.report_failure(error, context)
+    Rails.logger.warn("[referral_visit] #{context} #{error.class}: #{error.message}")
+    ErrorLog.capture!(error)
+    nil
+  rescue StandardError => capture_error
+    Rails.logger.error("[referral_visit] ErrorLog capture failed #{capture_error.class}: #{capture_error.message}")
+    nil
   end
 
   def self.utm_value(utm, key)

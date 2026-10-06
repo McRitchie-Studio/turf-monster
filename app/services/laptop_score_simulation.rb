@@ -4,8 +4,9 @@
 #
 # It opens at away 3, home 7 (a field goal for the away side, a touchdown and
 # extra point for the home side), then alternates touchdowns, away first:
-# 10-7, 10-14, 17-14, 17-21, 24-21, 24-28. TOUCHDOWNS of them and the page
-# loops back to the opening frame, so the score never climbs past 28.
+# 10-7, 10-14, 17-14, 17-21, 24-21, 24-28, and STOPS at the touchdown that
+# takes the combined score to STOP_AT (50) or past it (Alex, 2026-10-06): the
+# page holds that final frame and never loops back to 3-7.
 #
 # NOTHING HERE IS WRITTEN. Every Game is a fresh in-memory copy of the real one
 # and every Goal is a new record, all marked readonly!, so a save anywhere in
@@ -18,8 +19,11 @@
 class LaptopScoreSimulation
   INTERVAL_MS = 10_000
   OPENING = { away: 3, home: 7 }.freeze
-  TOUCHDOWNS = 6
   TOUCHDOWN_POINTS = 7
+  STOP_AT = 50
+  # How many touchdowns it takes to reach STOP_AT from the opening's 10:
+  # 10 + 6 * 7 = 52, the first total at or past 50.
+  TOUCHDOWNS = ((STOP_AT - OPENING.values.sum).to_f / TOUCHDOWN_POINTS).ceil
 
   # The game clock per frame: the opening score, then one per touchdown. A
   # clock that stood still while six touchdowns were scored would read as a

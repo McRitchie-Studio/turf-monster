@@ -19,7 +19,12 @@ class TurfMonsterV2PageTest < ActionDispatch::IntegrationTest
   def assert_every_section_renders
     assert_response :success
     assert_includes section_text("v2-hero"), "Pick 6 teams. Stack points. Get paid."
-    assert_includes section_text("v2-hero"), "NFL 2026"
+    # The season pill above the headline is gone (Alex, 2026-10-06). Read from
+    # the headline's own column: the laptop's lobby legitimately names "NFL
+    # 2026 Weeks 7-9".
+    copy = page_node.css('[data-test="v2-hero"] h1').first.parent
+    refute_includes copy.text, "NFL 2026", "the season pill is gone"
+    assert_equal "h1", copy.element_children.first.name, "the headline leads the hero copy"
     assert_includes section_text("v2-notify"), "Weeks 7-9 slate drops Tuesday morning"
     assert_includes section_text("v2-notify"), "One email when the slate drops. No spam."
     assert_includes section_text("v2-how-to-play"), "How to play"
@@ -123,11 +128,20 @@ class TurfMonsterV2PageTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "the subhead is the three-sentence pitch" do
+  test "the subhead is the three-sentence pitch from md up, and the short line below it" do
     get turf_monster_v2_path
+    desktop = page_node.css('[data-test="v2-subhead-desktop"]').first
+    mobile = page_node.css('[data-test="v2-subhead-mobile"]').first
     assert_equal "Choose 6 NFL teams. Every point they score over the three-week slate counts, times their Turf Score. " \
                  "Underdogs carry the bigger multiplier, so a smart longshot beats the favorite.",
-                 page_node.css('[data-test="v2-subhead"]').first.text.squish
+                 desktop.text.squish
+    assert_equal "Every point your teams score counts, times their multiplier. Underdogs score big.",
+                 mobile.text.squish
+    # One per width, by display alone: a screen reader hears exactly one, so
+    # neither is aria-hidden (display:none already removes it).
+    assert_equal %w[md:hidden], mobile["class"].split
+    assert_equal %w[hidden md:inline], desktop["class"].split
+    [mobile, desktop].each { |span| assert_nil span["aria-hidden"] }
   end
 
   test "the headline is one sentence per line" do
@@ -172,7 +186,7 @@ class TurfMonsterV2PageTest < ActionDispatch::IntegrationTest
     assert_equal 2, phones.size
     phones.each { |phone| assert_equal "true", phone["aria-hidden"] }
     assert_equal 2, page_node.css("figure figcaption").size
-    assert_equal "Real cards from the Weeks 1–3 board.", page_node.css('[data-test="v2-hero-figure"] figcaption').first.children.first.text.strip
+    assert_equal "Pick Six Teams per Entry", page_node.css('[data-test="v2-hero-figure"] figcaption').first.children.first.text.strip
   end
 
   test "renders when no Team rows exist" do

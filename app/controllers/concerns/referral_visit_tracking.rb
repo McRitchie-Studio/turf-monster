@@ -24,8 +24,10 @@
 #
 # A visitor who never followed a trackable link carries no cookie from this.
 #
-# NEVER BREAKS A PAGE: every path through here rescues and continues.
-# (`rescue_and_log` is not the tool for that; it re-raises.)
+# NEVER BREAKS A PAGE: every path through here rescues and continues, and
+# records what it swallowed through ReferralVisit.report_failure (the Rails
+# log and ErrorLog, itself never raising). (`rescue_and_log` is not the tool
+# for that; it re-raises.)
 module ReferralVisitTracking
   extend ActiveSupport::Concern
 
@@ -70,7 +72,7 @@ module ReferralVisitTracking
 
     write_referral_visit(reference, visitor_id, request.path, utm)
   rescue StandardError => e
-    Rails.logger.warn("[referral_visit] tracking skipped #{e.class}: #{e.message}")
+    ReferralVisit.report_failure(e, "tracking skipped")
     false
   end
 
@@ -87,7 +89,7 @@ module ReferralVisitTracking
 
     write_referral_visit(pending["reference"], visitor_id, pending["path"], pending["utm"])
   rescue StandardError => e
-    Rails.logger.warn("[referral_visit] pending visit skipped #{e.class}: #{e.message}")
+    ReferralVisit.report_failure(e, "pending visit skipped")
     false
   end
 

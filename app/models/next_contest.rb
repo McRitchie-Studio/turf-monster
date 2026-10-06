@@ -43,7 +43,11 @@ module NextContest
   LOBBY_LIMIT = 3
 
   def self.lobby(limit: LOBBY_LIMIT, now: Time.current)
-    recent = Contest.open.includes(:slate).with_attached_contest_image
+    # Cancelled is filtered in SQL, before the limit: a cancelled contest keeps
+    # status "open" (Contest#cancelled? reads onchain_cancelled), and a row
+    # dropped after the limit would also cost an enterable contest its slot.
+    recent = Contest.open.where(onchain_cancelled: false)
+                    .includes(:slate).with_attached_contest_image
                     .order(created_at: :desc).limit(limit * 4).to_a
     shown = Contest.featured_order(recent.select { |c| enterable_at?(c, now) }).first(limit)
     counts = shown.empty? ? {} : Entry.confirmed.where(contest_id: shown.map(&:id)).group(:contest_id).count

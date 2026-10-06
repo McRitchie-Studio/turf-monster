@@ -83,6 +83,23 @@ class ReferralVisitTest < ActiveSupport::TestCase
     end
   end
 
+  test "a swallowed error is recorded to ErrorLog, not only the Rails log" do
+    assert_difference -> { ErrorLog.count }, 1 do
+      ReferralVisit.stub(:insert, ->(*) { raise ActiveRecord::StatementInvalid, "insert boom" }) do
+        assert_equal false, record
+      end
+    end
+    assert_equal "insert boom", ErrorLog.order(:id).last.message
+  end
+
+  test "when ErrorLog itself cannot write, the failure is still swallowed" do
+    ReferralVisit.stub(:insert, ->(*) { raise ActiveRecord::ConnectionNotEstablished, "db down" }) do
+      ErrorLog.stub(:capture!, ->(*) { raise ActiveRecord::ConnectionNotEstablished, "error_logs down too" }) do
+        assert_nothing_raised { assert_equal false, record }
+      end
+    end
+  end
+
   # --- which requests count --------------------------------------------------
 
   def trackable?(method: "GET", path: "/", user_agent: BROWSER, html: true, **rest)

@@ -44,10 +44,18 @@ class PagesController < ApplicationController
     @live_showcase = NextContest.live_showcase
     return unless @live_showcase
 
-    snapshot = LaptopLiveSnapshot.new(@live_showcase, host: request.host_with_port, https: request.ssl?)
-    @laptop_live_html = snapshot.render
+    # The rendered snapshot and its frames come from Rails.cache
+    # (LaptopSnapshotCache): the same for every viewer, keyed on what they
+    # draw, at most a minute old. The simulation object is cheap, in-memory and
+    # read by the view, so it is built on every request.
+    host = request.host_with_port
+    snapshot = LaptopLiveSnapshot.new(@live_showcase, host: host, https: request.ssl?)
+    cached = LaptopSnapshotCache.fetch(@live_showcase, host: host, https: request.ssl?) do
+      { html: snapshot.render.to_str, frames: snapshot.frames }
+    end
+    @laptop_live_html = cached[:html].html_safe # rubocop:disable Rails/OutputSafety -- LaptopLiveSnapshot's own render
     @laptop_sim = snapshot.simulation
-    @laptop_sim_frames = snapshot.frames
+    @laptop_sim_frames = cached[:frames]
   end
 
   def terms
