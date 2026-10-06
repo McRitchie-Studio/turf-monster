@@ -181,6 +181,14 @@ class PageExperimentsTest < ActionDispatch::IntegrationTest
     assert_equal 0, ExperimentEvent.where.not(event: "visit").count
   end
 
+  test "a paused experiment's beacon records nothing, even for a visitor holding its cookie" do
+    visit_page(v: "fantasy-football")
+    @experiment.update!(active: false)
+    beacon("visit")
+    beacon("play")
+    assert_equal 0, ExperimentEvent.count
+  end
+
   # allow_forgery_protection is off in the test env (drop_signups_controller_test
   # explains), so this pins the wiring: nothing skips the CSRF check.
   test "CSRF verification is not skipped for the beacon" do

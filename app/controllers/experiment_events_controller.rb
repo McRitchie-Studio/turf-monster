@@ -30,7 +30,8 @@ class ExperimentEventsController < ApplicationController
     return if ReferralVisit.bot?(request.user_agent)
 
     event = beacon_event
-    experiment = event && PageExperiment.includes(:variants).find_by(slug: params[:experiment].to_s)
+    # Running experiments only: a paused one counts nothing, cookie or not.
+    experiment = event && PageExperiment.active.includes(:variants).find_by(slug: params[:experiment].to_s)
     variant = experiment&.variant_for(cookies[experiment.cookie_name])
     return if variant.nil?
 
