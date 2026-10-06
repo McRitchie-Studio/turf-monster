@@ -28,7 +28,6 @@
   payouts = standard[:payouts]
   paid_ranks = payouts.keys.max
   tie_for_first = (payouts[1] + payouts[2]) / 2
-  tie_for_last = payouts[paid_ranks] / 2
 
   key_days = (ApiKey::LIFETIME / 1.day).to_i
   key_throttle = Rack::Attack.throttles.fetch("api/key")
@@ -224,10 +223,11 @@ Paying for an entry takes a transaction on Solana, which takes time. Do not leav
 
 ## Prizes, ties and short fields
 
-`payouts` on the contest lists the prize for each finishing rank, in cents. A rank that is not listed wins nothing. `guaranteed_prize_cents` is the sum. Prizes are paid in USDC, where one USDC is one dollar.
+`payouts` on the contest lists the prize for each finishing rank, in cents. A rank that is not listed wins nothing. `guaranteed_prize_cents` is the sum. A contest keeps the prizes it was created with; they do not change while it runs. Prizes are paid in USDC, where one USDC is one dollar.
 
 - **Ties share a rank, and the next rank is skipped:** 1, 1, 3.
-- **Tied entries pool the prizes of the places they cover and split them equally.** In a contest paying <%= payouts.sort.map { |rank, cents| "#{dollars.(cents)} for rank #{rank}" }.to_sentence %>, two entries tied for first cover ranks 1 and 2 and receive <%= dollars.(tie_for_first) %> each. Two entries tied at rank <%= paid_ranks %> cover ranks <%= paid_ranks %> and <%= paid_ranks + 1 %>; rank <%= paid_ranks + 1 %> pays nothing, so they receive <%= dollars.(tie_for_last) %> each.
+- **Tied entries pool the prizes of the places they cover and split them equally.** In a contest paying <%= payouts.sort.map { |rank, cents| "#{dollars.(cents)} for rank #{rank}" }.to_sentence %>, two entries tied for first cover ranks 1 and 2 and receive <%= dollars.(tie_for_first) %> each.
+- **A contest never pays more entries than it has paid places.** A tie that reaches past the last paid rank pays only its earliest entries, as many as there are places left, and they split those places' prizes. Two entries tied at rank <%= paid_ranks %>: the entry created first receives <%= dollars.(payouts[paid_ranks]) %> and the other receives nothing.
 - **When a split leaves an odd cent**, it goes to the entry that was created first.
 - **Short fields.** Only ranks that an entry actually finishes in are paid. If a contest that pays <%= paid_ranks %> places has three entries, ranks 1 to 3 are paid and the prizes for the ranks below them are not paid to anyone. They are not added to the other prizes.
 

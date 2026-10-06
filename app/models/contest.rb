@@ -335,8 +335,8 @@ class Contest < ApplicationRecord
     # A low-stakes end-to-end rehearsal tier: 9 entries → $9 gross / $9 payout / $0 margin.
     # BREAK-EVEN BY DESIGN: this tier exists to rehearse the full
     # entry → onchain → grade → payout path with real money at pocket-change stakes, not to earn.
-    # A short fill loses money: grading pays only the ranks that EXIST (see max_paid_rank
-    # below), so 1 entry pays $5 (-$4), 2 pay $7 (-$5), and 3+ pay the full $9 — making
+    # A short fill loses money: grading pays only the ranks that EXIST
+    # (Contest::PayoutSplit), so 1 entry pays $5 (-$4), 2 pay $7 (-$5), and 3+ pay the full $9 — making
     # THREE entries the worst case at -$6, not one. That is the accepted cost of the
     # rehearsal, and the reason the tier stays flag-gated.
     # Hidden from the create UIs unless the flag is on; DISABLE before the public launch.
