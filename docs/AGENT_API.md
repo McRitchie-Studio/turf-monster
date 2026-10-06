@@ -95,7 +95,7 @@ Branch on `code`. `message` is written for a person and may change.
 | 401 | `invalid_api_key` | The key is malformed or unknown |
 | 401 | `revoked_api_key` | The player revoked this key |
 | 401 | `expired_api_key` | The key is past its 90 days |
-| 403 | `account_frozen` | The account is on hold. Every request that is not a `GET` or `HEAD` is refused. Reads still work. |
+| 403 | `account_frozen` | The account is frozen. Every request that is not a `GET` or `HEAD` is refused. Reads still work. See [The account freeze](#the-account-freeze). |
 | 403 | `age_verification_required` | The age gate is on and the player has not verified their date of birth. The player verifies on the site; the same key then works. Returned only by endpoints that enter a contest. |
 | 400 | `bad_request` | A required parameter or header is missing, a value is not the type the endpoint takes, or the body is not valid JSON |
 | 404 | `not_found` | No such resource. Also `/api` itself and any path under it that is not an endpoint, on any method. |
@@ -106,6 +106,34 @@ A 401 also carries `WWW-Authenticate: Bearer realm="Turf Monster API"`.
 
 The entry writes add their own codes: see [Errors from the entry
 endpoints](#errors-from-the-entry-endpoints).
+
+### The account freeze
+
+An operator can freeze an account, and a payment dispute or refund can freeze
+one too. The freeze is the app's, not the chain's. A frozen account can still
+read: it can see contests, its own entries and `GET /api/v1/me`, and the player
+can sign in and out on the website. It cannot write: it cannot enter or edit an
+entry, chat, change its username, link a wallet, or take any on-chain step.
+
+Every refused write gets the same answer, on every surface:
+
+```http
+HTTP/1.1 403 Forbidden
+
+{ "error": { "code": "account_frozen",
+             "message": "Your account is frozen. Contact support@turfmonster.media." } }
+```
+
+- **403, not 423.** The key is fine and the request is understood. This
+  account is not allowed to write. Retrying does not help until an operator
+  lifts the freeze.
+- **Over MCP**, a writing tool returns the same `account_frozen` code in its
+  tool result, and the reading tools keep working.
+- **On the website**, the page's own requests get the same `code` in a JSON
+  body (`{ "error": …, "code": "account_frozen" }`). A form post redirects back
+  with the message, and every page shows the player a banner.
+
+The agent should stop and tell the player to contact support.
 
 ## Rate limits
 
@@ -148,7 +176,7 @@ key works.
 | `wallet.kind` | `managed`: Turf Monster holds the wallet and signs for the player. `self_custodied`: the player's own wallet must sign. `none`: no wallet yet. |
 | `wallet.address` | The player's Solana address, or `null` |
 | `free_entry_tokens` | Unspent free entries. **`null` means the balance could not be read just now**, not zero; ask again. |
-| `account.frozen` | `true` when the account is on hold |
+| `account.frozen` | `true` when the account is frozen |
 | `api_key.name` | The label the player gave the key. Always present. |
 | `api_key.eligibility.age_gate` | `passed`, or `not_required` when the age gate was off at creation |
 
@@ -272,7 +300,7 @@ Open and settled contests, newest first. A contest that is still being created
 | `settled` | Graded. Ranks and payouts are final. |
 | `cancelled` | The contest was cancelled. It keeps `status: "open"`, so this flag is the only tell. |
 | `coming_soon` | Advertised but not ready to play |
-| `accepting_entries` | The one-field answer to "would `POST .../entries` get past its gates now": a contest this API can enter (`supported`), open, not locked, not cancelled, not coming soon, a spot left, the player under their own limit, and an account that may write (not on hold; age verified when the age gate is on). It says nothing about the wallet: read `wallet.kind` and `free_entry_tokens` on `GET /api/v1/me` for that. |
+| `accepting_entries` | The one-field answer to "would `POST .../entries` get past its gates now": a contest this API can enter (`supported`), open, not locked, not cancelled, not coming soon, a spot left, the player under their own limit, and an account that may write (not frozen; age verified when the age gate is on). It says nothing about the wallet: read `wallet.kind` and `free_entry_tokens` on `GET /api/v1/me` for that. |
 | `locks_at` | When the contest locks. Every pick in every entry is final from this moment, including picks whose own game starts later. `null` means no lock is scheduled. An NFL contest locks at 11:00 America/Denver on its opening Sunday (never before its first kickoff), so a Thursday or London game kicks off before it: that team is `locked` from its own kickoff. |
 | `concludes_at` | When results are scheduled to be final, if set |
 | `guaranteed_prize_cents` | The sum of `payouts` |
@@ -591,7 +619,7 @@ reads while its contest is live.)
 | `entry_number` | The index of the player's slot in this contest that the entry holds on chain. `null` if it has none. |
 | `submitted_at` | When the entry was created |
 | `tx_signature` | The Solana transaction that paid for the entry, or `null` |
-| `editable` | `true` while `PATCH /api/v1/entries/:slug` would be accepted: the entry is active, its contest is open, not cancelled and not locked, and the account may write (not on hold; age verified when the age gate is on). Even then, a pick whose own `locked` is `true` cannot be swapped out, and a locked team cannot be swapped in. |
+| `editable` | `true` while `PATCH /api/v1/entries/:slug` would be accepted: the entry is active, its contest is open, not cancelled and not locked, and the account may write (not frozen; age verified when the age gate is on). Even then, a pick whose own `locked` is `true` cannot be swapped out, and a locked team cannot be swapped in. |
 | `score`, `rank`, `payout_cents`, `final` | As on the leaderboard |
 | `picks` | One per team picked, best rank first. Each is the team row from the contest detail plus `points`. |
 | `picks[].points` | What the pick has earned: `team_score × turf_score`. `null` until the team has a result. |
@@ -660,7 +688,7 @@ picks of an entry the player already holds.
 | `PATCH /api/v1/entries/:slug` | Replace the picks of one of the player's entries, before the contest locks |
 
 Both take a JSON body (`Content-Type: application/json`) and both are refused
-for an account on hold (`403 account_frozen`) and, when the age gate is on, for
+for a frozen account (`403 account_frozen`) and, when the age gate is on, for
 a player who has not verified their date of birth (`403
 age_verification_required`).
 
@@ -807,7 +835,7 @@ spent.**
 |--------|--------|------|---------|--------------------------|
 | 400 | `bad_request` | both | No `Idempotency-Key` (POST), a key that is too long or has spaces, `matchup_ids` missing or not a list of ids, `allow_usdc` not a JSON `true` or `false`, a body that is not JSON | Fix the request. It was not recorded, so the same key is still unused. |
 | 401 | the four key errors | both | No key, or a bad, revoked or expired one | Ask the player for a working key. |
-| 403 | `account_frozen` | both | The account is on hold | Stop. Tell the player to contact support. |
+| 403 | `account_frozen` | both | The account is frozen | Stop. Tell the player to contact support. |
 | 403 | `age_verification_required` | both | The age gate is on and the player has not verified | Tell the player to verify their date of birth on the website, then retry with the same key. |
 | 404 | `not_found` | both | No such contest (POST), or no such entry among the player's own (PATCH) | Re-read `GET /api/v1/contests` or `GET /api/v1/entries`. |
 | 409 | `idempotency_key_reused` | POST | This key is already tied to something else: a request with different picks, a different contest or a different `allow_usdc`, or an entry that no longer exists. A contest reset voids every finished key used on that contest (`Contest#reset!`, `ApiEntryRequest.void_for_reset!`), and `Entries::ApiSubmission#replay` refuses any key whose entry row is gone, so a stored `201` is never returned for a deleted entry. | Stop sending this request with this key; the answer does not change, and the key never enters again. If the body was changed by mistake, send the original body once. If the body was already the original, the key is finished: read the player's entries, and make a new entry only with a new key and the player's yes. See "After a contest reset" below for what that new entry costs. |
@@ -1081,7 +1109,7 @@ Some failures are not tool results, because they are not about a tool:
 An argument of the wrong type is a tool result (`isError: true`, code
 `bad_request`), not a JSON-RPC error, so the model can read it and try again.
 
-An account on hold, or short of the age gate, can call every read tool. The two
+A frozen account, or one short of the age gate, can call every read tool. The two
 writing tools answer `account_frozen` or `age_verification_required`.
 
 ### Limits
@@ -1202,7 +1230,7 @@ gets the same.
 
 | Gate | Default | How an endpoint uses it |
 |------|---------|-------------------------|
-| Account hold | **On for every non-`GET`/`HEAD` request.** Nothing to add. | Opt an action out with `allow_frozen_account_writes only: :action`. That action then owes the check itself. `only:` is required: called without it, or with an empty list, the method raises, because that spelling would lift the hold from every action of the controller. |
+| Account freeze | **On for every non-`GET`/`HEAD` request.** Nothing to add. | Opt an action out with `allow_frozen_account_writes only: :action, reason: "…"`. That action then owes the check itself. `only:` and `reason:` are required: called without either, or with an empty list or a blank reason, the method raises, because a bare call would lift the freeze from every action of the controller. `test/integration/frozen_account_write_inventory_test.rb` lists every opt-out with its reason and fails on one it does not know. |
 | Age gate | Off. An endpoint asks for it. | `before_action :require_age_verified` on any action that enters a contest. |
 | Location | Never re-checked. | Decided at key creation (Alex, 2026-09-30). |
 
@@ -1224,7 +1252,8 @@ envelope, such as an MCP endpoint dispatching tools through one `POST`:
 ```ruby
 class McpController < ActionController::API
   include ApiKeyAuthentication
-  allow_frozen_account_writes only: :rpc   # read tools must stay open
+  allow_frozen_account_writes only: :rpc,  # read tools must stay open
+                              reason: "one POST carries every tool; each writing tool asks write_refusal itself"
 
   def run_tool(tool, arguments)
     refusal = write_refusal

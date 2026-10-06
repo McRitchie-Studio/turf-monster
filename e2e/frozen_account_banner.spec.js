@@ -38,7 +38,7 @@ test.describe("Frozen account", () => {
     }
 
     // Still on /account: the rename is offered, disabled, with the reason.
-    const rename = page.locator("button[data-frozen-cta]", { hasText: "Change username" });
+    const rename = page.locator("button[data-frozen-cta]", { hasText: "Username locked" });
     await expect(rename).toBeVisible();
     await expect(rename).toBeDisabled();
     await expect(rename).toHaveAttribute("title", "Your account is frozen");

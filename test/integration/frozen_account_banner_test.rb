@@ -51,6 +51,6 @@ class FrozenAccountBannerTest < ActionDispatch::IntegrationTest
     @user.freeze!(reason: "test", source: "console")
     get account_path
 
-    assert_select "button[disabled][data-frozen-cta][title=?]", FrozenAccount::CTA_REASON, text: /Change username/
+    assert_select "button[disabled][data-frozen-cta][title=?]", FrozenAccount::CTA_REASON, text: /Username locked/
   end
 end
