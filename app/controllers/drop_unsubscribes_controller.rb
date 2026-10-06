@@ -19,6 +19,9 @@
 class DropUnsubscribesController < ApplicationController
   skip_before_action :require_authentication
   skip_forgery_protection only: :create
+  # Unsubscribing never waits on onboarding: a signed-in account with no
+  # username would otherwise be bounced to complete_profile, still subscribed.
+  skip_before_action :require_profile_completion
 
   def show
     @signup = DropSignup.find_by_unsubscribe_token(params[:token])

@@ -30,6 +30,14 @@ class DropUnsubscribeTest < ActionDispatch::IntegrationTest
     assert @signup.reload.unsubscribed?
   end
 
+  test "a signed-in account with an incomplete profile is not bounced to onboarding" do
+    user = users(:alex)
+    log_in_as(user)
+    user.update_column(:username, nil) # after login, which claims a parked username
+    get drop_unsubscribe_path(token: @token)
+    assert_response :success
+  end
+
   test "an unsubscribed address is never mailed again" do
     post drop_unsubscribe_confirm_path(token: @token)
     refute @signup.reload.deliver_confirmation!
