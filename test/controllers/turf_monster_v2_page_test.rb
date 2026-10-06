@@ -172,7 +172,7 @@ class TurfMonsterV2PageTest < ActionDispatch::IntegrationTest
     assert_equal 2, phones.size
     phones.each { |phone| assert_equal "true", phone["aria-hidden"] }
     assert_equal 2, page_node.css("figure figcaption").size
-    assert_equal "Real cards from the Weeks 1–3 board.", page_node.css('[data-test="v2-hero-figure"] figcaption').first.children.first.text.strip
+    assert_equal "Pick Six Teams per Entry", page_node.css('[data-test="v2-hero-figure"] figcaption').first.children.first.text.strip
   end
 
   test "renders when no Team rows exist" do
