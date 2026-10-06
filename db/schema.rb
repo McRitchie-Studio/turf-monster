@@ -1115,7 +1115,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_05_120000) do
   add_foreign_key "contest_slates", "slates"
   add_foreign_key "contests", "slates"
   add_foreign_key "contests", "users"
-  add_foreign_key "drop_signups", "users"
+  add_foreign_key "drop_signups", "users", on_delete: :nullify
   add_foreign_key "email_deliveries", "users"
   add_foreign_key "entries", "contests"
   add_foreign_key "entries", "users"

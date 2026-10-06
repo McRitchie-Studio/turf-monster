@@ -18,7 +18,9 @@ class CreateDropSignups < ActiveRecord::Migration[8.1]
       t.string   :source
       t.string   :ip
       t.string   :user_agent
-      t.references :user, foreign_key: true
+      # The address is the subscription, not the account: deleting a user
+      # keeps the row and clears the link, in the database itself.
+      t.references :user, foreign_key: { on_delete: :nullify }
       t.datetime :notified_at
       t.timestamps
     end

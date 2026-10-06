@@ -90,9 +90,6 @@ class User < ApplicationRecord
   has_many :paypal_purchases, dependent: :destroy
   has_many :coinflow_purchases, dependent: :destroy
   has_many :aeropay_purchases, dependent: :destroy
-  # Slate-drop "notify me" rows filed while signed in. The address is the
-  # subscription, not the account, so a deleted account leaves its row behind.
-  has_many :drop_signups, dependent: :nullify
   belongs_to :inviter, class_name: "User", optional: true, foreign_key: :invited_by_id
   has_many :invitees, class_name: "User", foreign_key: :invited_by_id
 

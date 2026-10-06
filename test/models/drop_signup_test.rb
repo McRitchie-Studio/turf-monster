@@ -85,6 +85,15 @@ class DropSignupTest < ActiveSupport::TestCase
     assert_nil anon.user
   end
 
+  # The foreign key is ON DELETE SET NULL, so the database keeps the address
+  # when the account goes (a raw DELETE, so no Rails callback can help it).
+  test "deleting the account keeps the signup and clears its user" do
+    signup = DropSignup.register(email: "casey-drop@example.com", slate_key: KEY, user: users(:casey))
+    User.connection.execute("DELETE FROM users WHERE id = #{users(:casey).id}")
+
+    assert_nil signup.reload.user_id
+  end
+
   test "recent lists newest first" do
     old = DropSignup.create!(email: "old@example.com", slate_key: KEY, created_at: 2.days.ago)
     new_one = DropSignup.create!(email: "new@example.com", slate_key: KEY)
