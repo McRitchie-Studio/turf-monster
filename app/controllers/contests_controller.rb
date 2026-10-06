@@ -6,16 +6,21 @@ class ContestsController < ApplicationController
   # unrelated despite reading alike.
   include DbSpanTracing
 
-  skip_before_action :require_authentication, only: [:index, :show, :contest, :my, :world_cup, :leaderboard_poll, :live]
+  skip_before_action :require_authentication, only: [:index, :show, :contest, :my, :leaderboard_poll, :live]
   # Observability for the latency tail (fix-turf-latency-tail): attribute the
-  # DB wall time on the two hot paths — "/" (world_cup redirect) and the contest
+  # DB wall time on the two hot paths — "/" (the lobby, #index) and the contest
   # show page — to connect vs execute. No-op-safe; DB_SPAN_TRACE=0 disables.
-  around_action :trace_db_span, only: [:world_cup, :show, :contest]
-  before_action :set_contest, only: [:show, :contest, :admin, :edit, :update, :update_banner, :toggle_selection, :enter, :check_funding, :clear_picks, :grade, :fill, :lock, :prepare_lock_time, :confirm_lock_time, :prepare_conclusion_time, :confirm_conclusion_time, :jump, :simulate_game, :simulate_batch, :reset, :close_onchain, :cancel_onchain, :prepare_entry, :discard_prepared_entry, :stamp_entry_signature, :recover_pending_entry, :confirm_onchain_entry, :prepare_onchain_contest, :confirm_onchain_contest, :leaderboard_poll, :live, :pick, :grade_round]
-  before_action :require_admin, only: [:new, :create, :rebuild_create_tx, :finalize, :admin, :edit, :update, :update_banner, :generator, :generate_bundle, :finalize_bundle, :grade, :fill, :lock, :prepare_lock_time, :confirm_lock_time, :prepare_conclusion_time, :confirm_conclusion_time, :jump, :simulate_game, :simulate_batch, :reset, :close_onchain, :cancel_onchain, :prepare_onchain_contest, :confirm_onchain_contest, :grade_round]
+  around_action :trace_db_span, only: [:index, :show, :contest]
+  before_action :set_contest, only: [:show, :contest, :admin, :edit, :update, :update_banner, :toggle_selection, :enter, :check_funding, :clear_picks, :grade, :fill, :lock, :prepare_lock_time, :confirm_lock_time, :prepare_conclusion_time, :confirm_conclusion_time, :jump, :simulate_game, :simulate_batch, :reset, :close_onchain, :cancel_onchain, :prepare_entry, :discard_prepared_entry, :stamp_entry_signature, :recover_pending_entry, :confirm_onchain_entry, :prepare_onchain_contest, :confirm_onchain_contest, :leaderboard_poll, :live]
+  before_action :require_admin, only: [:new, :create, :rebuild_create_tx, :finalize, :admin, :edit, :update, :update_banner, :generator, :generate_bundle, :finalize_bundle, :grade, :fill, :lock, :prepare_lock_time, :confirm_lock_time, :prepare_conclusion_time, :confirm_conclusion_time, :jump, :simulate_game, :simulate_batch, :reset, :close_onchain, :cancel_onchain, :prepare_onchain_contest, :confirm_onchain_contest]
   before_action :require_geo_allowed, only: [:toggle_selection, :enter, :prepare_entry]
   # B4 / OPSEC-048: frozen accounts can browse but cannot spend or enter.
   before_action :require_unfrozen_account, only: [:enter, :prepare_entry, :confirm_onchain_entry, :toggle_selection]
+  # A retired-format contest is a closed record: it reads, and nothing enters,
+  # picks, grades or rehearses on it. Edit, banner and the on-chain close and
+  # cancel stay open so an operator can still tidy the record.
+  RETIRED_FORMAT_WRITES = %i[toggle_selection enter check_funding clear_picks grade fill lock prepare_lock_time confirm_lock_time prepare_conclusion_time confirm_conclusion_time jump simulate_game simulate_batch reset prepare_entry discard_prepared_entry stamp_entry_signature recover_pending_entry confirm_onchain_entry prepare_onchain_contest confirm_onchain_contest].freeze
+  before_action :refuse_retired_format, only: RETIRED_FORMAT_WRITES
 
   # The contest test actions write random scores into SHARED games rows, settle,
   # mint comped entries or destroy entries. They answer only while
@@ -679,13 +684,6 @@ class ContestsController < ApplicationController
   # cosign confirms, winners receive USDC in their own ATA. No admin per-entry
   # button.
 
-  def world_cup
-    @contest = Contest.featured
-    return redirect_to contests_path unless @contest
-    # Straight to where #show would send them, so root is one hop, not two.
-    redirect_to route_to_live? ? live_contest_path(@contest) : contest_path(@contest)
-  end
-
   # /contests/:id is a ROUTER, not a page. Once a single game on the slate has
   # started it sends the visitor to the live board; until then it renders the
   # contest page. The contest page keeps a URL of its own (#contest, below) so
@@ -727,7 +725,7 @@ class ContestsController < ApplicationController
       render json: { changed: false }
     else
       load_contest_board_data
-      partial = @contest.world_cup_survivor? ? "contests/world_cup_survivor_leaderboard" : "contests/turf_totals_leaderboard"
+      partial = @contest.retired_format? ? "contests/final_standings" : "contests/turf_totals_leaderboard"
       html = render_to_string(partial: partial, locals: { compact: true, viewer: current_user })
       render json: { changed: true, version: current_version, html: html }
     end
@@ -735,7 +733,7 @@ class ContestsController < ApplicationController
 
   # Live "active contest" page — real-time leaderboard + chat + games, pushed
   # over ActionCable (Contest::LiveBroadcast). Dedicated route for now; we'll
-  # fold it into #show's live state later. Turf Totals only; a survivor contest
+  # fold it into #show's live state later. Turf Totals only; a retired-format contest
   # redirects to the show page because it has no turf-totals board to draw.
   #
   # "not-yet-live redirects" used to be part of that sentence and is no longer
@@ -797,10 +795,8 @@ class ContestsController < ApplicationController
       }, status: :unprocessable_entity
     end
 
+    # The cart entry is created by toggle_selection.
     entry = @contest.entries.cart.find_by(user: current_user)
-    # Survivor contests have no pick-building phase — entering creates the entry
-    # directly. (Turf Totals' cart entry is created by toggle_selection.)
-    entry ||= @contest.entries.find_or_create_by!(user: current_user, status: :cart) if @contest.world_cup_survivor?
     return redirect_to root_path, alert: "No cart entry found" unless entry
 
     # Attribute any RPC writes spawned by this action to the cart entry —
@@ -1007,8 +1003,6 @@ class ContestsController < ApplicationController
     return if render_age_gate_required
 
     entry = @contest.entries.cart.find_by(user: current_user)
-    # Survivor contests have no pick-building phase — see #enter.
-    entry ||= @contest.entries.find_or_create_by!(user: current_user, status: :cart) if @contest.world_cup_survivor?
     return render json: { error: "No cart entry found" }, status: :unprocessable_entity unless entry
 
     Current.outbound_source = entry  # audit-log attribution; see #enter
@@ -1151,9 +1145,9 @@ class ContestsController < ApplicationController
         # SAME CONTRACT, FOR THE SAME REASON: the sign card names a currency, and
         # the server is the only party that knows which one it priced. It applied
         # the "usdc" default above, so a board that offers no picker sends no
-        # currency and cannot name one — that is how the world-cup survivor board
-        # came to render "Approve the  transfer in your wallet..." with the token
-        # missing and a double space. Echoing the decision means a call site can
+        # currency and cannot name one, and its sign card would render "Approve
+        # the  transfer in your wallet..." with the token missing and a double
+        # space. Echoing the decision means a call site can
         # never disagree with the transfer it is about to ask for.
         currency: currency
       }
@@ -1529,38 +1523,6 @@ class ContestsController < ApplicationController
     render json: { error: e.message }, status: :unprocessable_entity
   end
 
-  # World Cup Survivor — submit or replace this entry's pick for a round.
-  def pick
-    raise "Not a survivor contest" unless @contest.world_cup_survivor?
-
-    round = params[:round_id].present? ? SurvivorRound.find_by(id: params[:round_id]) : SurvivorRound.current
-    entry = @contest.entries.where(user: current_user, status: [:active, :complete]).first
-
-    rescue_and_log(target: entry, parent: @contest) do
-      raise "Enter the contest before making a pick" unless entry
-      raise "You've been eliminated from this contest" if entry.eliminated?
-      raise "Round not found" unless round
-      raise "#{round.name} is locked" if round.picks_locked?
-
-      team = Team.find_by(slug: params[:team_slug].to_s)
-      raise "Team not found" unless team
-      unless round.games.where("home_team_slug = :s OR away_team_slug = :s", s: team.slug).exists?
-        raise "#{team.name} is not playing in #{round.name}"
-      end
-      if entry.survivor_picks.where(team_slug: team.slug).where.not(survivor_round_id: round.id).exists?
-        raise "You've already used #{team.name} — no team can be picked twice"
-      end
-
-      pick = entry.survivor_picks.find_or_initialize_by(survivor_round: round)
-      pick.team_slug = team.slug
-      pick.save!
-
-      render json: { success: true, round_id: round.id, team_slug: team.slug, team_name: team.name }
-    end
-  rescue StandardError => e
-    render json: { success: false, error: e.message }, status: :unprocessable_entity
-  end
-
   def simulate_game
     rescue_and_log(target: @contest) do
       game = @contest.simulate_next_game!
@@ -1590,20 +1552,6 @@ class ContestsController < ApplicationController
       format.html { redirect_to @contest || root_path, alert: e.message }
       format.json { render json: { success: false, error: e.message }, status: :unprocessable_entity }
     end
-  end
-
-  # World Cup Survivor — grade a round across every survivor entry (rounds are
-  # global). Admin-only; the round's games must be final first.
-  def grade_round
-    rescue_and_log(target: @contest) do
-      raise "Not a survivor contest" unless @contest.world_cup_survivor?
-      round = params[:round_id].present? ? SurvivorRound.find_by(id: params[:round_id]) : SurvivorRound.current
-      raise "No round to grade" unless round
-      Survivor::GradeRound.call(round)
-      redirect_to @contest, notice: "#{round.name} graded."
-    end
-  rescue StandardError => e
-    redirect_to @contest || root_path, alert: e.message
   end
 
   def fill
@@ -1878,6 +1826,17 @@ class ContestsController < ApplicationController
         TEST_ACTION_REFUSALS[@contest.test_action_refusal(action_name)]
       end
     redirect_to contest_path(@contest), alert: reason if reason
+  end
+
+  RETIRED_FORMAT_MESSAGE = "This contest's format is retired. Its page and results stay readable; it takes no entries, picks or grading.".freeze
+
+  def refuse_retired_format
+    return unless @contest.retired_format?
+
+    respond_to do |format|
+      format.html { redirect_to contest_page_path(@contest), alert: RETIRED_FORMAT_MESSAGE }
+      format.any { render json: { success: false, error: RETIRED_FORMAT_MESSAGE }, status: :unprocessable_entity }
+    end
   end
 
   # Entry-time age gate (ENABLE_AGE_GATE). When the gate is on and this user
@@ -2717,8 +2676,8 @@ class ContestsController < ApplicationController
     end
   end
 
-  # Survivor has no live board (#live redirects it back here), so it is never
-  # routed there — which is also what keeps the two redirects from looping.
+  # A retired-format contest has no live board (#live redirects it back here),
+  # so it is never routed there, which also keeps the two redirects from looping.
   def route_to_live?
     @contest.turf_totals? && @contest.any_game_started?
   end
@@ -2767,7 +2726,7 @@ class ContestsController < ApplicationController
   end
 
   def load_contest_board_data
-    return load_survivor_board_data if @contest.world_cup_survivor?
+    return load_final_standings if @contest.retired_format?
 
     if @contest.locked? || @contest.settled?
       cache_key = "contest/#{@contest.slug}/v#{@contest.updated_at.to_i}/show_data"
@@ -2799,15 +2758,12 @@ class ContestsController < ApplicationController
     (games[:active].first || games[:upcoming].first || games[:completed].last)&.slug # completed is oldest-first; open on the latest final
   end
 
-  # World Cup Survivor uses rounds + off-chain picks, not slate matchups.
-  def load_survivor_board_data
-    @survivor_rounds = SurvivorRound.ordered.to_a
-    @current_round = @survivor_rounds.find { |r| !r.completed? }
-    @entries = @contest.entries.where(status: [:active, :complete])
-                       .includes(:user, survivor_picks: [:survivor_round, :team])
-                       .to_a
-    @my_entry = current_user && @entries.find { |e| e.user_id == current_user.id }
-    @pending_recovery_ptx = find_pending_recovery_ptx
+  # A retired-format contest has no slate and no board: its page reads the
+  # entries' final rank, score and payout, which grading wrote on the rows.
+  def load_final_standings
+    @matchups = []
+    @entries = @contest.entries.where(status: [:active, :complete]).includes(:user)
+                       .order(Arel.sql("rank IS NULL"), :rank, score: :desc, id: :asc).to_a
   end
 
   # Stranded onchain entry from a refresh between sign-and-confirm. The
