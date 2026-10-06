@@ -21,11 +21,20 @@ class Selection < ApplicationRecord
   # contribute no goals, so the leaderboard accrues live as each week completes.
   # With NO week scored yet, points are left untouched — matching single-week.
   def compute_points!
+    value = computed_points
+    update!(points: value) unless value.nil?
+  end
+
+  # The points #compute_points! would write, without writing them: nil when
+  # there is nothing to score yet (no week with goals, or no multiplier). The
+  # one formula, shared with the hero laptop's showcase entrants
+  # (LaptopShowcaseEntrants), which score unsaved, in-memory picks with it.
+  def computed_points
     contest = entry.contest
 
     if contest&.multi_week?
       scored = scoring_matchups.select { |matchup| matchup.goals.present? }
-      return if scored.empty?
+      return nil if scored.empty?
 
       # The FROZEN multiplier, stored on the matchup rows at rank time — NOT a
       # value recomputed now. A recomputed one drifted between pick time and
@@ -33,13 +42,13 @@ class Selection < ApplicationRecord
       # the span after picks are locked. Settlement is on-chain, so a player must
       # be paid at the price they were shown.
       multiplier = slate_matchup.turf_score
-      return if multiplier.blank?
+      return nil if multiplier.blank?
 
-      update!(points: scored.sum(&:goals) * multiplier)
+      scored.sum(&:goals) * multiplier
     else
-      return unless slate_matchup.goals.present? && slate_matchup.turf_score.present?
+      return nil unless slate_matchup.goals.present? && slate_matchup.turf_score.present?
 
-      update!(points: slate_matchup.goals * slate_matchup.turf_score)
+      slate_matchup.goals * slate_matchup.turf_score
     end
   end
 

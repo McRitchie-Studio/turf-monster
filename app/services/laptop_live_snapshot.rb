@@ -28,6 +28,11 @@
 # laptop's copy of that script still re-formats them in the reader's zone once
 # it runs, exactly as /live does for a signed-out visitor.
 #
+# SHOWCASE ENTRANTS. A contest with fewer than three real entries gains
+# Mason, turf and mack on the laptop's board only (LaptopShowcaseEntrants):
+# unsaved, readonly records drawn by the real leaderboard partial, with their
+# avatar images swapped in after the render (#showcase_avatars).
+#
 # NAMES. A player with no username would be labelled by User#display_name's
 # fallbacks, an email prefix or a truncated wallet. Those users are relabelled
 # "Player N" (N = their rank) in the leaderboard and "A player" in the chat
@@ -67,11 +72,13 @@ class LaptopLiveSnapshot
     focus_game = showcase.games.values.flatten.find { |game| game.slug == showcase.focus_slug }
     @simulation = focus_game && LaptopScoreSimulation.new(focus_game)
     @showcase = @simulation ? with_game(showcase, @simulation.opening.game) : showcase
+    @showcase = LaptopShowcaseEntrants.fill(@showcase)
   end
 
   def render
     anonymize!
     doc = clean(renderer.render(partial: "pages/laptop_live", locals: { showcase: @showcase }))
+    showcase_avatars(doc)
     collapse_navbar(doc)
     rotate_strip(doc)
     doc.to_html.html_safe # rubocop:disable Rails/OutputSafety -- our own partials' render, scripts removed
@@ -102,6 +109,25 @@ class LaptopLiveSnapshot
   end
 
   private
+
+  # The showcase entrants (LaptopShowcaseEntrants) are unsaved users with no
+  # attachment, so components/avatar drew them as initials; each row's disc
+  # becomes its image here, at the avatar's own size and shape.
+  def showcase_avatars(doc)
+    doc.css(%([data-entry-slug^="#{LaptopShowcaseEntrants::SLUG_PREFIX}"])).each do |row|
+      image = LaptopShowcaseEntrants.image_for(row["data-entry-slug"])
+      disc = row.at_css(".relative.flex-shrink-0 > div.rounded-full")
+      next unless image && disc
+
+      name = row.at_css(".font-bold.truncate")&.text.to_s.strip
+      img = Nokogiri::XML::Node.new("img", doc.document)
+      img["src"] = ActionController::Base.helpers.asset_path(image)
+      img["alt"] = name
+      img["class"] = "w-14 h-14 rounded-full object-cover"
+      img["data-test"] = "showcase-avatar"
+      disc.replace(img)
+    end
+  end
 
   def renderer
     @renderer ||= begin
