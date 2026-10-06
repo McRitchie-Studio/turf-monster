@@ -1,7 +1,7 @@
 require "test_helper"
 
 # Integration coverage for the DB-span instrumentation (fix-turf-latency-tail):
-# the around_action is wired onto the two hot paths — "/" (world_cup redirect)
+# the around_action is wired onto the two hot paths — "/" (the contests lobby)
 # and the contest show page — and the span reaches the log sink on a real
 # request, without changing the response.
 class DbSpanTest < ActionDispatch::IntegrationTest
@@ -17,14 +17,14 @@ class DbSpanTest < ActionDispatch::IntegrationTest
     Rails.logger = original
   end
 
-  test "root redirect emits a connect/execute [db-span] line without changing the response" do
+  test "root emits a connect/execute [db-span] line without changing the response" do
     log = capturing_logs { get root_path }
 
-    assert_redirected_to contest_path(@contest)
+    assert_response :success
     assert_match(%r{\[db-span\] path=/}, log)
     assert_match(/connect=([\d.]+ms|n\/a)/, log)
     assert_match(/execute=[\d.]+ms/, log)
-    assert_match(/controller=contests#world_cup/, log)
+    assert_match(/controller=contests#index/, log)
   end
 
   test "contest show emits a [db-span] line and still renders" do
@@ -38,7 +38,7 @@ class DbSpanTest < ActionDispatch::IntegrationTest
     ENV["DB_SPAN_TRACE"] = "0"
     log = capturing_logs { get root_path }
 
-    assert_redirected_to contest_path(@contest)
+    assert_response :success
     refute_match(/\[db-span\]/, log)
   ensure
     ENV.delete("DB_SPAN_TRACE")

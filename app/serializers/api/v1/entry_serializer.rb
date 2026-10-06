@@ -69,7 +69,7 @@ module Api
       end
 
       def picks_fields
-        return { picks_visible: false, picks: nil } unless contest.turf_totals? && @web_rules.picks_visible?(entry, contest)
+        return { picks_visible: false, picks: nil } if contest.retired_format? || !@web_rules.picks_visible?(entry, contest)
 
         picks = entry.selections.map { |selection| @board.pick(selection) }
         { picks_visible: true, picks: picks.sort_by { |pick| [pick[:rank] || Float::INFINITY, pick[:matchup_id]] } }
@@ -81,7 +81,7 @@ module Api
       # cancelled, and not past its lock time. A pick whose own game has kicked
       # off is frozen on top of this; each pick says so in its own `locked`.
       def editable?
-        @writable && entry.active? && contest.turf_totals? && contest.open? &&
+        @writable && entry.active? && !contest.retired_format? && contest.open? &&
           !contest.cancelled? && !facts.locked?(contest)
       end
     end

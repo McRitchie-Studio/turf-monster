@@ -54,7 +54,9 @@ Rails.application.routes.draw do
   # was not there when the tab opened — without reloading what the user is
   # looking at. See WalletProbeController for the full why.
   get "wallet_probe" => "wallet_probe#show", as: :wallet_probe
-  root "contests#world_cup"
+  root "contests#index"
+  get "world-cup", to: redirect("/", status: 301) # the retired World Cup home, both spellings
+  get "world_cup", to: redirect("/", status: 301)
 
   # League-wide live NFL scoreboard. Public and read-only — the visual medium
   # for the semi-live score feed, kept current between page loads by the
@@ -344,7 +346,6 @@ Rails.application.routes.draw do
     end
     member do
       post :toggle_selection
-      post :pick
       post :enter
       # Hold-to-confirm funding pre-check (2026-06-13): fired the instant the 2s
       # hold STARTS; a fresh authoritative balance read returns whether THIS
@@ -357,7 +358,6 @@ Rails.application.routes.draw do
       post :confirm_onchain_entry
       post :clear_picks
       post :grade
-      post :grade_round
       post :fill
       post :lock
       post :prepare_lock_time

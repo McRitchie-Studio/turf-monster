@@ -152,10 +152,11 @@ class Api::V1::ContestFactsTest < ActiveSupport::TestCase
     assert_not facts_for(@contest).live?(@contest)
   end
 
-  test "agrees with the model on a survivor contest with no slate" do
-    @contest.update!(game_type: :world_cup_survivor, slate: nil, starts_at: nil)
+  test "agrees with the model on a retired-format contest with no slate" do
+    @contest.update!(starts_at: nil)
+    write_retired_format!(@contest)
 
-    assert_agrees_with_model(@contest, "survivor")
+    assert_agrees_with_model(@contest, "retired format")
     assert_equal 0, facts_for(@contest).picks_required(@contest)
     assert_nil facts_for(@contest).locks_at(@contest)
   end

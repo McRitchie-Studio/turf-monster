@@ -35,25 +35,6 @@ module ContestBundle
         background_style: "blobs"
       }
     },
-    "survivor" => {
-      label: "World Cup Survivor Free Roll",
-      contest: {
-        name: "World Cup Survivor Free Roll",
-        slug: "world-cup-survivor-free-roll",
-        game_type: "world_cup_survivor",
-        contest_type: "survivor_wc_free",
-        slate_name: nil
-      },
-      landing_page: {
-        slug: "survivor",
-        name: "World Cup Survivor Free Roll",
-        headline: "Last One Standing Wins",
-        subheadline: "Pick a team each round of the World Cup. Win or draw to survive. Outlast everyone to take the pot.",
-        badge: nil,
-        cta_label: "Enter the Free Roll",
-        background_style: "gradient"
-      }
-    },
     "world_cup" => {
       label: "World Cup $1,000",
       contest: {

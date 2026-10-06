@@ -114,7 +114,7 @@ test.describe("a saved cart, once a game has started", () => {
     return picked;
   }
 
-  for (const [label, path] of [["the bare contest URL", `/contests/${CONTEST}`], ["the live board itself", `/contests/${CONTEST}/live`]]) {
+  for (const [label, path] of [["the bare contest URL", `/contests/${CONTEST}`], ["the live board itself", `/contests/${CONTEST}/live`], ["the root lobby", "/"]]) {
     test(`returning through ${label} lands on the contest page with the lineup restored`, async ({ page }) => {
       const picked = await saveCart(page);
 
@@ -125,11 +125,6 @@ test.describe("a saved cart, once a game has started", () => {
       await expect(card).toHaveAttribute("aria-checked", "true");
     });
   }
-
-  // Root is not walked here: which contest root features depends on the seed.
-  // It is pinned in two halves instead — root redirects to this live board
-  // (test/controllers/contest_router_test.rb), and the live board hands the cart
-  // back (the test above).
 
   test("a stale cart, or one for another contest, leaves the visitor on the live board", async ({ page }) => {
     await saveCart(page);

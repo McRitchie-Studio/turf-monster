@@ -281,14 +281,14 @@ class ContestCreateIntentJsTest < ActiveSupport::TestCase
   test "bundle prepare sends only the key and returns wire bytes plus its ids" do
     result = run_js(<<~JS, responses: BUNDLE_RESPONSES)
       var state = await window.tmPrepareContestBundle({
-        key: 'survivor', csrfToken: 'CSRF', generatePath: '/generate_bundle', finalizePath: '/finalize_bundle'
+        key: 'world_cup', csrfToken: 'CSRF', generatePath: '/generate_bundle', finalizePath: '/finalize_bundle'
       });
       return { state: state, body: JSON.parse(posted[0].body), url: posted[0].url };
     JS
 
     assert_nil result["error"]
     assert_equal "/generate_bundle", result["url"]
-    assert_equal({ "key" => "survivor" }, result["body"],
+    assert_equal({ "key" => "world_cup" }, result["body"],
                  "the bundle spec is the SERVER's — the key selects it, and nothing about the contest " \
                  "is client-supplied")
     assert_equal({ "transaction" => "Ldp", "params_token" => "BTOKEN", "contest_pda" => "BPDA" },

@@ -13,7 +13,6 @@ class Entry < ApplicationRecord
   belongs_to :user
   belongs_to :contest
   has_many :selections, dependent: :destroy
-  has_many :survivor_picks, dependent: :destroy
 
   enum :status, { cart: "cart", active: "active", complete: "complete", abandoned: "abandoned" }
 
@@ -74,7 +73,7 @@ class Entry < ApplicationRecord
   # for lock state — mirrors the existing confirm! behavior where only the
   # picks being committed are validated.
   def update_picks!(matchup_ids)
-    raise Refusal.new(:unsupported_contest, "Editing is not supported for this contest type") if survivor?
+    raise Refusal.new(:unsupported_contest, "Editing is not supported for this contest type") if contest.retired_format?
     raise Refusal.new(:contest_not_open, "Contest is not open") unless contest.open?
     # v0.17: derived lock — block edits once the contest lock time has passed
     # (status stays `open`, so `open?` alone no longer closes this window).
@@ -380,35 +379,6 @@ class Entry < ApplicationRecord
 
   def onchain?
     onchain_entry_id.present?
-  end
-
-  # --- Survivor ---
-
-  def survivor?
-    contest.world_cup_survivor?
-  end
-
-  def eliminated?
-    eliminated_round.present?
-  end
-
-  def alive?
-    survivor? && !eliminated?
-  end
-
-  # Rounds successfully survived — every round before elimination, or every
-  # surviving pick so far for an entry still alive.
-  def rounds_survived
-    eliminated_round ? eliminated_round - 1 : survivor_picks.survived.count
-  end
-
-  def pick_for(survivor_round)
-    survivor_picks.find_by(survivor_round: survivor_round)
-  end
-
-  # Team slugs already used — no team may be picked twice across the tournament.
-  def used_team_slugs
-    survivor_picks.pluck(:team_slug)
   end
 
   def to_param

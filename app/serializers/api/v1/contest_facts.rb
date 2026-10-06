@@ -12,7 +12,7 @@
 # Contest method it mirrors, and test/serializers/api/v1/contest_facts_test.rb
 # asserts the two agree on a single-week slate, a span slate, a span slate
 # with fewer than six teams, a slate with a bye, an empty slate, a contest with
-# no starts_at and a survivor contest.
+# no starts_at and a retired-format contest with no slate.
 # Change a rule in Contest and that test is what tells you to change it here.
 #
 # Callers must load contests with `includes(:slate)`.
@@ -43,7 +43,7 @@ module Api
       # TEAMS, capped at six: a pick is a team, and a span slate holds several
       # rows per team, so a four-team span asks for four, not six.
       def picks_required(contest)
-        return 0 if contest.world_cup_survivor?
+        return 0 if contest.retired_format?
 
         teams = @teams[contest.slate_id]
         return Contest::TURF_TOTALS_DEFAULT_PICKS_REQUIRED if teams.zero?

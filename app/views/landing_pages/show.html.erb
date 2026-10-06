@@ -107,17 +107,12 @@
 
     <%# Footer %>
     <p class="text-center text-muted text-xs" data-test="funnel-footer">
-      <% if @contest&.world_cup_survivor? %>
-        New here?
-        <%= link_to "Visit the Help Center", help_path, target: "_blank", rel: "noopener", class: "text-primary hover:text-primary-300 underline underline-offset-2" %>
-      <% else %>
-        New to Turf Monster?
-        <%# DERIVED, never hardcoded: turf-totals-v1 is the World Cup rulebook and
-            turf-monster-v1 the NFL one (routes.rb - one page per SEASON, not per
-            brand). The sport comes off the contest slate, so each audience opens
-            its own book. See LandingPagesHelper.funnel_rulebook_path. %>
-        <%= link_to "See how it works", funnel_rulebook_path(@contest), target: "_blank", rel: "noopener", class: "text-primary hover:text-primary-300 underline underline-offset-2" %>
-      <% end %>
+      New to Turf Monster?
+      <%# DERIVED, never hardcoded: turf-totals-v1 is the World Cup rulebook and
+          turf-monster-v1 the NFL one (routes.rb - one page per SEASON, not per
+          brand). The sport comes off the contest slate, so each audience opens
+          its own book. See LandingPagesHelper.funnel_rulebook_path. %>
+      <%= link_to "See how it works", funnel_rulebook_path(@contest), target: "_blank", rel: "noopener", class: "text-primary hover:text-primary-300 underline underline-offset-2" %>
     </p>
   </div>
 </div>

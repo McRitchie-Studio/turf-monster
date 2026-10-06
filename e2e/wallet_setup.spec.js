@@ -1,6 +1,9 @@
 const { test, expect } = require("@playwright/test");
 const { reseed, setupPhantomMock, MOCK_PUBKEY_B58 } = require("./helpers");
 
+// The e2e fixture contest (e2e/seed.rb): root is the lobby, the board is here.
+const CONTEST_PATH = "/contests/world-cup-2026";
+
 // Web3-only onboarding (ENABLE_WEB3_ONLY_ONBOARDING) — the "Set up your wallet"
 // step a brand-new email/Google account lands on now that signup mints no
 // custodial wallet.
@@ -232,7 +235,7 @@ test("the entry gate brings the wallet-setup modal back", async ({ page }) => {
   // check, and the board's dispatcher maps it to this modal. Driving the
   // validation directly avoids the flaky press-and-hold timing (same approach
   // as geo_hold_validation.spec.js).
-  await page.goto("/");
+  await page.goto(CONTEST_PATH);
   await page.waitForLoadState("networkidle");
   await satisfyAgeGate(page);
   await satisfyFirstNameGate(page);
@@ -489,7 +492,7 @@ test("Connect links the wallet to the signed-in account and clears the gate", as
 
 test("the free-contest path is gated too (entry is on-chain either way)", async ({ page }) => {
   await signUpFreshEmail(page);
-  await page.goto("/");
+  await page.goto(CONTEST_PATH);
   await page.waitForLoadState("networkidle");
   await satisfyAgeGate(page);
   await satisfyFirstNameGate(page);

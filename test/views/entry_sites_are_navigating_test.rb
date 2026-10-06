@@ -28,19 +28,14 @@ class EntrySitesAreNavigatingTest < ActiveSupport::TestCase
     app/views/contests/generator.html.erb
   ].freeze
 
-  # Surfaces that STAY PUT but may be navigated away from at any moment.
-  #
-  # WHY SURVIVOR MOVED HERE (survivor-settle-never-fires). It was listed above on
-  # the assumption that it auto-redirects like the rest. It does not: it sets no
-  # lobbyUrl, so the success card's startCountdown() returns early and no
-  # countdown is armed. The card sits there — while modal.onClose assigns
-  # window.location, so closing it IS a navigation and is the normal way out.
-  # Marking alone left the navbar on the pre-spend figure for as long as the card
-  # stayed open; scheduling alone loses the settle the moment the user closes it.
-  # These sites take both halves, which is what mayNavigate means.
-  STAY_PUT_NAVIGABLE_SURFACES = %w[
-    app/views/contests/_world_cup_survivor_board.html.erb
-  ].freeze
+  # Surfaces that STAY PUT but may be navigated away from at any moment: a
+  # success card that sets no lobbyUrl, so startCountdown() returns early and no
+  # countdown is armed, while modal.onClose assigns window.location, so closing
+  # it IS a navigation. Marking alone leaves the navbar on the pre-spend figure
+  # for as long as the card stays open; scheduling alone loses the settle the
+  # moment the user closes it. Such a site takes both halves, which is what
+  # mayNavigate means. No surface has this shape today; a new one is listed here.
+  STAY_PUT_NAVIGABLE_SURFACES = %w[].freeze
 
   ALL_SETTLE_SURFACES = (REDIRECTING_SURFACES + STAY_PUT_NAVIGABLE_SURFACES).freeze
 
@@ -82,12 +77,8 @@ class EntrySitesAreNavigatingTest < ActiveSupport::TestCase
   # absent. It pins the SHAPE SPLIT as well as the total, so a site cannot change
   # shape unnoticed in either direction.
   #
-  # THE TOTAL DID NOT MOVE, AND THAT IS THE POINT. It was 8 before
-  # survivor-settle-never-fires and it is 8 after, because that change added and
-  # removed no success path — it re-declared two existing survivor sites from
-  # `navigating` to `mayNavigate`. The split below is what moved (8/0 -> 6/2), and
-  # it is asserted separately so the re-aim had to name a cause instead of bumping
-  # a number until it went green.
+  # The total and the split are asserted separately, so a site that changes
+  # shape has to name a cause instead of bumping a number until it goes green.
   test "the settle surfaces do in fact call onchainSettled, in the shape each needs" do
     navigating = REDIRECTING_SURFACES.to_h do |rel|
       [rel, settle_call_sites(rel).count { |c| c[:src].include?("navigating: true") }]
@@ -104,13 +95,12 @@ class EntrySitesAreNavigatingTest < ActiveSupport::TestCase
 
     assert_equal 6, navigating.values.sum,
       "expected 6 navigating call sites (4 turf-totals board + create + generator)"
-    assert_equal 2, may_navigate.values.sum,
-      "expected 2 mayNavigate call sites (the survivor board's on-chain and off-chain branches)"
-    assert_equal 8, navigating.values.sum + may_navigate.values.sum,
-      "expected 8 on-chain success paths in total — unchanged across survivor-settle-never-fires, " \
-      "which moved two of them between shapes rather than adding or losing any. A change in THIS " \
-      "number means a success path was added or lost; a change in the split above means a surface " \
-      "changed how it exits, and both want a reason, not a new constant"
+    assert_equal 0, may_navigate.values.sum,
+      "expected no mayNavigate call sites: no surface stays put and navigates on close"
+    assert_equal 6, navigating.values.sum + may_navigate.values.sum,
+      "expected 6 on-chain success paths in total. A change in THIS number means a success path " \
+      "was added or lost; a change in the split above means a surface changed how it exits, and " \
+      "both want a reason, not a new constant"
   end
 
   # A shape a surface did not declare is a shape it does not handle. Both

@@ -77,7 +77,7 @@ class Contest < ApplicationRecord
   # for why Sluggable's overwrite-on-save is neutralized.
   before_validation :backfill_slug, on: :create
 
-  # Turf Totals contests run off a Slate; World Cup Survivor contests don't.
+  # Turf Totals contests run off a Slate.
   validates :slate, presence: true, if: :turf_totals?
 
   # v0.17: locking is DERIVED from the on-chain lock_timestamp (mirrored to
@@ -85,7 +85,9 @@ class Contest < ApplicationRecord
   # `locked?` below computes the gate. The on-chain Contest PDA keeps a vestigial
   # `Locked` enum slot, but nothing sets it. (Pre-v0.17 had a `locked` status.)
   enum :status, { pending: "pending", open: "open", settled: "settled" }
-  enum :game_type, { turf_totals: "turf_totals", world_cup_survivor: "world_cup_survivor" }
+  # Turf Totals is the one game the app runs. A row a retired game type wrote
+  # reads `game_type` as nil and renders read-only (#retired_format?).
+  enum :game_type, { turf_totals: "turf_totals" }
 
   # "All contests on chain" enforcement (2026-05-17 GTM principle):
   # every Contest is backed by an on-chain Contest PDA on turf-vault.
@@ -175,8 +177,8 @@ class Contest < ApplicationRecord
   # The contest the app spotlights — the admin-set main contest, else the newest
   # open contest, else the newest open/settled (a freshly-graded contest still
   # serves as a leaderboard landing until a newer one opens). Single source of
-  # truth for the root redirect (ContestsController#world_cup) and the
-  # magic-link sign-in landing (MagicLinksController).
+  # truth for the entry-gift landing (EntryGift#landing_contest) and the admin
+  # gift and free-entry defaults.
   #
   # THE FALLBACKS SKIP COMING SOON; THE ADMIN PIN DOES NOT. `coming_soon` is a
   # boolean independent of status, so a coming-soon contest IS `open` and can be
@@ -264,14 +266,23 @@ class Contest < ApplicationRecord
     matchups_for_team(team_slug).first&.turf_score
   end
 
+  # A retired format takes no entries, so it asks for no picks and allows none.
   def picks_required
-    return 0 if world_cup_survivor?
+    return 0 if retired_format?
 
     self.class.picks_required_for_slate(slate)
   end
 
   def max_entries_per_user
-    world_cup_survivor? ? 1 : 3
+    retired_format? ? 0 : 3
+  end
+
+  # A contest whose game type or format the app no longer runs. Its row stays
+  # a closed record: the contest page renders its header and final standings,
+  # and every entry and grading action refuses it
+  # (ContestsController#refuse_retired_format).
+  def retired_format?
+    !turf_totals? || !FORMATS.key?(contest_type.to_s)
   end
 
   def entry_fee_dollars
@@ -308,11 +319,6 @@ class Contest < ApplicationRecord
     "standard" => { entry_fee_cents: 19_00, max_entries: 29, payouts: { 1 => 300_00, 2 => 50_00, 3 => 50_00, 4 => 50_00, 5 => 50_00 } },
     "large"    => { entry_fee_cents: 19_00, max_entries: 99, payouts: { 1 => 1000_00, 2 => 100_00, 3 => 100_00, 4 => 100_00, 5 => 100_00, 6 => 100_00, 7 => 100_00, 8 => 100_00, 9 => 100_00 } },
 
-    # World Cup Survivor — single guaranteed prize, 59 entrants, one entry per user.
-    # Paid margin (full): $1,121 gross - $1,000 payout = $121. Free contest is a loss-leader.
-    "survivor_wc_paid" => { entry_fee_cents: 19_00, max_entries: 59, payouts: { 1 => 1000_00 } },
-    "survivor_wc_free" => { entry_fee_cents: 0,     max_entries: 59, payouts: { 1 => 200_00 } },
-
     # Test scaffolding — $1 entry, gated behind ENABLE_TEST_SCAFFOLDING (AppFlags.test_scaffolding?).
     # A low-stakes end-to-end rehearsal tier: 9 entries → $9 gross / $9 payout / $0 margin.
     # BREAK-EVEN BY DESIGN: this tier exists to rehearse the full
@@ -346,9 +352,21 @@ class Contest < ApplicationRecord
     [team_count, TURF_TOTALS_DEFAULT_PICKS_REQUIRED].min
   end
 
+  # A retired format has no FORMATS row, so its config is what the record
+  # itself holds: its own fee and size, and the prizes its entries were paid.
   def format_config
-    FORMATS[contest_type] || FORMATS["standard"]
+    FORMATS.fetch(contest_type.to_s) { retired_format_config }
   end
+
+  def retired_format_config
+    @retired_format_config ||= {
+      entry_fee_cents: entry_fee_cents,
+      max_entries: max_entries,
+      payouts: entries.where("payout_cents > 0").order(:rank, :id).pluck(:payout_cents)
+                      .each.with_index(1).to_h { |cents, rank| [rank, cents] }
+    }
+  end
+  private :retired_format_config
 
   def payouts
     format_config[:payouts]
@@ -409,8 +427,7 @@ class Contest < ApplicationRecord
       # before any off-chain grading, so we don't grade in the DB then fail the
       # on-chain settle with 6028. `locked?` mirrors the on-chain lock_timestamp.
       raise "Cannot grade: the contest lock time hasn't passed — entries are still open." if onchain? && !locked?
-      # World Cup Survivor sets entry scores during round grading — skip matchup scoring.
-      score_entries! unless world_cup_survivor?
+      score_entries!
 
       # `id: :asc` is a deterministic tiebreaker: tied scores order by creation,
       # so the integer-remainder payout split (below) always credits the earliest

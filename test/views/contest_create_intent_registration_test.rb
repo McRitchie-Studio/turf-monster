@@ -15,7 +15,6 @@ class ContestCreateIntentRegistrationTest < ActiveSupport::TestCase
   PARTIAL = Rails.root.join("app/views/shared/_contest_create_intent.html.erb")
   LAYOUT  = Rails.root.join("app/views/layouts/application.html.erb")
   VIEWS = {
-    "world cup survivor board" => Rails.root.join("app/views/contests/_world_cup_survivor_board.html.erb"),
     "create contest" => Rails.root.join("app/views/contests/new.html.erb"),
     "contest generator" => Rails.root.join("app/views/contests/generator.html.erb")
   }.freeze

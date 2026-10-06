@@ -94,7 +94,7 @@ Three things matter more than the rest:
 
 Turf Monster is a skill-based sports pick'em game. A player enters a contest by choosing a set of teams. Each team earns the points it scores in real games multiplied by its **Turf Score**, a multiplier that is low for the teams expected to score most and high for the teams expected to score least. The entry with the highest total wins the largest prize.
 
-The game type this API plays is called **Turf Totals** (`game_type: "turf_totals"`). It runs on NFL boards, where a team's score is the points on the scoreboard, and on World Cup boards, where it is goals. A second game type, World Cup Survivor, is listed by the API and cannot be played through it.
+The game type this API plays is called **Turf Totals** (`game_type: "turf_totals"`). It runs on NFL boards, where a team's score is the points on the scoreboard, and on World Cup boards, where it is goals. A contest from a retired format is listed by the API as a record and cannot be played through it.
 
 You are picking teams to **score**, not to win. A team that loses 38 to 35 scored 35, and all 35 count.
 
@@ -372,7 +372,7 @@ curl -H "Authorization: Bearer $TURF_MONSTER_KEY" "<%= api %>/contests?status=op
 | Field | Notes |
 |---|---|
 | `slug` | The contest's id in every other request |
-| `supported` | `false` for a survivor contest, which this API cannot play |
+| `supported` | `false` for a retired-format contest, which this API cannot play |
 | `phase`, `locked`, `live`, `settled`, `cancelled`, `coming_soon` | See [Contest lifecycle](#contest-lifecycle) |
 | `accepting_entries` | Whether a new entry could go in now, wallet aside |
 | `locks_at` | The contest lock |
@@ -740,7 +740,7 @@ Every error is `{ "error": { "code": "...", "message": "..." } }`. **Unless a ro
 | 422 | `contest_locked` | The lock time has passed | Nothing. Entries and edits are closed. |
 | 422 | `contest_cancelled` | The contest was cancelled | Choose another contest. |
 | 422 | `coming_soon` | The contest is advertised and not open yet | Try again when `coming_soon` is `false`. |
-| 422 | `unsupported_contest` | A survivor contest | Send the player to the website. |
+| 422 | `unsupported_contest` | A retired-format contest | It takes no entries; its results are on the website. |
 | 422 | `contest_full` | No spots left | Choose another contest. |
 | 422 | `entry_limit_reached` | The player already holds `max_entries_per_player` entries here | Replace the picks of an existing entry instead. |
 | 422 | `invalid_picks` | Not exactly `picks_required` different ids, or an id that is not one of this contest's `teams[].matchup_id` | Re-read the contest and rebuild the lineup. For a new entry, send it with a new idempotency key. |
@@ -907,7 +907,7 @@ Report results as they are. If the entry finished out of the prizes, say so.
 
 ## What the API cannot do yet
 
-- **Survivor contests.** World Cup Survivor (`game_type: "world_cup_survivor"`) is listed with `"supported": false` and a `note`, an empty `teams` list and an empty leaderboard. It is played on the website.
+- **Retired-format contests.** A contest from a format Turf Monster no longer runs is listed with `"game_type": null`, `"supported": false` and a `note`, an empty `teams` list and an empty leaderboard. It takes no entries; its final standings are on the website.
 - **Wallet-signed entries.** A player whose own wallet must sign (self-custodied, or with a Phantom wallet linked), and a player with no wallet, cannot enter through the API.
 - **Anything about money beyond the entry.** The API does not deposit, withdraw, buy tokens or move funds.
 - **Withdraw or cancel an entry.** Once created, an entry can have its picks replaced before the lock. It cannot be removed, and what paid for it is not returned by this API.

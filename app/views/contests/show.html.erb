@@ -14,13 +14,8 @@
     1200x630 card. studio-engine's link preview reads content_for(:og_image) as
     the page-level override, so nil here — a contest with no banner — falls
     through to the site identity's image (/admin/link_preview) and then to
-    /og.png exactly as before.
-
-    THE ROOT URL INHERITS THIS, which is why "/" needs no tags of its own:
-    ContestsController#world_cup 302s to Contest.featured (the contest pinned at
-    /admin/dashboard), and an unfurler follows that redirect and reads the page
-    it lands on. So a shared turfmonster.media link unfurls with the pinned
-    contest's banner, and re-pinning changes the card with no deploy. %>
+    /og.png exactly as before. "/" is the contests lobby, which leads with the
+    featured contest's banner (contests/index). %>
 <% content_for :og_image, contest_og_image_url(@contest) %>
 <%# Title + description: the contest's own name and money line, so a shared
     link previews as this contest rather than the site-wide default copy. %>
@@ -61,14 +56,12 @@
   </div>
 <% end %>
 
-<!-- Section 4: Board — Turf Totals matchups, or the World Cup Survivor board -->
+<!-- Section 4: Board — Turf Totals matchups. A retired-format contest has none. -->
 <%# id + scroll-margin-top let /tokens/processing iframe this page with
     `#board` and land on the matchup grid (skipping the hero/info above),
     clearing the sticky navbar height set by the studio-engine head. %>
-<% if @contest.world_cup_survivor? %>
-  <div id="board" class="mb-8" style="scroll-margin-top: var(--nav-h, 64px)">
-    <%= render "contests/world_cup_survivor_board" %>
-  </div>
+<% if @contest.retired_format? %>
+  <%# No board: its standings below are the whole page. %>
 <% elsif edit_mode %>
   <div id="board" class="mb-8" style="scroll-margin-top: var(--nav-h, 64px)">
     <%= render "contests/turf_totals_board", edit_entry: @edit_entry %>
@@ -112,41 +105,14 @@
         Keeps id="leaderboard-container" for the leaderboard_poll JS + the chat
         panel's height-matching ResizeObserver (both key off this id). %>
     <div id="leaderboard-container" :class="tab === 'leaderboard' ? '' : 'hidden'" class="md:block">
-      <%= render (@contest.world_cup_survivor? ? "contests/world_cup_survivor_leaderboard" : "contests/turf_totals_leaderboard"), compact: true, viewer: current_user %>
+      <%= render (@contest.retired_format? ? "contests/final_standings" : "contests/turf_totals_leaderboard"), compact: true, viewer: current_user %>
     </div>
   </div>
 </div>
 <% end %>
 
-<!-- Section 5b: Survivor Admin -->
-<% if current_user&.admin? && !@contest.settled? && @contest.world_cup_survivor? %>
-  <div class="mb-8">
-    <h3 class="text-sm font-semibold text-secondary mb-3">Admin</h3>
-    <div class="card p-4">
-      <p class="text-xs font-semibold text-muted mb-2 uppercase tracking-wide">Contest</p>
-      <div class="flex flex-wrap gap-2">
-        <% if @contest.open? && !@contest.locked? %>
-          <button type="button" onclick="lockContestViaPhantom('<%= @contest.slug %>', 0)" class="btn btn-sm bg-yellow-600 hover:bg-yellow-500 text-white">Lock Entries</button>
-          <button type="button" onclick="lockContestViaPhantom('<%= @contest.slug %>', 60)" class="btn btn-sm bg-yellow-700 hover:bg-yellow-600 text-white">Lock in 60s</button>
-        <% end %>
-        <% if @contest.onchain? && @contest.open? && !@contest.onchain_cancelled? %>
-          <%= button_to "Cancel + refund creator", cancel_onchain_contest_path(@contest), method: :post,
-                data: { turbo_confirm: "Cancel this contest and refund the creator's prize pool? This is terminal." },
-                class: "btn btn-danger btn-sm" %>
-        <% end %>
-        <% if @current_round %>
-          <%= button_to "Grade #{@current_round.name}", grade_round_contest_path(@contest, round_id: @current_round.id), method: :post, class: "btn btn-primary btn-sm" %>
-        <% else %>
-          <%= button_to "Settle Contest", grade_contest_path(@contest), method: :post, class: "btn btn-primary btn-sm" %>
-        <% end %>
-      </div>
-      <p class="text-xs text-muted mt-2">Grade each round once its matches are final; settle the contest after the Final.</p>
-    </div>
-  </div>
-<% end %>
-
 <!-- Section 6: Admin Actions (Turf Totals) -->
-<% if current_user&.admin? && !@contest.settled? && @contest.turf_totals? %>
+<% if current_user&.admin? && !@contest.settled? && !@contest.retired_format? %>
   <div class="mb-8">
     <h3 class="text-sm font-semibold text-secondary mb-3">Admin</h3>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">

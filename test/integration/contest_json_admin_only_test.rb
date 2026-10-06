@@ -5,8 +5,8 @@ require "test_helper"
 # 2026-10-06 it rendered for signed-out visitors on /contests/<slug>/live. It is
 # admin-only now (ContestsHelper#contest_debug_json_visible?). These requests
 # pin every surface that draws it: the contest page (turf-totals board and
-# leaderboard), the live board, the leaderboard poll JSON, and the
-# world-cup-survivor board.
+# leaderboard), the live board, the leaderboard poll JSON, and the final
+# standings a retired-format contest renders instead of a board.
 class ContestJsonAdminOnlyTest < ActionDispatch::IntegrationTest
   PRIVATE_NAME = "Privatia Realname-Quillfeather".freeze
 
@@ -16,10 +16,9 @@ class ContestJsonAdminOnlyTest < ActionDispatch::IntegrationTest
                                  email: "privatia-#{SecureRandom.hex(3)}@example.com")
     @contest.entries.create!(user: @private_user, status: :active, score: 2.0)
 
-    @survivor = Contest.create!(name: "Survivor Privacy #{SecureRandom.hex(2)}",
-                                game_type: :world_cup_survivor, contest_type: "survivor_wc_free",
-                                status: "open", starts_at: 1.hour.ago, rank: 8000 + rand(900))
-    @survivor.entries.create!(user: @private_user, status: :active)
+    @retired = write_retired_format!(Contest.create!(name: "Retired Privacy #{SecureRandom.hex(2)}", slate: @contest.slate,
+                                                     status: "open", starts_at: 1.hour.ago, rank: 8000 + rand(900)))
+    @retired.entries.create!(user: @private_user, status: :active)
 
     @player = users(:jordan)
     @admin  = users(:alex)
@@ -53,15 +52,15 @@ class ContestJsonAdminOnlyTest < ActionDispatch::IntegrationTest
     assert_not_includes html, PRIVATE_NAME
   end
 
-  test "a guest sees no Contest JSON on the world-cup-survivor contest page" do
-    get contest_page_path(@survivor)
+  test "a guest sees no Contest JSON on a retired-format contest page" do
+    get contest_page_path(@retired)
     assert_response :success
     assert_no_debug_block
   end
 
   # --- signed-in player ----------------------------------------------------
 
-  test "a signed-in player sees no Contest JSON on the contest page, live board or survivor board" do
+  test "a signed-in player sees no Contest JSON on the contest page, live board or retired standings" do
     log_in_as(@player)
 
     get contest_page_path(@contest)
@@ -72,14 +71,14 @@ class ContestJsonAdminOnlyTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert_no_debug_block
 
-    get contest_page_path(@survivor)
+    get contest_page_path(@retired)
     assert_response :success
     assert_no_debug_block
   end
 
   # --- admin ---------------------------------------------------------------
 
-  test "an admin sees the Contest JSON on the contest page, live board and survivor board" do
+  test "an admin sees the Contest JSON on the contest page and live board" do
     log_in_as(@admin)
 
     get contest_page_path(@contest)
@@ -91,10 +90,6 @@ class ContestJsonAdminOnlyTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert_includes response.body, "Contest JSON"
     assert_includes response.body, PRIVATE_NAME
-
-    get contest_page_path(@survivor)
-    assert_response :success
-    assert_includes response.body, "Contest JSON"
   end
 
   # An admin acting as a player gets the player's page, exactly: the same

@@ -11,6 +11,9 @@
 // and every node test passed over it.
 const { test, expect } = require("@playwright/test");
 
+// The e2e fixture contest (e2e/seed.rb): root is the lobby, the board is here.
+const CONTEST_PATH = "/contests/world-cup-2026";
+
 const IPHONE =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
 
@@ -37,7 +40,7 @@ test.describe("on a phone", () => {
   test.use({ userAgent: IPHONE });
 
   test("the entry flow is handed a redirect provider, not null @smoke", async ({ page }) => {
-    await page.goto("/");
+    await page.goto(CONTEST_PATH);
 
     const s = await walletState(page);
 
@@ -52,7 +55,7 @@ test.describe("on a phone", () => {
   });
 
   test("the contest_entry intent is registered by the name the callback looks up", async ({ page }) => {
-    await page.goto("/");
+    await page.goto(CONTEST_PATH);
     const s = await walletState(page);
 
     // The intent is registered by the BOARD partial, so this also proves the
@@ -65,7 +68,7 @@ test("a desktop with no extension is NOT given a redirect provider", async ({ pa
   // The redirect transport answers a phone's problem. A desktop with no wallet
   // has a different remedy — install one — and handing it a deeplink would send
   // someone to a mobile app store from a laptop.
-  await page.goto("/");
+  await page.goto(CONTEST_PATH);
   const s = await walletState(page);
 
   expect(s.isMobile).toBe(false);

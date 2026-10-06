@@ -6,7 +6,7 @@
 > `test/docs/workflow_citation_docs_test.rb` enforces both rules and checks every
 > number against the symbol its prose names — the symbol is the claim, the number
 > is bookkeeping. That check comes in three strengths, and it is worth knowing
-> which one you are reading. **130 of the 167 citations** below sit inside a
+> which one you are reading. **129 of the 166 citations** below sit inside a
 > definition, and there the prose must name that definition or the citation
 > reddens. The other **37** sit in code with no enclosing definition, and they
 > split. **4 of those 37** cite `config/routes.rb`, and each must OPEN on the line
@@ -26,7 +26,7 @@
 **Trigger:** `GET /lp/:slug` (a marketing funnel page) — typically reached from a
 paid ad, an X/Twitter post, or a friend's share link with `?reference=…`.
 Links already in the wild still land: `/l/:token` now belongs to `Studio::Link`,
-and an unmatched token falls back to `/lp` (`config/routes.rb:144-146`).
+and an unmatched token falls back to `/lp` (`config/routes.rb:146-148`).
 **Actors:** Guest visitor → User (created mid-flow) · Phantom wallet · Rails ·
 Sidekiq · Solana devnet/mainnet RPC.
 **Outcome:** New `User` row with `web3_solana_address` set, a server-managed
@@ -59,62 +59,62 @@ Phantom must be installed in the browser or available via mobile deep link.
      `landing_page_claimed_path` (`:73`), the confirmation page. That flow is in
      `docs/UI_PATTERNS.md` under "Claim mode".
    - The `scroll=280` param drives a `window.scrollTo` past the hero chrome to
-     the matchup board (`app/views/contests/show.html.erb:247-260`).
+     the matchup board (`app/views/contests/show.html.erb:213-226`).
    - Route: `get "lp/:slug", to: "landing_pages#show", as: :landing_page` —
-     `config/routes.rb:146`.
+     `config/routes.rb:148`.
 
 2. **Land on contest.** The new tab opens `GET /contests/:slug?scroll=280` →
-   `ContestsController#show` — `app/controllers/contests_controller.rb:698-705`.
+   `ContestsController#show` — `app/controllers/contests_controller.rb:696-703`.
    - `:show` sits in the `skip_before_action :require_authentication` list
      (`:9`), so guests render.
-   - `set_contest` (`:2691-2718`) loads the contest by slug and hides `pending`
-     rows from non-admins (`:2692-2693`). On a miss it logs a forensic
+   - `set_contest` (`:2650-2677`) loads the contest by slug and hides `pending`
+     rows from non-admins (`:2651-2652`). On a miss it logs a forensic
      `[set_contest:miss]` warning — slug, path, referer, turbo-frame, user
-     agent — for the recurring "Contest not found" toast (`:2701-2711`).
-   - `render "contests/hero"` (`app/views/contests/show.html.erb:31`) and
-     `render "contests/contest_header"` (`:34`) are unconditional. Only the
+     agent — for the recurring "Contest not found" toast (`:2660-2670`).
+   - `render "contests/hero"` (`app/views/contests/show.html.erb:26`) and
+     `render "contests/contest_header"` (`:29`) are unconditional. Only the
      matchup board is gated: contest `open?`, not cancelled, and the viewer
      holding no entry — unless `show_board_for_existing_entry` opens it back
-     up for `?add_entry=true` (`:76`).
+     up for `?add_entry=true` (`:69`).
    - The board partial mounts `x-data="selectionBoard()"` —
-     `app/views/contests/_turf_totals_board.html.erb:2070`. The factory is
-     defined inline as `window.selectionBoard = function()` (`:171`) because
+     `app/views/contests/_turf_totals_board.html.erb:2069`. The factory is
+     defined inline as `window.selectionBoard = function()` (`:170`) because
      Alpine processes `x-data` before importmap modules load (see
      `docs/UI_PATTERNS.md` § Alpine + ERB Constraints).
    - Board config — picks_required, matchup data, contest slug, cart state — is
      serialized into the `board-config` JSON block (`:72-154`) and read once by
-     the factory (`:172-173`). Auth state is never copied there: the `loggedIn`
-     getter reads `Alpine.store('session')` live on every access (`:197`).
+     the factory (`:171-172`). Auth state is never copied there: the `loggedIn`
+     getter reads `Alpine.store('session')` live on every access (`:196`).
 
 3. **Build cart (no auth required).** Guest taps matchup cards. Each tap calls
    `selectionBoard.toggleSelection(matchupId)` —
-   `_turf_totals_board.html.erb:664-742`.
+   `_turf_totals_board.html.erb:663-741`.
    - Hard-capped at `contest.picks_required` (6 for Turf Totals). A tap past the
-     cap replaces the oldest pick rather than refusing (`:688-698`).
+     cap replaces the oldest pick rather than refusing (`:687-697`).
    - A guest's tap only mutates local Alpine state — the method returns before
-     the network call (`:705`).
-   - When logged in it POSTs `/contests/:id/toggle_selection` (`:707-714`) →
+     the network call (`:704`).
+   - When logged in it POSTs `/contests/:id/toggle_selection` (`:706-713`) →
      `ContestsController#toggle_selection`
-     (`app/controllers/contests_controller.rb:1509-1530`), which finds or
-     creates the user's `:cart` entry (`:1517`) and toggles a `Selection`
-     through `Entry#toggle_selection!` (`app/models/entry.rb:43-68`).
+     (`app/controllers/contests_controller.rb:1503-1524`), which finds or
+     creates the user's `:cart` entry (`:1511`) and toggles a `Selection`
+     through `Entry#toggle_selection!` (`app/models/entry.rb:42-67`).
    - The server's selection set is authoritative; the client adopts it rather
      than trusting its own optimistic mutation
-     (`_turf_totals_board.html.erb:741`).
+     (`_turf_totals_board.html.erb:740`).
    - At `picks_required` selections the board blurs behind the cart —
-     `blurDismissed` gates the overlay (`:2081-2087`) — and the shared
-     `render 'studio/hold_button'` appears (`:2260`).
+     `blurDismissed` gates the overlay (`:2080-2086`) — and the shared
+     `render 'studio/hold_button'` appears (`:2259`).
 
 4. **Hold-to-Confirm fires.** The shared hold button dispatches the
    `hold-confirm-entry` window event; the board's `init()` listener routes it
-   into `confirmEntry()` (`_turf_totals_board.html.erb:355-362`).
-   - `runHoldValidations()` (`:1520-1550`) hits `GET /geo/check` first
-     (`:1522`); a blocked state aborts into the `Location Restricted` redirect
-     modal (`:1526`). That route is drawn by the engine now, behind
+   into `confirmEntry()` (`_turf_totals_board.html.erb:354-361`).
+   - `runHoldValidations()` (`:1519-1549`) hits `GET /geo/check` first
+     (`:1521`); a blocked state aborts into the `Location Restricted` redirect
+     modal (`:1525`). That route is drawn by the engine now, behind
      `config.draw_geo_routes`, not by this app (`config/routes.rb:663-669`).
-   - `confirmEntry()` (`_turf_totals_board.html.erb:1567-2054`) short-circuits
-     to `showLoginModal()` when the session is a guest (`:1576-1580`), which
-     opens the auth wizard at `step: 'credentials'` (`:935-948`) — the entry
+   - `confirmEntry()` (`_turf_totals_board.html.erb:1566-2053`) short-circuits
+     to `showLoginModal()` when the session is a guest (`:1575-1579`), which
+     opens the auth wizard at `step: 'credentials'` (`:934-947`) — the entry
      into step 5.
    - `Alpine.store('session').isGuest` is the canonical guest pivot, derived
      from `SessionContext#mode` (`studio-engine: app/models/session_context.rb`)
@@ -123,7 +123,7 @@ Phantom must be installed in the browser or available via mobile deep link.
 
 5. **Sign up via Phantom.** Choosing Solana in that wizard calls
    `openWalletConnect(ageAttested)`
-   (`app/views/contests/_turf_totals_board.html.erb:1023-1028`), which swaps in
+   (`app/views/contests/_turf_totals_board.html.erb:1022-1027`), which swaps in
    solana-studio's wallet picker. The picker runs
    `window.solanaConnectAndVerify` — `app/views/layouts/application.html.erb:341`.
    - The nonce is fetched from `/auth/solana/nonce` (`:377`) →
@@ -189,8 +189,8 @@ Phantom must be installed in the browser or available via mobile deep link.
    - **The in-board flow does not follow that redirect.** The board's
      `openWalletConnect(ageAttested)` saved the guest lineup before handing off
      to the picker and set `returnUrl` to this contest
-     (`_turf_totals_board.html.erb:1023-1028`), so the user lands back on the
-     contest page with the cart persisted and replayed by `init()` (`:495-507`).
+     (`_turf_totals_board.html.erb:1022-1027`), so the user lands back on the
+     contest page with the cart persisted and replayed by `init()` (`:494-506`).
 
 7. **Background: on-chain UserAccount PDA created.**
    `CreateOnchainUserAccountJob#perform` —
@@ -209,27 +209,27 @@ Phantom must be installed in the browser or available via mobile deep link.
 
 8. **Post-reload: cart hydrates + auto-enter fires.** Board `init()` reads the
    saved lineup out of `localStorage`, discarding one older than 30 minutes or
-   belonging to another contest (`_turf_totals_board.html.erb:471-475`).
-   - Hydrates `selections` + `selectionOrder` and opens the cart (`:480-484`).
+   belonging to another contest (`_turf_totals_board.html.erb:470-474`).
+   - Hydrates `selections` + `selectionOrder` and opens the cart (`:479-483`).
    - When the session is logged in, the lineup asked to auto-enter, and the
      count matches `picksRequired`, `init()` schedules `afterLoginSuccess()`
-     (`:486`, `:504-506`). A pending wallet-setup prompt re-saves the cart
-     instead, so linking Phantom cannot cost the user their lineup (`:495-497`).
-   - `afterLoginSuccess()` (`:1361-1390`) surfaces an eligibility blocker first,
+     (`:485`, `:503-505`). A pending wallet-setup prompt re-saves the cart
+     instead, so linking Phantom cannot cost the user their lineup (`:494-496`).
+   - `afterLoginSuccess()` (`:1360-1389`) surfaces an eligibility blocker first,
      then replays the picks to the server through `replaySelectionsToServer()`
-     (`:1107-1124` — one `toggle_selection` POST per pick) and calls
+     (`:1106-1123` — one `toggle_selection` POST per pick) and calls
      `confirmEntry()`.
 
 9. **Web3 entry: prepare + sign + confirm.** `confirmEntry()` branches on
    `sess.isWeb3 && this.contestOnchain`
-   (`_turf_totals_board.html.erb:1631`) and hands the whole trip to one
-   `window.tmWalletOp('contest_entry', …)` call (`:1678`). The runner
+   (`_turf_totals_board.html.erb:1630`) and hands the whole trip to one
+   `window.tmWalletOp('contest_entry', …)` call (`:1677`). The runner
    (`app/views/shared/_wallet_op_runner.html.erb`) supplies the return address,
    cluster and transport fork. The flow itself is the `contest_entry` intent,
    registered by name from the layout so the wallet's callback page can finish
    it.
    - **Wallet re-assert.** The board declares `expectedAccount: sess.address`
-     (`_turf_totals_board.html.erb:1693`), and solana-studio's `walletOps`
+     (`_turf_totals_board.html.erb:1692`), and solana-studio's `walletOps`
      refuses a different connected wallet before it signs. On the inline
      transport it connects before `prepare`, so no prepared transaction is
      minted for the wrong wallet.
@@ -237,33 +237,33 @@ Phantom must be installed in the browser or available via mobile deep link.
      `tmPrepareContestEntry`
      (`app/views/shared/_contest_entry_intent.html.erb:133-135`) →
      `ContestsController#prepare_entry`
-     (`app/controllers/contests_controller.rb:1001-1163`).
+     (`app/controllers/contests_controller.rb:997-1157`).
      - Requires `onchain_session?` — a session with no live wallet signature
-       gets 403 `"Phantom session required"` (`:1024`).
-     - Survivor contests are admitted, not refused: they have no pick-building
-       phase, so `prepare_entry` mints the cart entry on the spot (`:1009-1012`).
-     - Server validates: the contest is `onchain_verified?` (`:1045`), a Phantom
-       wallet is present (`:1046`), there is capacity (`:1048-1049`), the entry
-       holds exactly `picks_required` selections (`:1052`), and no picked game
-       has started (`:1053-1055`). Then it assigns the entry number
-       (`:1064`).
-     - `Solana::Vault#ensure_user_account` runs synchronously here (`:1069`),
+       gets 403 `"Phantom session required"` (`:1018`).
+     - A retired-format contest never reaches this action: the
+       `refuse_retired_format` filter answers 422 first.
+     - Server validates: the contest is `onchain_verified?` (`:1039`), a Phantom
+       wallet is present (`:1040`), there is capacity (`:1042-1043`), the entry
+       holds exactly `picks_required` selections (`:1046`), and no picked game
+       has started (`:1047-1049`). Then it assigns the entry number
+       (`:1058`).
+     - `Solana::Vault#ensure_user_account` runs synchronously here (`:1063`),
        closing the race where the async `CreateOnchainUserAccountJob` has not
        landed yet.
      - **Two funding shapes.** Holding an unconsumed entry token builds
-       `build_enter_contest_with_token` (`:1088-1094`); otherwise the currency
-       is resolved USDC-or-USDT (`:1026-1042`) and it builds
-       `vault.build_enter_contest` (`:1105-1111`,
+       `build_enter_contest_with_token` (`:1082-1088`); otherwise the currency
+       is resolved USDC-or-USDT (`:1020-1036`) and it builds
+       `vault.build_enter_contest` (`:1099-1105`,
        `app/services/solana/vault.rb:2203`). Either way the transaction comes
        back FULLY UNSIGNED.
      - Persists a `PendingTransaction` with `tx_type: "enter_contest"`,
        `status: "pending"`, `target: entry` and a metadata blob naming the entry
        PDA and funding shape
-       (`app/controllers/contests_controller.rb:1120-1140`). It carries no
+       (`app/controllers/contests_controller.rb:1114-1134`). It carries no
        signature yet — nothing has been broadcast. Survives a mid-flight
        refresh; see failure modes below.
      - Returns `{ success, serialized_tx, entry_id, entry_pda, ptx_slug,
-       token_funded }` (`:1142-1159`).
+       token_funded }` (`:1136-1153`).
    - **Phantom signs FIRST, and the browser does not broadcast.** The intent
      declares `signOnly: true`
      (`app/views/shared/_contest_entry_intent.html.erb:68`), so `walletOps`
@@ -276,23 +276,23 @@ Phantom must be installed in the browser or available via mobile deep link.
      `signed_tx`, from the intent's `tmCompleteContestEntry`
      (`app/views/shared/_contest_entry_intent.html.erb:265-268`) →
      `ContestsController#confirm_onchain_entry`
-     (`app/controllers/contests_controller.rb:1348-1487`). The server owns
+     (`app/controllers/contests_controller.rb:1342-1481`). The server owns
      everything from here — it judges the wire, cosigns with
      `Transaction.cosign_wire`, simulates, broadcasts and waits
      (`Solana::Cosign::Completer#complete`).
-     - Re-runs `entry.assert_enterable!` BEFORE anything irreversible (`:1372`).
-     - `Solana::Vault#cosign_expectation` (`:1401-1405`,
+     - Re-runs `entry.assert_enterable!` BEFORE anything irreversible (`:1366`).
+     - `Solana::Vault#cosign_expectation` (`:1395-1399`,
        `app/services/solana/vault.rb:3436-3457`) rebuilds the expectation from
        the wire the server stored on the `PendingTransaction`, for this entry
        and wallet, and `Solana::Cosign::Expectation` judges the returned bytes
        against it before anything is signed.
      - `Solana::Vault#cosign_and_broadcast_entry` (definition
        `app/services/solana/vault.rb:3560-3563`, called at
-       `app/controllers/contests_controller.rb:1423-1427`) fills the admin
+       `app/controllers/contests_controller.rb:1417-1421`) fills the admin
        slot, runs a simulation pre-flight, then sends and waits for
        confirmation.
      - Its `before_send:` callback stamps the `PendingTransaction` `submitted`
-       with the signature (`:1426`) BEFORE the bytes leave the server, not
+       with the signature (`:1420`) BEFORE the bytes leave the server, not
        after. That closes a real gap the old after-broadcast stamp left: a
        crash between broadcast and stamp used to leave a PT reading "never
        broadcast" for money that had already moved, so recovery could let the
@@ -301,24 +301,24 @@ Phantom must be installed in the browser or available via mobile deep link.
        re-derives the entry PDA through `Solana::Vault#entry_pda`
        (`app/services/solana/vault.rb:458-463`) and refuses a client-supplied
        PDA that disagrees
-       (`app/controllers/contests_controller.rb:2656-2673`, `:2661`). Then
-       `verify_solana_transaction!` (`:2584-2593`) fetches the transaction from
+       (`app/controllers/contests_controller.rb:2615-2632`, `:2620`). Then
+       `verify_solana_transaction!` (`:2543-2552`) fetches the transaction from
        chain through `Solana::TxVerifier` and asserts the instruction
        discriminator — `enter_contest` or `enter_contest_with_token`, whichever
        was built — was signed by the user's wallet and wrote the derived PDA
-       (`:2663-2668`).
-     - `entry.confirm_onchain!(tx_signature:, entry_pda:)` (`:2671`) →
-       `app/models/entry.rb:263-293`. Inside a `user.with_lock` transaction
-       (`:270`) it re-checks `assert_enterable!` (`:271`), refuses an entry with
-       no verified signature (`:281-283`), then `update!(status: :active,
-       onchain_tx_signature:, onchain_entry_id:)` (`:285-289`). The re-check
+       (`:2622-2627`).
+     - `entry.confirm_onchain!(tx_signature:, entry_pda:)` (`:2630`) →
+       `app/models/entry.rb:262-292`. Inside a `user.with_lock` transaction
+       (`:269`) it re-checks `assert_enterable!` (`:270`), refuses an entry with
+       no verified signature (`:280-282`), then `update!(status: :active,
+       onchain_tx_signature:, onchain_entry_id:)` (`:284-288`). The re-check
        judges its two TIME gates (contest lock, team kickoff) as of the moment
        the pre-flight passed, not now: the money has already moved, so a team
        that kicked off during the broadcast must not strand a paid entry. Crash
        recovery uses the transaction's blockTime for the same purpose.
      - The `PendingTransaction` is stamped `confirmed` once the entry is
-       active (`app/controllers/contests_controller.rb:1438`).
-     - `post_entry_seeds_payload` (`:2029-2032`) reads
+       active (`app/controllers/contests_controller.rb:1432`).
+     - `post_entry_seeds_payload` (`:1988-1991`) reads
        `Solana::Vault#seeds_for_entry` to mirror the on-chain award and
        refreshes the total through `sync_balance`; both reads are in
        `Entries::PostEntryEffects.call`
@@ -359,7 +359,7 @@ Phantom must be installed in the browser or available via mobile deep link.
   (step 5) and `signTransaction` at entry (step 9). There is no separate
   per-entry SIWS prompt: `confirmEntry` records that it was removed as
   defence-in-depth which doubled the prompts without strengthening on-chain
-  integrity (`app/views/contests/_turf_totals_board.html.erb:1716-1722`).
+  integrity (`app/views/contests/_turf_totals_board.html.erb:1715-1721`).
 
 ## Failure modes
 
@@ -374,7 +374,7 @@ Phantom must be installed in the browser or available via mobile deep link.
   (`app/services/entries/managed_entry.rb:99-101`).
   `Entry#confirm!` carries the model-level backstop for the same hole, with its
   own wording: `"Entry payment required — no entry token consumed or on-chain
-  payment recorded"` (`app/models/entry.rb:206-208`). Always set the contest
+  payment recorded"` (`app/models/entry.rb:205-207`). Always set the contest
   on-chain before publishing the landing page.
 - **No active season.** `#enter` refuses with `"No active season configured. Set one
   at /admin/seasons before users can enter on-chain contests."`, raised by
@@ -383,63 +383,63 @@ Phantom must be installed in the browser or available via mobile deep link.
   Phantom signature.
 - **Wrong wallet connected.** `confirmEntry` declares the session address as
   `expectedAccount`
-  (`app/views/contests/_turf_totals_board.html.erb:1693`), and solana-studio's
+  (`app/views/contests/_turf_totals_board.html.erb:1692`), and solana-studio's
   `walletOps` refuses a different connected wallet with a sentence naming both.
-  The board adds "Or reconnect your wallet on the Account page." (`:1939-1940`).
+  The board adds "Or reconnect your wallet on the Account page." (`:1938-1939`).
   The user must reconnect the wallet that owns the account, or switch Phantom's
   active wallet.
 - **Refresh mid-flight (signed, handed to the server, awaiting confirmation).**
   Covered by `PendingTransaction`. On the next page load
   `find_pending_recovery_ptx`
-  (`app/controllers/contests_controller.rb:2818-2838`) puts the slug into the
+  (`app/controllers/contests_controller.rb:2774-2794`) puts the slug into the
   board config, `init()` calls `recoverPendingEntry()`
-  (`app/views/contests/_turf_totals_board.html.erb:530-566`, POST at `:538`),
+  (`app/views/contests/_turf_totals_board.html.erb:529-565`, POST at `:537`),
   and `ContestsController#recover_pending_entry`
-  (`app/controllers/contests_controller.rb:1237-1335`) polls the signature once
-  (`:1286`): still propagating renders `processing` (`:1288-1290`), an
-  on-chain error marks it `failed` (`:1292-1294`), and a landed transaction is
-  verified and promoted to `active` (`:1309-1313`). The CLIENT owns the polling
+  (`app/controllers/contests_controller.rb:1231-1329`) polls the signature once
+  (`:1280`): still propagating renders `processing` (`:1282-1284`), an
+  on-chain error marks it `failed` (`:1286-1288`), and a landed transaction is
+  verified and promoted to `active` (`:1303-1307`). The CLIENT owns the polling
   cadence; the only server-side clock sweeps signature-less rows older than ten
-  minutes to `expired` (`:2833-2835`).
+  minutes to `expired` (`:2789-2791`).
 - **Refresh between sign and hand-off.** The server never received the bytes, so
   `ptx.tx_signature` is blank — and the recovery modal never opens for it.
   `find_pending_recovery_ptx` returns only signature-carrying rows and sweeps
-  the signature-less ones to `expired` after ten minutes (`:2833-2835`), so the
+  the signature-less ones to `expired` after ten minutes (`:2789-2791`), so the
   board config gets no slug and `recoverPendingEntry()` is never called. The
   user is released silently; nothing was broadcast, so nothing is owed. The
   blank-signature branch inside `recover_pending_entry` — `"Your last entry did
-  not go through — try again."` (`:1277-1279`) — is defense-in-depth for a
+  not go through — try again."` (`:1271-1273`) — is defense-in-depth for a
   caller that supplies such a slug directly, not a message this flow produces.
 - **OPSEC-010 PDA mismatch.** `verify_and_confirm_onchain_entry!` raises
   `"Entry PDA mismatch"` when the client-supplied `entry_pda` differs from the
-  server-derived one (`:2661`). Surfaces as a red Solana modal; the entry
+  server-derived one (`:2620`). Surfaces as a red Solana modal; the entry
   stays in `:cart` and the user can retry. `#recover_pending_entry` omits the
-  client value deliberately and skips that cross-check (`:1310-1312`).
+  client value deliberately and skips that cross-check (`:1304-1306`).
 - **Sybil duplicate-combo entry.** `Entry#assert_enterable!` raises `"You
   already have an entry with this exact selection combination"`
-  (`app/models/entry.rb:165-170`). The user must change at least one pick.
+  (`app/models/entry.rb:164-169`). The user must change at least one pick.
 - **Per-user entry limit.** `Contest#max_entries_per_user` (3 for Turf Totals)
   is enforced by `assert_enterable!` inside the same `user.with_lock`
-  (`:162-163`).
+  (`:161-162`).
 - **Start window crossed during signing.** `assert_enterable!` raises
   `"Contest has locked — entries closed"` once `contest.locks_at` has passed
-  (`:146-148`), so a stale Phantom prompt cannot squeak through after lock.
+  (`:145-147`), so a stale Phantom prompt cannot squeak through after lock.
   Prelaunch audit H7 fix — closes the staggered-kickoff info-edge attack.
 - **`CreateOnchainUserAccountJob` failure.** `#perform` logs and re-`raise`s for
   Sidekiq retry (`app/jobs/create_onchain_user_account_job.rb:16-18`).
   `#prepare_entry`'s synchronous `ensure_user_account`
-  (`app/controllers/contests_controller.rb:1069`) covers the case where the job
+  (`app/controllers/contests_controller.rb:1063`) covers the case where the job
   has not yet succeeded by entry time.
 
 > **Orphaned endpoint.** `ContestsController#stamp_entry_signature`
-> (`app/controllers/contests_controller.rb:1213-1225`, routed as
-> `post :stamp_entry_signature` at `config/routes.rb:355`) is no longer called
+> (`app/controllers/contests_controller.rb:1207-1219`, routed as
+> `post :stamp_entry_signature` at `config/routes.rb:356`) is no longer called
 > by any client. It belonged to the
 > browser-broadcast flow, and the comment that replaced it says so —
 > `the client no longer calls stamp_entry_signature before confirm`
-> (`app/controllers/contests_controller.rb:1347`). Only tests reach it now,
+> (`app/controllers/contests_controller.rb:1341`). Only tests reach it now,
 > and its own header comment still describes the retired
-> `connection.confirmTransaction` wait (`:1207-1212`).
+> `connection.confirmTransaction` wait (`:1201-1206`).
 
 ## Related workflows
 

@@ -101,20 +101,17 @@ class OgMetaTest < ActionDispatch::IntegrationTest
            "an unbannered contest must keep the existing fallback, got #{og_image_content}"
   end
 
-  # --- the root url (which is a redirect, not a page) ---
+  # --- the root url (the contests lobby) ---
 
   test "the root url unfurls with the pinned contest's banner" do
-    # "/" is ContestsController#world_cup: it renders nothing and 302s to
-    # Contest.featured, which leads with the contest an admin pinned at
-    # /admin/dashboard. An unfurler follows that redirect and reads the page it
-    # lands on, so the pinned contest's banner IS the card for a bare
-    # turfmonster.media link — and re-pinning changes it with no deploy.
+    # "/" is the contests lobby, and its og:image is Contest.featured's banner,
+    # which leads with the contest an admin pinned at /admin/dashboard. So the
+    # pinned contest's banner IS the card for a bare turfmonster.media link, and
+    # re-pinning changes it with no deploy.
     pinned = attach_banner(another_contest, "pinned-banner.png")
     SeasonConfig.set_main_contest!(pinned)
 
     get root_path
-    assert_redirected_to contest_path(pinned)
-    follow_redirect!
 
     assert_response :success
     assert_includes og_image_content, "/representations/proxy/"
@@ -126,12 +123,10 @@ class OgMetaTest < ActionDispatch::IntegrationTest
 
     SeasonConfig.set_main_contest!(first)
     get root_path
-    follow_redirect!
     first_card = og_image_content
 
     SeasonConfig.set_main_contest!(second)
     get root_path
-    follow_redirect!
 
     assert_not_equal first_card, og_image_content,
                      "the root card must follow the pin, not freeze on the first contest"

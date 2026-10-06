@@ -1,6 +1,10 @@
 const { test, expect } = require("@playwright/test");
 const { login, attestAge, OPERATOR_USERNAME } = require("./helpers");
 
+// The e2e fixture contest (e2e/seed.rb). Root is the contests lobby, so the
+// board lives on the contest page.
+const CONTEST_PATH = "/contests/world-cup-2026";
+
 function selectableMatchupCards(page) {
   return page.locator(
     '[x-data*="selectionBoard"] button[role="checkbox"]:not([disabled])'
@@ -12,8 +16,8 @@ function selectableMatchupCards(page) {
 // ---------------------------------------------------------------------------
 
 test("index page loads with contest and matchup cards", async ({ page }) => {
-  await page.goto("/");
-  // / redirects to /contests/:slug; the inline matchup board renders for guests
+  await page.goto(CONTEST_PATH);
+  // the inline matchup board renders for guests
   await expect(page.locator("body")).toContainText("Your Picks");
   // Matchup cards rendered as buttons with team names
   const matchupCards = selectableMatchupCards(page);
@@ -27,7 +31,7 @@ test("index page loads with contest and matchup cards", async ({ page }) => {
 // ---------------------------------------------------------------------------
 
 test("guest clicking matchup card does not crash the page", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(CONTEST_PATH);
   const firstCard = selectableMatchupCards(page).first();
   await firstCard.click();
 
@@ -76,7 +80,7 @@ test("logged-in user can toggle selection and see cart update", async ({ page })
       headers: { "X-CSRF-Token": csrfToken, "Accept": "application/json" },
     });
   });
-  await page.goto("/");
+  await page.goto(CONTEST_PATH);
   await page.waitForLoadState("networkidle");
 
   const firstCard = selectableMatchupCards(page).first();
@@ -106,7 +110,7 @@ test("selection persists after page reload", async ({ page }) => {
       headers: { "X-CSRF-Token": csrfToken, "Accept": "application/json" },
     });
   });
-  await page.goto("/");
+  await page.goto(CONTEST_PATH);
   await page.waitForLoadState("networkidle");
 
   const firstCard = selectableMatchupCards(page).first();
@@ -140,7 +144,7 @@ test("selecting 6 matchups reveals the hold-to-confirm CTA", async ({ page }) =>
       headers: { "X-CSRF-Token": csrfToken, "Accept": "application/json" },
     });
   });
-  await page.goto("/");
+  await page.goto(CONTEST_PATH);
   await page.waitForLoadState("networkidle");
 
   const cards = selectableMatchupCards(page);

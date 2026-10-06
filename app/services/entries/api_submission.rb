@@ -107,7 +107,7 @@ module Entries
     # The API's own wording, where the model's message is written for the
     # website (or names an admin page). Codes not listed use the refusal's own.
     MESSAGES = {
-      unsupported_contest: "This contest type cannot be entered through the API. Enter it on turfmonster.media.",
+      unsupported_contest: "This contest ran a retired format. It takes no entries; its final standings are on turfmonster.media.",
       contest_cancelled: "This contest was cancelled.",
       coming_soon: "This contest is not open for entries yet.",
       contest_not_open: "This contest is not open for entries.",
@@ -353,7 +353,7 @@ module Entries
     # The gates that need no entry row, so a doomed request creates nothing.
     # Entry#assert_enterable! repeats the ones it owns under the contest lock.
     def assert_submittable!
-      refuse(:unsupported_contest) unless @contest.turf_totals?
+      refuse(:unsupported_contest) if @contest.retired_format?
       refuse(:contest_cancelled) if @contest.cancelled?
       refuse(:coming_soon) if @contest.coming_soon?
       refuse(:contest_not_open) unless @contest.open?

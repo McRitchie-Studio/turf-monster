@@ -325,14 +325,13 @@ class OnchainSettledJsTest < ActiveSupport::TestCase
   # tests: schedule in-page, leave the marker anyway, and retire the marker once
   # the in-page read lands.
   #
-  # THE SURFACE THAT NEEDED IT (survivor-settle-never-fires). The survivor board
-  # was calling onchainSettled({ navigating: true }) on the belief that its
-  # success card auto-redirects. It does not — it sets no lobbyUrl, so the
-  # engine's startCountdown() returns early and no countdown is armed. So the
-  # marker was written for a navigation that never came, nothing was scheduled,
-  # and the navbar held the PRE-SPEND figure for as long as the card stayed open.
-  # The other either/or branch is no better: the user leaves that card by CLOSING
-  # it, and modal.onClose assigns window.location, which destroys a bare timer.
+  # THE SURFACE THAT NEEDS IT: a success card that sets no lobbyUrl, so the
+  # engine's startCountdown() returns early and no countdown is armed. A
+  # `navigating: true` call there writes a marker for a navigation that never
+  # comes, schedules nothing, and holds the navbar on the PRE-SPEND figure for as
+  # long as the card stays open. The other either/or branch is no better: the
+  # user leaves that card by CLOSING it, and modal.onClose assigns
+  # window.location, which destroys a bare timer.
 
   # PROPERTY 8 — the half PR #609 removed. A mayNavigate caller must settle the
   # pill IN PLACE for the user who never leaves the page.
@@ -362,8 +361,8 @@ class OnchainSettledJsTest < ActiveSupport::TestCase
     assert_not r.dig("after", "hidden")
   end
 
-  # PROPERTY 9 — and the marker anyway, for the user who DOES leave. Closing the
-  # survivor card navigates, so this is the normal exit, not an edge case. The
+  # PROPERTY 9 — and the marker anyway, for the user who DOES leave. Closing such
+  # a card navigates, so this is the normal exit, not an edge case. The
   # destination is modelled as a genuinely fresh module instance: separate module
   # state, same sessionStorage, with page A's timers destroyed the way an unload
   # destroys them.

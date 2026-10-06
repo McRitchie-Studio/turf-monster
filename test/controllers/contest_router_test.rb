@@ -59,21 +59,21 @@ class ContestRouterTest < ActionDispatch::IntegrationTest
                  "a link to the router would bounce straight back here"
   end
 
-  test "root goes straight to the live board once a game has started" do
+  # Root is the contests lobby and routes nowhere, whatever has started.
+  test "root renders the lobby even once a game has started" do
     start_a_game!
-    featured = @contest
-    Contest.stub(:featured, featured) do
-      get root_path
-    end
 
-    assert_redirected_to live_contest_path(@contest)
+    get root_path
+
+    assert_response :success
+    assert_equal "index", @controller.action_name
   end
 
-  # A visitor returning from a full-page sign-in comes back through root with a
-  # cart saved in localStorage, and only the contest page can replay it. The
+  # A visitor returning from a full-page sign-in can land on the live board with
+  # a cart saved in localStorage, and only the contest page can replay it. The
   # browser half (the hand-off actually firing) is e2e/game_started_lock.spec.js;
-  # this pins that the page root sends them to carries the hand-off, aimed at the
-  # page that never routes.
+  # this pins that the live board carries the hand-off, aimed at the page that
+  # never routes. The lobby's half is test/integration/retired_world_cup_survivor_test.rb.
   test "the live board hands a saved cart for this contest back to the contest page" do
     start_a_game!
 
@@ -84,15 +84,6 @@ class ContestRouterTest < ActionDispatch::IntegrationTest
     assert_includes script, "parsed.contestSlug === #{@contest.slug.to_json}"
     assert_includes script, "window.location.replace(#{contest_page_path(@contest).to_json})"
     assert_not_includes script, "removeItem", "the cart is left for the board to consume"
-  end
-
-  test "root goes to the contest URL before any game starts" do
-    featured = @contest
-    Contest.stub(:featured, featured) do
-      get root_path
-    end
-
-    assert_redirected_to contest_path(@contest)
   end
 
   test "a contest URL carrying a query is not routed away" do
@@ -118,14 +109,14 @@ class ContestRouterTest < ActionDispatch::IntegrationTest
     assert_equal message, flash[:notice], "the notice must still be there to render on the live board"
   end
 
-  test "a survivor contest is never routed to a live board it does not have" do
+  test "a retired-format contest is never routed to a live board it does not have" do
     start_a_game!
-    @contest.update_columns(game_type: "world_cup_survivor")
-    assert @contest.reload.world_cup_survivor?
+    write_retired_format!(@contest, keep_slate: true)
+    assert @contest.retired_format?
 
     get contest_path(@contest)
 
-    assert_not response.redirect?, "survivor has no live board; #live sends it back here, so this would loop"
+    assert_not response.redirect?, "a retired format has no live board; #live sends it back here, so this would loop"
   end
 
   test "a pending contest is as invisible at the contest page URL as at the contest URL" do
