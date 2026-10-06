@@ -126,10 +126,8 @@ class LinkPreviewSlimPageTest < ActionDispatch::IntegrationTest
     assert_nil response.headers["X-Studio-Link-Preview"]
   end
 
-  test "the root redirect lands a preview bot on the slim contest page" do
+  test "the root lobby answers a preview bot with the slim page" do
     get root_path, headers: { "HTTP_USER_AGENT" => IMESSAGE }
-    assert_response :redirect
-    follow_redirect!(headers: { "HTTP_USER_AGENT" => IMESSAGE })
 
     assert_response :success
     assert_operator response.body.bytesize, :<, LINK_PRESENTATION_LIMIT

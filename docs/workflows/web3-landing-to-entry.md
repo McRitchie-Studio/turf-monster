@@ -6,7 +6,7 @@
 > `test/docs/workflow_citation_docs_test.rb` enforces both rules and checks every
 > number against the symbol its prose names — the symbol is the claim, the number
 > is bookkeeping. That check comes in three strengths, and it is worth knowing
-> which one you are reading. **130 of the 167 citations** below sit inside a
+> which one you are reading. **129 of the 166 citations** below sit inside a
 > definition, and there the prose must name that definition or the citation
 > reddens. The other **37** sit in code with no enclosing definition, and they
 > split. **4 of those 37** cite `config/routes.rb`, and each must OPEN on the line

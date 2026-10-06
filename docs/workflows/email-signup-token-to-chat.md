@@ -38,7 +38,7 @@
 
 ## Sequence
 
-1. **Visitor lands on `/`** — `root "contests#index"` (`config/routes.rb:57`) → `ContestsController#index` (`app/controllers/contests_controller.rb:51-68`), the contests lobby. The retired World Cup paths `/world-cup` and `/world_cup` 301 here (`config/routes.rb:58-59`).
+1. **Visitor lands on `/`** — `root "contests#index"` (`config/routes.rb:57`) → `ContestsController#index` (`app/controllers/contests_controller.rb:51-68`), the contests lobby. The retired World Cup paths `/world-cup` and `/world_cup` 301 here.
    - `index` is in the `skip_before_action :require_authentication` list, so logged-out browsing works (`app/controllers/contests_controller.rb:9`).
    - The lobby's link-preview banner is the contest `Contest.featured` picks (`app/models/contest.rb:202-206`), whose chain is `SeasonConfig.main_contest_explicit` → most recent `open` non-`coming_soon` → most recent `open`/`settled` non-`coming_soon`. It does NOT call `SeasonConfig.main_contest` (`app/models/season_config.rb:33-37`); that resolver is a separate one used by the share widget and faucet CTA, and it applies a different fallback.
    - The visitor opens a contest from the featured rail or the All Contests table, which links `contest_path(contest)`.
@@ -88,7 +88,7 @@
    - The browser polls `/tokens/status` from the processing page until the purchase reads `minted`; the endpoint is `TokensController#status` (`app/controllers/tokens_controller.rb:462-504`).
 
 8. **Back to root → the lobby** — the user clicks the navbar "Turf Monster" home link → `GET /` → step 1 repeats.
-   - "Main contest" surfacing is the admin's explicit pick from `/admin/site_config`, stored by `SeasonConfig.set_main_contest!` (`app/models/season_config.rb:45-48`) and read back by `SeasonConfig.main_contest_explicit` (`:41-43`). After that the fallback is most-recent `open`, then most-recent `open`/`settled` (`app/models/contest.rb:204-206`). **No** highest-pot ordering.
+   - "Main contest" surfacing is the admin's explicit pick from `/admin/site_config`, stored by `SeasonConfig.set_main_contest!` (`app/models/season_config.rb:45-48`) and read back by `SeasonConfig.main_contest_explicit` (`:41-43`). After that the `Contest.featured` fallback is most-recent `open`, then most-recent `open`/`settled` (`app/models/contest.rb:204-206`). **No** highest-pot ordering.
 
 9. **Build a 6-pick lineup** — each tap on a matchup tile POSTs to `ContestsController#toggle_selection` (`app/controllers/contests_controller.rb:1503-1524`).
    - It rejects the tap unless the contest is `open?` (`:1504-1506`).

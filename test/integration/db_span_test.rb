@@ -38,7 +38,7 @@ class DbSpanTest < ActionDispatch::IntegrationTest
     ENV["DB_SPAN_TRACE"] = "0"
     log = capturing_logs { get root_path }
 
-    assert_redirected_to contest_path(@contest)
+    assert_response :success
     refute_match(/\[db-span\]/, log)
   ensure
     ENV.delete("DB_SPAN_TRACE")
