@@ -95,6 +95,22 @@ class LaptopScoreSimRenderTest < ActionDispatch::IntegrationTest
     assert_empty live.css("script, turbo-cable-stream-source"), "the snapshot itself still runs no code"
   end
 
+  # The frames are the one part of the payload built OUTSIDE the snapshot's
+  # anonymizing pass (they are drawn per touchdown from the live page's
+  # partials), so they are checked on their own: an entrant with a real name,
+  # email and username is on the board, and none of it is in any frame.
+  test "the simulation frames carry no user data" do
+    sam = users(:sam)
+    sam.update_columns(email: "sam.realname@example.com", username: "samrealhandle",
+                       first_name: "Samantha", last_name: "Realsurname")
+    frames = page_laptop.at_css('[data-test="laptop-sim"]').css("template").map(&:inner_html).join
+    assert_operator frames.size, :>, 0, "there are frames to check"
+    ["sam.realname@example.com", "samrealhandle", "Samantha", "Realsurname", sam.email.split("@").first].each do |leak|
+      refute_includes frames, leak, "a frame must not carry #{leak.inspect}"
+    end
+    refute_match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[a-z]{2,}/, frames, "no email address of anyone")
+  end
+
   test "the snapshot's kickoff times read in Mountain, not UTC" do
     live = page_laptop.at_css('[data-test="laptop-live"]')
     chip = live.css('[data-test="live-game-chip"]').find { |c| c["data-game-slug"] == @evening.slug }
