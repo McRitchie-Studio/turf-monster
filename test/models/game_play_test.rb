@@ -191,4 +191,47 @@ class GamePlayTest < ActiveSupport::TestCase
     assert_equal "team-a", GamePlay.kicking_team_slug(td, scorer_slug: "team-a", game: game)
     assert_equal "team-b", GamePlay.kicking_team_slug(safety, scorer_slug: "team-a", game: game)
   end
+
+  # ── the review's follow-ups ──────────────────────────────────────────────
+
+  test "while the score is the newest play, the bar shows the score itself" do
+    assert_nil GamePlay.awaiting_kickoff_after(feed(["Rushing Touchdown", "score"], ["Rush", "play"]))
+  end
+
+  test "a missed or made try is looked past: the kickoff is still to come" do
+    plays = feed(["Extra Point Missed", "kick"], ["Passing Touchdown", "score"])
+    assert_equal "Extra Point", plays.first.result_label
+    assert_equal "Touchdown", GamePlay.awaiting_kickoff_after(plays).result_label
+
+    plays = feed(["Official Timeout", "break"], ["Two-Point Conversion Failed", "play"], ["Passing Touchdown", "score"])
+    assert_equal "Touchdown", GamePlay.awaiting_kickoff_after(plays).result_label
+  end
+
+  test "a finished game has no kickoff coming, however it ended" do
+    walk_off = feed(["Official Timeout", "break"], ["Field Goal Good", "score"])
+
+    assert_nil GamePlay.awaiting_kickoff_after(walk_off, game: Game.new(status: "completed"))
+    assert_not_nil GamePlay.awaiting_kickoff_after(walk_off, game: Game.new(status: "in_progress"))
+  end
+
+  # The play belongs to the offence that threw it; the points to the side that
+  # took it back. Only the running score says which, and it needs no goal.
+  test "the scorer is read off the running score, so a pick-six credits the defence" do
+    game = Game.new(home_team_slug: "team-a", away_team_slug: "team-b")
+    before = GamePlay.new(play_type: "Rush", kind: "play", text: "x", home_score: 7, away_score: 3, team_slug: "team-a")
+    pick_six = GamePlay.new(play_type: "Interception Return Touchdown", kind: "score", text: "x",
+                            home_score: 7, away_score: 9, team_slug: "team-a")
+    timeout = GamePlay.new(play_type: "Official Timeout", kind: "break", text: "x")
+    plays = [timeout, pick_six, before]
+
+    assert_equal pick_six, GamePlay.awaiting_kickoff_after(plays, game: game)
+    assert_equal "team-b", GamePlay.scoring_team_slug(pick_six, plays: plays, game: game)
+  end
+
+  test "with no running score to read, the scorer is left to the caller" do
+    game = Game.new(home_team_slug: "team-a", away_team_slug: "team-b")
+    score = GamePlay.new(play_type: "Rushing Touchdown", kind: "score", text: "x")
+
+    assert_nil GamePlay.scoring_team_slug(score, plays: [score], game: game)
+  end
 end
