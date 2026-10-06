@@ -5,7 +5,7 @@
 > resets at each `##` heading. The number is bookkeeping; the SYMBOL beside it is
 > the claim, and `test/docs/workflow_citation_docs_test.rb` reddens when a
 > citation stops landing inside the definition its prose names.
-> That symbol check reaches **151 of the 180 citations** here. The other **29**
+> That symbol check reaches **148 of the 177 citations** here. The other **29**
 > sit in code with no enclosing definition the guard can derive, and they are not
 > all checked alike. **6 of those 29** are `config/routes.rb` entries, which get a
 > stricter check: each must OPEN on the line that carries its route, not merely
@@ -40,7 +40,7 @@
 
 1. **Visitor lands on `/`** — `root "contests#index"` (`config/routes.rb:57`) → `ContestsController#index` (`app/controllers/contests_controller.rb:51-68`), the contests lobby. The retired World Cup paths `/world-cup` and `/world_cup` 301 here.
    - `index` is in the `skip_before_action :require_authentication` list, so logged-out browsing works (`app/controllers/contests_controller.rb:9`).
-   - The lobby's link-preview banner is the contest `Contest.featured` picks (`app/models/contest.rb:202-206`), whose chain is `SeasonConfig.main_contest_explicit` → most recent `open` non-`coming_soon` → most recent `open`/`settled` non-`coming_soon`. It does NOT call `SeasonConfig.main_contest` (`app/models/season_config.rb:33-37`); that resolver is a separate one used by the share widget and faucet CTA, and it applies a different fallback.
+   - The lobby's link-preview banner is the contest `Contest.featured` picks (`app/models/contest.rb:202-207`), whose chain is `SeasonConfig.main_contest_explicit` → most recent `open` non-`coming_soon` → most recent `open`/`settled` non-`coming_soon`. It does NOT call `SeasonConfig.main_contest` (`app/models/season_config.rb:33-37`); that resolver is a separate one used by the share widget and faucet CTA, and it applies a different fallback.
    - The visitor opens a contest from the featured rail or the All Contests table, which links `contest_path(contest)`.
 
 2. **Show page renders for a logged-out visitor** — `ContestsController#show` (`app/controllers/contests_controller.rb:696-703`) → `app/views/contests/show.html.erb`. `/contests/:id` is a router: once a game on the slate has started a bare visit 302s to the live board, and the page itself is always at `/contests/:id/contest` (`ContestsController#contest`); both render through `#load_contest_page` (`:2685-2726`).
