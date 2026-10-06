@@ -44,6 +44,14 @@ class Admin::DropSignupsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "tiktok", rows.first["source"]
   end
 
+  test "the CSV quotes cells a spreadsheet would run as formulas" do
+    DropSignup.create!(email: "=1+1@example.com", slate_key: NextSlateDrop::SLATE_KEY, source: '=HYPERLINK("http://x")')
+    log_in_as(users(:alex))
+    get admin_drop_signups_path(format: :csv)
+    row = CSV.parse(response.body, headers: true).find { |r| r["email"].include?("1+1") }
+    assert_equal ["'=1+1@example.com", %('=HYPERLINK("http://x"))], [row["email"], row["source"]]
+  end
+
   test "the admin hub links the list" do
     log_in_as(users(:alex))
     get admin_hub_path
