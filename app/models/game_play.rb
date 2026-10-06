@@ -187,4 +187,35 @@ class GamePlay < ApplicationRecord
 
     "#{yards} yard #{noun}"
   end
+
+  # ── WAITING FOR THE KICKOFF ──────────────────────────────────────────────
+  #
+  # After a touchdown or a field goal the next snap is a kickoff, and between
+  # the two the feed fills the gap with an Official Timeout — the TV break. Shown
+  # as "the latest play" that read as if the game had stopped for a reason,
+  # when what the board should say is what everyone is waiting for (Alex,
+  # 2026-10-05).
+  #
+  # Breaks that only fill time are looked past. Halftime and the end of the game
+  # are not: they ARE what is happening, and the second half opens with its own
+  # kickoff anyway.
+  PASS_OVER = ["Official Timeout", "Timeout", "Two-Minute Warning", "End of Quarter"].freeze
+
+  # The score the next kickoff follows, or nil. `plays` is newest first.
+  def self.awaiting_kickoff_after(plays)
+    plays.each do |play|
+      next if PASS_OVER.include?(play.result_label)
+      return nil unless play.kind == "score" || %w[Touchdown Field\ Goal Safety].include?(play.result_label)
+      return play
+    end
+    nil
+  end
+
+  # WHO KICKS: the team that scored — except after a safety, where the team
+  # that conceded it free-kicks. `scorer_slug` is the team the points went to.
+  def self.kicking_team_slug(score_play, scorer_slug:, game:)
+    return scorer_slug unless score_play.result_label == "Safety"
+
+    ([game.home_team_slug, game.away_team_slug] - [scorer_slug]).first
+  end
 end

@@ -1219,7 +1219,7 @@
 # one per theme. Each reads the COMPUTED colour of the navbar and footer logotype (#4BAF50)
 # and that a green text link, the primary button fill and a footer link hover did not move.
 # Derived with bin/e2e-lane-derive --write on a tree level with origin/accepted.
-total_specs: 383
+total_specs: 384
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1583,7 +1583,7 @@ allowed_skips: 4
 # 356 -> 358 (wordmark-returns-to-brand-green): the two logotype specs described beside
 # total_specs above. Both run in the chromium lane and neither skips, so excluded holds at 17
 # and allowed_skips at 4. Derived with bin/e2e-lane-derive --write on this tree.
-executed: 362
+executed: 363
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a
