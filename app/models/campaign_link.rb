@@ -73,6 +73,13 @@ class CampaignLink < Studio::Link
     find_by(token: [raw, raw.downcase].uniq)
   end
 
+  # Error messages use the admin form's labels ("Name is reserved").
+  FORM_LABELS = { "token" => "Name", "target_path" => "Goes to" }.freeze
+
+  def self.human_attribute_name(attribute, options = {})
+    FORM_LABELS.fetch(attribute.to_s) { super }
+  end
+
   # --- metadata ---------------------------------------------------------------
 
   def target_path

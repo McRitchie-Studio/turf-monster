@@ -169,8 +169,8 @@ class ShortCampaignLinksTest < ActionDispatch::IntegrationTest
     log_in_as(users(:alex))
     post admin_short_links_path, params: { campaign_link: { token: "new", target_path: "https://evil.example", reference: "" } }
     assert_response :unprocessable_entity
-    assert_select "[role=alert]", text: /reserved/
-    assert_select "[role=alert]", text: /path on this site/
+    assert_select "[role=alert] li", text: "Name is reserved"
+    assert_select "[role=alert] li", text: /\AGoes to must be a path on this site/
   end
 
   test "an admin edits a link, renaming it" do
