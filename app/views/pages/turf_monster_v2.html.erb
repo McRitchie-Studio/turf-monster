@@ -145,17 +145,19 @@
       <%# THE PHONE with its caption directly under it, and from xl up a LAPTOP
           behind it, as on Calm's page. Below xl the phone is centered in its
           column; from xl it sits at the column's left so the laptop has room.
-          The laptop hangs off the phone's wrapper: its left edge under the
-          phone's right third, its top above the phone's, the phone running
-          below its base. Drawn at 448px and scaled 1.25 (560px) so the live
-          snapshot reads; it runs past the hero's right edge, where the
-          section's overflow-hidden clips about a fifth of it, so it never adds
-          page width. Absolutely positioned, so it never moves the phone or the
+          The laptop hangs off the phone's wrapper, set back: its left edge
+          under only the phone's right fifth, its top above the phone's, the
+          phone running below its base, and a softer shadow than the phone's.
+          Drawn at 448px and scaled 1.1 (493px), the smallest at which the
+          live snapshot's game, lit chip and top leaderboard cards still read;
+          it runs past the hero's right edge, where the section's
+          overflow-hidden clips about a fifth of it, so it never adds page
+          width. Absolutely positioned, so it never moves the phone or the
           copy. Below xl it is not drawn: the column leaves too thin a sliver
           beside the phone to read. %>
       <figure class="flex flex-col items-center xl:items-start" data-test="v2-hero-figure">
         <div class="relative">
-          <div class="hidden xl:block absolute z-0 left-[66%] -top-14 origin-top-left scale-125" data-test="laptop-anchor">
+          <div class="hidden xl:block absolute z-0 left-[80%] -top-14 origin-top-left scale-110" data-test="laptop-anchor">
             <%= render "pages/laptop_lobby", lobby: @lobby, showcase: @live_showcase, live_html: @laptop_live_html %>
           </div>
           <div class="relative z-10 drop-shadow-2xl">

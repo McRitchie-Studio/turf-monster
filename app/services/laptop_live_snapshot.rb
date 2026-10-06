@@ -56,6 +56,8 @@ class LaptopLiveSnapshot
     doc.css(".json-debug").each { |node| (node.ancestors("details").first || node).remove }
     resolve_x_show(doc)
     resolve_focus_class(doc)
+    collapse_navbar(doc)
+    rotate_strip(doc)
     doc.to_html.html_safe # rubocop:disable Rails/OutputSafety -- our own partials' render, scripts removed
   end
 
@@ -67,6 +69,48 @@ class LaptopLiveSnapshot
   # never runs here, so the binding is resolved against the slug the live page
   # opens on: exactly one chip glows, the rest stay flat.
   FOCUS_CLASS = /\Afocus === '([^']+)' \? '([^']+)' : ''\z/
+
+  # The navbar's COLLAPSED state, the one a reader sees once they have
+  # scrolled: navCollapse() writes --nav-p from 0 (expanded) to 1 (collapsed)
+  # on the header and adds the scrolled classes, and the logo, title and
+  # padding all size off --nav-p. Written here as the end state, so the
+  # snapshot gets the short bar and keeps its height for the game and the
+  # leaderboard.
+  SCROLLED_NAV_CLASSES = "shadow-lg border-b border-subtle is-scrolled".freeze
+
+  def collapse_navbar(doc)
+    header = doc.at_css("header[data-navbar-root]")
+    return unless header
+
+    header["style"] = "--nav-p: 1; #{header['style']}".strip
+    header["class"] = [header["class"], SCROLLED_NAV_CLASSES].compact.join(" ")
+  end
+
+  # THE STRIP MID-ROTATION. On the live page the strip overflows, so its
+  # carousel appends a copy of every chip (the seamless loop) and scrolls
+  # through them. This draws one frame of that rotation: the same copy is
+  # appended, and the track is offset so the FOCUSED chip's copy sits in slot
+  # FOCUS_SLOT, the middle-right of the strip, where it is clear of the phone in
+  # the hero. Chronological order is kept, and the chip that is lit is still
+  # the one the live page opens on. Chips are a fixed 168px with an 8px gap
+  # (contests/_live_game_chip, gap-2), so the offset needs no measuring. A strip
+  # that fits its width does not rotate on the live page and is left alone.
+  CHIP_PITCH = 176
+  STRIP_WIDTH = 1248 # the 1280px canvas less contests/live's px-4
+  FOCUS_SLOT = 4
+
+  def rotate_strip(doc)
+    track = doc.at_css('[x-ref="track"]')
+    return unless track
+
+    slots = track.element_children.to_a
+    return if slots.size * CHIP_PITCH <= STRIP_WIDTH
+
+    focus = slots.index { |slot| slot.at_css(".tt-chip-focused") } || 0
+    slots.each { |slot| track.add_child(slot.dup) }
+    offset = ((slots.size + focus) - FOCUS_SLOT) * CHIP_PITCH
+    track["style"] = "transform: translateX(-#{offset}px); #{track['style']}".strip
+  end
 
   def resolve_focus_class(doc)
     doc.traverse do |node|

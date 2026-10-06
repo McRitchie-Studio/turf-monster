@@ -35,6 +35,8 @@ class PhoneMockRenderTest < ActionView::TestCase
       assert_includes html, number_with_precision(example.turf_score, precision: 1)
     end
     refute_includes html, "%>", "no ERB comment may leak into the page"
+    logo = doc.at_css('[data-test="phone-nav-logo"]')
+    assert_equal "/icon-192.png", logo["src"], "the real navbar's mascot"
   end
 
   # The six Alex picked, in board order: Turf Score ascending, then rank.

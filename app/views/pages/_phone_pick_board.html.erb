@@ -14,8 +14,14 @@
     top-left corner (1 / 0.66 = 1.515): the cards keep the proportions they
     have on a real phone, and the frame clips whatever falls off the bottom. %>
 <div class="w-[151.5%] origin-top-left scale-[0.66] px-3 pb-3" data-test="phone-pick-board">
-  <div class="flex items-baseline justify-between px-1 pt-1 pb-2">
-    <p class="text-sm font-extrabold text-heading">Turf <span class="tm-wordmark">Monster</span></p>
+  <%# The app bar as the real mobile navbar draws it (layouts/_navbar): the
+      mascot from the same /icon-192.png at the collapsed mobile size (2.5rem),
+      beside the wordmark at its collapsed mobile size (1.25rem). %>
+  <div class="flex items-center justify-between px-1 pt-1 pb-2">
+    <p class="flex items-center gap-2 text-xl font-extrabold text-heading">
+      <img src="/icon-192.png" alt="" width="40" height="40" class="h-10 w-10 rounded-full shadow-lg" data-test="phone-nav-logo">
+      <span>Turf <span class="tm-wordmark">Monster</span></span>
+    </p>
     <p class="text-[10px] font-semibold text-muted"><%= TurfMonsterRules::SHOWCASE.size %> of 6 picked</p>
   </div>
   <div class="grid grid-cols-2 gap-2">

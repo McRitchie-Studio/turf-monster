@@ -82,6 +82,36 @@ class LaptopLiveRenderTest < ActionDispatch::IntegrationTest
     assert_includes live.to_html, ".tt-chip-focused", "the live page's chip styles are included"
   end
 
+  # The collapsed (scrolled) navbar, and the strip drawn mid-rotation: with
+  # more chips than fit, the carousel's copy is appended in the same order and
+  # the track is offset so the lit chip's copy lands in the visible middle.
+  test "the navbar is collapsed and an overflowing strip shows the lit chip mid-strip, in order" do
+    contest = nfl_contest("weeks-4-6-strip", starts_at: 2.days.ago)
+    kickoff = games(:future_game).kickoff_at
+    # Distinct pairings of the six fixture teams (a game's slug derives from
+    # its two teams), skipping the pairs other fixtures already use.
+    pairs = Team.order(:slug).pluck(:slug).combination(2).reject do |a, b|
+      [%w[team-a team-b], %w[team-c team-d], %w[team-e team-f]].include?([a, b])
+    end
+    pairs.first(9).each_with_index do |(home, away), i|
+      g = Game.create!(slug: "strip-#{i}", home_team_slug: home, away_team_slug: away,
+                       kickoff_at: kickoff + i.minutes, status: "scheduled", venue: "Test Stadium")
+      SlateMatchup.create!(slate: @slate, team_slug: g.home_team_slug, opponent_team_slug: g.away_team_slug, game_slug: g.slug)
+    end
+    assert_equal contest, NextContest.live_showcase.contest
+
+    live = laptop.at_css('[data-test="laptop-live"]')
+    assert_match(/--nav-p: 1/, live.at_css("header[data-navbar-root]")["style"])
+
+    track = live.at_css('[x-ref="track"]')
+    slugs = track.css('[data-test="live-game-chip"]').map { |c| c["data-game-slug"] }
+    half = slugs.size / 2
+    assert_equal slugs.first(half), slugs.last(half), "the appended copy keeps the real order"
+    focus = slugs.first(half).index(NextContest.live_showcase.focus_slug)
+    expected = (half + focus - LaptopLiveSnapshot::FOCUS_SLOT) * LaptopLiveSnapshot::CHIP_PITCH
+    assert_includes track["style"], "translateX(-#{expected}px)"
+  end
+
   test "with nothing live, the most recently finished NFL contest shows" do
     nfl_contest("older-final", starts_at: 30.days.ago, status: "settled")
     nfl_contest("newer-final", starts_at: 10.days.ago, status: "settled")
