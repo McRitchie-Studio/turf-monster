@@ -153,4 +153,25 @@ class ReferralReportTest < ActiveSupport::TestCase
     assert_equal [TODAY, TODAY - 100], days.map(&:date)
     assert_nil days.first.email_signups
   end
+  # --- the cap ---------------------------------------------------------------
+
+  test "the table lists the top references by clicks and counts the rest" do
+    extra = 3
+    (ReferralReport::TOP_REFERENCES + extra).times do |n|
+      visit(format("ref-%03d", n), vid(1))
+      visit(format("ref-%03d", n), vid(2)) if n.zero?
+    end
+    report = ReferralReport.new(window: "7", email_model: nil, today: TODAY)
+
+    assert_equal ReferralReport::TOP_REFERENCES, report.rows.size
+    assert_equal "ref-000", report.rows.first.reference, "most clicks first"
+    assert_equal [["/", 2]], report.rows.first.top_paths
+    assert_equal extra, report.hidden_references
+    assert_equal ReferralReport::TOP_REFERENCES + extra + 1, report.totals.clicks, "totals count every reference"
+  end
+
+  test "nothing is hidden under the cap" do
+    visit("tiktok", vid(1))
+    assert_equal 0, ReferralReport.new(window: "7", email_model: nil, today: TODAY).hidden_references
+  end
 end

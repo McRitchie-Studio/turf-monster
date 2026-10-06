@@ -5,6 +5,7 @@
   <p class="text-secondary text-sm mb-6">
     Clicks on trackable links (<span class="font-mono">?reference=&lt;name&gt;</span>, landing pages, <span class="font-mono">/tiktok</span>)
     and the signups that followed. A click is one visitor, one reference, one day: refreshes do not count twice.
+    Clicks are kept for <%= ReferralVisit::RETENTION.in_days.to_i %> days.
   </p>
 
   <%# -- Window -- %>

@@ -1,0 +1,42 @@
+require "test_helper"
+
+# [unit] Rack::Attack.referral_visit_allowed? (config/initializers/rack_attack.rb):
+# the per-address cap on referral_visits writes. The over-the-limit path through
+# a real request is in test/integration/referral_visit_tracking_test.rb.
+class ReferralVisitLimitTest < ActiveSupport::TestCase
+  def request_from(ip)
+    Rack::Attack::Request.new(Rack::MockRequest.env_for("/?reference=tiktok", "REMOTE_ADDR" => ip))
+  end
+
+  def with_rack_attack(store = ActiveSupport::Cache::MemoryStore.new)
+    prior_store = Rack::Attack.cache.store
+    Rack::Attack.cache.store = store
+    Rack::Attack.enabled = true
+    yield
+  ensure
+    Rack::Attack.enabled = false
+    Rack::Attack.cache.store = prior_store
+  end
+
+  test "allows up to the limit per address, then refuses" do
+    with_rack_attack do
+      req = request_from("203.0.113.7")
+      allowed = Array.new(Rack::Attack::REFERRAL_VISIT_LIMIT + 2) { Rack::Attack.referral_visit_allowed?(req) }
+      assert_equal [true] * Rack::Attack::REFERRAL_VISIT_LIMIT + [false, false], allowed
+      assert Rack::Attack.referral_visit_allowed?(request_from("203.0.113.8")), "each address has its own bucket"
+    end
+  end
+
+  test "a cache that cannot be read drops the count" do
+    broken = ActiveSupport::Cache::MemoryStore.new
+    def broken.increment(*) = raise(Redis::CannotConnectError, "down")
+    def broken.write(*) = raise(Redis::CannotConnectError, "down")
+    with_rack_attack(broken) do
+      refute Rack::Attack.referral_visit_allowed?(request_from("203.0.113.7"))
+    end
+  end
+
+  test "disabled rack-attack allows every write" do
+    assert Rack::Attack.referral_visit_allowed?(request_from("203.0.113.7"))
+  end
+end
