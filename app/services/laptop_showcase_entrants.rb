@@ -1,4 +1,4 @@
-# SHOWCASE ENTRANTS for the /turf-monster-v2 hero laptop (Alex, 2026-10-06).
+# SHOWCASE ENTRANTS for the /turf-monster-v2 hero laptop.
 #
 # When the contest the laptop shows has fewer than MIN_REAL real entries, its
 # leaderboard is mostly "Open" seats, which sells nothing. So the laptop's
@@ -113,8 +113,7 @@ class LaptopShowcaseEntrants
     entry.readonly!
     entry
   end
-  # THE SCRIPTED BOARD (Alex, 2026-10-06: "for our purposes we can script the
-  # plays"). When the laptop's contest has NO real entries and its featured
+  # THE SCRIPTED BOARD. When the laptop's contest has NO real entries and its featured
   # game is simulated (LaptopScoreSimulation), the showcase board reacts to the
   # simulated touchdowns: Mason holds the featured game's HOME team, turf its
   # AWAY team, and mack neither, so every touchdown trades first place between

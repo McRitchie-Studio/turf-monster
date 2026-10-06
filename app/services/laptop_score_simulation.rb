@@ -1,11 +1,11 @@
 # A SIMULATED game for the /turf-monster-v2 hero laptop: the featured game of
 # the live snapshot, played out in memory so the laptop can show what
-# /contests/<slug>/live does when a touchdown lands (Alex, 2026-10-06).
+# /contests/<slug>/live does when a touchdown lands.
 #
 # It opens at away 3, home 7 (a field goal for the away side, a touchdown and
 # extra point for the home side), then alternates touchdowns, away first:
 # 10-7, 10-14, 17-14, 17-21, 24-21, 24-28, and STOPS at the touchdown that
-# takes the combined score to STOP_AT (50) or past it (Alex, 2026-10-06): the
+# takes the combined score to STOP_AT (50) or past it: the
 # page holds that final frame and never loops back to 3-7.
 #
 # NOTHING HERE IS WRITTEN. Every Game is a fresh in-memory copy of the real one

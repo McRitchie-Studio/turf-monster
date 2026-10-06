@@ -21,9 +21,9 @@ class User < ApplicationRecord
     # sign-in email and on /admin/emails. mcritchie-studio already names the same
     # person "Alex McRitchie" — one person, one name, across the apps.
     #
-    # THE HUMAN HOLDS `alex`, as of 2026-09-04. The 2026-06-02 flip had given the
-    # bare name to the shared team account and put the person on `mcritchie`;
-    # this reverses it, so the username reads as the person it belongs to.
+    # THE HUMAN HOLDS `alex`, so the username reads as the person it belongs
+    # to; the shared team account holds `mcritchie`, below. A username names
+    # who uses the account, never the role it plays for the server.
     { email: "alex@mcritchie.studio",  name: "Alex McRitchie",  username: "alex",      role: "admin", wallet: "7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr" },
     # The shared team account — the server-side signer, not a person — now on
     # `mcritchie`. Named "Team McRitchie" here and in mcritchie-studio.

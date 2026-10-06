@@ -1,6 +1,6 @@
 <%# locals: (contest:, sim:, frames:)
 
-    THE LAPTOP'S SIMULATED TOUCHDOWNS (Alex, 2026-10-06). The featured game in
+    THE LAPTOP'S SIMULATED TOUCHDOWNS. The featured game in
     the live snapshot opens at LaptopScoreSimulation's 3-7, and every
     INTERVAL_MS a touchdown lands, drawn by /contests/<slug>/live's OWN
     machinery rather than a copy of it:
@@ -30,7 +30,7 @@
     prefers-reduced-motion it never starts, and the laptop holds the static
     opening frame; if reduced motion turns ON mid-visit (the media query is
     watched, not read once), it stops for good and puts the opening frame
-    back. IT STOPS AT THE LAST FRAME (Alex, 2026-10-06): the touchdown that
+    back. IT STOPS AT THE LAST FRAME: the touchdown that
     takes the combined score to LaptopScoreSimulation::STOP_AT (50) is held,
     with no loop back to 3-7, and the timer and every listener are cleared
     then, so nothing idles.
@@ -39,7 +39,7 @@
     listener on document, window or a media query outlives the page it was
     for, and retains it. Every one of them is removed on turbo:visit,
     turbo:before-render and pagehide (not a bfcache one), whether the timer is
-    running or paused; before this a paused laptop leaked one set per visit.
+    running or paused, so a paused laptop leaks nothing either.
 
     STATE FOR THE TESTS, on the sim root: data-sim is "reduced" (never
     started), "paused", "running", "done" (held on the last frame) or
