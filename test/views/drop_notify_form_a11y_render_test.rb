@@ -20,8 +20,8 @@ class DropNotifyFormA11yRenderTest < ActionView::TestCase
     success = Nokogiri::HTML.fragment(html).at_css('[data-test="drop-modal-success"]')
     assert_equal "-1", success["tabindex"]
     assert_equal "success", success["x-ref"]
-    assert_match(/\$watch\('state', function \(value\) \{ if \(value === 'done'\) \$nextTick\(function \(\) \{ \$refs\.success\.focus\(\); \}\); \}\)/,
-                 html)
+    assert_includes html, "$watch('state', function (value) { if (value === 'done') " \
+                          "$nextTick(function () { setTimeout(function () { $refs.success.focus(); }); }); })"
   end
 
   test "the input names the error line and goes invalid only in the error state" do

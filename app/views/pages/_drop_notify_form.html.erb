@@ -13,14 +13,18 @@
 
     FOCUS AND ERRORS, for a keyboard or screen-reader visitor. On success the
     form disappears from under the focus, so focus moves to the success
-    message (tabindex -1, focused on the next tick once x-show has shown it).
+    message (tabindex -1). Alpine's x-show reveals an element in a setTimeout
+    (its click-away compatibility), AFTER $nextTick, and a display-none
+    element cannot take focus; so the focus is a timeout queued from inside
+    $nextTick, which lands after x-show's own. Measured: a bare $nextTick
+    focus left the message unfocused in both surfaces.
     On error the input carries aria-invalid and names the error line in its
     aria-describedby; the line itself is the mounted role="alert" region. The
     watcher lives here, not in the page's factory, so the section and the
     modal both get it from the one partial. %>
 <div class="relative <%= card ? 'card p-6 md:p-8' : '' %> max-w-2xl mx-auto text-left"
      x-data="dropNotifyForm('<%= initial %>')" data-test="<%= test_id %>-form"
-     x-init="$watch('state', function (value) { if (value === 'done') $nextTick(function () { $refs.success.focus(); }); })">
+     x-init="$watch('state', function (value) { if (value === 'done') $nextTick(function () { setTimeout(function () { $refs.success.focus(); }); }); })">
   <div x-show="state === 'done'" <%= 'style="display: none;"'.html_safe unless initial == "done" %>
        role="status" tabindex="-1" x-ref="success" data-test="<%= test_id %>-success">
     <p class="text-xl font-bold text-heading">You&rsquo;re on the list.</p>

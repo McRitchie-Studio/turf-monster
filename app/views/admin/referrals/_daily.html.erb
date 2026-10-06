@@ -1,8 +1,13 @@
-<%# One reference, day by day, newest first. Locals: report, reference, daily. %>
+<%# One reference, day by day, newest first. Locals: report, reference, daily.
+    The reference is visitor-minted text of any length, so its heading wraps
+    anywhere (min-w-0 lets the flex item shrink, break-all breaks a token with
+    no spaces) instead of pushing the page into a horizontal scroll on a phone.
+    Dates carry the year: the "all" window spans years, and "Mon Oct 5" alone
+    names a different day each year. %>
 <section data-referral-daily="<%= reference %>">
-  <div class="flex items-baseline justify-between mb-3">
-    <h2 class="text-lg font-bold text-heading">By day: <span class="font-mono"><%= reference %></span></h2>
-    <%= link_to "Close", admin_referrals_path(days: report.window), class: "text-xs text-secondary hover:text-primary" %>
+  <div class="flex items-baseline justify-between gap-3 mb-3">
+    <h2 class="min-w-0 text-lg font-bold text-heading">By day: <span class="font-mono break-all" data-daily-reference><%= reference %></span></h2>
+    <%= link_to "Close", admin_referrals_path(days: report.window), class: "shrink-0 text-xs text-secondary hover:text-primary" %>
   </div>
   <div class="card overflow-x-auto">
     <table class="w-full text-sm">
@@ -18,7 +23,7 @@
       <tbody>
         <% daily.each do |day| %>
           <tr class="border-b border-subtle" data-day="<%= day.date.iso8601 %>">
-            <td class="px-3 py-2 font-mono text-xs"><%= day.date.strftime("%a %b %-d") %></td>
+            <td class="px-3 py-2 font-mono text-xs"><%= day.date.strftime("%a %b %-d, %Y") %></td>
             <td class="px-3 py-2 font-mono text-right <%= day.clicks.zero? ? 'text-muted' : 'text-heading' %>"><%= day.clicks %></td>
             <td class="px-3 py-2 font-mono text-right text-secondary"><%= day.visitors %></td>
             <% if report.emails? %><td class="px-3 py-2 font-mono text-right"><%= day.email_signups %></td><% end %>
