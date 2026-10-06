@@ -23,10 +23,20 @@ class ReferralVisit < ApplicationRecord
   UTM_LIMIT = 100
   UTM_KEYS = %w[utm_source utm_medium utm_campaign].freeze
 
+  # How long a row is kept. ReferralVisitPruneJob deletes rows whose
+  # visited_on is older, nightly, so the table holds at most this many days of
+  # clicks and the report's "all time" window means "the last RETENTION".
+  RETENTION = 400.days
+
   # Paths whose requests are never a click on a public link: operator pages,
-  # machine endpoints, and asset or socket traffic.
+  # machine endpoints, and asset or socket traffic. The second line is every
+  # path that carries a bearer token (/l/:token, /i/:token, /magic_link/:token,
+  # /email_verification/:token, and the /account/ token pages): landing_path
+  # stores request.path, so a link to one of these carrying ?reference= would
+  # otherwise file the token into this table and the admin report.
   SKIPPED_PATH_PREFIXES = %w[
     /admin /api /rails/ /assets/ /cable /_studio /up /webhooks /auth/ /test/
+    /l/ /i/ /magic_link/ /email_verification/ /account/
   ].freeze
 
   # Crawlers, link unfurlers and scripted clients. Studio::LinkPreview.bot?
@@ -66,9 +76,19 @@ class ReferralVisit < ApplicationRecord
     !bot?(user_agent)
   end
 
+  # A prefix ending in "/" covers only what is under it, so "/account/" skips
+  # /account/wallet/export/<token> and keeps /account; one without covers the
+  # path itself too ("/admin" skips /admin and /admin/referrals).
   def self.skipped_path?(path)
     p = path.to_s
-    SKIPPED_PATH_PREFIXES.any? { |prefix| p == prefix.chomp("/") || p.start_with?(prefix.end_with?("/") ? prefix : "#{prefix}/") }
+    SKIPPED_PATH_PREFIXES.any? do |prefix|
+      prefix.end_with?("/") ? p.start_with?(prefix) : (p == prefix || p.start_with?("#{prefix}/"))
+    end
+  end
+
+  # Deletes every row whose day is older than RETENTION. Returns the count.
+  def self.prune(today: Date.current)
+    where(visited_on: ...(today - RETENTION)).delete_all
   end
 
   # Records one click. Returns true when the call reached the database (a

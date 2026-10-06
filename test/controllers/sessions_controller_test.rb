@@ -79,6 +79,12 @@ class SessionsControllerTest < ActionDispatch::IntegrationTest
     assert_match(/magic link/i, flash[:alert].to_s)
   end
 
+  # Proof the route is Turf's own, not the engine's, is studio-engine PR 420's consumer CI,
+  # where the engine stops drawing POST /login for passwordless apps.
+  test "POST /login reaches the magic-link bounce" do
+    assert_recognizes({ controller: "sessions", action: "create" }, { path: "/login", method: :post })
+  end
+
   test "create with no params still just bounces" do
     post login_path
     assert_redirected_to signin_path

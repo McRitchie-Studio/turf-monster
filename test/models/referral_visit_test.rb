@@ -123,4 +123,26 @@ class ReferralVisitTest < ActiveSupport::TestCase
     assert trackable?(path: "/administrators-guide"), "a prefix match must stop at a path segment"
     assert trackable?(path: "/contests/week-7")
   end
+
+  test "paths that carry a bearer token do not count" do
+    %w[
+      /l/abc123 /i/abc123 /magic_link/abc123 /email_verification/abc123
+      /account/wallet/export/abc123 /account/email/confirm/abc123
+    ].each { |path| refute trackable?(path: path), "#{path} should not count" }
+    assert trackable?(path: "/account"), "the account page itself carries no token"
+    assert trackable?(path: "/lp/launch"), "/l/ must not swallow /lp/"
+  end
+
+  # --- retention ---------------------------------------------------------------
+
+  test "prune removes rows past the retention window and nothing newer" do
+    today = Date.new(2026, 10, 5)
+    cutoff = today - ReferralVisit::RETENTION
+    record(at: (cutoff - 1).to_time.change(hour: 10), visitor: "00000000-0000-4000-8000-000000000001")
+    record(at: cutoff.to_time.change(hour: 10), visitor: "00000000-0000-4000-8000-000000000002")
+    record(at: today.to_time.change(hour: 10), visitor: "00000000-0000-4000-8000-000000000003")
+
+    assert_equal 1, ReferralVisit.prune(today: today)
+    assert_equal [cutoff, today], ReferralVisit.order(:visited_on).pluck(:visited_on)
+  end
 end

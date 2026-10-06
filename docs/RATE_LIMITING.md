@@ -69,6 +69,7 @@ grep -n '^  throttle("' config/initializers/rack_attack.rb
 | Interactive | `update_username/ip` | 10 / min | ip |
 | Interactive | `drop_signups/ip` | 10 / hour (60 in development) | ip (`POST /drop-signups`, the anonymous slate-drop notify-me form on `/turf-monster-v2`; the route is `format: false`). The form reads the 429 itself and says "Too many tries". |
 | Interactive | `drop_signups/email` | 5 / hour | stripped, downcased email param |
+| Interactive | `referral_visits/ip` | 20 / min | ip. Not a throttle rule and never a 429: `ReferralVisitTracking` asks `Rack::Attack.referral_visit_allowed?` before each `referral_visits` write, and past the limit the page is served and the click is not recorded. Off when rack-attack is disabled. |
 | Interactive | `general/ip` | 90 / 60s | ip (tier-1 limiter — toggle_selection / enter / clear_picks) |
 | Agent API | `api/key` | 120 / min | SHA-256 digest of the bearer key (every path under `/api/`, any verb) |
 | Agent API | `api/ip` | 600 / min | ip (every path under `/api/`; flood backstop, loose because agents share cloud egress) |

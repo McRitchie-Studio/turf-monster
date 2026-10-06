@@ -6,9 +6,10 @@ require "test_helper"
 class AdminReferralsTableTest < ActionView::TestCase
   Row = ReferralReport::Row
 
-  # A report double: the partial reads only these four methods.
-  FakeReport = Struct.new(:rows, :emails, :window, keyword_init: true) do
+  # A report double: the partial reads only these methods.
+  FakeReport = Struct.new(:rows, :emails, :window, :hidden, keyword_init: true) do
     def emails? = emails
+    def hidden_references = hidden.to_i
   end
 
   def tiktok(email: nil)
@@ -64,5 +65,17 @@ class AdminReferralsTableTest < ActionView::TestCase
   test "an empty window says so" do
     doc = render_table(FakeReport.new(rows: [], emails: false, window: "30"))
     assert doc.at_css("[data-referral-empty]")
+  end
+
+  test "references past the cap are counted under the table" do
+    doc = render_table(FakeReport.new(rows: [tiktok], emails: false, window: "30", hidden: 1234))
+    note = doc.at_css("[data-referral-hidden]")
+    assert note, "the hidden-count note renders"
+    assert_includes note.text, "top #{ReferralReport::TOP_REFERENCES}"
+    assert_includes note.text, "1,234 more"
+  end
+
+  test "no note when nothing is hidden" do
+    refute render_table(FakeReport.new(rows: [tiktok], emails: false, window: "30")).at_css("[data-referral-hidden]")
   end
 end

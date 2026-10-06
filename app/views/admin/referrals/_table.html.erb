@@ -44,6 +44,11 @@
       <% end %>
     </tbody>
   </table>
+  <% if report.hidden_references.positive? %>
+    <p class="px-3 py-2 text-xs text-muted border-t border-subtle" data-referral-hidden>
+      Showing the top <%= ReferralReport::TOP_REFERENCES %> references by clicks; <%= number_with_delimiter(report.hidden_references) %> more not listed. The totals above count them all.
+    </p>
+  <% end %>
   <% if report.rows.empty? %>
     <p class="px-3 py-6 text-center text-muted text-sm" data-referral-empty>No referral clicks or signups in this window yet.</p>
   <% end %>

@@ -34,26 +34,26 @@
 **Trigger:** Anonymous visitor opens `/` (`GET /`)
 **Actors:** User / Rails / email transport / Stripe / Sidekiq / Solana RPC (devnet)
 **Outcome:** New `users` row, server-managed wallet generated, on-chain `UserAccount` PDA created, one Stripe-funded on-chain `EntryTokenAccount` minted and consumed, an `entries` row for the main contest in status `active` with 6 `selections`, and one visible `messages` row broadcast over ActionCable to that contest's chat stream.
-**Preconditions:** at least one contest in status `open`/`settled` exists, or `Contest.featured` returns nil and root falls back to `/contests` (`app/models/contest.rb:200-205`; `locked` is no longer a status — it is a derived time-gate). `PAYMENT_PROVIDER=stripe` plus Stripe keys set (`Rails.application.config.x.stripe_enabled`, checked in `TokensController#stripe_checkout` at `app/controllers/tokens_controller.rb:29-31`). A `SeasonConfig` row with a non-zero `current_season_id`, enforced on the entry path by `ContestsController#ensure_onchain_season_ready!` (`app/controllers/contests_controller.rb:2348-2352`). The chosen contest must be on-chain — the token branch of `Entries::ManagedEntry#fund!` is what consumes the `EntryTokenAccount` (`app/services/entries/managed_entry.rb:170-185`).
+**Preconditions:** at least one contest in status `open`/`settled` exists, or `Contest.featured` returns nil and root falls back to `/contests` (`app/models/contest.rb:200-205`; `locked` is no longer a status — it is a derived time-gate). `PAYMENT_PROVIDER=stripe` plus Stripe keys set (`Rails.application.config.x.stripe_enabled`, checked in `TokensController#stripe_checkout` at `app/controllers/tokens_controller.rb:29-31`). A `SeasonConfig` row with a non-zero `current_season_id`, enforced on the entry path by `ContestsController#ensure_onchain_season_ready!` (`app/controllers/contests_controller.rb:2353-2357`). The chosen contest must be on-chain — the token branch of `Entries::ManagedEntry#fund!` is what consumes the `EntryTokenAccount` (`app/services/entries/managed_entry.rb:170-185`).
 
 ## Sequence
 
-1. **Visitor lands on `/`** — `root "contests#world_cup"` (`config/routes.rb:57`) → `ContestsController#world_cup` (`app/controllers/contests_controller.rb:679-684`).
+1. **Visitor lands on `/`** — `root "contests#world_cup"` (`config/routes.rb:57`) → `ContestsController#world_cup` (`app/controllers/contests_controller.rb:682-687`).
    - `world_cup` is in the `skip_before_action :require_authentication` list, so logged-out browsing works (`app/controllers/contests_controller.rb:9`).
    - It picks the contest with `Contest.featured` (`app/models/contest.rb:200-205`), whose chain is `SeasonConfig.main_contest_explicit` → most recent `open` non-`coming_soon` → most recent `open`/`settled` non-`coming_soon`. It does NOT call `SeasonConfig.main_contest` (`app/models/season_config.rb:33-37`); that resolver is a separate one used by the share widget and faucet CTA, and it applies a different fallback.
-   - `world_cup` then 302s to `contest_path(@contest)`, or straight to `live_contest_path(@contest)` once a game on the slate has started (`app/controllers/contests_controller.rb:683`).
+   - `world_cup` then 302s to `contest_path(@contest)`, or straight to `live_contest_path(@contest)` once a game on the slate has started (`app/controllers/contests_controller.rb:686`).
 
-2. **Show page renders for a logged-out visitor** — `ContestsController#show` (`app/controllers/contests_controller.rb:695-702`) → `app/views/contests/show.html.erb`. `/contests/:id` is a router: once a game on the slate has started a bare visit 302s to the live board, and the page itself is always at `/contests/:id/contest` (`ContestsController#contest`); both render through `#load_contest_page` (`:2721-2762`).
+2. **Show page renders for a logged-out visitor** — `ContestsController#show` (`app/controllers/contests_controller.rb:698-705`) → `app/views/contests/show.html.erb`. `/contests/:id` is a router: once a game on the slate has started a bare visit 302s to the live board, and the page itself is always at `/contests/:id/contest` (`ContestsController#contest`); both render through `#load_contest_page` (`:2726-2767`).
    - Hero banner + creator avatar + on-chain explorer link — `contests/hero` is rendered at `app/views/contests/show.html.erb:31`; inside the partial the `explorer.solana.com` link is at `app/views/contests/_hero.html.erb:19` and the avatar circle, which renders `creator_name.first.upcase`, at `:29-31`.
    - The inline matchup board never links out to `/tokens/buy`: the buy affordance is the IN-MODAL entry-token picker opened by `showBuyEntryToken()` (`app/views/contests/_turf_totals_board.html.erb:1243-1261`), so the buyer never visually leaves the contest. An anonymous visitor is bounced to the auth modal first — `confirmEntry()` reads `sess.isGuest` and calls `showLoginModal()` (`:1575-1580`) — and resumed afterwards by `afterLoginSuccess()` (`:1361-1390`), which replays the cart and re-runs `confirmEntry`. From there `showEligibilityBlockerModal()` (`:811-836`) routes a token-less buyer onward. The entry fee reaches the board as `entryFeeCents` (`:142`).
 
-3. **Clicks "Sign in" in the navbar** — the logged-out CTA targets the unified `/signin` page, `get "signin", to: "sessions#new"` (`config/routes.rb:191`). Legacy `GET /login` and `GET /signup` both redirect through `signin_redirect` (`:193-194`).
+3. **Clicks "Sign in" in the navbar** — the logged-out CTA targets the unified `/signin` page, `get "signin", to: "sessions#new"` (`config/routes.rb:191`). Legacy `GET /login` and `GET /signup` both redirect through `signin_redirect` (`:193-195`).
 
-4. **Requests an email magic link** — `SessionsController#new` (`app/controllers/sessions_controller.rb:15-16`) renders the unified auth surface; the email form posts to `POST /magic_link`, routed to `magic_links#create` (`config/routes.rb:247`).
+4. **Requests an email magic link** — `SessionsController#new` (`app/controllers/sessions_controller.rb:15-16`) renders the unified auth surface; the email form posts to `POST /magic_link`, routed to `magic_links#create` (`config/routes.rb:248`).
    - `MagicLinksController#create` (`app/controllers/magic_links_controller.rb:37-51`) checks the email shape with `User.valid_email?` at `:39`, mints the one-time link through `Studio::Link#create_magic_link` (`studio-engine: app/models/studio/link.rb`) at `:43-44`, and delivers `UserMailer.magic_link` through `Studio::Email` at `:45`.
    - The response is uniform for every well-formed request (`:47-50`), so the endpoint does not enumerate accounts.
 
-5. **Consumes the magic link** — the emailed URL first hits the INERT `GET /magic_link/:token`, routed to `magic_links#confirm` (`config/routes.rb:248`); the human confirmation form then POSTs to `POST /magic_link/:token`, routed to `magic_links#consume` (`:250`).
+5. **Consumes the magic link** — the emailed URL first hits the INERT `GET /magic_link/:token`, routed to `magic_links#confirm` (`config/routes.rb:249`); the human confirmation form then POSTs to `POST /magic_link/:token`, routed to `magic_links#consume` (`:251`).
    - `MagicLinksController#confirm` (`app/controllers/magic_links_controller.rb:68-85`) never burns the token: it previews the link and renders the confirmation only while the link is still live (`:84`).
    - `MagicLinksController#consume` (`:95-98`) is the only place the token is burned, through `Studio::LinkConsumption#consume_magic_link` (`studio-engine: app/controllers/concerns/studio/link_consumption.rb`) at `:97`. Winning the atomic burn IS the proof the link was live.
    - If the user does not exist, `MagicLinksController#sign_up_new` (`:166-241`) builds `User.new(email: result.email, …)` at `:177-179` and saves at `:182`.
@@ -88,22 +88,22 @@
    - The browser polls `/tokens/status` from the processing page until the purchase reads `minted`; the endpoint is `TokensController#status` (`app/controllers/tokens_controller.rb:462-504`).
 
 8. **Back to root → main contest** — the user clicks the navbar "Turf Monster" home link → `GET /` → step 1 repeats → 302 to `contest_path(@contest)`.
-   - Same `ContestsController#world_cup` action, same `Contest.featured` chain (`app/controllers/contests_controller.rb:680`).
+   - Same `ContestsController#world_cup` action, same `Contest.featured` chain (`app/controllers/contests_controller.rb:683`).
    - "Main contest" surfacing is the admin's explicit pick from `/admin/site_config`, stored by `SeasonConfig.set_main_contest!` (`app/models/season_config.rb:45-48`) and read back by `SeasonConfig.main_contest_explicit` (`:41-43`). After that the fallback is most-recent `open`, then most-recent `open`/`settled` (`app/models/contest.rb:202-204`). **No** highest-pot ordering.
 
-9. **Build a 6-pick lineup** — each tap on a matchup tile POSTs to `ContestsController#toggle_selection` (`app/controllers/contests_controller.rb:1506-1527`).
-   - It rejects the tap unless the contest is `open?` (`:1507-1509`).
-   - `find_or_create_by!(user: current_user, status: :cart)` creates the cart `Entry` on the first toggle (`:1514`).
-   - `entry.toggle_selection!(matchup)` (`:1517`) enforces the cap of `contest.picks_required` — 6 — inside `Entry#toggle_selection!` (`app/models/entry.rb:43-68`), which replaces the oldest pick once the cap is reached (`:53-59`).
-   - The body is wrapped in `rescue_and_log(target: entry, parent: @contest)` (`app/controllers/contests_controller.rb:1516`).
+9. **Build a 6-pick lineup** — each tap on a matchup tile POSTs to `ContestsController#toggle_selection` (`app/controllers/contests_controller.rb:1509-1530`).
+   - It rejects the tap unless the contest is `open?` (`:1510-1512`).
+   - `find_or_create_by!(user: current_user, status: :cart)` creates the cart `Entry` on the first toggle (`:1517`).
+   - `entry.toggle_selection!(matchup)` (`:1520`) enforces the cap of `contest.picks_required` — 6 — inside `Entry#toggle_selection!` (`app/models/entry.rb:43-68`), which replaces the oldest pick once the cap is reached (`:53-59`).
+   - The body is wrapped in `rescue_and_log(target: entry, parent: @contest)` (`app/controllers/contests_controller.rb:1519`).
 
-10. **Hold-to-Confirm fires `POST /contests/:id/enter`** — `ContestsController#enter` (`app/controllers/contests_controller.rb:760-935`).
+10. **Hold-to-Confirm fires `POST /contests/:id/enter`** — `ContestsController#enter` (`app/controllers/contests_controller.rb:763-938`).
     - Gated by the class-body `before_action :require_geo_allowed` (`:16`) and `before_action :require_unfrozen_account` (`:18`).
-    - `enter` loads the cart entry at `:797` and hands it to `Entries::ManagedEntry#call` (`app/services/entries/managed_entry.rb:67-119`), the path the agent API shares. The managed-wallet funding branch runs inside its `@contest.with_lock` (`:77`) through `Entries::ManagedEntry#fund!` (`:151-230`):
+    - `enter` loads the cart entry at `:800` and hands it to `Entries::ManagedEntry#call` (`app/services/entries/managed_entry.rb:67-119`), the path the agent API shares. The managed-wallet funding branch runs inside its `@contest.with_lock` (`:77`) through `Entries::ManagedEntry#fund!` (`:151-230`):
       - `@user.next_unconsumed_entry_token_for(address)` reads the token on-chain (`:169`, definition `User#next_unconsumed_entry_token_for` at `app/models/user.rb:747-754`). With no token and no USDC, `#fund!` raises `"No entry tokens. Buy at /tokens/buy"` (`app/services/entries/managed_entry.rb:225`).
       - `Solana::Vault#enter_contest_with_token` is the atomic Anchor instruction — it creates the entry PDA, consumes the token, and awards seeds (called from `#fund!` at `:177-180`, definition `app/services/solana/vault.rb:2296`). The managed wallet's keypair, decrypted from the DB by `User#solana_keypair` (`app/models/user.rb:555-558`), signs it.
     - `entry.confirm!(tx_signature:, onchain_entry_id:)` runs from `Entries::ManagedEntry#finalize!` (`app/services/entries/managed_entry.rb:242`). `Entry#confirm!` (`app/models/entry.rb:188-229`) re-runs `assert_enterable!` under the user row lock (`:197`), refuses a paid entry with no payment proof (`:206-208`), writes the `entry_fee` `TransactionLog` debit (`:210-212`), and flips `entries.status` → `active` (`:213`). The 6-selection count, lock time, and duplicate-combo checks all live in `Entry#assert_enterable!` (`:136-171`).
-    - The JSON response carries `redirect: contest_path(@contest)` (`app/controllers/contests_controller.rb:922`).
+    - The JSON response carries `redirect: contest_path(@contest)` (`app/controllers/contests_controller.rb:925`).
 
 11. **Land back on the contest show page** — `@has_entry` is now true, so the seeds + share cards render (`app/views/contests/show.html.erb:39-62`) and the leaderboard partial replaces the matchup board. The same page hosts `contests/chat_panel`, rendered at `:108`.
 
@@ -121,7 +121,7 @@
 - `magic_links` (insert + consume) — the one-time email sign-in row, owned by the gem: `Studio::Link#create_magic_link` (`studio-engine: app/models/studio/link.rb`).
 - `stripe_purchases` (insert + update) — `stripe_session_id`, `quantity`, `price_cents`, `status` (pending → minted), `mint_tx_signatures`, `minted_at`; the row is created by `TokenPurchaseJob#perform` (`app/jobs/token_purchase_job.rb:95-101`).
 - `transaction_logs` (insert) — one row for the token purchase from `TokenPurchaseJob#perform` (`app/jobs/token_purchase_job.rb:151-159`), one for the entry-fee debit from `Entry#confirm!` (`app/models/entry.rb:210-212`).
-- `entries` (insert + update) — created `status: :cart` by `ContestsController#toggle_selection` (`app/controllers/contests_controller.rb:1514`), flipped to `:active` with `onchain_tx_signature` + `onchain_entry_id` by `Entry#confirm!` (`app/models/entry.rb:213`).
+- `entries` (insert + update) — created `status: :cart` by `ContestsController#toggle_selection` (`app/controllers/contests_controller.rb:1517`), flipped to `:active` with `onchain_tx_signature` + `onchain_entry_id` by `Entry#confirm!` (`app/models/entry.rb:213`).
 - `selections` (insert × 6) — one per matchup tap, created inside `Entry#toggle_selection!` (`app/models/entry.rb:54`).
 - `messages` (insert) — `body`, `user_id`, `contest_id`, built in `MessagesController#create` (`app/controllers/messages_controller.rb:17`).
 - **on-chain**: `UserAccount` PDA (created by `CreateOnchainUserAccountJob` post-signup); one `EntryTokenAccount` PDA per mint through `Solana::Vault#mint_entry_token`, which refuses locally once the v0.26 per-window mint cap is reached rather than broadcasting a doomed transaction (`app/services/solana/vault.rb:2701`, `source: :stripe`); the entry PDA created and the token PDA consumed atomically by `Solana::Vault#enter_contest_with_token` (`:2296`, turf-vault v0.12.0+).
@@ -130,8 +130,8 @@
 
 ## Failure modes
 
-- **`SeasonConfig.current_season_id == 0` at entry time** — `ContestsController#onchain_season_error` returns `"No active season configured. Set one at /admin/seasons before creating on-chain contests."` (`app/controllers/contests_controller.rb:2354-2356`) and `#ensure_onchain_season_ready!` raises it (`:2348-2352`). The user sees a toast; the operator fix is `/admin/seasons` → set current.
-- **No open contest** — `ContestsController#world_cup` returns `redirect_to contests_path` (`app/controllers/contests_controller.rb:681`); the user lands on the contest index instead of a show page.
+- **`SeasonConfig.current_season_id == 0` at entry time** — `ContestsController#onchain_season_error` returns `"No active season configured. Set one at /admin/seasons before creating on-chain contests."` (`app/controllers/contests_controller.rb:2359-2361`) and `#ensure_onchain_season_ready!` raises it (`:2353-2357`). The user sees a toast; the operator fix is `/admin/seasons` → set current.
+- **No open contest** — `ContestsController#world_cup` returns `redirect_to contests_path` (`app/controllers/contests_controller.rb:684`); the user lands on the contest index instead of a show page.
 - **Stripe webhook signature mismatch / bad JSON** — `Webhooks::StripeController#create` returns `head :bad_request` (`app/controllers/webhooks/stripe_controller.rb:15-20`). No `StripePurchase` row, no mint; Stripe retries the delivery on its own schedule. Watch for the `[tokens] webhook.bad_signature` log line.
 - **Test-mode event in production** — `Webhooks::StripeController#create` returns `head :ok` plus a warning log (`app/controllers/webhooks/stripe_controller.rb:29-32`); swallowed by design (OPSEC-033).
 - **`TokenPurchaseJob` crashes mid-mint** — the signatures already persisted to `stripe_purchases.mint_tx_signatures` set the resume offset on retry: `TokenPurchaseJob#perform` reads them back as `already_minted` (`app/jobs/token_purchase_job.rb:115-117`) and restarts the loop at that index (`:123`). Sidekiq retries with the same `stripe_session_id`. The operator watches `/admin/jobs` for stuck retries and the rescue's log lines (`:161-176`).
@@ -146,7 +146,7 @@
 ## Related workflows
 
 - [[referral-google-tokens-to-chat]] — converges on the same code from step 6 onward (`TokensController#stripe_checkout`, the webhook, `ContestsController#enter`, `MessagesController#create`). It differs at the signup spine: Google OAuth through `OmniauthCallbacksController#create`, with the `?reference=` funnel attribution writing `users.reference`.
-- [[web3-landing-to-entry]] — an alternate top-of-funnel where the visitor connects Phantom on a landing page; it converges on `ContestsController#prepare_entry` (`app/controllers/contests_controller.rb:998-1160`) and `#confirm_onchain_entry` (`:1345-1484`) instead of the managed-token branch this flow exercises.
+- [[web3-landing-to-entry]] — an alternate top-of-funnel where the visitor connects Phantom on a landing page; it converges on `ContestsController#prepare_entry` (`app/controllers/contests_controller.rb:1001-1163`) and `#confirm_onchain_entry` (`:1348-1487`) instead of the managed-token branch this flow exercises.
 - [[admin-contest-setup]] — the predecessor flow; it produces the `Contest` and the `SeasonConfig.main_contest_explicit` pointer `Contest.featured` reads first (`app/models/contest.rb:201`).
 
 <!-- citation-guard: enforced -->

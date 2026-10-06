@@ -262,7 +262,7 @@ Every **non-test** caller, for reference (a dozen more live under `test/`):
 
 | Caller | Where |
 |---|---|
-| Contest creation — `ContestsController#resolve_span_slate` | `app/controllers/contests_controller.rb:2167` |
+| Contest creation — `ContestsController#resolve_span_slate` | `app/controllers/contests_controller.rb:2172` |
 | Demo seed — `#seed_nfl_demo_contest!` | `db/seeds/nfl_demo_contest.rb:51` |
 | E2E seed — span 15-17, `Nfl::BuildSpanSlate.call` | `e2e/seed.rb:115` |
 | E2E seed — span 1-3, `Nfl::BuildSpanSlate.call` | `e2e/seed.rb:239` |
@@ -341,7 +341,7 @@ is `nfl_team_total_projections` today.
 - [[market-snapshot]] — the predecessor. Owns the network, the derive math, and the
   projections table this SOP reads.
 - [[admin-contest-setup]] — the successor. `ContestsController#resolve_span_slate`
-  (`app/controllers/contests_controller.rb:2141-2171`, step 7's real contest-creation path)
+  (`app/controllers/contests_controller.rb:2146-2176`, step 7's real contest-creation path)
   is that workflow's entrypoint, so a slate built here is what a contest is then opened on.
 
 <!-- citation-guard: enforced -->

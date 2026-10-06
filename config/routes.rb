@@ -184,13 +184,14 @@ Rails.application.routes.draw do
   # single canonical page at /signin (sessions#new). The legacy /login + /signup
   # GETs 301 here, preserving the query string so ?reference= funnel attribution
   # (ApplicationController#capture_reference) and ?email= prefill survive the hop.
-  # These are defined BEFORE Studio.routes so they win GET recognition; the engine
-  # still draws /login + /signup below, keeping the login_path/signup_path helpers
-  # and the POST /login + POST /signup actions intact. as: nil avoids a name clash
-  # with those engine-named routes.
+  # These are defined BEFORE Studio.routes so they win recognition. POST /login is
+  # drawn here too: the engine draws it only for apps with :password, and Turf's
+  # SessionsController#create is the magic-link bounce. The engine still draws the
+  # login_path/signup_path helpers and POST /signup; as: nil avoids a name clash.
   get "signin", to: "sessions#new", as: :signin
   signin_redirect = ->(_params, req) { req.query_string.present? ? "/signin?#{req.query_string}" : "/signin" }
   get "login",  to: redirect(&signin_redirect), as: nil
+  post "login", to: "sessions#create", as: nil
   get "signup", to: redirect(&signin_redirect), as: nil
 
   Studio.routes(self)
