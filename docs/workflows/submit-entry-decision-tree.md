@@ -70,7 +70,7 @@ Currency pick (web3): USDC-first, USDT only when the contest's `accepts_usdt`
 is true (contests created before 2026-06-11 are USDC-only forever — their
 on-chain `entry_fee_by_currency[1]` is zero and immutable).
 `ContestsController#prepare_entry` enforces it server-side
-(`app/controllers/contests_controller.rb:990-1000`).
+(`app/controllers/contests_controller.rb:1001-1011`).
 
 ## 2. Web2 / managed path — `POST enter` (server signs, synchronous)
 
@@ -114,14 +114,14 @@ the no-token branch as an unconditional `enter_contest` USDC transfer; that bran
 is `enter_contest_with_usdc`, gated behind a flag, and with the flag off the path
 raises "No entry tokens" instead.
 
-| Branch | Where — each row names its owner; `ContestsController#enter` is `app/controllers/contests_controller.rb:745-920` |
+| Branch | Where — each row names its owner; `ContestsController#enter` is `app/controllers/contests_controller.rb:756-931` |
 |---|---|
-| contest cancelled → 422 | `#enter` at `:749-752` |
-| self-custodied → 422 + `self_custodied` | `#enter` at `:774-780` |
-| cart entry; survivor auto-creates | `#enter` at `:782-786` |
-| `onchain_session?` → 422 "use prepare_entry" | `#enter` at `:816-822` |
-| self-custody account in a web2 session → `web3_step_up_required` | `#enter` at `:867-874` |
-| hand-off to `Entries::ManagedEntry#call`, inside `rescue_and_log` | `#enter` at `:891` |
+| contest cancelled → 422 | `#enter` at `:760-763` |
+| self-custodied → 422 + `self_custodied` | `#enter` at `:785-791` |
+| cart entry; survivor auto-creates | `#enter` at `:793-797` |
+| `onchain_session?` → 422 "use prepare_entry" | `#enter` at `:827-833` |
+| self-custody account in a web2 session → `web3_step_up_required` | `#enter` at `:878-885` |
+| hand-off to `Entries::ManagedEntry#call`, inside `rescue_and_log` | `#enter` at `:902` |
 | `@contest.with_lock` — `Entries::ManagedEntry#call` is `app/services/entries/managed_entry.rb:67-119` | `#call` at `:77` |
 | `assert_enterable!` pre-flight — `Entry#assert_enterable!` | `Entries::ManagedEntry#call` at `:82`; definition `app/models/entry.rb:136-171` |
 | season configured? | `Entries::ManagedEntry#call` at `app/services/entries/managed_entry.rb:88-93` |
@@ -224,23 +224,23 @@ prepare_entry
     → returns serialized_tx + ptx_slug to the client
 ```
 
-| Branch | Where — each row names its owner; `ContestsController#prepare_entry` is `app/controllers/contests_controller.rb:983-1145` |
+| Branch | Where — each row names its owner; `ContestsController#prepare_entry` is `app/controllers/contests_controller.rb:994-1156` |
 |---|---|
-| not an `onchain_session?` → 403 | `#prepare_entry` at `:1006` |
-| full / wrong pick count / started game | `#prepare_entry` at `:1030-1037` |
-| `Entry#assign_onchain_entry_number!` | `#prepare_entry` at `:1046`; definition `app/models/entry.rb:328-343` |
-| `Solana::Vault#ensure_user_account` | `#prepare_entry` at `app/controllers/contests_controller.rb:1051` |
+| not an `onchain_session?` → 403 | `#prepare_entry` at `:1017` |
+| full / wrong pick count / started game | `#prepare_entry` at `:1041-1048` |
+| `Entry#assign_onchain_entry_number!` | `#prepare_entry` at `:1057`; definition `app/models/entry.rb:328-343` |
+| `Solana::Vault#ensure_user_account` | `#prepare_entry` at `app/controllers/contests_controller.rb:1062` |
 | username codes 6020-6022 → friendly message, in `Solana::ErrorInterpreter.interpret` | `app/services/solana/error_interpreter.rb:184-196` |
-| ATA for the SELECTED currency — `Solana::Vault#ensure_ata` | `#prepare_entry` at `app/controllers/contests_controller.rb:1081` |
+| ATA for the SELECTED currency — `Solana::Vault#ensure_ata` | `#prepare_entry` at `app/controllers/contests_controller.rb:1092` |
 | unsigned tx on a FRESH blockhash — `Solana::Vault#build_enter_contest` sets no durable nonce | `app/services/solana/vault.rb:2203-2291` |
-| `PendingTransaction` created, no signature | `#prepare_entry` at `app/controllers/contests_controller.rb:1102-1122` |
+| `PendingTransaction` created, no signature | `#prepare_entry` at `app/controllers/contests_controller.rb:1113-1133` |
 
 ### 3b. Phantom signs (client)
 
 - User can dismiss or Phantom can invalidate the request → the client POSTs
   `discard_prepared_entry`. `ContestsController#discard_prepared_entry`
-  (`app/controllers/contests_controller.rb:1153-1187`) checks ownership
-  (`:1160-1166`) and expires only this user's signatureless PT (`:1179-1181`).
+  (`app/controllers/contests_controller.rb:1164-1198`) checks ownership
+  (`:1171-1177`) and expires only this user's signatureless PT (`:1190-1192`).
   The error card offers **Try Again**; that user click refreshes the session
   snapshot and returns to §3a for new wire bytes and a fresh blockhash without
   reloading the page. Signed PTs cannot be discarded through this endpoint.
@@ -283,15 +283,15 @@ confirm_onchain_entry
 └─ PT confirmed, chat announce, seeds fanout, success modal
 ```
 
-| Branch | Where — each row names its owner; `ContestsController#confirm_onchain_entry` is `app/controllers/contests_controller.rb:1330-1469` |
+| Branch | Where — each row names its owner; `ContestsController#confirm_onchain_entry` is `app/controllers/contests_controller.rb:1341-1480` |
 |---|---|
-| `assert_enterable!` PRE-FLIGHT | `#confirm_onchain_entry` at `:1354` |
-| build the expectation — `Solana::Vault#cosign_expectation` | `#confirm_onchain_entry` at `:1383-1387`; definition `app/services/solana/vault.rb:3436-3479` |
+| `assert_enterable!` PRE-FLIGHT | `#confirm_onchain_entry` at `:1365` |
+| build the expectation — `Solana::Vault#cosign_expectation` | `#confirm_onchain_entry` at `:1394-1398`; definition `app/services/solana/vault.rb:3436-3479` |
 | C1 cosign guard — `Solana::Cosign::Expectation#verify!` | invoked inside `#cosign_and_broadcast_entry` below; definition `solana-studio lib/solana/cosign/expectation.rb` |
-| cosign + simulate + broadcast — `Solana::Vault#cosign_and_broadcast_entry` | `#confirm_onchain_entry` at `app/controllers/contests_controller.rb:1405-1409`; definition `app/services/solana/vault.rb:3560-3563` |
-| PT stamped with `tx_signature` immediately, BEFORE broadcast (`before_send:`) | `#confirm_onchain_entry` at `app/controllers/contests_controller.rb:1408` |
-| `ContestsController#verify_and_confirm_onchain_entry!` | `#confirm_onchain_entry` at `:1415-1418`; definition `:2624-2641` |
-| PT confirmed | `#confirm_onchain_entry` at `:1420` |
+| cosign + simulate + broadcast — `Solana::Vault#cosign_and_broadcast_entry` | `#confirm_onchain_entry` at `app/controllers/contests_controller.rb:1416-1420`; definition `app/services/solana/vault.rb:3560-3563` |
+| PT stamped with `tx_signature` immediately, BEFORE broadcast (`before_send:`) | `#confirm_onchain_entry` at `app/controllers/contests_controller.rb:1419` |
+| `ContestsController#verify_and_confirm_onchain_entry!` | `#confirm_onchain_entry` at `:1426-1429`; definition `:2645-2662` |
+| PT confirmed | `#confirm_onchain_entry` at `:1431` |
 
 ## 4. Can funds be taken without an entry? (the full inventory)
 
@@ -316,19 +316,19 @@ and every such case except #6 self-heals automatically.
 - **Trigger**: automatic, on contest-page load, ONLY when the viewer has a
   pending/submitted PT **with a tx_signature** (= broadcast actually happened;
   money may have moved) — `ContestsController#find_pending_recovery_ptx`
-  (`app/controllers/contests_controller.rb:2786-2806`) returns only a signed one
-  (`:2805`). Signatureless PTs trigger nothing — stale ones
+  (`app/controllers/contests_controller.rb:2807-2827`) returns only a signed one
+  (`:2826`). Signatureless PTs trigger nothing — stale ones
   (>10 min, never racing a mid-confirm tab) are silently expired.
 - **Logic**, in `ContestsController#recover_pending_entry`
-  (`app/controllers/contests_controller.rb:1219-1317`): entry already active →
-  confirm PT, done (`:1240`). Signature blank → PT failed, user retries (`:1259-1261`). Signature present → `getSignatureStatuses` poll:
+  (`app/controllers/contests_controller.rb:1230-1328`): entry already active →
+  confirm PT, done (`:1251`). Signature blank → PT failed, user retries (`:1270-1272`). Signature present → `getSignatureStatuses` poll:
   landed clean → full verify → promote to `active` (no re-charge); on-chain
-  err → PT failed, retry is safe (`:1274-1276`); still propagating →
-  "processing", client keeps polling (`:1270-1272`, ~30s budget). A landed
-  signature runs the full `verify_and_confirm_onchain_entry!` (`:1292-1294`).
+  err → PT failed, retry is safe (`:1285-1287`); still propagating →
+  "processing", client keeps polling (`:1281-1283`, ~30s budget). A landed
+  signature runs the full `verify_and_confirm_onchain_entry!` (`:1303-1305`).
 - **Safety**: `ContestsController#recover_pending_entry` double-checks ownership —
-  initiator address (`app/controllers/contests_controller.rb:1223`) AND
-  `entry.user_id` (`:1232`), Lazarus #1; a retry never collides because `assign_onchain_entry_number!`
+  initiator address (`app/controllers/contests_controller.rb:1234`) AND
+  `entry.user_id` (`:1243`), Lazarus #1; a retry never collides because `assign_onchain_entry_number!`
   probes the chain for a free slot.
 
 ### 5.2 `Entries::OnchainReconcileJob` / `OnchainReconciler` (web2)
@@ -359,7 +359,7 @@ and every such case except #6 self-heals automatically.
 ### 5.3 Page-load stale-PT expiry (web3 hygiene)
 Signatureless pending PTs older than 10 minutes are flipped to `expired`
 during contest-page load, inside `ContestsController#find_pending_recovery_ptx`
-(`app/controllers/contests_controller.rb:2801-2803`). Pure cleanup; never touches
+(`app/controllers/contests_controller.rb:2822-2824`). Pure cleanup; never touches
 a PT with a signature.
 
 ### 5.4 Operator surfaces (manual)
