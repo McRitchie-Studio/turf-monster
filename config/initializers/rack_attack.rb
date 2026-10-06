@@ -15,6 +15,35 @@
 # uses Redis-backed cache automatically. Disabled in test env so tests
 # don't accidentally hit throttles (an explicit Rack::Attack-aware test
 # can re-enable via Rack::Attack.enabled = true around its assertions).
+#
+# Cache outage: EVERY RULE HERE FAILS OPEN, by decision. Production's
+# Rails.cache is a redis_cache_store whose error_handler swallows connection
+# errors (config/environments/production.rb), so while Redis is down an
+# increment answers nil rather than raising. rack-attack 6.8 reads that nil as
+# a new bucket and counts 1 (Rack::Attack::Cache#do_count), every limit here is
+# at least 1, and so no request is throttled until Redis is back. Nothing
+# raises, so no `rescue` in this file runs either. The outage is loud even so:
+# the error_handler logs "[cache] increment failed" on every counted request.
+#
+# Failing closed was weighed rule by rule and refused, because a closed rule
+# refuses EVERYONE it matches, not only the abuser:
+#   - page views (referral_visit_allowed?): the click is recorded, as it would
+#     be with Redis up. Dropping it would lose every real person's click for
+#     the length of the outage to cap a script that happens to run inside it.
+#   - login, signup, magic link, email verification, wallet sign-in: a closed
+#     rule is a sign-in outage for every user. Passwords stay hashed, magic
+#     links single-use, wallet signatures verified; only the rate is lost.
+#   - checkout, deposit, cash-out, withdraw: a closed rule stops every purchase
+#     and every cash-out. Each is behind its own authorization, and cash-out is
+#     bounded by its state machine (cdp_offramp_send/user below). The faucet and
+#     airdrop are production-disabled outright (OPSEC-020).
+#   - webhooks: a closed rule drops a provider's deliveries; each is still
+#     signature-verified.
+#   - the agent API and /mcp: every key is still authenticated per request.
+# What the outage costs is the RATE: for its length, brute force and
+# table-growth scripts are bounded only by the guards behind each rule.
+# test/initializers/rack_attack_cache_outage_test.rb pins this against a store
+# that fails the way production's does.
 
 Rails.application.config.middleware.use Rack::Attack
 
@@ -367,13 +396,19 @@ class Rack::Attack
 
   # Has this bearer key authenticated here within MCP_VERIFIED_TTL? Memoised on
   # the request: both throttles ask.
+  #
+  # A mark that cannot be read counts as no mark, so the key goes to the
+  # stricter per-address tier. In production that comes from the read itself:
+  # under a Redis outage it answers nil rather than raising. The `rescue` is
+  # for a store that raises, which production's does not. Either way it limits
+  # nothing during an outage, because the per-address count fails open too
+  # (see "Cache outage" at the top of this file).
   def self.mcp_verified?(req)
     return req.env["mcp.key_verified"] if req.env.key?("mcp.key_verified")
 
     digest = api_key_discriminator(req)
     req.env["mcp.key_verified"] = digest.present? && cache.read(mcp_verified_cache_key(digest)).present?
   rescue StandardError
-    # A cache that cannot be read must not let everything through unlimited.
     req.env["mcp.key_verified"] = false
   end
 
@@ -459,7 +494,13 @@ class Rack::Attack
   # that and far below a loop. Keyed on req.ip, the address the Heroku router
   # wrote (config/initializers/forwarded_headers.rb). Asked by the controller
   # rather than matched here because only the controller knows a request is
-  # about to write. A cache that cannot be read drops the count, never the page.
+  # about to write.
+  #
+  # A cache that cannot be counted RECORDS the click, like every rule in this
+  # file (see "Cache outage" at the top). Under a Redis outage production's
+  # store answers count 1, so every click is recorded until Redis is back; a
+  # store that raises instead takes the `rescue` below to the same answer. The
+  # page is served either way.
   REFERRAL_VISIT_LIMIT = 20
   REFERRAL_VISIT_PERIOD = 1.minute
 
@@ -469,7 +510,7 @@ class Rack::Attack
     cache.count("referral_visits/ip:#{req.ip}", REFERRAL_VISIT_PERIOD.to_i) <= REFERRAL_VISIT_LIMIT
   rescue StandardError => e
     Rails.logger.warn("[rack-attack] referral visit count failed: #{e.class}")
-    false
+    true
   end
 
   ### Response: throttled requests get 429
