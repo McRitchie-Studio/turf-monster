@@ -10,7 +10,7 @@
 #
 # Scheduled every 15 minutes via config/schedule.yml (sidekiq-cron); the 10-min
 # reconcile threshold means an in-flight deposit is never touched.
-class PendingDepositReconcilerJob < ApplicationJob
+class PendingDepositReconcilerJob < ApplicationJob # parked: FiatRailsParked, docs/FIAT_RAILS.md
   queue_as :default
 
   def perform(older_than_minutes: nil)

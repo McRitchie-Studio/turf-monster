@@ -1,5 +1,11 @@
 ENV["RAILS_ENV"] ||= "test"
 
+# The fiat rails are parked behind ENABLE_FIAT_RAILS (off by default everywhere,
+# docs/FIAT_RAILS.md). The suite runs with them ON so the parked code keeps its
+# coverage; test/integration/fiat_rails_parked_test.rb turns the flag off to
+# prove the parked state. `||=` lets a caller run the suite parked.
+ENV["ENABLE_FIAT_RAILS"] ||= "true"
+
 # I1 (Stage 3 audit): SimpleCov must start before Rails loads any app code
 # so it can track which lines get hit. Opt-in via COVERAGE=1 to keep the
 # default `bin/rails test` fast; ENFORCE_COVERAGE=1 turns the line threshold

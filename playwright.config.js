@@ -38,6 +38,9 @@ const { defineConfig } = require("@playwright/test");
 // `||=` so a caller can still turn them off for a one-off run without editing this file.
 process.env.ENABLE_COINFLOW ||= "true";
 process.env.ENABLE_AEROPAY ||= "true";
+// The master switch for the parked fiat rails (AppFlags.fiat_rails?, docs/FIAT_RAILS.md):
+// without it the two rails above stay hidden and their routes answer 404.
+process.env.ENABLE_FIAT_RAILS ||= "true";
 
 module.exports = defineConfig({
   testDir: "./e2e",
@@ -171,7 +174,8 @@ module.exports = defineConfig({
           // which is what test/lib/e2e_onramp_flag_parity_test.rb checks. Verified
           // seed-inert — e2e/seed.rb reads neither.
           ENABLE_COINFLOW: "true",
-          ENABLE_AEROPAY: "true"
+          ENABLE_AEROPAY: "true",
+          ENABLE_FIAT_RAILS: "true"
         },
       },
 });

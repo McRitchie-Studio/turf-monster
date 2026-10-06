@@ -30,7 +30,7 @@
 #     and "refunded" (the money came back — never mint over it). "pending" /
 #     "captured" / "failed" rows are mid-recovery and must run through the
 #     loop to resume.
-class TokenPurchaseJob < ApplicationJob
+class TokenPurchaseJob < ApplicationJob # parked: FiatRailsParked, docs/FIAT_RAILS.md
   queue_as :default
 
   def perform(user_id:, pack_id:, wallet_address:, stripe_session_id: nil, purchase_type: "stripe",

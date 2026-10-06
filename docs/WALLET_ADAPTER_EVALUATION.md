@@ -180,7 +180,7 @@ a phone.
 
 ### What the stub structurally cannot see
 
-- **iOS WebKit.** `playwright.config.js:106-116` declares two projects, and both
+- **iOS WebKit.** `playwright.config.js:109-119` declares two projects, and both
   run `chromium`. "iPhone" in the spec is a user-agent swap
   (`e2e/stub_wallet_round_trip.spec.js:26-31` says so).
 - **A bfcache restore, by default.** Playwright launches Chromium with
