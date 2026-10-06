@@ -1,5 +1,7 @@
 # Counts clicks on trackable links, on every page: any GET that arrives with
-# `?reference=<name>` records one ReferralVisit for this visitor, today. The
+# `?r=<name>` (or the long spelling, `?reference=<name>`) records one
+# ReferralVisit for this visitor, today. #attribution_param is the one read of
+# that parameter; every attribution site in the app goes through it. The
 # landing page (/lp/:slug) and the vanity paths (/tiktok) record their own slug
 # through #record_referral_visit when the link carried no explicit reference.
 #
@@ -38,22 +40,30 @@ module ReferralVisitTracking
 
   included do
     prepend_before_action :track_referral_visit
+    helper_method :attribution_param if respond_to?(:helper_method)
   end
 
   private
+
+  # The reference this request's URL names (`?r=`, else `?reference=`), or nil.
+  # See ReferralVisit.attribution_from for the precedence and the Coinflow rule.
+  def attribution_param
+    return @attribution_param if defined?(@attribution_param)
+
+    @attribution_param = ReferralVisit.attribution_from(params)
+  end
 
   def track_referral_visit
     record_pending_referral_visit
     record_referral_visit_from_params
   end
 
+  # Coinflow's checkout return (?coinflow=return&reference=<purchase slug>)
+  # names no reference: attribution_param already answers nil for it.
   def record_referral_visit_from_params
-    return if params[:reference].blank?
-    # Coinflow's checkout returns to /tokens/buy?coinflow=return&reference=<purchase
-    # slug>: a payment reference, not a marketing one.
-    return if params[:coinflow].present?
+    return if attribution_param.nil?
 
-    record_referral_visit(params[:reference])
+    record_referral_visit(attribution_param)
   end
 
   def record_referral_visit(reference)

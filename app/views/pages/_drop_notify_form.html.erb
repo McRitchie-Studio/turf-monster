@@ -66,10 +66,11 @@
       <label for="<%= id_prefix %>_website">Website</label>
       <input type="text" id="<%= id_prefix %>_website" name="website" tabindex="-1" autocomplete="off">
     </div>
-    <%# The campaign rides along when this page was opened with ?reference=;
-        without one, the controller falls back to the first-touch cookie. %>
-    <% if params[:reference].present? %>
-      <input type="hidden" name="reference" value="<%= params[:reference].to_s.first(DropSignup::SOURCE_LIMIT) %>">
+    <%# The campaign rides along when this page was opened with ?r= (or
+        ?reference=); without one, the controller falls back to the
+        first-touch cookie. %>
+    <% if (campaign_reference = attribution_param) %>
+      <input type="hidden" name="reference" value="<%= campaign_reference.first(DropSignup::SOURCE_LIMIT) %>">
     <% end %>
     <%# The live region is mounted empty and hidden, and Alpine writes the
         failure into it (error_live_regions_test holds every error line in
