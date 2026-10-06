@@ -172,6 +172,9 @@ class TurfMonsterV2PageTest < ActionDispatch::IntegrationTest
     assert_equal 2, phones.size
     phones.each { |phone| assert_equal "true", phone["aria-hidden"] }
     assert_equal 2, page_node.css("figure figcaption").size
+    xl_caption = page_node.at_css('[data-test="v2-phone-caption-xl"]')
+    assert_equal "Real cards from the Weeks 1–3 board.", xl_caption.children.first.text.strip,
+                 "from xl the phone caption sits beside the phone"
     assert_equal "Real cards from the Weeks 1–3 board.", page_node.css('[data-test="v2-hero-figure"] figcaption').first.children.first.text.strip
   end
 

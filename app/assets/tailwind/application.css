@@ -2154,10 +2154,11 @@ html.dark { --rx-fill: 0 0 0; }
   z-index: 20;
   pointer-events: none;
 }
-/* Wide on the right and above (toward the laptop's base and the bezel), flush
+/* Wide on the right and above (toward the laptop's base and the bezel), shallow
+   below (so nothing drifts over the caption or into the hero's bottom edge), flush
    on the left, which faces the hero copy, so no bubble drifts over the text. */
 .hold-stack.v2-fizz-escape > .hold-fizz {
-  inset: -26px -34px -26px 0;
+  inset: -26px -34px -6px 0;
 }
 .hold-stack.v2-fizz-escape .fizz-bit {
   animation: v2-fizz-escape calc(var(--ft, 1.8s) * 0.9) linear var(--fd, 0s) infinite;

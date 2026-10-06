@@ -166,10 +166,14 @@
                 the live page of the contest the snapshot shows: "Watch updates
                 live" while it is being played (with the live page's red dot,
                 which stops pulsing under reduced motion), "See the latest
-                results" once it has finished. No contest, no link. Indented past
-                the phone, which covers the laptop's left edge. %>
+                results" once it has finished. No contest, no link. %>
             <% if @live_showcase %>
-              <div class="pl-[7rem] pt-3">
+              <%# Right-aligned in the part of the laptop the hero shows: from xl
+                  the hero is a fixed 1248px (max-w-7xl), so the laptop's left
+                  sits at a fixed x and its visible width is fixed too. 369px
+                  (unscaled, inside the 1.1 scale) ends the link 24px inside the
+                  hero's right clip and starts it well clear of the phone. %>
+              <div class="w-[369px] pt-3 text-right">
                 <%= link_to live_contest_path(@live_showcase.contest),
                       class: "inline-flex items-center gap-1.5 text-xs font-semibold text-white/80 hover:text-white underline-offset-2 hover:underline",
                       data: { test: "v2-watch-live" } do %>
@@ -195,13 +199,22 @@
                 .v2-fizz-escape), fading before they reach anything readable.
                 Decoration only: aria-hidden, no pointer events, and gone
                 entirely under prefers-reduced-motion. %>
+            <%# The caption from xl: to the phone's LEFT, right-aligned, in the gap
+                between the copy and the phone at its lower third, clear of the
+                fizz below it. It moves with the phone's --phone-x/--phone-y. %>
+            <p class="hidden xl:block absolute right-full top-[60%] mr-4 w-[9rem] text-right text-xs leading-snug text-white/70" data-test="v2-phone-caption-xl">
+              Real cards from the Weeks 1&ndash;3 board.<span class="sr-only"> Behind the phone, a laptop shows the live contests lobby.</span>
+            </p>
             <span class="hold-stack fizz-lively v2-fizz-escape" aria-hidden="true" data-test="v2-fizz-escape"
                   style="<%= fizz_palette_style(TurfMonsterRules::SHOWCASE.map { |example| @teams[example.team_slug] }) %>">
               <%= render "studio/fizz_layer", seed: "phone-escape" %>
             </span>
           </div>
         </div>
-        <figcaption class="relative z-10 mt-4 w-[18rem] text-center text-xs text-white/70 xl:translate-x-[var(--phone-x)] xl:translate-y-[var(--phone-y)]">
+        <%# Below xl the caption sits under the centered phone. From xl there
+            is no room under the phone, so it moves beside it (inside the phone
+            wrapper, below) and this one is not drawn. %>
+        <figcaption class="relative z-10 mt-4 w-[18rem] text-center text-xs text-white/70 xl:hidden">
           Real cards from the Weeks 1&ndash;3 board.<span class="sr-only"> Behind the phone, a laptop shows the live contests lobby.</span>
         </figcaption>
       </figure>
