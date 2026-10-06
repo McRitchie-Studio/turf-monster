@@ -19,13 +19,17 @@ class ContestsController < ApplicationController
 
   # The contest test actions write random scores into SHARED games rows, settle,
   # mint comped entries or destroy entries. They answer only while
-  # ENABLE_TEST_SCAFFOLDING is on (AppFlags.test_scaffolding?), and never on a
-  # contest holding a paid on-chain entry, whatever the flag says. The flag
-  # check is the switch; the paid-entry check is the floor, because the flag has
-  # been set on production for real-money rehearsals.
+  # ENABLE_TEST_SCAFFOLDING is on (AppFlags.test_scaffolding?), and never where
+  # real money could move or be decided, whatever the flag says
+  # (Contest#test_action_refusal). The flag is the switch; the money check is
+  # the floor, so turning the flag on for a rehearsal cannot reach a paid contest.
   TEST_ACTIONS = %i[jump simulate_game simulate_batch fill reset].freeze
   TEST_ACTIONS_OFF_MESSAGE = "Test actions are off: ENABLE_TEST_SCAFFOLDING is not set on this app.".freeze
-  TEST_ACTIONS_PAID_MESSAGE = "Test actions are refused on a contest with paid on-chain entries.".freeze
+  TEST_ACTION_REFUSALS = {
+    onchain: "Test actions are refused on an on-chain contest.",
+    paid: "Test actions are refused on a contest with paid on-chain entries.",
+    shared_games: "Test actions are refused: this contest shares games with an on-chain or paid contest."
+  }.freeze
   before_action :refuse_test_action, only: TEST_ACTIONS
 
   # The contests page is three bands, and each one answers a different question:
@@ -1863,8 +1867,10 @@ class ContestsController < ApplicationController
   # it; a refusal is a flash on the contest page and changes nothing.
   def refuse_test_action
     reason =
-      if !AppFlags.test_scaffolding? then TEST_ACTIONS_OFF_MESSAGE
-      elsif @contest.paid_entries? then TEST_ACTIONS_PAID_MESSAGE
+      if AppFlags.test_scaffolding?
+        TEST_ACTION_REFUSALS[@contest.test_action_refusal(action_name)]
+      else
+        TEST_ACTIONS_OFF_MESSAGE
       end
     redirect_to contest_path(@contest), alert: reason if reason
   end

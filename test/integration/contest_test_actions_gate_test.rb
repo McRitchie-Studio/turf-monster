@@ -15,6 +15,11 @@ class ContestTestActionsGateTest < ActionDispatch::IntegrationTest
     reset: ->(c) { Rails.application.routes.url_helpers.reset_contest_path(c) }
   }.freeze
 
+  PAID = ContestsController::TEST_ACTION_REFUSALS.fetch(:paid)
+  ONCHAIN = ContestsController::TEST_ACTION_REFUSALS.fetch(:onchain)
+  SHARED = ContestsController::TEST_ACTION_REFUSALS.fetch(:shared_games)
+  GAME_ACTIONS = %i[jump simulate_game simulate_batch reset].freeze
+
   setup do
     @contest = contests(:one)
     log_in_as(users(:alex)) # admin
@@ -54,14 +59,39 @@ class ContestTestActionsGateTest < ActionDispatch::IntegrationTest
 
       assert_response :redirect
       assert_not_equal ContestsController::TEST_ACTIONS_OFF_MESSAGE, flash[:alert]
-      assert_not_equal ContestsController::TEST_ACTIONS_PAID_MESSAGE, flash[:alert]
+      assert_not_includes ContestsController::TEST_ACTION_REFUSALS.values, flash[:alert]
+    end
+
+    # A Phantom entry between broadcast and verification: the signature sits on
+    # its PendingTransaction, and the Entry's own columns are still empty.
+    test "#{action} is refused on a contest with an in-flight entry whose signature is only on its pending transaction" do
+      entry = entries(:one)
+      assert_nil entry.onchain_tx_signature
+      assert_nil entry.onchain_entry_id
+      PendingTransaction.create!(
+        tx_type: "enter_contest", serialized_tx: "WIRE-#{SecureRandom.hex(4)}", status: "submitted",
+        target: entry, tx_signature: "in-flight-sig-#{action}", initiator_address: "init", metadata: {}.to_json
+      )
+
+      AppFlags.stub :test_scaffolding?, true do
+        assert_refused action, PAID
+      end
+    end
+
+    test "#{action} is refused on an on-chain contest, even with no entries and the flag on" do
+      @contest.entries.delete_all
+      @contest.update_columns(onchain_contest_id: "ContestPda#{action}")
+
+      AppFlags.stub :test_scaffolding?, true do
+        assert_refused action, ONCHAIN
+      end
     end
 
     test "#{action} is refused on a contest with an entry paid on chain, even with the flag on" do
       entries(:one).update_columns(onchain_tx_signature: "paid-sig-#{action}")
 
       AppFlags.stub :test_scaffolding?, true do
-        assert_refused action, ContestsController::TEST_ACTIONS_PAID_MESSAGE
+        assert_refused action, PAID
       end
     end
 
@@ -69,9 +99,57 @@ class ContestTestActionsGateTest < ActionDispatch::IntegrationTest
       entries(:two).update_columns(onchain_entry_id: "EntryPda#{action}")
 
       AppFlags.stub :test_scaffolding?, true do
-        assert_refused action, ContestsController::TEST_ACTIONS_PAID_MESSAGE
+        assert_refused action, PAID
       end
     end
+  end
+
+  # A sibling on the same slate reads the same matchups and games rows.
+  GAME_ACTIONS.each do |action|
+    test "#{action} is refused on a free contest sharing its slate with a paid contest" do
+      sibling = Contest.create!(name: "Paid sibling #{action.to_s.tr("_", " ")}", slate: @contest.slate, status: :open, starts_at: 2.days.from_now)
+      paid = sibling.entries.create!(user: users(:jordan))
+      paid.update_columns(status: "active", onchain_tx_signature: "sibling-paid-#{action}")
+
+      AppFlags.stub :test_scaffolding?, true do
+        assert_refused action, SHARED
+      end
+    end
+
+    test "#{action} is refused on a free contest sharing a game with a paid contest on another slate" do
+      game = games(:future_game)
+      slate_matchups(:m1).update_columns(game_slug: game.slug)
+      other_slate = Slate.create!(name: "Other Slate #{action.to_s.tr("_", " ")}", sport: "fifa", starts_at: 30.days.from_now)
+      SlateMatchup.create!(slate: other_slate, team_slug: game.home_team_slug, opponent_team_slug: game.away_team_slug,
+                           game_slug: game.slug, rank: 1, status: "pending")
+      sibling = Contest.create!(name: "Cross-slate sibling #{action.to_s.tr("_", " ")}", slate: other_slate, status: :open, starts_at: 2.days.from_now)
+      paid = sibling.entries.create!(user: users(:jordan))
+      paid.update_columns(status: "active", onchain_entry_id: "SiblingPda#{action}")
+
+      AppFlags.stub :test_scaffolding?, true do
+        assert_refused action, SHARED
+      end
+    end
+
+    test "#{action} is refused on a free contest sharing its slate with an on-chain contest" do
+      Contest.create!(name: "On-chain sibling #{action.to_s.tr("_", " ")}", slate: @contest.slate, status: :open, starts_at: 2.days.from_now)
+             .update_columns(onchain_contest_id: "SiblingContestPda#{action}")
+
+      AppFlags.stub :test_scaffolding?, true do
+        assert_refused action, SHARED
+      end
+    end
+  end
+
+  # fill writes only its own contest's entries, so a paid sibling does not stop it.
+  test "fill passes the gate on a free contest whose slate sibling is paid" do
+    sibling = Contest.create!(name: "Paid sibling fill", slate: @contest.slate, status: :open, starts_at: 2.days.from_now)
+    sibling.entries.create!(user: users(:jordan)).update_columns(status: "active", onchain_tx_signature: "sibling-fill")
+
+    AppFlags.stub :test_scaffolding?, true do
+      post fill_contest_path(@contest)
+    end
+    assert_not_includes ContestsController::TEST_ACTION_REFUSALS.values, flash[:alert]
   end
 
   # The allowed path really runs: jump settles, reset clears the entries.
@@ -92,7 +170,7 @@ class ContestTestActionsGateTest < ActionDispatch::IntegrationTest
     entries(:one).update_columns(status: "abandoned", onchain_tx_signature: "stranded-paid-sig")
 
     AppFlags.stub :test_scaffolding?, true do
-      assert_refused :reset, ContestsController::TEST_ACTIONS_PAID_MESSAGE
+      assert_refused :reset, PAID
     end
   end
 
