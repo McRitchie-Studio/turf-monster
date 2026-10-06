@@ -32,7 +32,9 @@ class PagesController < ApplicationController
   # @next_contest is the page's one call to action (NextContest): a link to
   # the next contest still open to enter, or the notify-me modal. @lobby is
   # what the hero's laptop shows: a contest's live page when one is being
-  # played or just finished (@live_showcase), else the lobby rows.
+  # played or just finished (@live_showcase), else the lobby rows. On the live
+  # page its featured game is simulated (@laptop_sim, LaptopScoreSimulation),
+  # and @laptop_sim_frames are the later frames the page's script plays.
   def turf_monster_v2
     slugs = TurfMonsterRules.team_slugs | TurfMonsterRules.showcase_team_slugs
     @teams = Team.where(slug: slugs).index_by(&:slug)
@@ -40,7 +42,12 @@ class PagesController < ApplicationController
     @next_contest = NextContest.pick
     @lobby = NextContest.lobby
     @live_showcase = NextContest.live_showcase
-    @laptop_live_html = @live_showcase && LaptopLiveSnapshot.render(@live_showcase, host: request.host_with_port, https: request.ssl?)
+    return unless @live_showcase
+
+    snapshot = LaptopLiveSnapshot.new(@live_showcase, host: request.host_with_port, https: request.ssl?)
+    @laptop_live_html = snapshot.render
+    @laptop_sim = snapshot.simulation
+    @laptop_sim_frames = snapshot.frames
   end
 
   def terms

@@ -14,7 +14,9 @@
 
     The wrapper classes are contests/live's own. The whole subtree is x-ignore:
     Alpine never walks it, and LaptopLiveSnapshot strips every script and cable
-    stream from the output. %>
+    stream from the output. The featured game is LaptopScoreSimulation's
+    opening frame, and pages/_laptop_score_sim (outside this subtree) plays the
+    rest. %>
 <% contest = showcase.contest %>
 <div x-ignore class="w-[1280px] h-[800px] overflow-hidden bg-page text-body" data-test="laptop-live">
   <%# The live page's own styles: the chip glow is OFF by default there
@@ -25,10 +27,14 @@
   <%= render "layouts/navbar", show_logged_in: false, preview: true %>
   <div class="max-w-7xl mx-auto px-4 py-6">
     <%= render "contests/live_header", contest: contest %>
-    <div class="mb-4">
+    <%# The live page's own wrapper ids (contests/live), so the copy of its
+        script under the laptop finds the panel and the strip it animates
+        (pages/_laptop_score_sim). The leaderboard's id is deliberately left
+        off: the simulation never moves it. %>
+    <div id="contest_<%= contest.id %>_focus" class="mb-4">
       <%= render "contests/live_focus", **showcase.games, contest: contest, focus_slug: showcase.focus_slug %>
     </div>
-    <div>
+    <div id="contest_<%= contest.id %>_games">
       <%= render "contests/live_games", **showcase.games, contest: contest %>
     </div>
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start mb-8">
