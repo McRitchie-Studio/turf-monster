@@ -11,7 +11,7 @@
     screen reader is never fed a per-second update. The no-JS frame is
     minute-precise (`remaining` is NextSlateDrop.remaining); seconds start at 00
     until Alpine runs. %>
-<div class="grid grid-cols-4 gap-2 sm:gap-3 max-w-md mx-auto" data-test="v2-countdown" role="timer" aria-live="off">
+<div class="grid grid-cols-4 gap-2 sm:gap-3 max-w-2xl mx-auto" data-test="v2-countdown" role="timer" aria-live="off">
   <div class="card px-1 py-3 sm:p-4 text-center">
     <p class="font-mono tabular-nums text-2xl sm:text-3xl md:text-4xl font-bold text-heading" x-text="days"><%= remaining[:days] %></p>
     <p class="label-upper mt-1 text-[10px] sm:text-xs">Days</p>

@@ -96,6 +96,21 @@ test.describe("turf-monster-v2 explainer", () => {
     await adminContext.close();
   });
 
+  // The laptop behind the phone draws from xl up and is gone on a phone.
+  test("the hero laptop shows at desktop width and is hidden at 375", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto("/turf-monster-v2");
+    const laptop = page.locator('[data-test="laptop-mock"]');
+    await expect(laptop).toBeVisible();
+    await expect(laptop.locator('[data-test="laptop-lobby"]')).toContainText("Contests");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth === document.documentElement.clientWidth)).toBe(true);
+
+    await page.setViewportSize({ width: 375, height: 800 });
+    await expect(laptop).toBeHidden();
+    await expect(page.locator('[data-test="v2-hero"] [data-test="phone-mock"]')).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth === document.documentElement.clientWidth)).toBe(true);
+  });
+
   // THE ONE CTA WITH NOTHING TO ENTER. The e2e seed always has open contests,
   // so the spec holds them (coming_soon) for its own duration and releases
   // exactly those afterwards, pass or fail: rows outlive a spec here.
@@ -112,7 +127,7 @@ test.describe("turf-monster-v2 explainer", () => {
     test("the hero CTA opens the notify modal, which ticks and signs a visitor up", async ({ page }) => {
       await page.goto("/turf-monster-v2?reference=e2e-modal");
       const cta = page.locator('[data-test="v2-hero-cta"]');
-      await expect(cta).toHaveText(/Get notified for Weeks 7-9|See the Weeks 7-9 slate/);
+      await expect(cta).toHaveText("Play Turf Monster");
       if (Date.now() >= DROPS_AT - 60_000) return; // after the drop the modal says "live" instead
 
       await cta.click();

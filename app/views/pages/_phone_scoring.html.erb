@@ -1,17 +1,17 @@
 <%# locals: (teams:)
 
-    The entry after three weeks, phone-sized: the scoring example from the v1
-    rules page, as the contest page would list it. Every number is derived from
-    TurfMonsterRules (weekly points summed, times the frozen Turf Score); the
-    teams and multipliers are real, the point totals are invented, and the
-    caption at the call site says so. %>
+    The entry after three weeks, phone-sized: the hero phone's six teams
+    (TurfMonsterRules::SHOWCASE) as the contest page would list them. Every
+    number is derived (weekly points summed, times the frozen Turf Score, then
+    .showcase_total); the teams and multipliers are real, the point totals are
+    invented, and the caption at the call site says so. %>
 <div class="px-3 pb-3" data-test="phone-scoring">
   <div class="px-1 pt-1 pb-3">
     <p class="text-[10px] font-semibold uppercase tracking-wider text-muted">Your entry</p>
-    <p class="text-2xl font-extrabold text-heading font-mono"><%= number_with_precision(TurfMonsterRules.lineup_total, precision: 1) %> <span class="text-xs font-sans font-semibold text-muted">pts</span></p>
+    <p class="text-2xl font-extrabold text-heading font-mono"><%= number_with_precision(TurfMonsterRules.showcase_total, precision: 1) %> <span class="text-xs font-sans font-semibold text-muted">pts</span></p>
   </div>
   <ul class="space-y-2">
-    <% TurfMonsterRules::LINEUP.each do |example| %>
+    <% TurfMonsterRules::SHOWCASE.each do |example| %>
       <% team = teams[example.team_slug] %>
       <% pal  = team_card_palette(team) %>
       <li class="flex items-center gap-2 rounded-xl border border-subtle bg-surface p-2">

@@ -26,6 +26,30 @@ module NextContest
     Pick.new(contest: candidates.min_by { |c| [c.locks_at ? 0 : 1, c.locks_at || now, c.id] })
   end
 
+  # The laptop on /turf-monster-v2's hero: the contests lobby, live. Up to
+  # `limit` contests a visitor could act on, in the lobby's own order
+  # (Contest.featured_order: open first, then coming soon, newest first), plus
+  # their confirmed entry counts in ONE grouped query, so the real
+  # contests/_contest_card can draw them with no per-card query.
+  #
+  # Same rule as .pick about doors: a contest whose lock has passed, or that is
+  # cancelled or settled, is never shown, since the lobby card would present it
+  # as enterable. A coming-soon contest IS shown; its card carries the
+  # "Coming Soon" sash. Any sport, because it is the whole lobby.
+  Lobby = Data.define(:contests, :entry_counts) do
+    def empty? = contests.empty?
+  end
+
+  LOBBY_LIMIT = 3
+
+  def self.lobby(limit: LOBBY_LIMIT, now: Time.current)
+    recent = Contest.open.includes(:slate).with_attached_contest_image
+                    .order(created_at: :desc).limit(limit * 4).to_a
+    shown = Contest.featured_order(recent.select { |c| enterable_at?(c, now) }).first(limit)
+    counts = shown.empty? ? {} : Entry.confirmed.where(contest_id: shown.map(&:id)).group(:contest_id).count
+    Lobby.new(contests: shown, entry_counts: counts)
+  end
+
   def self.enterable_at?(contest, now)
     at = contest.locks_at
     at.nil? || at > now

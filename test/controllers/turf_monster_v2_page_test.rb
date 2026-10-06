@@ -23,9 +23,9 @@ class TurfMonsterV2PageTest < ActionDispatch::IntegrationTest
     assert_includes section_text("v2-notify"), "Weeks 7-9 slate drops Tuesday morning"
     assert_includes section_text("v2-notify"), "One email when the slate drops. No spam."
     assert_includes section_text("v2-how-to-play"), "How to play"
-    %w[Pick\ a\ contest Choose\ 6\ teams Climb\ the\ leaderboard\ and\ get\ paid].each do |step|
-      assert_includes section_text("v2-how-to-play"), step
-    end
+    steps = page_node.css('[data-test="v2-how-to-play"] li h3').map { |h| h.text.squish }
+    assert_equal ["Choose 6 teams", "Set up your account", "Points × Turf Score", "Climb the leaderboard and get paid"], steps
+    assert_includes section_text("v2-how-to-play"), "Four steps. That’s the whole game."
     assert page_node.css('[data-test="v2-closing-cta"]').one?, "the closing band repeats the one CTA"
   end
 
@@ -74,7 +74,7 @@ class TurfMonsterV2PageTest < ActionDispatch::IntegrationTest
       assert_includes live.text, "The Weeks 7-9 slate is live"
       assert live.css(%(a[href="#{root_path}"])).any?
       refute_includes section_text("v2-hero"), "Get notified", "the hero stops promising a notification once the slate is out"
-      assert_includes section_text("v2-hero"), "See the Weeks 7-9 slate"
+      assert_includes section_text("v2-hero"), "Play Turf Monster"
     end
   end
 
@@ -105,6 +105,7 @@ class TurfMonsterV2PageTest < ActionDispatch::IntegrationTest
     assert_equal "v2-hero-cta", cta["data-test"]
     assert_equal "#notify", cta["href"], "no-JS falls back to the notify section"
     assert_includes cta["@click.prevent"], "$store.modals.open('drop-notify'"
+    assert_equal "Play Turf Monster", cta.text.strip, "one label in every state"
     assert_includes response.body, %(id === 'drop-notify'), "the modal is registered with the host"
   end
 
@@ -117,8 +118,15 @@ class TurfMonsterV2PageTest < ActionDispatch::IntegrationTest
     %w[v2-hero-cta v2-closing-cta].each do |id|
       cta = page_node.css(%([data-test="#{id}"])).first
       assert_equal contest_path(contest), cta["href"]
-      assert_equal "Play NFL 2026 Weeks 7-9", cta.text.strip
+      assert_equal "Play Turf Monster", cta.text.strip
     end
+  end
+
+  test "the subhead is the three-sentence pitch" do
+    get turf_monster_v2_path
+    assert_equal "Choose 6 NFL teams. Every point they score over the three-week slate counts, times their Turf Score. " \
+                 "Underdogs carry the bigger multiplier, so a smart longshot beats the favorite.",
+                 page_node.css('[data-test="v2-subhead"]').first.text.squish
   end
 
   test "the headline is one sentence per line" do
@@ -127,12 +135,32 @@ class TurfMonsterV2PageTest < ActionDispatch::IntegrationTest
     assert_equal ["Pick 6 teams.", "Stack points.", "Get paid."], lines
   end
 
+  # The account step names only the sign-in methods production offers, says a
+  # Phantom wallet is what entering takes (web3-only onboarding), and its
+  # entry-cost mention links to Getting Started.
+  test "the account step is truthful about sign-in and links entry cost to Getting Started" do
+    get turf_monster_v2_path
+    step = page_node.css('[data-test="v2-account-step"]').first
+    assert_includes step.text.squish, "Sign in with Google, email or Phantom."
+    assert_includes step.text.squish, "connect a Phantom wallet and add USDC"
+    assert step.css(%(a[href="#{getting_started_path}"])).any?
+  end
+
+  test "the laptop lobby is decorative and inert, with a caption alternative" do
+    get turf_monster_v2_path
+    laptop = page_node.css('[data-test="laptop-mock"]').first
+    assert_equal "true", laptop["aria-hidden"]
+    assert laptop.key?("inert"), "the real lobby rows inside must not be focusable"
+    assert_includes page_node.css('[data-test="v2-hero-figure"] figcaption').text, "a laptop shows the live contests lobby"
+  end
+
   test "phones are decorative, with a caption beside each" do
     get turf_monster_v2_path
     phones = page_node.css('[data-test="phone-mock"]')
     assert_equal 2, phones.size
     phones.each { |phone| assert_equal "true", phone["aria-hidden"] }
     assert_equal 2, page_node.css("figure figcaption").size
+    assert_equal "Real cards from the Weeks 1–3 board.", page_node.css('[data-test="v2-hero-figure"] figcaption').first.children.first.text.strip
   end
 
   test "renders when no Team rows exist" do

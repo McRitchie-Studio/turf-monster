@@ -10,7 +10,7 @@
     section and the modal are both in the page; `card: false` drops the card
     chrome where the modal already supplies it, and `test_id` names its
     data-test hooks (the modal's are drop-modal-*). %>
-<div class="relative <%= card ? 'card p-6 md:p-8' : '' %> max-w-xl mx-auto text-left"
+<div class="relative <%= card ? 'card p-6 md:p-8' : '' %> max-w-2xl mx-auto text-left"
      x-data="dropNotifyForm('<%= initial %>')" data-test="<%= test_id %>-form">
   <div x-show="state === 'done'" <%= 'style="display: none;"'.html_safe unless initial == "done" %>
        role="status" data-test="<%= test_id %>-success">
@@ -23,12 +23,16 @@
         html: { "x-show": "state !== 'done'", "@submit.prevent": "submit($event)", novalidate: true,
                 style: (initial == "done" ? "display: none;" : nil) } do %>
     <label for="<%= id_prefix %>_email" class="block text-sm font-semibold text-heading mb-2">Notify me when <%= NextSlateDrop::LABEL %> drops</label>
-    <div class="flex flex-col sm:flex-row gap-3">
+    <%# ONE JOINED ROW from sm up: the input fills the space up to the button,
+        both the same height, the seam squared off. Stacked full width below
+        sm. input-field is the engine's standard field (surface fill, strong
+        border, primary border on focus); the ring adds a visible focus mark. %>
+    <div class="flex flex-col sm:flex-row items-stretch gap-3 sm:gap-0">
       <input type="email" id="<%= id_prefix %>_email" name="email" required autocomplete="email"
              placeholder="you@example.com"
-             class="input flex-1 min-w-0"
+             class="input-field flex-1 min-w-0 sm:rounded-r-none focus:ring-2 focus:ring-primary/30"
              aria-describedby="<%= id_prefix %>_help">
-      <button type="submit" class="btn btn-primary whitespace-nowrap"
+      <button type="submit" class="btn btn-primary whitespace-nowrap sm:rounded-l-none px-6"
               :disabled="state === 'submitting'"
               x-text="state === 'submitting' ? 'Sending…' : 'Notify me'">Notify me</button>
     </div>

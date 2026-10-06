@@ -97,14 +97,29 @@ class PhoneMockRenderTest < ActionView::TestCase
 
     assert_includes board, "New Orleans Saints"
     assert_includes board, team_card_palette(nil)[:gradient]
-    assert_includes scoring, "Arizona Cardinals"
+    assert_includes scoring, "New Orleans Saints"
   end
 
-  test "the scoring phone prints derived points and the lineup total" do
-    html = render_phone("phone_scoring", teams)
-    assert_includes html, number_with_precision(TurfMonsterRules.lineup_total, precision: 1)
-    TurfMonsterRules::LINEUP.each do |example|
-      assert_includes html, number_with_precision(example.entry_points, precision: 1)
+  # THE ARITHMETIC, re-derived here by hand: each team's three weekly points
+  # summed, times its Turf Score, one decimal; the footer is their sum.
+  test "the scoring phone shows the hero's six with entry math that adds up" do
+    expected = {
+      "san-francisco-49ers" => [82, 1.0, 82.0], "los-angeles-rams" => [75, 1.1, 82.5],
+      "dallas-cowboys" => [70, 1.1, 77.0], "seattle-seahawks" => [66, 1.2, 79.2],
+      "minnesota-vikings" => [61, 1.6, 97.6], "new-orleans-saints" => [64, 1.8, 115.2]
+    }
+    TurfMonsterRules::SHOWCASE.each do |e|
+      pts, ts, product = expected.fetch(e.team_slug)
+      assert_equal pts, e.points_scored
+      assert_equal ts, e.turf_score
+      assert_in_delta product, e.entry_points, 0.001
+      assert_in_delta (pts * ts).round(1), e.entry_points, 0.001
     end
+    assert_in_delta 533.5, TurfMonsterRules.showcase_total, 0.001
+
+    html = render_phone("phone_scoring", teams)
+    assert_includes html, "533.5"
+    expected.each_value { |(_, _, product)| assert_includes html, format("%.1f", product) }
+    %w[Ravens Lions Bills Texans Falcons Cardinals].each { |old| refute_includes html, old }
   end
 end

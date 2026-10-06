@@ -77,26 +77,28 @@ module TurfMonsterRules
   #   opponents the nfl-2026-week-1..3 slates (which also agree with every
   #             LINEUP opponent above)
   # None of the six has a bye in Weeks 1-3, so every card is a three-game card.
-  # No weekly points: these cards are only ever drawn, never scored.
+  # The weekly points are INVENTED, like LINEUP's: they feed the page's
+  # scoring phone, whose caption says so. Every printed product and the total
+  # are derived (Example#entry_points, .showcase_total), never typed.
   SHOWCASE = [
     Example.new(team_slug: "san-francisco-49ers", rank: 1,
                 opponent_slugs: %w[los-angeles-rams miami-dolphins arizona-cardinals],
-                weekly_points: []),
+                weekly_points: [27, 31, 24]),
     Example.new(team_slug: "los-angeles-rams", rank: 4,
                 opponent_slugs: %w[san-francisco-49ers new-york-giants denver-broncos],
-                weekly_points: []),
+                weekly_points: [24, 30, 21]),
     Example.new(team_slug: "dallas-cowboys", rank: 5,
                 opponent_slugs: %w[new-york-giants washington-commanders baltimore-ravens],
-                weekly_points: []),
+                weekly_points: [20, 27, 23]),
     Example.new(team_slug: "seattle-seahawks", rank: 6,
                 opponent_slugs: %w[new-england-patriots arizona-cardinals washington-commanders],
-                weekly_points: []),
+                weekly_points: [23, 17, 26]),
     Example.new(team_slug: "minnesota-vikings", rank: 21,
                 opponent_slugs: %w[green-bay-packers chicago-bears tampa-bay-buccaneers],
-                weekly_points: []),
+                weekly_points: [17, 24, 20]),
     Example.new(team_slug: "new-orleans-saints", rank: 25,
                 opponent_slugs: %w[detroit-lions baltimore-ravens las-vegas-raiders],
-                weekly_points: [])
+                weekly_points: [21, 16, 27])
   ].freeze
 
   # The three points on the curve section 03 names: both ends and the middle.
@@ -167,6 +169,12 @@ module TurfMonsterRules
     (LINEUP + [FEATURE]).flat_map { |e| [e.team_slug, *e.opponent_slugs] }
       .concat(CURVE.map { |c| c[:team_slug] })
       .uniq
+  end
+
+  # The scoring phone's footer total: each team's span points times its
+  # Turf Score, summed, as .lineup_total does for LINEUP.
+  def self.showcase_total
+    SHOWCASE.sum(&:entry_points).round(1)
   end
 
   # The hero phone's teams and their opponents, for /turf-monster-v2's one

@@ -63,4 +63,15 @@ class NextContestTest < ActiveSupport::TestCase
 
     assert NextContest.pick.modal?
   end
+
+  test "the lobby holds enterable contests only, open before coming soon, capped" do
+    contest("locked", starts_at: 1.hour.ago)
+    soon = contest("soon", starts_at: 4.days.from_now, coming_soon: true)
+    open = contest("open", starts_at: 3.days.from_now)
+    lobby = NextContest.lobby
+    assert_equal [open, soon], lobby.contests
+    assert_equal({}, lobby.entry_counts)
+    5.times { |i| contest("more-#{i}", starts_at: (i + 5).days.from_now) }
+    assert_equal NextContest::LOBBY_LIMIT, NextContest.lobby.contests.size
+  end
 end

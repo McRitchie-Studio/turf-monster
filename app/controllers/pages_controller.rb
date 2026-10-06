@@ -30,12 +30,14 @@ class PagesController < ApplicationController
   # its success or error state from it on the first paint.
   #
   # @next_contest is the page's one call to action (NextContest): a link to
-  # the next contest still open to enter, or the notify-me modal.
+  # the next contest still open to enter, or the notify-me modal. @lobby is
+  # what the hero's laptop shows: the live lobby cards (NextContest.lobby).
   def turf_monster_v2
     slugs = TurfMonsterRules.team_slugs | TurfMonsterRules.showcase_team_slugs
     @teams = Team.where(slug: slugs).index_by(&:slug)
     @drop_signup_status = flash[:drop_signup]
     @next_contest = NextContest.pick
+    @lobby = NextContest.lobby
   end
 
   def terms
