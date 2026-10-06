@@ -23,6 +23,11 @@
     both. Everything below the hero is on theme tokens. %>
 <% content_for :title, "Turf Monster — Pick 6 NFL Teams, Stack Points" %>
 <% content_for :meta_description, "NFL pick'em: choose 6 teams, every point they score over the three-week slate counts, times their Turf Score. Underdogs carry the bigger multiplier. The #{NextSlateDrop::LABEL} slate drops Tuesday morning." %>
+<%# NO TURBO SNAPSHOT WHILE THE LAPTOP PLAYS: a cached copy keeps the laptop's
+    data-wired and its goal feed's data-observed, so on Back both scripts would
+    exit at once and leave a frozen frame (banner up). No guest state lives only
+    in this page's DOM, so a fresh fetch loses nothing (turbo_snapshot_cache.js). %>
+<% turbo_exempts_page_from_cache if @laptop_sim %>
 <% dropped   = NextSlateDrop.dropped? %>
 <% remaining = NextSlateDrop.remaining %>
 <% top_score = TurfMonsterRules.turf_score_for_rank(1) %>

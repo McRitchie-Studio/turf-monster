@@ -119,5 +119,13 @@ class LaptopScoreSimRenderTest < ActionDispatch::IntegrationTest
     Contest.delete_all
     laptop = page_laptop
     assert_nil laptop.at_css('[data-test="laptop-sim"]')
+    refute_includes css_select('meta[name="turbo-cache-control"]').map { |m| m["content"] }, "no-cache"
+  end
+
+  test "while the laptop plays the page opts out of Turbo's cache, so Back re-wires it" do
+    page_laptop
+    # Turbo reads the LAST turbo-cache-control meta (HeadSnapshot#findMetaElementByName),
+    # so this page's must follow the engine's no-preview.
+    assert_equal "no-cache", css_select('meta[name="turbo-cache-control"]').last["content"]
   end
 end
