@@ -135,7 +135,7 @@ class TurfMonsterV2PageTest < ActionDispatch::IntegrationTest
     assert_equal "Choose 6 NFL teams. Every point they score over the three-week slate counts, times their Turf Score. " \
                  "Underdogs carry the bigger multiplier, so a smart longshot beats the favorite.",
                  desktop.text.squish
-    assert_equal "Every point your teams score counts, times their Turf Score. Underdogs carry bigger multipliers.",
+    assert_equal "Every point your teams score counts, times their multiplier. Underdogs score big.",
                  mobile.text.squish
     # One per width, by display alone: a screen reader hears exactly one, so
     # neither is aria-hidden (display:none already removes it).
