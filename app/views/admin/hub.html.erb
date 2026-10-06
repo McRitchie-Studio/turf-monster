@@ -144,7 +144,7 @@
       <%= button_to(geo_override_active? ? "Clear simulation" : "Simulate WA",
             admin_geo_toggle_path, method: :post,
             class: "btn btn-sm #{geo_override_active? ? 'btn-danger' : 'btn-outline'}") %>
-      <% if @latest_contest %>
+      <% if @latest_contest && AppFlags.test_scaffolding? %>
         <%= button_to "Reset Contest", reset_contest_path(@latest_contest), method: :post,
               data: { turbo_confirm: "Reset contest? This clears all entries and results." },
               class: "btn btn-danger btn-sm" %>
