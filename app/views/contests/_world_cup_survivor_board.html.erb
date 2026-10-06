@@ -409,5 +409,8 @@ window.survivorBoard = function() {
     </div>
   </div>
 
-  <%= render "components/json_debug", record: @contest.as_json, label: "Contest JSON", collapsible: true %>
+  <%# Contest JSON debug block: admins only (ContestsHelper#contest_debug_json_visible?). %>
+  <% if contest_debug_json_visible? %>
+    <%= render "components/json_debug", record: @contest.as_json, label: "Contest JSON", collapsible: true %>
+  <% end %>
 </div>

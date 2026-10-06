@@ -54,19 +54,61 @@ class ContestsHelperTest < ActionView::TestCase
     assert picks_visible_for?(@entry)
   end
 
+  # --- contest_debug_json_visible? (privacy: the Contest JSON block) ---
+
+  test "contest_debug_json_visible? is false for a guest" do
+    stub_current_user(nil)
+    assert_equal false, contest_debug_json_visible?
+  end
+
+  test "contest_debug_json_visible? is false for a signed-in player" do
+    stub_current_user(@other)
+    assert_equal false, contest_debug_json_visible?
+  end
+
+  test "contest_debug_json_visible? is true for an admin" do
+    stub_current_user(@admin)
+    assert_equal true, contest_debug_json_visible?
+  end
+
+  # While impersonating, current_user is the player and true_user the admin.
+  # The predicate reads current_user (require_admin's rule), so the player's
+  # page carries no admin payload.
+  test "contest_debug_json_visible? is false for an admin impersonating a player" do
+    stub_current_user(@other)
+    @_true_user = @admin
+    assert_equal @admin, true_user
+    assert_equal false, contest_debug_json_visible?
+  end
+
+  test "contest_debug_json_visible? fails closed when current_user raises" do
+    define_singleton_method(:current_user) { raise "no session" }
+    assert_equal false, contest_debug_json_visible?
+  end
+
   # --- contest_debug_entries ---
 
-  test "contest_debug_entries strips selections from hidden entries" do
+  test "contest_debug_entries serializes no one for a guest or a player" do
+    stub_current_user(nil)
+    assert_equal [], contest_debug_entries([@entry])
     stub_current_user(@other)
+    assert_equal [], contest_debug_entries([@entry])
+    stub_current_user(@owner)
+    assert_equal [], contest_debug_entries([@entry])
+  end
+
+  test "contest_debug_entries strips selections from entries whose picks are hidden" do
+    stub_current_user(@admin) # admin, but not on the admin view: open picks stay hidden
     json = contest_debug_entries([@entry])
     assert_equal 1, json.size
     assert_not json[0].key?("selections"), "selections leaked while contest open"
     assert json[0].key?("user"), "user payload should remain for context"
   end
 
-  test "contest_debug_entries includes selections for the entry owner" do
-    stub_current_user(@owner)
-    json = contest_debug_entries([@entry])
+  test "contest_debug_entries includes selections for the admin's own entry" do
+    own = @contest.entries.create!(user: @admin, status: :active)
+    stub_current_user(@admin)
+    json = contest_debug_entries([own])
     assert json[0].key?("selections"), "owner should see their own selections"
   end
 
@@ -84,6 +126,10 @@ class ContestsHelperTest < ActionView::TestCase
 
   def logged_in?
     @_current_user.present?
+  end
+
+  def true_user
+    @_true_user
   end
 
   # --- chat_prompt_samples (Quest 2 typewriter deck) ---

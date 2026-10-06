@@ -424,4 +424,7 @@
   </section>
 <% end %>
 
-<%= render "components/json_debug", record: contest.as_json.merge("slate_matchups" => matchups.as_json(methods: [:locked?]), "entries" => contest_debug_entries(entries)), label: "Contest JSON", collapsible: true %>
+<%# Contest JSON debug block: admins only (ContestsHelper#contest_debug_json_visible?). %>
+<% if contest_debug_json_visible? %>
+  <%= render "components/json_debug", record: contest.as_json.merge("slate_matchups" => matchups.as_json(methods: [:locked?]), "entries" => contest_debug_entries(entries, contest)), label: "Contest JSON", collapsible: true %>
+<% end %>

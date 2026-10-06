@@ -157,7 +157,33 @@ module ContestsHelper
     "#{parts.join(' · ')} · #{tail} = #{format('%.1f', selection.points.to_f)} pts"
   end
 
+  # THE "Contest JSON" DEBUG BLOCK IS ADMIN-ONLY (privacy). The block
+  # (studio-engine components/json_debug) serializes every entry's user
+  # (id + real `name`), on-chain signatures and payouts; it once rendered for
+  # signed-out visitors on /contests/<slug> and /live. Every render site wraps
+  # itself in this predicate, and contest_debug_entries below re-checks it, so
+  # a site that forgets the wrap still serializes no one.
+  #
+  # The predicate is require_admin's (studio-engine Studio::ErrorHandling:
+  # `logged_in? && current_user.admin?`), so it reads current_user, the
+  # IMPERSONATED user while an admin acts as a player. That is deliberate: an
+  # impersonated page must be the player's page exactly, with no admin-only
+  # payload riding into a screenshot or screen share made "as" the player.
+  # The admin is not blocked from debugging: stopping impersonation (one click
+  # on the banner) restores the block, as it restores every require_admin page.
+  #
+  # Fails closed: an out-of-request render (Contest::LiveBroadcast's Turbo
+  # stream, LaptopLiveSnapshot's renderer) has no admin session and gets false,
+  # which also keeps the block out of every cable broadcast.
+  def contest_debug_json_visible?
+    current_user&.admin? ? true : false
+  rescue StandardError # incl. NameError: a view context with no current_user helper
+    false
+  end
+
   def contest_debug_entries(entries, contest = @contest)
+    return [] unless contest_debug_json_visible?
+
     entries.map do |entry|
       if picks_visible_for?(entry, contest)
         entry.as_json(include: { user: { only: [:id, :name] }, selections: {} })
