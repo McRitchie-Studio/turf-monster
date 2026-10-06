@@ -1152,4 +1152,8 @@ class ApplicationController < ActionController::Base
   # (FiatRailsParked::CONTROLLER_ACTIONS). Included after ReferralVisitTracking
   # so its prepended callback runs first: a parked route counts no click.
   include FiatRailsGate
+
+  # Page A/B tests: assignment, the sticky variant cookie, visit counts, and
+  # the experiment a conversion is credited to (PageExperimentTracking).
+  include PageExperimentTracking
 end
