@@ -40,9 +40,9 @@ The build is the easy half. The freeze is the whole point.
 **Never rebuild a slate whose matchups back existing Selections.**
 
 A player picks a team at a shown multiplier. Settlement multiplies by the multiplier
-**stored on the matchup row**. `Selection#compute_points!` reads it at
-`app/models/selection.rb:35` (multi-week) and again at `:42` (single week). Neither
-branch recomputes.
+**stored on the matchup row**. `Selection#compute_points!` writes what
+`Selection#computed_points` reads at `app/models/selection.rb:44` (multi-week) and again
+at `:49` (single week). Neither branch recomputes.
 
 That is not a preference. Recomputing at settlement drifted a real pick from **1.0x to
 3.0x** because a projections refresh re-ranked the span after picks were locked. Payouts

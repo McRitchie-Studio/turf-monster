@@ -1223,7 +1223,25 @@
 # ?reference= visit and its reload count as ONE click on /admin/referrals, which only a real
 # browser's cookie jar proves, and the row opens its per-day table. Runs in chromium, no skip.
 # Derived with bin/e2e-lane-derive --write on the tree merged with origin/accepted.
-total_specs: 391
+# 391 -> 393 (explainer-review-follow-ups): two specs in e2e/notify_form_a11y.spec.js, one per
+# surface of the notify-me form (the /turf-monster-v2 section and the drop-notify modal). A
+# refused address sets aria-invalid and names the error line in aria-describedby; a good one
+# moves focus to the success message. Before the drop each runs in full; after it each returns
+# early rather than skipping. Derived with bin/e2e-lane-derive --write on the tree merged with
+# origin/accepted (simulated-live-scoring-preview took 389 -> 391 in parallel).
+# 393 -> 396 (explainer-review-follow-ups, folding in the simulated-live-scoring-preview
+# review): three specs in e2e/turf_monster_v2.spec.js for the laptop's simulated touchdowns.
+# The sim stops at the first combined 50 and holds it (on Playwright's clock, no wall time);
+# reduced motion switched on mid-visit stops it and restores 3-7; and leaving the page while
+# the laptop is paused tears every listener down. Derived with bin/e2e-lane-derive --write.
+# 396 -> 397 (explainer-review-follow-ups): one spec in e2e/turf_monster_v2.spec.js. With no
+# real entries the laptop's board is the scripted showcase, and the first simulated touchdown
+# puts turf on top, the second puts Mason back. Derived with bin/e2e-lane-derive --write.
+# 397 -> 398 (explainer-review-follow-ups): one spec in e2e/notify_form_a11y.spec.js. On a fine
+# pointer the drop-notify modal focuses its email field once open, its button is stacked full
+# width under the field at the same height, the placeholder fits, and Escape returns focus to
+# the CTA. Derived with bin/e2e-lane-derive --write.
+total_specs: 398
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1587,7 +1605,17 @@ allowed_skips: 4
 # 356 -> 358 (wordmark-returns-to-brand-green): the two logotype specs described beside
 # total_specs above. Both run in the chromium lane and neither skips, so excluded holds at 17
 # and allowed_skips at 4. Derived with bin/e2e-lane-derive --write on this tree.
-executed: 370
+# 370 -> 372 (explainer-review-follow-ups): the two notify-form specs described beside
+# total_specs above. Both run in chromium and neither skips, so excluded holds at 17 and
+# allowed_skips at 4. Derived with bin/e2e-lane-derive --write on this tree.
+# 372 -> 375 (explainer-review-follow-ups): the three laptop-sim specs described beside
+# total_specs above. All run in chromium and none skips, so excluded holds at 17 and
+# allowed_skips at 4. Derived with bin/e2e-lane-derive --write on this tree.
+# 375 -> 376 (explainer-review-follow-ups): the showcase-board spec beside total_specs above;
+# chromium, no skip, so excluded holds at 17 and allowed_skips at 4.
+# 376 -> 377 (explainer-review-follow-ups): the modal-autofocus spec beside total_specs above;
+# chromium, no skip, so excluded holds at 17 and allowed_skips at 4.
+executed: 377
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

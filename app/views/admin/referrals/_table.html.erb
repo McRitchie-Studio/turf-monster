@@ -1,5 +1,12 @@
 <%# Per-reference funnel. Locals: report (ReferralReport). The email column
-    renders only when report.emails? — absent is not the same as zero. %>
+    renders only when report.emails? — absent is not the same as zero.
+
+    THE RATES ARE "PER 100 VISITORS", NOT PERCENTAGES. Signups are dated by
+    the day they signed up and visitors by the day they clicked, so a window
+    can hold signups whose click fell before it, and the ratio can pass 100.
+    Relabelled rather than capped: a cap would draw 100 for both 100 and 250,
+    hiding the very reference that converts late, and the figure is still the
+    one the operator compares across rows. The footnote says why. %>
 <div class="card overflow-x-auto mb-8" data-referral-table>
   <table class="w-full text-sm">
     <thead>
@@ -10,10 +17,10 @@
         <th class="px-3 py-2">Top landing paths</th>
         <% if report.emails? %>
           <th class="px-3 py-2 text-right" data-col="email">Email signups</th>
-          <th class="px-3 py-2 text-right" data-col="email-rate">Email rate</th>
+          <th class="px-3 py-2 text-right" data-col="email-rate">Emails per 100 visitors<sup>*</sup></th>
         <% end %>
         <th class="px-3 py-2 text-right">Account signups</th>
-        <th class="px-3 py-2 text-right">Account rate</th>
+        <th class="px-3 py-2 text-right" data-col="account-rate">Accounts per 100 visitors<sup>*</sup></th>
       </tr>
     </thead>
     <tbody>
@@ -36,14 +43,19 @@
           </td>
           <% if report.emails? %>
             <td class="px-3 py-2 font-mono text-right" data-cell="email"><%= row.email_signups %></td>
-            <td class="px-3 py-2 font-mono text-right text-secondary" data-cell="email-rate"><%= row.email_rate ? "#{row.email_rate}%" : "—" %></td>
+            <td class="px-3 py-2 font-mono text-right text-secondary" data-cell="email-rate"><%= row.email_rate || "—" %></td>
           <% end %>
           <td class="px-3 py-2 font-mono text-right" data-cell="accounts"><%= row.account_signups %></td>
-          <td class="px-3 py-2 font-mono text-right text-secondary" data-cell="account-rate"><%= row.account_rate ? "#{row.account_rate}%" : "—" %></td>
+          <td class="px-3 py-2 font-mono text-right text-secondary" data-cell="account-rate"><%= row.account_rate || "—" %></td>
         </tr>
       <% end %>
     </tbody>
   </table>
+  <% if report.rows.any? %>
+    <p class="px-3 py-2 text-xs text-muted border-t border-subtle" data-rate-footnote>
+      <sup>*</sup> Signups in the window per 100 of its visitors. Signups are counted on the day they signed up and visitors on the day they clicked, so a signup whose click came before the window still counts, and the figure can pass 100.
+    </p>
+  <% end %>
   <% if report.hidden_references.positive? %>
     <p class="px-3 py-2 text-xs text-muted border-t border-subtle" data-referral-hidden>
       Showing the top <%= ReferralReport::TOP_REFERENCES %> references by clicks; <%= number_with_delimiter(report.hidden_references) %> more not listed. The totals above count them all.

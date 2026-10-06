@@ -28,6 +28,11 @@
 # laptop's copy of that script still re-formats them in the reader's zone once
 # it runs, exactly as /live does for a signed-out visitor.
 #
+# SHOWCASE ENTRANTS. A contest with fewer than three real entries gains
+# Mason, turf and mack on the laptop's board only (LaptopShowcaseEntrants):
+# unsaved, readonly records drawn by the real leaderboard partial, with their
+# avatar images swapped in after the render (#showcase_avatars).
+#
 # NAMES. A player with no username would be labelled by User#display_name's
 # fallbacks, an email prefix or a truncated wallet. Those users are relabelled
 # "Player N" (N = their rank) in the leaderboard and "A player" in the chat
@@ -67,11 +72,18 @@ class LaptopLiveSnapshot
     focus_game = showcase.games.values.flatten.find { |game| game.slug == showcase.focus_slug }
     @simulation = focus_game && LaptopScoreSimulation.new(focus_game)
     @showcase = @simulation ? with_game(showcase, @simulation.opening.game) : showcase
+    @base_showcase = @showcase
   end
 
+  # The showcase entrants join here, not in #initialize: only the render reads
+  # the board, and a cached page (LaptopSnapshotCache) builds this object for
+  # its #simulation alone.
   def render
+    @showcase = script ? @showcase.with(entries: script.entries_at(0)) : LaptopShowcaseEntrants.fill(@showcase)
     anonymize!
-    doc = clean(renderer.render(partial: "pages/laptop_live", locals: { showcase: @showcase }))
+    doc = clean(renderer.render(partial: "pages/laptop_live", locals: { showcase: @showcase, board_wired: !script.nil? }))
+    showcase_avatars(doc)
+    script_pill_points(doc)
     collapse_navbar(doc)
     rotate_strip(doc)
     doc.to_html.html_safe # rubocop:disable Rails/OutputSafety -- our own partials' render, scripts removed
@@ -97,11 +109,85 @@ class LaptopLiveSnapshot
       chip = renderer.render(partial: "contests/live_game_chip", locals: { game: game })
       feed = renderer.render(partial: "contests/goal_feed_item",
                              locals: { event: "goal", goal: frame.goal, team: frame.team, player: nil, game: game })
-      { index: frame.index, tile: inert(clean(tile)), chip: inert(clean(chip)), feed: inert(clean(feed)) }
+      parts = { index: frame.index, tile: inert(clean(tile)), chip: inert(clean(chip)), feed: inert(clean(feed)) }
+      parts[:board] = board_frame(contest, frame.index) if script
+      parts
     end
   end
 
+  # The scripted showcase board (LaptopShowcaseEntrants::Script), or nil: only
+  # when the contest has no real entries and the featured game is simulated.
+  # Built from the showcase as loaded, before #render swaps its entries.
+  def script
+    return @script if defined?(@script)
+
+    @script = LaptopShowcaseEntrants::Script.build(@base_showcase, @simulation)
+  end
+
   private
+
+  # THE BOARD AT ONE FRAME: the live page's own leaderboard partial over the
+  # showcase entrants at that frame's totals, cleaned and inert like every
+  # frame. The driver swaps it into the board wrapper, which carries the live
+  # page's id, so the live script re-ranks it exactly as it does a broadcast
+  # (contests/_live_script #syncBoard): the slide, the wash, the rank badge,
+  # the score pop.
+  def board_frame(contest, index)
+    html = renderer.render(partial: "contests/turf_totals_leaderboard",
+                           locals: { compact: true, viewer: nil, contest: contest, entries: script.entries_at(index),
+                                     matchups: @showcase.matchups, onchain_contest: nil })
+    doc = clean(html)
+    showcase_avatars(doc)
+    script_pill_points(doc, script.entries_at(index))
+    inert(doc)
+  end
+
+  # A scripted pick has points while its game is still being played, which the
+  # board would draw as the multiplier; so each pill of a showcase row shows
+  # its points, and the row's pills add up to its total.
+  def script_pill_points(doc, entries = nil)
+    return unless script
+
+    (entries || @showcase.entries).each do |entry|
+      row = doc.at_css(%([data-entry-slug="#{entry.slug}"]))
+      next unless row
+
+      entry.selections.each do |selection|
+        team = selection.slate_matchup.team
+        next unless team
+
+        row.css(%([title^="#{team.name} — "])).each do |pill|
+          pill["title"] = "#{team.name} — #{format_points(selection.points)} pts"
+          mono = pill.at_css("span.font-mono")
+          mono.content = format_points(selection.points) if mono
+        end
+      end
+    end
+  end
+
+  def format_points(value)
+    value = value.to_f.round(1)
+    value == value.to_i ? value.to_i.to_s : value.to_s
+  end
+
+  # The showcase entrants (LaptopShowcaseEntrants) are unsaved users with no
+  # attachment, so components/avatar drew them as initials; each row's disc
+  # becomes its image here, at the avatar's own size and shape.
+  def showcase_avatars(doc)
+    doc.css(%([data-entry-slug^="#{LaptopShowcaseEntrants::SLUG_PREFIX}"])).each do |row|
+      image = LaptopShowcaseEntrants.image_for(row["data-entry-slug"])
+      disc = row.at_css(".relative.flex-shrink-0 > div.rounded-full")
+      next unless image && disc
+
+      name = row.at_css(".font-bold.truncate")&.text.to_s.strip
+      img = Nokogiri::XML::Node.new("img", doc.document)
+      img["src"] = ActionController::Base.helpers.asset_path(image)
+      img["alt"] = name
+      img["class"] = "w-14 h-14 rounded-full object-cover"
+      img["data-test"] = "showcase-avatar"
+      disc.replace(img)
+    end
+  end
 
   def renderer
     @renderer ||= begin

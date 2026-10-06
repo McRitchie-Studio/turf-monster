@@ -235,6 +235,10 @@ test.describe("turf-monster-v2 laptop: simulated live scoring", () => {
     await context.close();
   });
 
+  // NO FIXED WAIT. The driver records its state on the sim root (data-sim,
+  // and data-armed the first time a timer is ever armed), so "it never ran"
+  // is read directly: under reduced motion the driver says "reduced" and no
+  // timer was ever armed; below xl it is "paused" and none was armed either.
   test("under reduced motion, and below xl, the score holds at 3-7", async ({ browser }) => {
     const reduced = await browser.newContext({ viewport: { width: 1920, height: 1080 }, reducedMotion: "reduce" });
     const narrow = await browser.newContext({ viewport: { width: 1024, height: 900 }, reducedMotion: "no-preference" });
@@ -243,16 +247,126 @@ test.describe("turf-monster-v2 laptop: simulated live scoring", () => {
     await still.goto("/turf-monster-v2");
     await small.goto("/turf-monster-v2");
     await expect(still.locator('[data-test="laptop-mock"]')).toBeVisible();
-    expect(await featuredScore(still)).toBe("3-7");
 
-    await still.waitForTimeout(11_000);
+    const stillSim = still.locator('[data-test="laptop-sim"]');
+    await expect(stillSim).toHaveAttribute("data-sim", "reduced");
+    expect(await stillSim.getAttribute("data-armed")).toBeNull();
+    expect(await stillSim.getAttribute("data-frame")).toBeNull();
     expect(await featuredScore(still)).toBe("3-7");
     await expect(still.locator("#nfl-score-overlay")).toBeHidden();
-    // Below xl the laptop is not drawn, and the timer never runs.
+
+    // Below xl the laptop is not drawn, and the timer never arms.
+    const smallSim = small.locator('[data-test="laptop-sim"]');
     await expect(small.locator('[data-test="laptop-mock"]')).toBeHidden();
-    expect(await small.locator('[data-test="laptop-sim"]').getAttribute("data-frame")).toBeNull();
+    await expect(smallSim).toHaveAttribute("data-sim", "paused");
+    expect(await smallSim.getAttribute("data-armed")).toBeNull();
+    expect(await smallSim.getAttribute("data-frame")).toBeNull();
     expect(await featuredScore(small)).toBe("3-7");
     await reduced.close();
     await narrow.close();
+  });
+
+  // THE CAP (Alex, 2026-10-06): the touchdown that takes the combined score to
+  // 50 or more is the last; the page holds it and clears its timer. Read on
+  // Playwright's clock, so six ten-second touchdowns take no wall time.
+  test("it stops at the first combined 50 or more and holds that frame", async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+    const page = await context.newPage();
+    await allowMotion(page);
+    await page.clock.install();
+    await page.goto("/turf-monster-v2");
+    const sim = page.locator('[data-test="laptop-sim"]');
+    await expect(sim).toHaveAttribute("data-sim", "running");
+
+    await page.clock.runFor(10_500);
+    await expect.poll(() => featuredScore(page)).toBe("10-7");
+    await page.clock.runFor(60_000);
+    await expect(sim).toHaveAttribute("data-sim", "done");
+    expect(await featuredScore(page)).toBe("24-28");
+    const frame = await sim.getAttribute("data-frame");
+
+    // Held: another minute moves nothing, and no loop back to 3-7.
+    await page.clock.runFor(60_000);
+    expect(await featuredScore(page)).toBe("24-28");
+    await expect(sim).toHaveAttribute("data-frame", frame);
+    await context.close();
+  });
+
+  test("reduced motion turned on mid-visit stops the laptop and puts back 3-7", async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+    const page = await context.newPage();
+    await allowMotion(page);
+    await page.clock.install();
+    await page.goto("/turf-monster-v2");
+    const sim = page.locator('[data-test="laptop-sim"]');
+    await expect(sim).toHaveAttribute("data-sim", "running");
+    await page.clock.runFor(10_500);
+    await expect.poll(() => featuredScore(page)).toBe("10-7");
+
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await expect(sim).toHaveAttribute("data-sim", "stopped");
+    expect(await featuredScore(page)).toBe("3-7");
+    await page.clock.runFor(30_000);
+    expect(await featuredScore(page)).toBe("3-7");
+    expect(await page.evaluate(() => window.__laptopSimLive)).toBe(0);
+    await context.close();
+  });
+
+  // THE SHOWCASE BOARD TRADES PLACES (Alex, 2026-10-06). nfl-weeks-15-17 has
+  // no real entries, so the laptop's board is the scripted showcase: Mason
+  // holds the featured game's home team, turf its away team. The first
+  // touchdown (away) puts turf on top; the second (home) puts Mason back. Read
+  // on Playwright's clock, from the board the live script re-ranks.
+  test("the showcase board trades first place with each touchdown", async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+    const page = await context.newPage();
+    await allowMotion(page);
+    await page.clock.install();
+    await page.goto("/turf-monster-v2");
+    const board = page.locator('[data-test="laptop-live-leaderboard"]');
+    await expect(board).toHaveAttribute("id", /^contest_\d+_leaderboard$/);
+    const leader = () => board.locator('[data-role="entry-row"]').first().locator(".font-bold.truncate").textContent();
+    const rows = () => board.locator('[data-role="entry-row"]').evaluateAll((els) => els.map((e) => e.dataset.entrySlug));
+
+    expect((await leader()).trim()).toBe("Mason");
+    expect(await rows()).toEqual(["showcase-mason", "showcase-turf", "showcase-mack"]);
+
+    await expect(page.locator('[data-test="laptop-sim"]')).toHaveAttribute("data-sim", "running");
+    await page.clock.runFor(10_500);
+    await expect.poll(async () => (await leader()).trim()).toBe("turf");
+    // The crown and the place badge go with the order: the board is redrawn.
+    const first = board.locator('[data-role="entry-row"]').first();
+    await expect(first).toHaveAttribute("data-rank", "1");
+    await expect(first.locator('[title="In the money"]')).toHaveCount(1);
+
+    await page.clock.runFor(10_000);
+    await expect.poll(async () => (await leader()).trim()).toBe("Mason");
+    expect(await rows()).toEqual(["showcase-mason", "showcase-turf", "showcase-mack"]);
+    await context.close();
+  });
+
+  // THE LEAK: a laptop paused off-screen when the visitor left used to keep its
+  // visibilitychange, resize and IntersectionObserver listeners alive across
+  // the Turbo visit, one set per visit. window.__laptopSimLive counts drivers
+  // wired and not torn down; after leaving it must be 0, paused or not.
+  test("leaving the page while the laptop is paused tears the driver down", async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+    const page = await context.newPage();
+    await allowMotion(page);
+    for (let visit = 0; visit < 2; visit++) {
+      await page.goto("/turf-monster-v2");
+      const sim = page.locator('[data-test="laptop-sim"]');
+      await expect(sim).toHaveAttribute("data-sim", "running");
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      await expect(sim).toHaveAttribute("data-sim", "paused");
+      expect(await page.evaluate(() => window.__laptopSimLive)).toBe(1);
+
+      await page.evaluate(() => window.Turbo.visit("/about"));
+      await page.waitForURL("**/about");
+      expect(await page.evaluate(() => window.__laptopSimLive)).toBe(0);
+      await page.evaluate(() => window.Turbo.visit("/turf-monster-v2"));
+      await page.waitForURL("**/turf-monster-v2");
+    }
+    await context.close();
   });
 });

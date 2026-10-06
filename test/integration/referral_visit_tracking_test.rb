@@ -195,6 +195,19 @@ class ReferralVisitTrackingTest < ActionDispatch::IntegrationTest
     assert_equal 0, ReferralVisit.count
   end
 
+  # The concern's own rescues (outside ReferralVisit.record) record to
+  # ErrorLog too, and the page still answers.
+  test "a tracking failure outside the insert is recorded to ErrorLog and the page answers" do
+    returning_visitor
+    assert_difference -> { ErrorLog.count }, 1 do
+      ReferralVisit.stub(:trackable_request?, ->(**) { raise ArgumentError, "tracking boom" }) do
+        get root_path, params: { reference: "tiktok" }, headers: BROWSER.dup
+      end
+    end
+    assert_includes [200, 302], response.status
+    assert_equal "tracking boom", ErrorLog.order(:id).last.message
+  end
+
   test "an email registration stamps the reference cookie onto the new user" do
     get root_path, params: { reference: "tiktok-bio" }, headers: BROWSER.dup
     post signup_path, params: { user: { email: "cookie-ref@mcritchie.studio" }, age_attestation: "1" }
@@ -225,7 +238,7 @@ class ReferralVisitTrackingTest < ActionDispatch::IntegrationTest
     assert_select "[data-reference-row='tiktok'] [data-cell='clicks']", text: "1"
     assert_select "[data-reference-row='tiktok'] [data-cell='visitors']", text: "1"
     assert_select "[data-reference-row='tiktok'] [data-cell='accounts']", text: "1"
-    assert_select "[data-reference-row='tiktok'] [data-cell='account-rate']", text: "100.0%"
+    assert_select "[data-reference-row='tiktok'] [data-cell='account-rate']", text: "100.0"
     assert_select "[data-referral-window] a[aria-current='page']", text: "7 days"
   end
 

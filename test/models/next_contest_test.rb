@@ -75,6 +75,26 @@ class NextContestTest < ActiveSupport::TestCase
     assert_equal NextContest::LOBBY_LIMIT, NextContest.lobby.contests.size
   end
 
+  # The comment on .lobby says a cancelled contest is never shown. A cancelled
+  # contest keeps status "open" (Contest#cancelled? reads onchain_cancelled),
+  # so Contest.open alone let it through, and it also took a slot from the
+  # SQL limit an enterable contest needed.
+  test "the lobby never shows a cancelled contest, and one does not take a slot" do
+    open = contest("open", starts_at: 3.days.from_now)
+    dead = contest("cancelled", starts_at: 2.days.from_now)
+    dead.update_column(:onchain_cancelled, true)
+    lobby = NextContest.lobby
+    assert_equal [open], lobby.contests
+    refute_includes lobby.contests, dead
+
+    # Fill the newest-first window with cancelled contests: the older
+    # enterable one must still be found.
+    (NextContest::LOBBY_LIMIT * 4).times do |i|
+      contest("dead-#{i}", starts_at: (i + 4).days.from_now).update_column(:onchain_cancelled, true)
+    end
+    assert_equal [open], NextContest.lobby(limit: 1).contests
+  end
+
   test "the live showcase prefers a contest being played, then the latest finished, then nil" do
     assert_nil NextContest.live_showcase
     finished = contest("finished", starts_at: 20.days.ago, status: "settled")
