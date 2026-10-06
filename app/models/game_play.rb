@@ -57,7 +57,7 @@ class GamePlay < ApplicationRecord
 
   # ── THE PLAY SUMMARY under the focus card ────────────────────────────────
   #
-  # Three things, each said once (Alex, 2026-10-05): WHAT the play was, in
+  # Three things, each said once: WHAT the play was, in
   # bold — "Completion", "Interception", "Missed Field Goal"; the DETAIL under
   # it — "45 yard pass", "-2 yard rush"; and WHO, as up to three small
   # portraits. All read off what the feed already gave us.
@@ -195,10 +195,8 @@ class GamePlay < ApplicationRecord
   # ── WAITING FOR THE KICKOFF ──────────────────────────────────────────────
   #
   # After a touchdown or a field goal the next snap is a kickoff, and between
-  # the two the feed fills the gap with an Official Timeout — the TV break. Shown
-  # as "the latest play" that read as if the game had stopped for a reason,
-  # when what the board should say is what everyone is waiting for (Alex,
-  # 2026-10-05).
+  # the two the feed fills the gap with an Official Timeout — the TV break. The
+  # board says what everyone is waiting for, not that the game has stopped.
   #
   # Breaks that only fill time are looked past. Halftime and the end of the game
   # are not: they ARE what is happening, and the second half opens with its own
@@ -212,7 +210,7 @@ class GamePlay < ApplicationRecord
 
   # The score the next kickoff follows, or nil. `plays` is newest first.
   #
-  # TWO MOMENTS, IN ORDER (Alex, 2026-10-05). While the score is itself the
+  # TWO MOMENTS, IN ORDER. While the score is itself the
   # newest play, the bar shows THE SCORE — "Touchdown, 12 yard rush" is the
   # news. Only once something fills the gap after it (the TV break, the try)
   # does the bar move on to what everyone is waiting for. And never for a game

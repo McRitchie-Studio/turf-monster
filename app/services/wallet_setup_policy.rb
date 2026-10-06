@@ -14,8 +14,8 @@
 #      (token, or one on its      admission in hand and needs no funding rail at
 #      way)                       all, so a wallet nudge is asking them to solve
 #                                a problem they do not have. This is the whole
-#                                point of gifting an entry (operator call,
-#                                2026-09-09): "the state of the system should
+#                                point of gifting an entry, in the operator's
+#                                words: "the state of the system should
 #                                sense the free entry and not gate any web3
 #                                guards … my easy way to make the app
 #                                approachable for the aunts of the world."

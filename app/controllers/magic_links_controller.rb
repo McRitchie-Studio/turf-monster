@@ -496,9 +496,9 @@ class MagicLinksController < ApplicationController
   end
 
   # Where a login lands: honor any explicit (already-sanitized) return_to — a
-  # contest, or e.g. /account — and otherwise drop them on the ROOT (operator
-  # call, 2026-08-15). "Otherwise" covers no destination, a bare "/", and the
-  # auth pages above, which used to be honored literally.
+  # contest, or e.g. /account — and otherwise drop them on the ROOT.
+  # "Otherwise" covers no destination, a bare "/", and the auth pages above,
+  # which are never honored literally.
   #
   # Root is contests#world_cup, the app's home board. It replaces a redirect to
   # `Contest.featured` here: same intent, one destination, and it cannot resolve

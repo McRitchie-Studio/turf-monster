@@ -101,7 +101,7 @@ module AppFlags
   # (signin page, auth modal, wallet-connect modal). The checkbox itself is
   # the ENGINE partial studio/modals/shared/_age_attestation, which does NOT
   # self-gate — each of those three callsites wraps its render in this flag.
-  # Parked OFF for the first contest (operator call, 2026-06-10); set
+  # Parked OFF for the first contest; set
   # ENABLE_AGE_ATTESTATION=true to restore the full gate. While off the
   # checkbox doesn't render, every client/server gate passes, and —
   # deliberately — new users get NO age_attested_at stamp: we never record

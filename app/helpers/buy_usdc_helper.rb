@@ -47,9 +47,8 @@ module BuyUsdcHelper
     ENV["PHANTOM_BUY_URL"].presence || PHANTOM_BUY_URL
   end
 
-  # The operator's chosen walkthrough (2026-09-06). It replaced a stand-in that
-  # borrowed the wallet-setup card's general Phantom video, which was honest but
-  # not about buying USDC.
+  # The operator's chosen walkthrough, about buying USDC itself rather than the
+  # wallet-setup card's general Phantom video.
   DEFAULT_VIDEO_ID = "yvSwABtqGq4".freeze
 
   # The useful part starts here — everything before it is preamble the player

@@ -170,8 +170,8 @@ class TestController < ApplicationController
   CANONICAL_ADMIN_FALLBACK = "7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr".freeze
 
   # THE HUMAN OPERATOR, KEYED BY EMAIL — because the username churns and the
-  # email does not. It has moved twice: `alex` -> `mcritchie` (2026-06-02) ->
-  # `alex` (2026-09-04, traded back with the shared team account).
+  # email does not; the username has traded places with the shared team
+  # account's before.
   #
   # A stale username here does NOT fail as a missing user, which is what makes it
   # worth keying off: it finds the OTHER seeded admin, tries to hand it the mock

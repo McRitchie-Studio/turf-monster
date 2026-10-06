@@ -315,12 +315,12 @@ Studio.configure do |config|
   # State Eligibility. Dropping any of those links is a regression with business
   # consequences; test/integration/site_footer_test.rb pins all sixteen.
   #
-  # NO ADDRESS, NO MAP, NO PHONE, by the operator's instruction (2026-10-02).
+  # NO ADDRESS, NO MAP, NO PHONE, by the operator's instruction.
   # Without `address:` the engine renders no Location band and never requests
   # Leaflet or a map tile, so the content security policy needs no change.
   #
   # FUTURE: a business mailing address goes here once the registered agent / PO
-  # box exists (operator decision 2026-06-10). Card-processor underwriters
+  # box exists. Card-processor underwriters
   # require one before the applications (docs/underwriting/APPLICATION_ANSWERS.md).
   # Add it as `address: { street:, city_line: }` with no lat/lng, which gives the
   # Location band and still no map.

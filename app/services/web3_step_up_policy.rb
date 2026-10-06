@@ -24,7 +24,7 @@
 #      exits WalletSetupPolicy at its own step 1).
 #   4. Otherwise               -> YES.
 #
-# ADVISORY, NOT AN ENFORCEMENT BOUNDARY (operator call, 2026-08-21). A `true`
+# ADVISORY, NOT AN ENFORCEMENT BOUNDARY. A `true`
 # here opens a DISMISSIBLE modal; it does not suspend the session. The teeth are
 # where they already were — ContestsController#enter refuses a web3 session
 # OUTRIGHT (routing it to prepare_entry -> confirm_onchain_entry, where the

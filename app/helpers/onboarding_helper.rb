@@ -66,8 +66,8 @@ module OnboardingHelper
   def first_name_modal_locals(required: false)
     {
       required: required,
-      # Step 1 of the chain: first name (1) -> age (2) -> wallet (3), per the
-      # operator's call on 2026-08-19. The other two cards render 2 and 3 of 3.
+      # Step 1 of the chain: first name (1) -> age (2) -> wallet (3), the
+      # operator's chosen order. The other two cards render 2 and 3 of 3.
       progress: [ 1, 3 ],
       placeholder_names: first_name_placeholder_names,
       subtext: required ? FIRST_NAME_SUBTEXT_REQUIRED : FIRST_NAME_SUBTEXT_CHAIN

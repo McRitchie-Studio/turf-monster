@@ -28,10 +28,10 @@
   # mode test because BOTH entry paths now spend one: the managed path through
   # Entries::ManagedEntry#fund!, and the Phantom path through
   # #prepare_entry, which builds enter_contest_with_token when the signing wallet
-  # holds an unconsumed token. It shipped mode-blind one review earlier while the
-  # Phantom path still charged USDC, and Carl blocked it for exactly that — the
-  # copy claimed a price the code did not honour. The fix was to make the code
-  # true rather than the copy narrower (operator call, 2026-08-21).
+  # holds an unconsumed token. The label never claims a price the code does not
+  # honour: when the two disagree, the code is made true rather than the copy
+  # narrower.
+  #
   hold_cta_label = tag.span("x-text": "$store.session.tokensAvailable >= 1 ? 'Hold for Free Entry' : 'Hold to Confirm'")
   source_entry = edit_entry || @cart_entry
 
