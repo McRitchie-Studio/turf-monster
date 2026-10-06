@@ -216,13 +216,17 @@
   <section class="mb-12 md:mb-16">
     <p class="text-primary font-mono text-sm mb-2">05</p>
     <h2 class="text-2xl md:text-3xl font-bold text-heading mb-4">Payouts</h2>
+    <%# The standard format's own row, so this table moves when the format does. %>
+    <% standard = Contest::FORMATS.fetch("standard") %>
+    <% standard_payouts = standard[:payouts].sort %>
+    <% usd = ->(cents) { format("$%d.%02d", *cents.divmod(100)) } %>
     <p class="text-secondary text-base md:text-lg leading-relaxed mb-8">
-      In a standard 29-player contest, the top 5 entries win cash — $500 in total prizes. First place takes $300; 2nd through 5th each take $50. Ties split their place's prize evenly.
+      In a standard <%= standard[:max_entries] %>-player contest, the top <%= standard_payouts.size %> entries win cash — <%= usd.(standard_payouts.sum(&:last)).delete_suffix(".00") %> in total prizes: <%= standard_payouts.map { |place, cents| "#{place.ordinalize} takes #{usd.(cents).delete_suffix(".00")}" }.to_sentence %>. Tied entries split the prizes of the places they cover; a tie for the last paid place goes to the entry made first.
     </p>
 
     <!-- Payout table -->
     <div class="card overflow-hidden mb-6">
-      <table class="w-full text-sm">
+      <table class="w-full text-sm" data-test="payout-table">
         <thead>
           <tr class="border-b border-subtle">
             <th class="px-4 py-3 text-left text-xs font-semibold text-muted uppercase tracking-wider">Place</th>
@@ -230,26 +234,19 @@
           </tr>
         </thead>
         <tbody class="divide-y divide-subtle">
-          <tr class="border-l-4 border-l-mint">
-            <td class="px-4 py-3 text-heading font-semibold">1st Place</td>
-            <td class="px-4 py-3 text-right font-mono text-primary font-bold text-lg">$300.00</td>
-          </tr>
-          <tr>
-            <td class="px-4 py-3 text-body">2nd Place</td>
-            <td class="px-4 py-3 text-right font-mono text-heading">$50.00</td>
-          </tr>
-          <tr>
-            <td class="px-4 py-3 text-body">3rd Place</td>
-            <td class="px-4 py-3 text-right font-mono text-heading">$50.00</td>
-          </tr>
-          <tr>
-            <td class="px-4 py-3 text-body">4th Place</td>
-            <td class="px-4 py-3 text-right font-mono text-heading">$50.00</td>
-          </tr>
-          <tr>
-            <td class="px-4 py-3 text-body">5th Place</td>
-            <td class="px-4 py-3 text-right font-mono text-heading">$50.00</td>
-          </tr>
+          <% standard_payouts.each do |place, cents| %>
+            <% if place == 1 %>
+              <tr class="border-l-4 border-l-mint">
+                <td class="px-4 py-3 text-heading font-semibold">1st Place</td>
+                <td class="px-4 py-3 text-right font-mono text-primary font-bold text-lg"><%= usd.(cents) %></td>
+              </tr>
+            <% else %>
+              <tr>
+                <td class="px-4 py-3 text-body"><%= place.ordinalize %> Place</td>
+                <td class="px-4 py-3 text-right font-mono text-heading"><%= usd.(cents) %></td>
+              </tr>
+            <% end %>
+          <% end %>
         </tbody>
       </table>
     </div>
@@ -257,11 +254,11 @@
     <div class="grid grid-cols-2 gap-4 text-center text-sm">
       <div class="bg-surface-alt rounded-lg p-3">
         <p class="text-muted mb-1">1st place</p>
-        <p class="font-mono text-primary font-bold">$300.00</p>
+        <p class="font-mono text-primary font-bold"><%= usd.(standard_payouts.first.last) %></p>
       </div>
       <div class="bg-surface-alt rounded-lg p-3">
         <p class="text-muted mb-1">Total prizes</p>
-        <p class="font-mono text-primary font-bold">$500.00</p>
+        <p class="font-mono text-primary font-bold"><%= usd.(standard_payouts.sum(&:last)) %></p>
       </div>
     </div>
   </section>
@@ -369,7 +366,7 @@
         <div class="text-heading text-right">Up to 3</div>
 
         <div class="text-secondary">Ties</div>
-        <div class="text-heading text-right">Split evenly</div>
+        <div class="text-heading text-right">Split the places covered</div>
 
         <div class="text-secondary">Lock</div>
         <div class="text-heading text-right" data-test="lock-quick-ref">Stated start time</div>

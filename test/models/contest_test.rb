@@ -1,10 +1,10 @@
 require "test_helper"
 require "minitest/mock"
 
-# BL5 (Stage 3 audit): #grade! tie-payout splitting. The ranking + payout
-# math at contest.rb:184-217 handles ties via spanned-rank summation and
-# integer remainder distribution. These pin down the easy-to-miss money-
-# bug cases on the "standard" tier (payouts 1=>$300, 2-5=>$50).
+# #grade! ranks and pays through Contest::PayoutSplit. These pin the money
+# cases on the "standard" tier (300/100/50/50): ties inside the paid ranks pool
+# and split the places they cover, and a tie at the last paid rank pays only
+# its earliest entry, so a contest never pays more entries than it has places.
 class ContestGradeTiePayoutsTest < ActiveSupport::TestCase
   setup do
     @creator = users(:alex)
@@ -21,65 +21,181 @@ class ContestGradeTiePayoutsTest < ActiveSupport::TestCase
     )
   end
 
-  test "two entries tied for 1st split spanned ranks 1+2 evenly ($350 → $175 each)" do
+  test "two entries tied for 1st split ranks 1+2 evenly ($400 → $200 each)" do
     e1 = make_active_entry(score: 100.0)
     e2 = make_active_entry(score: 100.0)
     e3 = make_active_entry(score: 50.0)
 
-    @contest.stub :score_entries!, nil do
-      @contest.grade!
-    end
+    grade!
 
     [e1, e2, e3].each(&:reload)
-    assert_equal 1, e1.rank
-    assert_equal 1, e2.rank
-    assert_equal 3, e3.rank
-    assert_equal 17_500, e1.payout_cents
-    assert_equal 17_500, e2.payout_cents
-    assert_equal 50_00, e3.payout_cents
+    assert_equal [1, 1, 3], [e1.rank, e2.rank, e3.rank]
+    assert_equal [200_00, 200_00, 50_00], [e1.payout_cents, e2.payout_cents, e3.payout_cents]
   end
 
-  test "three-way tie for 1st spans ranks 1+2+3, splits $400 with remainder to earliest" do
-    e1 = make_active_entry(score: 100.0)
-    e2 = make_active_entry(score: 100.0)
-    e3 = make_active_entry(score: 100.0)
+  test "three-way tie for 1st spans ranks 1+2+3, splits $450 evenly" do
+    e1, e2, e3 = 3.times.map { make_active_entry(score: 100.0) }
     e4 = make_active_entry(score: 50.0)
 
-    @contest.stub :score_entries!, nil do
-      @contest.grade!
-    end
+    grade!
 
     [e1, e2, e3, e4].each(&:reload)
-    assert_equal 1, e1.rank
-    assert_equal 1, e2.rank
-    assert_equal 1, e3.rank
-    assert_equal 4, e4.rank
-    # 400_00 / 3 = 13333, remainder 1 → e1 gets +1
-    assert_equal 13_334, e1.payout_cents
-    assert_equal 13_333, e2.payout_cents
-    assert_equal 13_333, e3.payout_cents
-    assert_equal 400_00, e1.payout_cents + e2.payout_cents + e3.payout_cents
-    assert_equal 50_00, e4.payout_cents
+    assert_equal [1, 1, 1, 4], [e1.rank, e2.rank, e3.rank, e4.rank]
+    assert_equal [150_00, 150_00, 150_00, 50_00], [e1.payout_cents, e2.payout_cents, e3.payout_cents, e4.payout_cents]
   end
 
-  test "five-way tie for 1st spans entire standard schedule ($500 → $100 each)" do
+  test "a tie split with a remainder credits the earliest entry" do
+    rewrite_snapshot([100_00, 100_01])
+    e1 = make_active_entry(score: 100.0)
+    e2 = make_active_entry(score: 100.0)
+
+    grade!
+
+    assert_equal [100_01, 100_00], [e1.reload.payout_cents, e2.reload.payout_cents]
+  end
+
+  test "a tie at the last paid rank pays the earliest entry alone" do
+    e1 = make_active_entry(score: 100.0)
+    e2 = make_active_entry(score: 90.0)
+    e3 = make_active_entry(score: 80.0)
+    tied = 3.times.map { make_active_entry(score: 70.0) }
+
+    grade!
+
+    [e1, e2, e3, *tied].each(&:reload)
+    assert_equal [1, 2, 3, 4, 4, 4], [e1, e2, e3, *tied].map(&:rank)
+    assert_equal [300_00, 100_00, 50_00, 50_00, 0, 0], [e1, e2, e3, *tied].map(&:payout_cents)
+    assert_equal 4, @contest.entries.where("payout_cents > 0").count
+  end
+
+  test "an earlier tie still splits when the last paid rank is not tied" do
+    e1 = make_active_entry(score: 100.0)
+    e2 = make_active_entry(score: 90.0)
+    e3 = make_active_entry(score: 90.0)
+    e4 = make_active_entry(score: 80.0)
+    e5 = make_active_entry(score: 70.0)
+
+    grade!
+
+    [e1, e2, e3, e4, e5].each(&:reload)
+    assert_equal [1, 2, 2, 4, 5], [e1, e2, e3, e4, e5].map(&:rank)
+    assert_equal [300_00, 75_00, 75_00, 50_00, 0], [e1, e2, e3, e4, e5].map(&:payout_cents)
+  end
+
+  test "five-way tie for 1st pays the four earliest entries, splitting the $500 schedule" do
     entries_tied = 5.times.map { make_active_entry(score: 100.0) }
 
-    @contest.stub :score_entries!, nil do
-      @contest.grade!
-    end
+    grade!
 
     entries_tied.each(&:reload)
     assert entries_tied.all? { |e| e.rank == 1 }
-    entries_tied.each { |e| assert_equal 100_00, e.payout_cents }
-    assert_equal 500_00, entries_tied.sum(&:payout_cents)
+    assert_equal [125_00, 125_00, 125_00, 125_00, 0], entries_tied.map(&:payout_cents)
+  end
+
+  test "grading pays the snapshot, not the format's current row" do
+    rewrite_snapshot([40_00, 10_00])
+    e1 = make_active_entry(score: 100.0)
+    e2 = make_active_entry(score: 90.0)
+    e3 = make_active_entry(score: 80.0)
+
+    grade!
+
+    assert_equal [40_00, 10_00, 0], [e1, e2, e3].map { |e| e.reload.payout_cents }
+  end
+
+  # The settle transaction is built and queued before the contest reads as
+  # settled: a build that raises rolls the whole grade back.
+  test "a settle build that raises leaves the contest ungraded" do
+    @contest.update_columns(onchain_contest_id: "SettleBuildFailsPda111111111111111111111111", starts_at: 1.hour.ago)
+    e1 = make_active_entry(score: 100.0)
+    vault = Object.new
+    vault.define_singleton_method(:build_settle_contest) do |*_args, **_kw|
+      raise Solana::Vault::SettleTooLargeError, "too large"
+    end
+
+    Solana::Vault.stub(:new, vault) do
+      assert_raises(Solana::Vault::SettleTooLargeError) { grade! }
+    end
+
+    refute @contest.reload.settled?
+    assert_nil e1.reload.payout_cents.nonzero?
+    assert_equal 0, PendingTransaction.where(target: @contest).count
+    assert_equal 0, TransactionLog.where(source: @contest).count
   end
 
   private
 
+  def grade!
+    @contest.stub(:score_entries!, nil) { @contest.grade! }
+  end
+
+  # The column is attr_readonly, so a test sets a different table the way the
+  # backfill does: below the model.
+  def rewrite_snapshot(cents)
+    Contest.where(id: @contest.id).update_all(payout_table_cents: cents)
+    @contest.reload
+  end
+
   def make_active_entry(score:)
-    user = User.create!(email: "tied_#{SecureRandom.hex(4)}@example.com")
+    user = User.create!(email: "tied_#{SecureRandom.hex(4)}@example.com",
+                        web3_solana_address: Solana::Keypair.from_bytes(SecureRandom.random_bytes(32)).to_base58)
     Entry.create!(user: user, contest: @contest, status: "active", score: score)
+  end
+end
+
+# Every format pays at most Contest::MAX_PAID_RANKS places, and a contest pays
+# the table it was created with.
+class ContestFormatsTest < ActiveSupport::TestCase
+  test "standard pays 300/100/50/50 and large pays 1000/400/200/200" do
+    assert_equal({ 1 => 300_00, 2 => 100_00, 3 => 50_00, 4 => 50_00 }, Contest::FORMATS.fetch("standard")[:payouts])
+    assert_equal({ 1 => 1000_00, 2 => 400_00, 3 => 200_00, 4 => 200_00 }, Contest::FORMATS.fetch("large")[:payouts])
+  end
+
+  test "standard and large keep their prize pools" do
+    assert_equal 500_00, Contest::FORMATS.fetch("standard")[:payouts].values.sum
+    assert_equal 1800_00, Contest::FORMATS.fetch("large")[:payouts].values.sum
+  end
+
+  test "tiny, small, medium and micro are unchanged" do
+    assert_equal({ 1 => 45_00 }, Contest::FORMATS.fetch("tiny")[:payouts])
+    assert_equal({ 1 => 75_00 }, Contest::FORMATS.fetch("small")[:payouts])
+    assert_equal({ 1 => 100_00, 2 => 40_00 }, Contest::FORMATS.fetch("medium")[:payouts])
+    assert_equal({ 1 => 5_00, 2 => 2_00, 3 => 2_00 }, Contest::FORMATS.fetch("micro")[:payouts])
+  end
+
+  test "no format pays more than four ranks, and every table is ranks 1..n" do
+    assert_equal 4, Contest::MAX_PAID_RANKS
+    Contest::FORMATS.each do |format, config|
+      ranks = config[:payouts].keys
+      assert_operator ranks.size, :<=, Contest::MAX_PAID_RANKS, format
+      assert_equal (1..ranks.size).to_a, ranks.sort, format
+    end
+  end
+
+  test "a contest snapshots its format's payouts when it is created" do
+    contest = Contest.create!(name: "Snapshot", slate: slates(:one), status: :open, contest_type: "large")
+
+    assert_equal [1000_00, 400_00, 200_00, 200_00], contest.reload.payout_table_cents
+    assert_equal Contest::FORMATS.fetch("large")[:payouts], contest.payouts
+  end
+
+  test "the snapshot is written once" do
+    contest = Contest.create!(name: "Snapshot", slate: slates(:one), status: :open, contest_type: "standard")
+
+    assert_raises(ActiveRecord::ReadonlyAttributeError) { contest.update!(payout_table_cents: [1]) }
+    assert_equal [300_00, 100_00, 50_00, 50_00], contest.reload.payout_table_cents
+  end
+
+  test "an unsaved contest prices its format's current row" do
+    assert_equal Contest::FORMATS.fetch("standard")[:payouts], Contest.new(contest_type: "standard").payouts
+  end
+
+  test "a contest saved before snapshots pays the table it opened with" do
+    contest = contests(:one)
+    assert_nil contest.payout_table_cents
+
+    assert_equal({ 1 => 300_00, 2 => 50_00, 3 => 50_00, 4 => 50_00, 5 => 50_00 }, contest.payouts)
+    assert_equal 500_00, contest.guaranteed_prize_cents
   end
 end
 

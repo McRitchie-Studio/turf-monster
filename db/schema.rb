@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_06_180000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_06_190000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -251,6 +251,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_180000) do
     t.datetime "onchain_reconcile_flagged_at"
     t.boolean "onchain_settled", default: false, null: false
     t.string "onchain_tx_signature"
+    t.bigint "payout_table_cents", array: true
     t.integer "rank"
     t.integer "season_id"
     t.bigint "slate_id"
