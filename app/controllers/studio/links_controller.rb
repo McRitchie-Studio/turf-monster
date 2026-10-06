@@ -6,7 +6,8 @@ module Studio
   # modal). The engine's version would consume magic links through its generic,
   # gateless sign_up_new — never use it here.
   #
-  #   GET  /l/:token  magic_link → scanner-safe confirm interstitial (auto-POSTs)
+  #   GET  /l/:token  campaign   → 302 to its target with ?r=<reference> (CampaignLink)
+  #                   magic_link → scanner-safe confirm interstitial (auto-POSTs)
   #                   referral   → attribution cookie + redirect to target (reusable)
   #                   else       → old /l/:slug landing link → 301 /lp/:slug, or invalid
   #   POST /l/:token  magic_link → turf's gated consume (sign in / create account)
@@ -14,6 +15,11 @@ module Studio
     # GET is inert for magic links (scanner-safe — see MagicLinksController#confirm).
     def show
       response.set_header("Referrer-Policy", "strict-origin")
+      # A campaign short link wins over everything below, the /lp fallback
+      # included (CampaignLink explains the precedence).
+      campaign = ::CampaignLink.resolve(params[:token])
+      return follow_campaign_link(campaign) if campaign
+
       link = ::Studio::Link.find_by(token: params[:token])
 
       case link&.kind
@@ -65,6 +71,23 @@ module Studio
     end
 
     private
+
+    # The click is COUNTED on the landing, not here: /l/ is a path
+    # ReferralVisitTracking never records (it carries bearer tokens), and the
+    # landing's ?r= is what it reads, so the hop and the landing cannot both
+    # count. The first-touch cookie is set there too (capture_reference).
+    #
+    # This hop does set the visitor cookie, though. A browser that follows the
+    # 302 brings it straight back on the landing, which then records the click
+    # at once instead of parking it for a second request, so a visitor who
+    # opens the bio link and leaves after one page is still counted. A client
+    # that keeps no cookies still records nothing.
+    def follow_campaign_link(campaign)
+      return redirect_to(root_path) unless campaign.active?
+
+      set_referral_visitor_cookie
+      redirect_to campaign.destination(request.query_parameters), status: :found
+    end
 
     # Attribution cookie the signup flow reads (same :reference cookie the legacy
     # ?ref= / /i path used). Value = inviter slug when available, else the token.

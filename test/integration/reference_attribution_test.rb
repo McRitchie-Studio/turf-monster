@@ -9,6 +9,23 @@ class ReferenceAttributionTest < ActionDispatch::IntegrationTest
     assert_equal "spring-campaign", cookies[:reference]
   end
 
+  test "a ?r= param is captured into the same cookie" do
+    get faucet_path, params: { r: "tiktok-bio" }
+    assert_equal "tiktok-bio", cookies[:reference]
+  end
+
+  test "r wins over reference when a link carries both" do
+    get faucet_path, params: { r: "short", reference: "long" }
+    assert_equal "short", cookies[:reference]
+  end
+
+  test "an r-tagged visit lands on the new user at magic-link signup" do
+    get faucet_path, params: { r: "tiktok-bio" }
+    token = Studio::Link.create_magic_link(email: "r-ref@mcritchie.studio", age_attested: true).token
+    assert_difference("User.count", 1) { post magic_link_consume_path(token: token) }
+    assert_equal "tiktok-bio", User.find_by(email: "r-ref@mcritchie.studio").reference
+  end
+
   test "the reference cookie is first-touch and not overwritten" do
     get faucet_path, params: { reference: "first" }
     get faucet_path, params: { reference: "second" }
