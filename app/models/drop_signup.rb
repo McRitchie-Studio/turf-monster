@@ -18,7 +18,7 @@
 # requests, two jobs, a double-click or a Sidekiq retry race on that one
 # statement and the database picks one winner, so no address can be mailed the
 # same email twice — not across IPs, not across processes. If queueing the email
-# then raises, the claim is released so a later attempt can try again.
+# then raises before its outbox row exists, the claim is released for a retry.
 #
 # UNSUBSCRIBE is a signed id (`unsubscribe_token`): tamper-proof, purpose-bound
 # (a token minted for anything else does not resolve here) and it never expires,
@@ -110,7 +110,7 @@ class DropSignup < ApplicationRecord
     begin
       Studio::Email.deliver(DropSignupMailer, :confirmation, self, to: email, user: user)
     rescue StandardError
-      release!(:confirmation_sent_at) # only the claim's winner reaches here
+      release!(:confirmation_sent_at) unless outbox_row_written?(:confirmation, confirmation_sent_at)
       raise
     end
     true
@@ -124,7 +124,7 @@ class DropSignup < ApplicationRecord
     begin
       delivery = Studio::Email.deliver(DropSignupMailer, :announcement, self, to: email, user: user)
     rescue StandardError
-      release!(:notified_at) # only the claim's winner reaches here
+      release!(:notified_at) unless outbox_row_written?(:announcement, notified_at)
       raise
     end
     if delivery.is_a?(EmailDelivery)
@@ -143,6 +143,13 @@ class DropSignup < ApplicationRecord
                     .update_all(column => now, updated_at: now) == 1
     self[column] = now if won
     won
+  end
+
+  # EmailDelivery.deliver writes the outbox row BEFORE it enqueues the job, so
+  # a raise (Redis down) can land after the row exists. EmailDeliveryResendJob
+  # sends that row; releasing the claim too would let a retry mail it twice.
+  def outbox_row_written?(action, claimed_at)
+    EmailDelivery.where(email_key: "DropSignupMailer##{action}", to: email, created_at: claimed_at..).exists?
   end
 
   def release!(column)

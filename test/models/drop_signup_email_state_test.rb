@@ -46,6 +46,16 @@ class DropSignupEmailStateTest < ActiveSupport::TestCase
     assert row.deliver_confirmation!
   end
 
+  test "a failed enqueue AFTER the outbox row is written keeps the claim (the resend sweep sends that row)" do
+    row = signup
+    EmailDeliveryJob.stub(:perform_later, ->(*) { raise "redis down" }) do
+      assert_raises(RuntimeError) { row.deliver_announcement! }
+    end
+    assert row.reload.notified_at.present?
+    refute row.deliver_announcement!, "a retry must not write a second outbox row"
+    assert_equal 1, EmailDelivery.where(email_key: "DropSignupMailer#announcement", to: row.email).count
+  end
+
   # --- announcement claim -----------------------------------------------------
 
   # Two holders of the SAME row, both loaded before either claimed: what a
