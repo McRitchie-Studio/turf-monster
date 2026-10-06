@@ -139,6 +139,18 @@ class RetiredWorldCupSurvivorTest < ActionDispatch::IntegrationTest
     assert_response :success
   end
 
+  test "the admin pages that list or edit contests read a retired one without failing" do
+    log_in_as(@admin)
+
+    [edit_contest_path(@retired), generator_contests_path, new_admin_landing_page_path,
+     admin_dashboard_path, admin_entry_gifts_path, admin_landing_pages_path].each do |path|
+      get path
+      assert_response :success, path
+    end
+    get new_admin_landing_page_path
+    assert_select "select#landing_page_contest_id option", text: /#{@retired.name} · Retired format/
+  end
+
   test "every entry and grading door refuses a retired contest" do
     Contest.where(id: @retired.id).update_all(status: "open")
     log_in_as(@admin)
