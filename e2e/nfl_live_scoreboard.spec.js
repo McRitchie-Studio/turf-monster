@@ -1565,3 +1565,18 @@ test.describe("Contest live page play-by-play", () => {
     });
   }
 });
+
+test.describe("Live NFL scoreboard, in Denver", () => {
+  test.use({ timezoneId: "America/Denver", locale: "en-US" }); // a final's day is the reader's, not UTC's
+  test("a final's played-on day is rewritten in the reader's zone", async ({ page }) => {
+    await page.goto("/live");
+    const text = await page.evaluate(() => new Promise((resolve) => {
+      const el = document.createElement("time");
+      Object.assign(el, { dateTime: "2026-10-05T00:20:00Z", textContent: "Mon, Oct 5" }); // SNF: Monday in UTC
+      el.dataset.role = "played-on";
+      document.getElementById("nfl_live_scoreboard").appendChild(el);
+      setTimeout(() => resolve(el.textContent), 500);
+    }));
+    expect(text).toBe("Sun, Oct 4");
+  });
+});
