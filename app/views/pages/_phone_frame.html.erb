@@ -1,0 +1,32 @@
+<%# locals: (screen_class: "h-[29rem]", width_class: "w-[17rem]")
+
+    A CSS phone — rounded bezel, a camera island, a status bar — holding live
+    markup rather than a screenshot, so the cards inside re-colour with the
+    board the day a team's palette is tuned. Used as a layout:
+
+      render layout: "pages/phone_frame" do ... end
+
+    DECORATIVE. The whole frame is aria-hidden and inert (nothing inside can
+    take focus or a click, the idle hold button included): its type is phone-sized, and a
+    screen reader would read a second copy of content the page already says.
+    Every call site puts a visible caption beside it as the text alternative.
+
+    `width_class` sets the frame's width (the hero phone is a touch larger
+    than the scoring one); `screen_class` sets the screen's height, so each phone is sized to the
+    content it holds rather than leaving an empty band at the bottom (the
+    literal class is written at the call site, where Tailwind can see it). %>
+<div class="relative mx-auto <%= width_class %> shrink-0 rounded-[2.75rem] bg-neutral-900 p-2.5 shadow-2xl ring-1 ring-white/10"
+     aria-hidden="true" inert data-test="phone-mock">
+  <div class="relative <%= screen_class %> overflow-hidden rounded-[2.25rem] bg-page text-body">
+    <%# The camera island, over the status bar the way the real one sits. %>
+    <div class="absolute left-1/2 top-2 z-10 h-6 w-24 -translate-x-1/2 rounded-full bg-neutral-900"></div>
+    <div class="flex items-center justify-between px-6 pt-2.5 pb-1 text-[11px] font-semibold text-heading">
+      <span>9:41</span>
+      <span class="flex items-center gap-1">
+        <span class="inline-block h-2 w-3 rounded-sm bg-current opacity-80"></span>
+        <span class="inline-block h-2.5 w-5 rounded-sm border border-current opacity-80"></span>
+      </span>
+    </div>
+    <%= yield %>
+  </div>
+</div>

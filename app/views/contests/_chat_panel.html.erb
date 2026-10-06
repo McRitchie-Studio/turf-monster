@@ -4,7 +4,7 @@
     (Contest#chat_participant?). The .chat-admin class on the root reveals the
     per-message Hide buttons for admins — broadcast partials can't know the
     viewer, so visibility is driven by this container class. %>
-<% messages = Message.recent_for(contest) %>
+<% messages = local_assigns.fetch(:messages) { Message.recent_for(contest) } %>
 <% can_post = logged_in? && contest.chat_enabled? && contest.chat_participant?(current_user) %>
 <%# Quest 2 typewriter deck (contests_helper#chat_prompt_samples). Gated on
     @quest_step, which contests#show sets only for an entrant — because the ONLY

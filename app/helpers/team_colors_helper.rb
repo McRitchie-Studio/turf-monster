@@ -312,4 +312,14 @@ module TeamColorsHelper
 
     [accent, second]
   end
+
+  # The hold button's fizz palette for a set of picks, the board's own rule
+  # (contests/_turf_totals_board fizzPalette): pick i's light, dark and alt in
+  # slots 3i+1..3i+3. For a page drawing the button without Alpine.
+  def fizz_palette_style(teams_in_order)
+    teams_in_order.each_with_index.flat_map do |team, i|
+      pal = team_card_palette(team)
+      [[i * 3 + 1, pal[:fizz_light]], [i * 3 + 2, pal[:fizz_dark]], [i * 3 + 3, pal[:fizz_alt]]]
+    end.map { |slot, color| "--fizz-c-#{slot}:#{color}" }.join(";")
+  end
 end

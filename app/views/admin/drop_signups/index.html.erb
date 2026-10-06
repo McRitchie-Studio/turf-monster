@@ -1,0 +1,61 @@
+<% content_for(:title, "Drop Signups — Admin") %>
+
+<%# The slate-drop "notify me" list from /turf-monster-v2. One drop at a time
+    (?slate=<key>, defaulting to NextSlateDrop::SLATE_KEY); the pills switch
+    between every drop the table has rows for. %>
+<div class="max-w-7xl mx-auto py-8 px-4 space-y-6" data-test="admin-drop-signups">
+  <div class="flex flex-wrap items-end justify-between gap-3">
+    <div>
+      <h1 class="text-heading text-2xl font-bold mb-1">Drop Signups</h1>
+      <p class="text-secondary text-sm">
+        Visitors who asked for one email when a slate drops. Newest first<% if @total > Admin::DropSignupsController::PAGE_LIMIT %>, the latest <%= Admin::DropSignupsController::PAGE_LIMIT %> shown<% end %>.
+      </p>
+    </div>
+    <%= link_to "Export CSV", admin_drop_signups_path(slate: @slate_key, format: :csv), class: "btn btn-outline btn-sm" %>
+  </div>
+
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+    <div class="card p-4">
+      <p class="label-upper"><%= @slate_key %></p>
+      <p class="font-mono text-2xl text-heading" data-test="drop-signups-total"><%= number_with_delimiter(@total) %></p>
+    </div>
+  </div>
+
+  <% if @counts.size > 1 %>
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="text-[10px] text-muted uppercase tracking-wide mr-1">Drop</span>
+      <% @counts.each do |key, count| %>
+        <%= link_to "#{key} (#{count})", admin_drop_signups_path(slate: key),
+              class: "px-3 py-1 rounded-full text-xs font-semibold transition #{@slate_key == key ? 'bg-primary text-white' : 'bg-surface-alt text-secondary hover:text-heading'}" %>
+      <% end %>
+    </div>
+  <% end %>
+
+  <div class="card overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-subtle text-muted text-[10px] uppercase tracking-wide">
+          <th class="text-left px-4 py-3">Email</th>
+          <th class="text-left px-3 py-3">Source</th>
+          <th class="text-left px-3 py-3">Account</th>
+          <th class="text-left px-3 py-3">Notified</th>
+          <th class="text-right px-4 py-3">Signed up</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% if @signups.empty? %>
+          <tr><td colspan="5" class="px-4 py-6 text-center text-muted">No signups for this drop yet.</td></tr>
+        <% end %>
+        <% @signups.each do |s| %>
+          <tr class="border-b border-subtle/40 hover:bg-inset transition">
+            <td class="px-4 py-3 text-heading font-mono text-xs"><%= s.email %></td>
+            <td class="px-3 py-3 text-secondary"><%= s.source || "—" %></td>
+            <td class="px-3 py-3 text-secondary"><%= s.user&.display_name || "—" %></td>
+            <td class="px-3 py-3 text-secondary"><%= s.notified_at ? l(s.notified_at, format: :short) : "—" %></td>
+            <td class="px-4 py-3 text-right text-secondary whitespace-nowrap" title="<%= s.created_at.utc.iso8601 %>"><%= time_ago_in_words(s.created_at) %> ago</td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  </div>
+</div>

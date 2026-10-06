@@ -1,0 +1,59 @@
+<%# locals: (teams:, hover_slug: nil)
+
+    The pick board, phone-sized: six recognizable teams from
+    TurfMonsterRules::SHOWCASE (real ranks and opponents, board order), drawn
+    with the SAME static card the v1 rules page
+    uses (pages/_rules_team_card), which reads every colour from
+    TeamColorsHelper#team_card_palette. Nil-safe end to end: a missing Team row
+    draws a neutral card with the slug's name, never a 500.
+
+    DRAWN AT BOARD SIZE, THEN SHRUNK. The compact card at a phone's half-width
+    crams its three opponent columns into ~30px each, which drops the team
+    names (and at the lg breakpoint the chips step up to text-sm). So the
+    screen is laid out wider than the frame and scaled to 0.66 from the
+    top-left corner (1 / 0.66 = 1.515): the cards keep the proportions they
+    have on a real phone, and the frame clips whatever falls off the bottom. %>
+<div class="w-[151.5%] origin-top-left scale-[0.66] px-3 pb-3" data-test="phone-pick-board">
+  <%# The app bar as the real mobile navbar draws it (layouts/_navbar): the
+      mascot from the same /icon-192.png at the collapsed mobile size (2.5rem),
+      beside the wordmark at its collapsed mobile size (1.25rem). %>
+  <div class="flex items-center justify-between px-1 pt-1 pb-2">
+    <p class="flex items-center gap-2 text-xl font-extrabold text-heading">
+      <img src="/icon-192.png" alt="" width="40" height="40" class="h-10 w-10 rounded-full shadow-lg" data-test="phone-nav-logo">
+      <span>Turf <span class="tm-wordmark">Monster</span></span>
+    </p>
+    <p class="text-[10px] font-semibold text-muted"><%= TurfMonsterRules::SHOWCASE.size %> of 6 picked</p>
+  </div>
+  <div class="grid grid-cols-2 gap-2">
+    <% TurfMonsterRules::SHOWCASE.each do |example| %>
+      <%= render "pages/rules_team_card", example: example, teams: teams, compact: true, board_style: true,
+                 hovered: example.team_slug == hover_slug && teams[example.team_slug].present? %>
+    <% end %>
+  </div>
+  <%# THE BOARD'S OWN HOLD BUTTON, idle: the engine's hold-stack, its two fizz
+      layers (studio/_fizz_layer, the real partial) and the hold-btn face, all
+      styled by engine-motion.css, where the fizz is pure CSS: it simmers at
+      rest and stops under prefers-reduced-motion. The fizz palette is the
+      board's own (its fizzPalette): each pick's light, dark and alt in slots
+      3i+1..3i+3 (TeamColorsHelper#fizz_palette_style). No handlers and no hold script:
+      the phone is inert, so this only shows the button at rest. %>
+  <% fizz_vars = fizz_palette_style(TurfMonsterRules::SHOWCASE.map { |example| teams[example.team_slug] }) %>
+  <div class="mt-4" data-test="phone-hold-button">
+    <span class="hold-stack fizz-lively" style="<%= fizz_vars %>">
+      <%= render "studio/fizz_layer", seed: "phone" %>
+      <%= render "studio/fizz_layer", seed: "phone~extra", extra: true %>
+      <button type="button" class="hold-btn" tabindex="-1" style="--duration: 2000ms">
+        <div class="hold-icon">
+          <svg class="progress" viewBox="0 0 32 32"><circle r="8" cx="16" cy="16"/></svg>
+          <svg class="tick" viewBox="0 0 24 24"><polyline points="18,7 11,16 6,12"/></svg>
+        </div>
+        <ul class="hold-text">
+          <li>Hold to confirm</li>
+          <li>Almost there...</li>
+          <li>Confirmed!</li>
+          <li>Entry Blocked</li>
+        </ul>
+      </button>
+    </span>
+  </div>
+</div>

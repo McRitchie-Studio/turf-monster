@@ -176,6 +176,22 @@ class Rack::Attack
     req.params["email"].to_s.downcase.presence if req.post? && req.path == "/magic_link"
   end
 
+  ### Throttle: slate-drop "notify me" — anonymous table-growth vector
+  # POST /drop-signups (the /turf-monster-v2 explainer) needs no account, so
+  # every call can write a row. A person submits once, maybe twice after a typo;
+  # a household or office behind one NAT a handful of times. Per-IP is the flood
+  # cap; per-email stops one address being hammered from many IPs (a resubmit
+  # writes nothing, but it still costs a lookup). Exact path: the route is
+  # `format: false`, so there is no .json twin to slip past it. Dev is looser so
+  # one localhost can try many addresses, as magic_link above.
+  drop_signup_ip_limit = Rails.env.development? ? 60 : 10
+  throttle("drop_signups/ip", limit: drop_signup_ip_limit, period: 1.hour) do |req|
+    req.ip if req.post? && req.path == "/drop-signups"
+  end
+  throttle("drop_signups/email", limit: 5, period: 1.hour) do |req|
+    req.params["email"].to_s.strip.downcase.presence if req.post? && req.path == "/drop-signups"
+  end
+
   ### Throttle: contest chat — message-post flood backstop
   # Coarse per-IP cap; MessagesController enforces a precise per-user cooldown.
   throttle("chat_messages/ip", limit: 40, period: 1.minute) do |req|

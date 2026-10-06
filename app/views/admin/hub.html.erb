@@ -75,6 +75,8 @@
     <% end %>
     <%= render "hub_tile", name: "The Contract", url: contract_path, note: "turf-vault on-chain reference (admin sections expand)" %>
     <%= render "hub_tile", name: "Transparency", url: transparency_path, note: "Public trust hub — source, reserves, contract, policies" %>
+    <%= render "hub_tile", name: "Drop Signups", url: admin_drop_signups_path,
+          note: "Who asked to hear when the next slate drops (/turf-monster-v2)" %>
     <%= render "hub_tile", name: "Jobs",        url: "/admin/jobs", status: :flagged %>
   <% end %>
 

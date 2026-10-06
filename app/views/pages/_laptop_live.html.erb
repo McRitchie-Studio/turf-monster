@@ -1,0 +1,44 @@
+<%# locals: (showcase:)
+
+    /contests/<slug>/live as a SIGNED-OUT visitor sees it, for the laptop on
+    /turf-monster-v2's hero. Rendered by LaptopLiveSnapshot (a session-less
+    renderer, so every viewer read in these partials is a guest's) and built
+    from the live page's OWN partials in the live page's own order:
+
+      layouts/_navbar             signed-out chrome (preview: no scroll handler)
+      contests/_live_header       slate, name, live badge, "← Contest"
+      contests/_live_focus        the featured game
+      contests/_live_games        the games strip
+      contests/_chat_panel        left column: SYSTEM lines only (messages:)
+      contests/_turf_totals_leaderboard  right column, viewer: nil
+
+    The wrapper classes are contests/live's own. The whole subtree is x-ignore:
+    Alpine never walks it, and LaptopLiveSnapshot strips every script and cable
+    stream from the output. %>
+<% contest = showcase.contest %>
+<div x-ignore class="w-[1280px] h-[800px] overflow-hidden bg-page text-body" data-test="laptop-live">
+  <%# The live page's own styles: the chip glow is OFF by default there
+      (.tt-chip) and ON only for the focused chip (.tt-chip-focused), so
+      without them every chip in the strip glows. %>
+  <%= render "live/score_animations" %>
+  <%= render "contests/live_page_styles" %>
+  <%= render "layouts/navbar", show_logged_in: false, preview: true %>
+  <div class="max-w-7xl mx-auto px-4 py-6">
+    <%= render "contests/live_header", contest: contest %>
+    <div class="mb-4">
+      <%= render "contests/live_focus", **showcase.games, contest: contest, focus_slug: showcase.focus_slug %>
+    </div>
+    <div>
+      <%= render "contests/live_games", **showcase.games, contest: contest %>
+    </div>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start mb-8">
+      <div class="lg:col-start-2 lg:row-start-1" data-test="laptop-live-leaderboard">
+        <%= render "contests/turf_totals_leaderboard", compact: true, viewer: nil, contest: contest,
+                   entries: showcase.entries, matchups: showcase.matchups, onchain_contest: nil %>
+      </div>
+      <div class="lg:col-start-1 lg:row-start-1" data-test="laptop-live-chat">
+        <%= render "contests/chat_panel", contest: contest, messages: showcase.messages %>
+      </div>
+    </div>
+  </div>
+</div>

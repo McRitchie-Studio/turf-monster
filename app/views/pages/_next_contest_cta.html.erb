@@ -1,0 +1,17 @@
+<%# locals: (pick:, test_id:)
+
+    /turf-monster-v2's one call to action. NextContest decides it server-side:
+      a contest is open to enter  -> a link straight to it
+      none is                     -> a button that opens the drop-notify modal
+                                     (countdown + form; after the drop it says
+                                     the slate is live)
+    The label is "Play Turf Monster" in every state; only the destination moves.
+    The modal button is an anchor to #notify, so with JS off it still lands on
+    the page's own notify section. %>
+<% if pick.link? %>
+  <%= link_to "Play Turf Monster", contest_path(pick.contest),
+        class: "btn btn-primary btn-lg shadow-lg shadow-primary/30 text-base sm:text-lg whitespace-nowrap", data: { test: test_id } %>
+<% else %>
+  <a href="#notify" class="btn btn-primary btn-lg shadow-lg shadow-primary/30 text-base sm:text-lg whitespace-nowrap" data-test="<%= test_id %>"
+     @click.prevent="$store.modals.open('drop-notify', { title: 'Get notified when <%= NextSlateDrop::LABEL %> drops' })">Play Turf Monster</a>
+<% end %>
