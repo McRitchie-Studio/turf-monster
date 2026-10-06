@@ -114,6 +114,6 @@ class DropSignupMailer < ApplicationMailer
               PREVIEW_TOKEN
             end
     reference = signup.source.presence || NextSlateDrop::EMAIL_REFERENCE
-    magic_link_url(token, reference: reference)
+    link_url(token: token, reference: reference) # the unified /l/<token> (Studio::LinksController < MagicLinksController), as UserMailer#magic_link
   end
 end
