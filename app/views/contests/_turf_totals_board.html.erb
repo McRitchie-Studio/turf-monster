@@ -157,8 +157,7 @@
 // The contest_entry intent and its two handlers MOVED to
 // shared/_contest_entry_intent, rendered from layouts/application.
 //
-// THEY CANNOT LIVE HERE. This partial renders only from contests/show and
-// contests/world_cup. The wallet returns to /auth/phantom/callback, which renders
+// THEY CANNOT LIVE HERE. This partial renders only from contests/show. The wallet returns to /auth/phantom/callback, which renders
 // studio-engine's view — this app has no local override — so on the return leg the
 // registry existed and the handler map was EMPTY. walletOps.resume() consumed the
 // journal at take() BEFORE the signTransaction hop called requireHandler, so the
@@ -1667,8 +1666,8 @@ window.selectionBoard = function() {
           // AND NEITHER IS THE ADDRESS BOOK. The return address, the app
           // identity, the cluster, the transport fork and the watch for a hop
           // that never happens all live in window.tmWalletOp
-          // (shared/_wallet_op_runner) — the same runner the survivor board,
-          // contests/new and contests/generator call. This board used to spell
+          // (shared/_wallet_op_runner) — the same runner contests/new and
+          // contests/generator call. This board used to spell
           // every one of them out inline, which was the same address book
           // written twice, and a missing redirectLink at a hand-rolled call site
           // is the defect that lost a real user's approved entry on QA

@@ -1,0 +1,42 @@
+<%# HAND A PENDING CART BACK TO THE CONTEST PAGE.
+    A visitor who built a lineup and then left to sign in — the Google full-page
+    redirect, the new-signup token purchase — is on their way BACK to finish an
+    entry, and the saved cart is only replayed by the board on the contest page
+    (selectionBoard#init in _turf_totals_board). Two pages they can land on
+    instead render no board:
+
+      * the live board (contest: given), where /contests/:id sends a visitor
+        once a game has started; it hands back only a cart for its own contest;
+      * the root lobby (contest: nil), where every sign-in with no destination
+        lands; it hands back a cart for whichever contest it names.
+
+    Landing on either would leave them signed in with no entry and nothing
+    saying why. Same key and same 30-minute freshness as the board's init, and
+    the item is LEFT IN PLACE: the board consumes it. The contest page never
+    routes, so this cannot loop. ONE hand-off per saved cart (handedOff): the
+    contest page renders no board for a visitor who already holds an entry, so
+    nothing consumes the cart there, and an unmarked one would pull them off
+    this page for the full 30 minutes. %>
+<% contest = local_assigns[:contest] %>
+<script>
+  (function () {
+    try {
+      var parsed = JSON.parse(localStorage.getItem('pendingContestEntry') || 'null');
+      var fresh = parsed && parsed.savedAt && (Date.now() - parsed.savedAt) < (30 * 60 * 1000);
+      if (!fresh || parsed.handedOff) return;
+<% if contest %>
+      if (parsed.contestSlug === <%= raw contest.slug.to_json %>) {
+        parsed.handedOff = true;
+        localStorage.setItem('pendingContestEntry', JSON.stringify(parsed));
+        window.location.replace(<%= raw contest_page_path(contest).to_json %>);
+      }
+<% else %>
+      if (typeof parsed.contestSlug === 'string' && parsed.contestSlug) {
+        parsed.handedOff = true;
+        localStorage.setItem('pendingContestEntry', JSON.stringify(parsed));
+        window.location.replace('/contests/' + encodeURIComponent(parsed.contestSlug) + '/contest');
+      }
+<% end %>
+    } catch (e) { /* bad JSON or storage unavailable: stay on this page */ }
+  })();
+</script>

@@ -353,7 +353,7 @@ module Entries
     # The gates that need no entry row, so a doomed request creates nothing.
     # Entry#assert_enterable! repeats the ones it owns under the contest lock.
     def assert_submittable!
-      refuse(:unsupported_contest) unless @contest.turf_totals?
+      refuse(:unsupported_contest) if @contest.retired_format?
       refuse(:contest_cancelled) if @contest.cancelled?
       refuse(:coming_soon) if @contest.coming_soon?
       refuse(:contest_not_open) unless @contest.open?

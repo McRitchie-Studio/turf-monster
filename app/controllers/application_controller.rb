@@ -370,7 +370,7 @@ class ApplicationController < ActionController::Base
     # applications, and crawled by underwriters' site scanners — they must
     # never 406 a preview fetcher or an old browser.
     return true if controller_name == "pages"
-    controller_name == "contests" && action_name.in?(%w[show world_cup index live])
+    controller_name == "contests" && action_name.in?(%w[show index live])
   end
 
   # Stamp the REAL logged-in user's last activity (admin dashboard "by recent

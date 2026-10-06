@@ -10,13 +10,13 @@
 #      "World Cup 2026 Group N" slates, the 6 knockout-stage World Cup slates
 #      with bracket placeholders, and the "NFL 2026 Week N" slates.
 #      Re-running is safe.
-#   2. Wipe test-volatile rows (Entry, Selection, Contest, SurvivorRound,
+#   2. Wipe test-volatile rows (Entry, Selection, Contest,
 #      TransactionLog, Studio::GeoSetting, etc.) and User. Leaves Team / Slate /
 #      SlateMatchup / Game intact — those belong to db/seeds.rb.
 #   3. ALTER SEQUENCE users_id_seq → 1, then re-seed core users so the
 #      inviter slugs referrals.spec.js hardcodes (mason-3, mack-4, turf-5)
 #      stay stable across reseeds.
-#   4. Build the e2e fixture contests (world-cup-2026, world-cup-survivor).
+#   4. Build the e2e fixture contests (world-cup-2026, nfl-weeks-15-17).
 #      The standard contest keeps its legacy slug but points at NFL Week 17,
 #      which stays pickable through early January 2027. skip_onchain_callback so
 #      the fixtures stay off-chain (real on-chain entry coverage is in
@@ -44,14 +44,11 @@ load Rails.root.join("db/seeds.rb")
 # between Playwright runs. Order matters for FK constraints.
 puts "Resetting test-volatile state..."
 
-SurvivorPick.delete_all          # FK → entries; must precede Entry.delete_all
+# survivor_picks has no model and nothing writes it, but a database seeded
+# before its format was retired can still hold rows, and they reference entries.
+ActiveRecord::Base.connection.execute("DELETE FROM survivor_picks")
 Selection.delete_all              # FK → entries + slate_matchups
 Entry.delete_all
-# Sever games → survivor_rounds FK before nuking SurvivorRound rows. db/seeds.rb
-# creates Games (and find_or_create_by leaves their survivor_round_id pointing
-# at the previous run's SurvivorRound). Game rows themselves stay.
-Game.update_all(survivor_round_id: nil)
-SurvivorRound.delete_all
 Contest.delete_all
 TransactionLog.delete_all
 Studio::GeoSetting.delete_all
@@ -101,11 +98,8 @@ contest.save!
 contest.update_column(:slug, "world-cup-2026") unless contest.slug == "world-cup-2026"
 contest.update!(onchain_contest_id: nil)
 
-# Pin world-cup-2026 as the main contest so `/` always redirects here
+# Pin world-cup-2026 as the main contest, so Contest.featured answers it
 # regardless of newer contests the operator creates via /contests/generator.
-# Without this, SeasonConfig.main_contest picks the most-recently-created
-# open contest — an operator-scaffolded test contest blocks Playwright's
-# smoke specs that navigate to `/` expecting selection cards.
 SeasonConfig.set_main_contest!(contest)
 
 # ── Multi-week span contest (NFL Weeks 15-17) ────────────────────────
@@ -133,38 +127,6 @@ begin
 rescue Nfl::BuildSpanSlate::Error => e
   warn "skipping Weeks 15-17 span contest: #{e.message}"
 end
-
-# ── World Cup Survivor ───────────────────────────────────────────────
-# 8 global rounds; round 1 reuses the standard fixture slate's games.
-survivor_rounds = [
-  [1, "Group Matchday 1", "group"],   [2, "Group Matchday 2", "group"],
-  [3, "Group Matchday 3", "group"],   [4, "Round of 32", "knockout"],
-  [5, "Round of 16", "knockout"],     [6, "Quarter-finals", "knockout"],
-  [7, "Semi-finals", "knockout"],     [8, "Final", "knockout"]
-].map do |num, rname, stage|
-  SurvivorRound.create!(number: num, name: rname, stage: stage, status: "upcoming",
-                        picks_lock_at: 2.weeks.from_now + num.days)
-end
-
-# Attach round 1 to the standard fixture games.
-fixture_team_slugs = slate.slate_matchups.pluck(:team_slug).uniq
-Game.where(home_team_slug: fixture_team_slugs)
-    .or(Game.where(away_team_slug: fixture_team_slugs))
-    .update_all(survivor_round_id: survivor_rounds.first.id)
-
-survivor = Contest.new(
-  name: "World Cup Survivor",
-  game_type: "world_cup_survivor",
-  contest_type: "survivor_wc_free",
-  entry_fee_cents: 0,
-  max_entries: 59,
-  status: "open",
-  # Backdated so /  redirect picks the standard contest, not survivor.
-  created_at: 1.day.ago
-)
-survivor.skip_onchain_callback = true
-survivor.save!
-survivor.update_column(:slug, "world-cup-survivor") unless survivor.slug == "world-cup-survivor"
 
 # ── Wallet overrides ─────────────────────────────────────────────────
 #
@@ -204,7 +166,7 @@ User.update_all(encrypted_web2_solana_private_key: nil)
 # These five are PRE-EXISTING accounts by construction: they own contests,
 # entries, wallets and usernames, and a real player with that history verified
 # their age once, long ago. Leaving them unverified would make the gate fire on
-# every spec that enters a contest (survivor, smoke, quests, referrals, geo) —
+# every spec that enters a contest (smoke, quests, referrals, geo) —
 # a DOB modal in front of a dozen specs that are not about age at all.
 #
 # NEW signups are untouched and still walk the gate, which is what
@@ -297,4 +259,4 @@ end
 
 puts "Seeded: #{User.count} users, #{Team.count} teams, #{Slate.count} slates, " \
      "#{Contest.count} contests, #{SlateMatchup.count} matchups, " \
-     "#{SurvivorRound.count} survivor rounds, #{Studio::GeoSetting.count} geo_settings"
+     "#{Studio::GeoSetting.count} geo_settings"

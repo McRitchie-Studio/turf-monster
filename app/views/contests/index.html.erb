@@ -15,6 +15,7 @@
     thing that band exists to report on — the Won / Complete badge and the
     amount won have no meaning before a contest ends — so it always shows its
     settled rows. See contests/_contest_table's `hide_settled`. %>
+<%= render "shared/pending_cart_handoff" %>
 <div x-data="{ showSettled: false }">
   <h1 class="text-3xl font-extrabold text-heading mb-6">Contests</h1>
 
