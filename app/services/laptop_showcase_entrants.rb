@@ -113,8 +113,8 @@ class LaptopShowcaseEntrants
     entry.readonly!
     entry
   end
-  # THE SCRIPTED BOARD. When the laptop's contest has NO real entries and its featured
-  # game is simulated (LaptopScoreSimulation), the showcase board reacts to the
+  # THE SCRIPTED BOARD. When the laptop's contest has NO real entries and its
+  # featured game is simulated (LaptopScoreSimulation), the showcase board reacts to the
   # simulated touchdowns: Mason holds the featured game's HOME team, turf its
   # AWAY team, and mack neither, so every touchdown trades first place between
   # Mason and turf (away scores first: turf goes top, then Mason takes it

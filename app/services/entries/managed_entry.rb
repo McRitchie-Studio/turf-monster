@@ -131,7 +131,7 @@ module Entries
 
     # Managed-wallet entry funding — runs INSIDE the contest lock, after
     # entry.assert_enterable!, on a paid on-chain contest. Funding priority
-    # (operator spec 2026-06-13):
+    # (the operator's order):
     #   1. ENTRY TOKEN (incl. seed-earned free entries) — atomic on-chain consume
     #      via enter_contest_with_token (no USDC transfer; token IS the payment).
     #   2. USDC, only when the caller allows it — the server signs the existing
@@ -165,7 +165,7 @@ module Entries
       # web3-OWNED token the managed keypair can't consume (doomed owner != signer)
       # AND mask an available USDC fallback — a confusing hard wall. Scoping to the
       # web2 address makes the token sub-path derive from the same wallet the USDC
-      # sub-path's signer guard already pins. (Avi review 2026-06-13.)
+      # sub-path's signer guard already pins.
       token = @user.next_unconsumed_entry_token_for(address)
       if token
         vault.ensure_user_account(address, username: @user.username) if @user.solana_connected?
@@ -193,7 +193,7 @@ module Entries
         # discipline #2): underfunded → refuse, never broadcast a doomed entry.
         # FRESH authoritative read — the 60s navbar cache is not trusted here.
         #
-        # FAIL-OPEN ON A READ FAILURE (Avi review 2026-06-13): read with
+        # FAIL-OPEN ON A READ FAILURE: read with
         # raise_on_read_error so a transient getTokenAccountsByOwner flake RAISES
         # rather than masquerading as $0 — a confirmed-zero must block, but a
         # FLAKED read must NOT false-block a funded user (whose atomic SPL transfer

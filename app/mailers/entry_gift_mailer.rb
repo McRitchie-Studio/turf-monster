@@ -29,8 +29,8 @@ class EntryGiftMailer < ApplicationMailer
 
     # THE USERNAME, AS IT WAS WHEN THE GIFT WAS SENT.
     #
-    # Two deliberate choices. It is the USERNAME and not `name` (operator call,
-    # 2026-09-09) — the handle is who a player is on this platform, and the real
+    # Two deliberate choices. It is the USERNAME and not `name` — the
+    # handle is who a player is on this platform, and the real
     # name is not what a friend would recognise in a lobby. And it is the
     # SNAPSHOT taken at send time, not a live read: usernames change, and a live
     # read would rewrite the greeting of every invite already sitting in an inbox

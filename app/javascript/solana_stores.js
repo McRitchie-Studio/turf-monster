@@ -44,7 +44,7 @@ function registerWalletStore() {
     pendingAddress: null,
     _provider: null,
 
-    // --- AN EXPECTED SWITCH (operator cosign, 2026-09-15) -----------------
+    // --- AN EXPECTED SWITCH (operator cosign) ------------------------------
     //
     // Wallets this page is DELIBERATELY walking through right now. Empty for
     // every ordinary page, which is why the watcher's behaviour is unchanged

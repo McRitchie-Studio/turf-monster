@@ -2,17 +2,17 @@
 #
 # ONE resolver for the post-auth chain, so "which modal comes next" is decided
 # server-side in a single place instead of being spread across three controllers
-# and a layout script. Two named flows, in order (operator spec, 2026-08-15):
+# and a layout script. Two named flows, in order:
 #
 #   Onboarding    :first_name  — captured for marketing; SKIPPABLE
 #   Wallet setup  :age         — the DOB gate
 #                 :wallet      — link Phantom
 #
-# THE WELCOME BEAT IS GONE (operator call, 2026-08-15). A "you're in, here's
-# your username" card opened the chain until then; it cost a click and told the
-# user something they had not asked for, so the chain now greets with the first
-# real question. Removed rather than skipped: a step nothing ever emits is a
-# dead branch in the modal, the driver and this list at once.
+# NO WELCOME BEAT. A "you're in, here's your username" card would cost a click
+# and tell the user something they had not asked for, so the chain greets with
+# the first real question. There is no step for it at all, not a skipped one: a
+# step nothing ever emits is a dead branch in the modal, the driver and this
+# list at once.
 #
 # Each step is listed only while it is still OUTSTANDING, so the chain a user
 # walks is exactly what they have left: a returning web2 player with a funded

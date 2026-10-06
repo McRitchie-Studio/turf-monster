@@ -4,8 +4,8 @@ module WalletSetupHelper
   # same install → create-a-wallet path as the house guide.
   PHANTOM_GUIDE_URL = "https://phantom.com/learn/guides/how-to-create-a-new-wallet".freeze
 
-  # The house guide at /getting-started is the intended destination (operator
-  # call, 2026-08-11) but it ships in a SEPARATE task —
+  # The house guide at /getting-started is the intended destination, but it
+  # ships in a SEPARATE task —
   # /tasks/phantom-onboarding-guide-page, which owns the route and the page.
   #
   # So resolve it at render time instead of hard-linking a route this branch
@@ -28,9 +28,9 @@ module WalletSetupHelper
 
   # --- The explainer video -------------------------------------------------
   #
-  # "New to Solana Wallets?" used to be two still screenshots of Phantom's
-  # download and create-wallet screens. It is a video now (operator call,
-  # 2026-08-18): the same three minutes, watched instead of inferred, and it
+  # "New to Solana Wallets?" is a video of Phantom's download and
+  # create-wallet screens: three minutes, watched instead of inferred from
+  # still screenshots, and it
   # plays INSIDE the modal so nobody has to leave a half-finished signup to
   # learn what a wallet is.
   #
@@ -56,8 +56,8 @@ module WalletSetupHelper
   # the modal's markup: it lives in a double-quoted x-data neighbourhood where a
   # bare & is an entity-parsing hazard, and CGI.escape keeps it honest.
   #
-  # THE AUTOPLAY/MUTE PAIR IS ONE DECISION, NOT TWO (operator call, 2026-08-18:
-  # start it playing, click to unmute). Every browser blocks autoplay WITH sound
+  # THE AUTOPLAY/MUTE PAIR IS ONE DECISION, NOT TWO: start it playing, click
+  # to unmute. Every browser blocks autoplay WITH sound
   # unless a user gesture started it, and this modal auto-opens after auth —
   # there is no gesture to inherit. Muted autoplay is the one form that is
   # allowed, so mute=1 is what makes autoplay=1 work at all. Drop the mute and

@@ -14,8 +14,8 @@
 # matchups and its leaderboard are never touched; the laptop's leaderboard
 # keeps its real numbers.
 #
-# NO LABEL ON THE LAPTOP. The first cut wore a "Simulated preview" badge; Alex
-# had it removed (2026-10-06). The scores are still never written anywhere.
+# NO LABEL ON THE LAPTOP: no "Simulated preview" badge. The scores are still
+# never written anywhere.
 class LaptopScoreSimulation
   INTERVAL_MS = 10_000
   OPENING = { away: 3, home: 7 }.freeze
