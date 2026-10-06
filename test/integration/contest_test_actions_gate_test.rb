@@ -36,6 +36,14 @@ class ContestTestActionsGateTest < ActionDispatch::IntegrationTest
     ]
   end
 
+  def with_override(value)
+    original = ENV["TEST_SCAFFOLDING_OVERRIDE"]
+    value.nil? ? ENV.delete("TEST_SCAFFOLDING_OVERRIDE") : ENV["TEST_SCAFFOLDING_OVERRIDE"] = value
+    yield
+  ensure
+    original.nil? ? ENV.delete("TEST_SCAFFOLDING_OVERRIDE") : ENV["TEST_SCAFFOLDING_OVERRIDE"] = original
+  end
+
   def assert_refused(action, message)
     before = snapshot
     post ACTIONS.fetch(action).call(@contest)
@@ -50,6 +58,28 @@ class ContestTestActionsGateTest < ActionDispatch::IntegrationTest
       AppFlags.stub :test_scaffolding?, false do
         assert_refused action, ContestsController::TEST_ACTIONS_OFF_MESSAGE
       end
+    end
+
+    # Live production refuses whatever the flag says, before the money check
+    # runs; only TEST_SCAFFOLDING_OVERRIDE reopens it there.
+    test "#{action} is refused on live production with the flag on and no override" do
+      AppFlags.stub :test_scaffolding?, true do
+        AppFlags.stub :live_production?, true do
+          with_override(nil) { assert_refused action, ContestsController::TEST_ACTIONS_PRODUCTION_MESSAGE }
+        end
+      end
+    end
+
+    test "#{action} passes the gate on live production under an override" do
+      AppFlags.stub :test_scaffolding?, true do
+        AppFlags.stub :live_production?, true do
+          with_override("micro rehearsal") { post ACTIONS.fetch(action).call(@contest) }
+        end
+      end
+
+      assert_response :redirect
+      assert_not_equal ContestsController::TEST_ACTIONS_PRODUCTION_MESSAGE, flash[:alert]
+      assert_not_equal ContestsController::TEST_ACTIONS_OFF_MESSAGE, flash[:alert]
     end
 
     test "#{action} passes the gate while test scaffolding is on and no entry is paid" do
