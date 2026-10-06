@@ -120,7 +120,10 @@
              radial-gradient(1px 1px at 8% 88%, #ffffff80 50%, transparent 51%),
              radial-gradient(1px 1px at 52% 92%, #ffffff99 50%, transparent 51%),
              linear-gradient(160deg, #0b1026 0%, #18204f 45%, #3a2a6e 80%, #4a3780 100%);">
-    <div class="grid items-center gap-12 md:grid-cols-2">
+    <%# From xl the gap tightens to gap-8, which keeps the copy column wide
+        enough for the subhead's three lines and gives the laptop behind the
+        phone its room. %>
+    <div class="grid items-center gap-12 md:grid-cols-2 xl:gap-8">
       <div class="text-center md:text-left">
         <span class="inline-block px-3 py-1 rounded-full border border-white/25 bg-white/10 text-white text-xs font-bold uppercase tracking-widest">NFL 2026</span>
         <%# ONE SENTENCE PER LINE at every width: three block spans, each kept
@@ -139,18 +142,21 @@
         </div>
       </div>
 
-      <%# THE PHONE, centered in the right column with its caption directly
-          under it, and from xl up a LAPTOP behind it, as on Calm's page. The
-          laptop hangs off the phone's wrapper, set back: its top above the
-          phone's, the phone over only its lower-left corner, and it runs
-          past the hero's right edge, where the section's overflow-hidden clips
-          it, so it never adds page width. It is absolutely positioned, so it never moves the
-          phone or the copy column. Below xl it is not drawn: at lg the column leaves
-          too thin a sliver of screen beside the phone to read. %>
-      <figure class="flex flex-col items-center" data-test="v2-hero-figure">
+      <%# THE PHONE with its caption directly under it, and from xl up a LAPTOP
+          behind it, as on Calm's page. Below xl the phone is centered in its
+          column; from xl it sits at the column's left so the laptop has room.
+          The laptop hangs off the phone's wrapper: its left edge under the
+          phone's right third, its top above the phone's, the phone running
+          below its base. Drawn at 448px and scaled 1.25 (560px) so the live
+          snapshot reads; it runs past the hero's right edge, where the
+          section's overflow-hidden clips about a fifth of it, so it never adds
+          page width. Absolutely positioned, so it never moves the phone or the
+          copy. Below xl it is not drawn: the column leaves too thin a sliver
+          beside the phone to read. %>
+      <figure class="flex flex-col items-center xl:items-start" data-test="v2-hero-figure">
         <div class="relative">
-          <div class="hidden xl:block absolute z-0 left-[80%] -top-14" data-test="laptop-anchor">
-            <%= render "pages/laptop_lobby", lobby: @lobby, showcase: @live_showcase %>
+          <div class="hidden xl:block absolute z-0 left-[66%] -top-14 origin-top-left scale-125" data-test="laptop-anchor">
+            <%= render "pages/laptop_lobby", lobby: @lobby, showcase: @live_showcase, live_html: @laptop_live_html %>
           </div>
           <div class="relative z-10 drop-shadow-2xl">
             <%= render layout: "pages/phone_frame", locals: { screen_class: "h-[26.5rem]" } do %>
