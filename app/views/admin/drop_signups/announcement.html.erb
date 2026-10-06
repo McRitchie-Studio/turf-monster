@@ -73,12 +73,13 @@
   <% [["announcement", "Drop announcement"], ["confirmation", "Confirmation (sent on signup)"]].each do |kind, title| %>
     <div class="space-y-2">
       <h2 class="text-heading text-lg font-bold"><%= title %></h2>
-      <div class="grid md:grid-cols-2 gap-4">
+      <%# One email per row until the screen fits two 600px emails side by side. %>
+      <div class="grid 2xl:grid-cols-2 gap-4">
         <% [["new_player", "No account yet"], ["existing_player", "Has an account"]].each do |variant, caption| %>
           <div class="card p-2">
             <p class="label-upper px-2 py-1"><%= caption %></p>
             <iframe src="<%= admin_drop_signups_announcement_preview_path(email: kind, variant: variant) %>"
-                    title="<%= title %>: <%= caption %>" class="w-full rounded bg-white" style="height: 720px; border: 0;"
+                    title="<%= title %>: <%= caption %>" class="w-full rounded bg-white" style="height: 560px; border: 0;"
                     data-test="announcement-preview-<%= kind %>-<%= variant %>"></iframe>
           </div>
         <% end %>
