@@ -75,8 +75,9 @@ class PageExperiment < ApplicationRecord
     "#{COOKIE_PREFIX}#{slug}"
   end
 
+  # In order, read from memory (so an unsaved form's rows count too).
   def live_variants
-    variants.reject(&:marked_for_destruction?)
+    variants.reject(&:marked_for_destruction?).sort_by { |variant| [variant.position.to_i, variant.id || 0] }
   end
 
   def variant_for(key)
