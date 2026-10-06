@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_05_150000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_06_060720) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -908,6 +908,26 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_05_150000) do
     t.datetime "updated_at", null: false
     t.index ["app_name"], name: "index_studio_site_identities_on_app_name", unique: true
     t.index ["slug"], name: "index_studio_site_identities_on_slug", unique: true
+  end
+
+  create_table "studio_survey_responses", force: :cascade do |t|
+    t.jsonb "answers", default: {}, null: false
+    t.datetime "completed_at"
+    t.datetime "created_at", null: false
+    t.string "current_key"
+    t.string "email_ref"
+    t.string "session_token"
+    t.datetime "started_at", null: false
+    t.string "survey_slug", null: false
+    t.string "survey_version"
+    t.datetime "updated_at", null: false
+    t.string "user_agent_class"
+    t.bigint "user_id"
+    t.index ["email_ref"], name: "index_studio_survey_responses_on_email_ref"
+    t.index ["survey_slug", "completed_at"], name: "index_studio_survey_responses_on_survey_slug_and_completed_at"
+    t.index ["survey_slug", "session_token"], name: "index_studio_survey_responses_one_open_per_session", unique: true, where: "((completed_at IS NULL) AND (session_token IS NOT NULL))"
+    t.index ["survey_slug", "user_id"], name: "index_studio_survey_responses_one_open_per_user", unique: true, where: "((completed_at IS NULL) AND (user_id IS NOT NULL))"
+    t.index ["user_id"], name: "index_studio_survey_responses_on_user_id"
   end
 
   create_table "survivor_picks", force: :cascade do |t|
