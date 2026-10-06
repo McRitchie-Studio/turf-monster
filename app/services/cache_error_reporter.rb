@@ -31,7 +31,7 @@ class CacheErrorReporter
   # Called from config/initializers/sentry.rb when Sentry is configured. Adds the
   # forwarder unless sentry-rails already subscribes to every report itself.
   def self.subscribe_sentry!(error_reporter = Rails.error)
-    return if Sentry.configuration.rails.register_error_subscriber
+    return if Sentry.configuration&.rails&.register_error_subscriber
 
     error_reporter.subscribe(SentryForwarder.new)
   end
