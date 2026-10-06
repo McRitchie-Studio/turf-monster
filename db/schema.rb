@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_05_040000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_05_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -267,6 +267,21 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_05_040000) do
     t.index ["slug"], name: "index_contests_on_slug", unique: true
     t.index ["status"], name: "index_contests_on_status"
     t.index ["user_id"], name: "index_contests_on_user_id"
+  end
+
+  create_table "drop_signups", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.string "email", null: false
+    t.string "ip"
+    t.datetime "notified_at"
+    t.string "slate_key", null: false
+    t.string "source"
+    t.datetime "updated_at", null: false
+    t.string "user_agent"
+    t.bigint "user_id"
+    t.index ["created_at"], name: "index_drop_signups_on_created_at"
+    t.index ["slate_key", "email"], name: "index_drop_signups_on_slate_key_and_email", unique: true
+    t.index ["user_id"], name: "index_drop_signups_on_user_id"
   end
 
   create_table "email_deliveries", force: :cascade do |t|
@@ -1100,6 +1115,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_05_040000) do
   add_foreign_key "contest_slates", "slates"
   add_foreign_key "contests", "slates"
   add_foreign_key "contests", "users"
+  add_foreign_key "drop_signups", "users"
   add_foreign_key "email_deliveries", "users"
   add_foreign_key "entries", "contests"
   add_foreign_key "entries", "users"
