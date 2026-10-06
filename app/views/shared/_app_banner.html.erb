@@ -3,6 +3,7 @@
   density = local_assigns.fetch(:density, :normal).to_sym
   message = local_assigns.fetch(:message)
   actions = local_assigns[:actions]
+  wrap = local_assigns.fetch(:wrap, false)
 
   tones = {
     environment: {
@@ -12,6 +13,11 @@
     },
     impersonation: {
       background: "linear-gradient(90deg, #b91c1c 0%, #d97706 100%)",
+      color: "#ffffff",
+      shadow: "0 2px 8px rgba(0,0,0,0.25)"
+    },
+    frozen: {
+      background: "linear-gradient(90deg, #1e3a8a 0%, #0e7490 100%)",
       color: "#ffffff",
       shadow: "0 2px 8px rgba(0,0,0,0.25)"
     }
@@ -27,7 +33,7 @@
 
 <div class="w-full" style="background:<%= style.fetch(:background) %>; color:<%= style.fetch(:color) %>; box-shadow:<%= style.fetch(:shadow) %>;">
   <div class="max-w-7xl mx-auto flex items-center justify-between gap-3" style="<%= density_styles.fetch(density) %>">
-    <span class="min-w-0 truncate"><%= message %></span>
+    <span class="min-w-0 <%= 'truncate' unless wrap %>"><%= message %></span>
     <% if actions.present? %>
       <div class="shrink-0 flex items-center gap-2"><%= actions %></div>
     <% end %>

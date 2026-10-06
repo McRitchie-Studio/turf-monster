@@ -818,4 +818,23 @@ class TestController < ApplicationController
     end
     Rails.cache.write(Solana::Vault.entry_tokens_cache_key(address), tokens, expires_in: 30.minutes)
   end
+
+  # OPSEC-048 e2e fixture (e2e/frozen_account_banner.spec.js): freeze or
+  # unfreeze the signed-in account through User#freeze! / #unfreeze!, so the
+  # audit row is written exactly as an operator's would be. Exempt from the
+  # freeze gate, or a frozen spec user could never be thawed.
+  public
+
+  allow_frozen_account_writes only: :set_frozen, reason: "e2e fixture that lifts the freeze; never routed in production"
+
+  def set_frozen
+    return render json: { error: "not logged in" }, status: :unauthorized unless current_user
+
+    if params[:frozen].to_s == "false"
+      current_user.unfreeze!(reason: "e2e fixture", source: "console")
+    else
+      current_user.freeze!(reason: "e2e fixture", source: "console")
+    end
+    render json: { ok: true, slug: current_user.slug, frozen: current_user.reload.frozen? }
+  end
 end

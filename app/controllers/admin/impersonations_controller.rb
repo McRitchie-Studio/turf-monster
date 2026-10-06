@@ -8,6 +8,9 @@ module Admin
   # touched — only the three impersonation keys are added/removed, so returning
   # to the admin account is a clean key-delete with no re-auth.
   class ImpersonationsController < ApplicationController
+    # OPSEC-048: FrozenAccountGuard refuses a frozen account every write but this.
+    allow_frozen_account_writes only: :destroy, reason: "the admin's Return: ends an impersonation of a frozen account"
+
     # create is admin-only. destroy is deliberately NOT gated on require_admin:
     # while impersonating, current_user resolves to the (non-admin) target, so
     # require_admin would block an operator from ever returning. It gates on

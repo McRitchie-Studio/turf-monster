@@ -25,9 +25,15 @@
       <h2 class="text-lg font-bold text-heading mb-1">Cash out</h2>
       <p class="text-sm text-muted">Send your USDC balance to a bank, PayPal, or exchange account.</p>
     </div>
-    <button type="button" @click="open = !open"
-            class="btn btn-outline btn-sm"
-            x-text="open ? 'Cancel' : 'Withdraw'"></button>
+    <% if account_frozen? %>
+      <%# OPSEC-048: WalletsController refuses the withdrawal; say why up front. %>
+      <button type="button" disabled data-frozen-cta title="<%= FrozenAccount::CTA_REASON %>"
+              class="btn btn-outline btn-sm opacity-60 cursor-not-allowed">Withdraw</button>
+    <% else %>
+      <button type="button" @click="open = !open"
+              class="btn btn-outline btn-sm"
+              x-text="open ? 'Cancel' : 'Withdraw'"></button>
+    <% end %>
   </div>
 
   <div x-show="open" x-transition class="mt-4">

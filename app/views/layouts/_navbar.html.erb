@@ -92,7 +92,7 @@
   <%# .user-nav-col / .nav-title / .nav-logo / .nav-logo-link responsive
       rules live in app/assets/tailwind/application.css @layer utilities (migrated
       2026-05-24, dropped the 10 !important workarounds). %>
-  <%= render "shared/impersonation_banner" if !is_preview && impersonating? %>
+  <%= render "shared/impersonation_banner" if !is_preview && impersonating? %><%= render "shared/frozen_account_banner" if !is_preview && account_frozen? %>
   <div class="nav-row flex items-center min-w-0">
     <%# Left side: logo + nav %>
     <%# min-w-0 FOUR TIMES, on every flex item between the row and the wordmark:

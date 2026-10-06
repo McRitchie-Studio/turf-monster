@@ -1121,14 +1121,13 @@ class ApplicationController < ActionController::Base
 
   # B4 / OPSEC-048: block money-moving actions when the account is frozen
   # (chargeback / refund / dispute pending review). Read-only access stays open.
+  # Every non-GET already passes FrozenAccountGuard; this is the same refusal
+  # on any verb, for an action that must ask outright.
   def require_unfrozen_account
     return unless logged_in?
     return unless current_user.frozen?
-    msg = "Your account is on hold pending review of a recent payment. Please contact support@turfmonster.media."
-    respond_to do |format|
-      format.html { redirect_to account_path, alert: msg }
-      format.json { render json: { error: msg }, status: :forbidden }
-    end
+
+    render_frozen_account_refusal
   end
 
   # Shared server-side guard for user-supplied image uploads (avatars, contest
@@ -1156,4 +1155,30 @@ class ApplicationController < ActionController::Base
   # Page A/B tests: assignment, the sticky variant cookie, visit counts, and
   # the experiment a conversion is credited to (PageExperimentTracking).
   include PageExperimentTracking
+
+  # OPSEC-048, DEFAULT-DENY: a frozen account is refused every request that is
+  # not a GET or a HEAD (FrozenAccountGuard). Last on purpose, so its callback
+  # runs after authentication resolves, and so this file's cited lines hold.
+  include FrozenAccountGuard
+
+  private
+
+  # FrozenAccountGuard's refusal, for the web. A browser form post (plain or
+  # Turbo) asks for text/html and gets a 303 back with the message as an alert;
+  # a fetch() from the page's own JS (*/* or JSON) gets the 403 JSON it reads
+  # `error` from, with the same `code` the agent API answers.
+  def render_frozen_account_refusal
+    if frozen_refusal_wants_html?
+      redirect_back_or_to account_path, alert: FrozenAccount::MESSAGE, status: :see_other
+    else
+      render json: { error: FrozenAccount::MESSAGE, code: FrozenAccount::CODE }, status: FrozenAccount::STATUS
+    end
+  end
+
+  def frozen_refusal_wants_html?
+    return false if request.xhr?
+    return false if request.content_mime_type&.json?
+
+    request.headers["Accept"].to_s.include?("text/html")
+  end
 end

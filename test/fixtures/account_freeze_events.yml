@@ -1,0 +1,6 @@
+# DELIBERATELY EMPTY: listing the table puts it in fixtures :all's delete
+# set. AccountFreezeEvent holds a foreign key to users, and rows the e2e lane
+# writes (TestController#set_frozen) land in the test database; uncleared,
+# they would break every fixture load on the users delete. Same trap as
+# entry_gifts.yml explains.
+{}

@@ -50,7 +50,7 @@ Then pick one, and record it on the task or the purchase row:
 
 | Paid with | Refund options |
 |-----------|----------------|
-| Stripe voucher | Mint a replacement voucher (`mint_entry_token`, source 0), or refund the charge in the Stripe dashboard. **A Stripe refund FREEZES the entrant**: the `charge.refunded` webhook marks the purchase `refunded` and calls `freeze_for_payment_risk!` (`Webhooks::StripeController#handle_refund`), so the operator must unfreeze the account afterwards, or the person we refunded is locked out |
+| Stripe voucher | Mint a replacement voucher (`mint_entry_token`, source 0), or refund the charge in the Stripe dashboard. **A Stripe refund FREEZES the entrant**: the `charge.refunded` webhook marks the purchase `refunded` and calls `freeze_for_payment_risk!` (`Webhooks::StripeController#handle_refund`), so the operator must unfreeze the account afterwards (`/admin/users`, Unfreeze, with a reason), or the person we refunded cannot enter, chat or change their account |
 | USDC | Transfer the fee from operator revenue to the entrant's wallet (a multisig `sweep_operator_revenue`, then a send), or mint a voucher |
 | Operator comp | Mint a replacement voucher |
 

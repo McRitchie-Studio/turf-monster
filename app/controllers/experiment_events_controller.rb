@@ -15,6 +15,9 @@
 # tell a script which of its rows landed. Never blocks the tap it reports:
 # sendBeacon is fire-and-forget, so the navigation does not wait for this.
 class ExperimentEventsController < ApplicationController
+  # OPSEC-048: FrozenAccountGuard refuses a frozen account every write but this.
+  allow_frozen_account_writes only: :create, reason: "an anonymous A/B beacon; records a page view, acts for no one"
+
   skip_before_action :require_authentication
   skip_before_action :require_profile_completion
   skip_before_action :preload_navbar_solana_data

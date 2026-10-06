@@ -29,6 +29,7 @@
           <th class="text-right px-3 py-3" title="Invitees in a contest / total invitees (hover a cell for the inviter)">Refs</th>
           <th class="text-right px-3 py-3" title="Last request (last_seen_at)">Active</th>
           <th class="text-right px-4 py-3">Joined</th>
+          <th class="text-left px-3 py-3" title="OPSEC-048 account freeze: a frozen account can read but not write">Freeze</th>
           <th class="text-right px-4 py-3" title="Act as this user for support / migration (admin only)">Act&nbsp;as</th>
         </tr>
       </thead>
@@ -84,6 +85,31 @@
             <td class="px-4 py-3 text-right text-muted text-xs whitespace-nowrap">
               <%= u.created_at.strftime("%b %-d, %Y") %>
             </td>
+            <td class="px-3 py-3 align-top">
+              <%# OPSEC-048: freeze and unfreeze, each with a reason
+                  (Admin::AccountFreezesController, AccountFreezeEvent). %>
+              <% if u.admin? %>
+                <span class="text-muted">—</span>
+              <% elsif u.frozen? %>
+                <div class="space-y-1 min-w-[12rem]" data-freeze-state="frozen">
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-red-500/15 text-red-400 border border-red-500/30"
+                        title="Since <%= u.frozen_at.strftime("%b %-d, %Y %-I:%M %p") %>">FROZEN</span>
+                  <div class="text-xs text-secondary truncate max-w-[14rem]" title="<%= u.frozen_reason %>"><%= u.frozen_reason %></div>
+                  <%= form_with url: admin_unfreeze_user_path(u.slug), method: :delete, class: "flex items-center gap-1" do |f| %>
+                    <%= f.text_field :reason, required: true, placeholder: "Reason to unfreeze",
+                          class: "input-field text-xs !py-1 !px-2 !w-36", aria: { label: "Reason to unfreeze #{u.display_name}" } %>
+                    <%= f.submit "Unfreeze", class: "btn btn-outline btn-sm" %>
+                  <% end %>
+                </div>
+              <% else %>
+                <%= form_with url: admin_freeze_user_path(u.slug), method: :post, class: "flex items-center gap-1",
+                      data: { freeze_state: "active", turbo_confirm: "Freeze #{u.display_name}? They can look around but cannot enter, chat or change their account." } do |f| %>
+                  <%= f.text_field :reason, required: true, placeholder: "Reason to freeze",
+                        class: "input-field text-xs !py-1 !px-2 !w-36", aria: { label: "Reason to freeze #{u.display_name}" } %>
+                  <%= f.submit "Freeze", class: "btn btn-outline btn-sm" %>
+                <% end %>
+              <% end %>
+            </td>
             <td class="px-4 py-3 text-right">
               <%# OPSEC-046: impersonation entry point — non-admins only (admins
                   can't be impersonated; this also excludes the current admin). %>
@@ -100,7 +126,7 @@
           </tr>
         <% end %>
         <% if @users.empty? %>
-          <tr><td colspan="10" class="px-4 py-10 text-center text-muted">No users yet.</td></tr>
+          <tr><td colspan="11" class="px-4 py-10 text-center text-muted">No users yet.</td></tr>
         <% end %>
       </tbody>
     </table>

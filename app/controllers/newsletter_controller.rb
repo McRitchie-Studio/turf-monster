@@ -13,6 +13,9 @@
 # the grant can't run yet (instruction not deployed / RPC blip) the join still
 # succeeds and the bonus is backfillable (the guard PDA prevents any double-grant).
 class NewsletterController < ApplicationController
+  # OPSEC-048: FrozenAccountGuard refuses a frozen account every write but this.
+  allow_frozen_account_writes only: :unsubscribe, reason: "opting out of email is always allowed"
+
   # POST /account/newsletter/subscribe
   def subscribe
     user = current_user

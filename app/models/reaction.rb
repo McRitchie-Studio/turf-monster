@@ -20,6 +20,9 @@ class Reaction < ApplicationRecord
 
   validates :emoji, presence: true, inclusion: { in: ALLOWED }
   validates :user_id, uniqueness: { scope: [:message_id, :emoji] }
+  # OPSEC-048: a frozen account cannot react in a contest chat.
+  include FrozenAccount::Validation
+  validates_account_not_frozen :user, on: :create
 
   # A reaction change re-renders the message's reactions row for everyone in
   # the room (same Turbo Stream channel as the message itself). Best-effort:

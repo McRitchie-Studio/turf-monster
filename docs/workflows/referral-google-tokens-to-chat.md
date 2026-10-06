@@ -30,7 +30,7 @@
 `/l/:slug` links still land, as the trigger note in [[web3-landing-to-entry]] explains.
 **Actors:** Visitor → Google OAuth → Rails (`LandingPagesController` / `OmniauthCallbacksController` / `TokensController` / `ContestsController` / `MessagesController`) → Stripe → Sidekiq (`TokenPurchaseJob`) → Solana RPC (managed-wallet `mint_entry_token` + `enter_contest_with_token`) → ActionCable.
 **Outcome:** `users` row with `reference = "<landing-slug>"`, a `stripe_purchases` row in status `minted` with 3 on-chain `EntryTokenAccount` PDAs (one consumed), an `entries` row in status `complete` with `onchain_tx_signature`, a `messages` row broadcast on `[contest, :messages]`.
-**Preconditions:** Contest is `open`, `onchain`, and carries `chat_enabled` — a column defaulting to true (`db/schema.rb:236`). The contest's season must be live on-chain: `ContestsController#ensure_onchain_season_ready!` (`app/controllers/contests_controller.rb:2328-2332`) raises the message built by `#onchain_season_error` (`:2334-2344`) when `SeasonConfig.current_season_id` names a season the vault cannot read. Stripe enabled. Visitor not in a blocked geo state.
+**Preconditions:** Contest is `open`, `onchain`, and carries `chat_enabled` — a column defaulting to true (`db/schema.rb:247`). The contest's season must be live on-chain: `ContestsController#ensure_onchain_season_ready!` (`app/controllers/contests_controller.rb:2328-2332`) raises the message built by `#onchain_season_error` (`:2334-2344`) when `SeasonConfig.current_season_id` names a season the vault cannot read. Stripe enabled. Visitor not in a blocked geo state.
 
 ## Sequence
 
@@ -78,7 +78,7 @@
 - **`ContestsController#enter` race — contest full mid-flight** — the `with_lock` in `Entries::ManagedEntry#call` (`app/services/entries/managed_entry.rb:77`) runs `entry.assert_enterable!` (`:82`) BEFORE any consume, and its `active_count >= contest.max_entries` check (`app/models/entry.rb:157-158`) raises "Contest is full"; the response 422s and the modal surfaces the error with the token unconsumed.
 - **Chat message rate-limit hit** — `MessagesController#create` returns 429 when `posting_too_fast?` is true (`app/controllers/messages_controller.rb:13-15`). The user sees "You're posting too fast" in the composer.
 - **ActionCable broadcast failure** — `Message#broadcast_new_message` rescues and logs to `ErrorLog` (`app/models/message.rb:94-95`), so the controller request still returns `{ ok: true }`. Other subscribers miss the message, and so does the poster: the panel renders from the broadcast, not from the POST response. → Inspect `error_logs` for `Message` targets.
-- **Chargeback / refund post-mint** — `Webhooks::StripeController#handle_dispute` (`app/controllers/webhooks/stripe_controller.rb:112-123`) and `#handle_refund` (`:127-136`) set `payment_risk_flag` and call `User#freeze_for_payment_risk!` (`app/models/user.rb:509-513`). Future buys and entries are blocked; an operator unfreezes with `User#unfreeze!` (`:515-518`).
+- **Chargeback / refund post-mint** — `Webhooks::StripeController#handle_dispute` (`app/controllers/webhooks/stripe_controller.rb:112-123`) and `#handle_refund` (`:127-136`) set `payment_risk_flag` and call `User#freeze_for_payment_risk!` (`app/models/user.rb:509-513`). The frozen account can still read but every write is refused (`FrozenAccountGuard`); an operator unfreezes from `/admin/users`, which calls `User#unfreeze!` (`:515-518`) and records an `AccountFreezeEvent`.
 
 ## Related workflows
 

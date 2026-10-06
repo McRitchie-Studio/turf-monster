@@ -436,4 +436,10 @@ class Entry < ApplicationRecord
   def assert_selections_pickable!
     assert_pickable!(*selections.includes(:slate_matchup).map(&:slate_matchup))
   end
+
+  # At the foot of the class so docs/workflows' line citations above hold.
+  # OPSEC-048: a frozen account can neither start an entry nor make one live.
+  include FrozenAccount::Validation
+  validates_account_not_frozen :user, on: :create
+  validates_account_not_frozen :user, on: :update, if: -> { will_save_change_to_status?(to: "active") }
 end

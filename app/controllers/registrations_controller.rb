@@ -2,6 +2,9 @@
 # version except new signups land on the entry-tokens page (the post-signup
 # upsell) instead of the app root.
 class RegistrationsController < ApplicationController
+  # OPSEC-048: FrozenAccountGuard refuses a frozen account every write but this.
+  allow_frozen_account_writes only: :create, reason: "signing in is a read: the freeze holds actions, not access"
+
   skip_before_action :require_authentication
   # Already authenticated? The signup form is a dead end — send them to their
   # account. Guards only the GET form render (:new), never the POST create.
