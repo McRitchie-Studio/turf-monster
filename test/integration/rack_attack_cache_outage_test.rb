@@ -5,6 +5,8 @@ require "test_helper"
 # RedisCacheOutage: production's store class with its errors swallowed. The rule
 # by rule unit proof is test/initializers/rack_attack_cache_outage_test.rb.
 class RackAttackCacheOutageIntegrationTest < ActionDispatch::IntegrationTest
+  include RackAttackClock
+
   EMAIL = "fan@example.com".freeze
 
   def failed_logins(times)
@@ -14,13 +16,16 @@ class RackAttackCacheOutageIntegrationTest < ActionDispatch::IntegrationTest
     end
   end
 
+  # The clock is frozen so the flood counts into one bucket
+  # (test/support/rack_attack_clock.rb).
   test "with Redis up, a sign-in flood on one address is a 429 past the limit" do
     prior_store = Rack::Attack.cache.store
     Rack::Attack.cache.store = ActiveSupport::Cache::MemoryStore.new
     Rack::Attack.enabled = true
-    limit = Rack::Attack.throttles.fetch("login/email").limit
+    throttle = Rack::Attack.throttles.fetch("login/email")
+    limit = throttle.limit
 
-    statuses = failed_logins(limit + 1)
+    statuses = in_one_rack_attack_period(throttle.period) { failed_logins(limit + 1) }
     refute_includes statuses.first(limit), 429
     assert_equal 429, statuses.last
   ensure

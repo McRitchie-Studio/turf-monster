@@ -16,6 +16,7 @@ require "test_helper"
 # Whose address a request is counted against is test/integration/client_ip_spoof_test.rb.
 class McpRateLimitTest < ActionDispatch::IntegrationTest
   include AgentApiTestSupport
+  include RackAttackClock
 
   ANTHROPIC = "160.79.104.10".freeze # inside 160.79.104.0/21
   ELSEWHERE = "203.0.113.9".freeze
@@ -43,17 +44,13 @@ class McpRateLimitTest < ActionDispatch::IntegrationTest
     Digest::SHA256.hexdigest(authorization.delete_prefix("Bearer "))[0, 32]
   end
 
-  # Rack::Attack counts into a bucket named for the wall-clock period
-  # (Time.now.to_i / period), so a test whose requests straddle a minute
-  # boundary splits them across two buckets, neither reaches the limit, and the
-  # 429 it asserts comes back a 200 or a 401. The clock is frozen at the start
-  # of the current period so every request in the block lands in one bucket.
+  # The clock is frozen for the block so its requests count into one bucket
+  # (test/support/rack_attack_clock.rb).
   def with_rack_attack(&block)
     prior_store = Rack::Attack.cache.store
     Rack::Attack.cache.store = ActiveSupport::Cache::MemoryStore.new
     Rack::Attack.enabled = true
-    period = throttle("mcp/key").period.to_i
-    travel_to(Time.zone.at(Time.now.to_i / period * period), &block)
+    in_one_rack_attack_period(throttle("mcp/key").period, &block)
   ensure
     Rack::Attack.enabled = false
     Rack::Attack.cache.store = prior_store

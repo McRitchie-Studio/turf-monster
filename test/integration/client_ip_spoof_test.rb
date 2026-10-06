@@ -15,6 +15,8 @@ require "test_helper"
 # right of X-Forwarded-For. Setting REMOTE_ADDR to a public address, as the
 # other rate-limit tests do, cannot see any of this.
 class ClientIpSpoofTest < ActionDispatch::IntegrationTest
+  include RackAttackClock
+
   ROUTER = "10.1.2.3".freeze
   CLIENT = "198.51.100.7".freeze
   CLAIMED = "160.79.104.5".freeze # inside Anthropic's egress range
@@ -46,11 +48,13 @@ class ClientIpSpoofTest < ActionDispatch::IntegrationTest
     seen
   end
 
-  def with_rack_attack
+  # The clock is frozen for the block so its requests count into one bucket
+  # (test/support/rack_attack_clock.rb).
+  def with_rack_attack(&block)
     prior_store = Rack::Attack.cache.store
     Rack::Attack.cache.store = ActiveSupport::Cache::MemoryStore.new
     Rack::Attack.enabled = true
-    yield
+    in_one_rack_attack_period(&block)
   ensure
     Rack::Attack.enabled = false
     Rack::Attack.cache.store = prior_store
