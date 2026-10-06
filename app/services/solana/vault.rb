@@ -29,6 +29,13 @@ module Solana
     # winners (spec §3.12, §10.1, §11 Q7).
     SETTLE_COMPUTE_UNIT_LIMIT = 400_000
 
+    # Solana's PACKET_DATA_SIZE: the most bytes one wire transaction may carry.
+    PACKET_DATA_SIZE = 1_232
+
+    # A settle_contest transaction that does not fit one packet. Raised by the
+    # settle builders before anything is queued or sent.
+    class SettleTooLargeError < StandardError; end
+
     # Single source of truth for the admin vault-state cache key. Read
     # cache-first on the navbar preload path (ApplicationController) and
     # fetch-with-race_condition_ttl in .cached_vault_state, so read-key and
@@ -2444,7 +2451,9 @@ module Solana
         data: data
       )
 
-      signature = client.send_and_confirm(tx.serialize_base64)
+      wire = tx.serialize_base64
+      assert_settle_fits_one_packet!(wire, settlements.length)
+      signature = client.send_and_confirm(wire)
       { signature: signature }
     end
 
@@ -2489,7 +2498,20 @@ module Solana
       serialized = tx.serialize_partial_base64(
         additional_signers: [cosigner_bytes, *extras.map { |m| m[:pubkey] }]
       )
+      assert_settle_fits_one_packet!(serialized, settlements.length)
       { serialized_tx: serialized, contest_slug: contest_slug }
+    end
+
+    # The serialized size of a built settle transaction, against the packet
+    # limit. Contest formats pay at most Contest::MAX_PAID_RANKS entries, which
+    # fits by construction; this names the failure if a table ever does not.
+    def assert_settle_fits_one_packet!(wire_base64, winner_count)
+      size = Base64.strict_decode64(wire_base64).bytesize
+      return size if size <= PACKET_DATA_SIZE
+
+      raise SettleTooLargeError,
+            "settle_contest for #{winner_count} paid entries serializes to #{size} bytes; " \
+            "one transaction holds #{PACKET_DATA_SIZE}"
     end
 
     # --- Close ---

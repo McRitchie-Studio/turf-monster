@@ -305,19 +305,31 @@ class Contest < ApplicationRecord
     pool_cents / 100.0
   end
 
-  # GTM contest tiers (defined 2026-05-17). All at $19 entry fee.
+  # Contest tiers. All at $19 entry fee.
   # Margin per filled contest = gross revenue (entries × fee) − total payouts.
   #   tiny     :  3 entries → $57   gross / $45   payout / $12 margin (78.9%)
   #   small    :  5 entries → $95   gross / $75   payout / $20 margin (78.9%)
   #   medium   :  9 entries → $171  gross / $140  payout / $31 margin (81.9%)
   #   standard : 29 entries → $551  gross / $500  payout / $51 margin (90.7%)
   #   large    : 99 entries → $1881 gross / $1800 payout / $81 margin (95.7%)
+  #
+  # NO FORMAT PAYS MORE THAN MAX_PAID_RANKS PLACES. Settlement is one
+  # settle_contest call in one legacy transaction, and the 1,232-byte packet
+  # holds four paid entries on turf-vault v0.26 (five on v0.25). Grading never
+  # pays more entries than the table has places (Contest::PayoutSplit), so a
+  # format that fits here fits one settlement, ties included.
+  #
+  # A contest snapshots its row's payouts when it is created
+  # (#snapshot_payout_table) and grades from the snapshot, so editing a row here
+  # changes only contests created afterwards.
+  MAX_PAID_RANKS = 4
+
   FORMATS = {
     "tiny"     => { entry_fee_cents: 19_00, max_entries: 3,  payouts: { 1 => 45_00 } },
     "small"    => { entry_fee_cents: 19_00, max_entries: 5,  payouts: { 1 => 75_00 } },
     "medium"   => { entry_fee_cents: 19_00, max_entries: 9,  payouts: { 1 => 100_00, 2 => 40_00 } },
-    "standard" => { entry_fee_cents: 19_00, max_entries: 29, payouts: { 1 => 300_00, 2 => 50_00, 3 => 50_00, 4 => 50_00, 5 => 50_00 } },
-    "large"    => { entry_fee_cents: 19_00, max_entries: 99, payouts: { 1 => 1000_00, 2 => 100_00, 3 => 100_00, 4 => 100_00, 5 => 100_00, 6 => 100_00, 7 => 100_00, 8 => 100_00, 9 => 100_00 } },
+    "standard" => { entry_fee_cents: 19_00, max_entries: 29, payouts: { 1 => 300_00, 2 => 100_00, 3 => 50_00, 4 => 50_00 } },
+    "large"    => { entry_fee_cents: 19_00, max_entries: 99, payouts: { 1 => 1000_00, 2 => 400_00, 3 => 200_00, 4 => 200_00 } },
 
     # Test scaffolding — $1 entry, gated behind ENABLE_TEST_SCAFFOLDING (AppFlags.test_scaffolding?).
     # A low-stakes end-to-end rehearsal tier: 9 entries → $9 gross / $9 payout / $0 margin.
@@ -328,11 +340,22 @@ class Contest < ApplicationRecord
     # THREE entries the worst case at -$6, not one. That is the accepted cost of the
     # rehearsal, and the reason the tier stays flag-gated.
     # Hidden from the create UIs unless the flag is on; DISABLE before the public launch.
-    # FORMATS still lists it always so an existing micro contest resolves config + grades
-    # correctly — which also FREEZES this payout table once a micro contest exists on-chain:
-    # payouts are re-derived from here at grade time, so editing them would settle against a
-    # prize_pool PDA funded at the old numbers (settle_contest.rs SettlementOverflow).
+    # FORMATS still lists it always so an existing micro contest resolves its config.
     "micro"            => { entry_fee_cents: 1_00, max_entries: 9, payouts: { 1 => 5_00, 2 => 2_00, 3 => 2_00 } }
+  }.freeze
+
+  # The payout table every contest created before payout snapshots carries,
+  # by format: the FORMATS payouts those contests were funded and opened with.
+  # Contests::PayoutTableBackfillJob writes it onto those rows, and #payouts
+  # reads it for any such row the job has not reached, so an open contest's
+  # prizes never change under its entrants.
+  PRE_SNAPSHOT_PAYOUTS = {
+    "tiny"     => [45_00],
+    "small"    => [75_00],
+    "medium"   => [100_00, 40_00],
+    "standard" => [300_00, 50_00, 50_00, 50_00, 50_00],
+    "large"    => [1000_00, 100_00, 100_00, 100_00, 100_00, 100_00, 100_00, 100_00, 100_00],
+    "micro"    => [5_00, 2_00, 2_00]
   }.freeze
 
   # Format keys hidden from the contest-create UIs unless ENABLE_TEST_SCAFFOLDING is on.
@@ -368,9 +391,35 @@ class Contest < ApplicationRecord
   end
   private :retired_format_config
 
+  # The prize per finishing rank, in cents: { rank => cents }. A contest pays
+  # the table it was created with (#payout_table_cents); a contest not yet
+  # saved pays its format's current row; a retired format pays what its
+  # entries were paid.
   def payouts
-    format_config[:payouts]
+    table = payout_table_cents.presence || default_payout_table_cents
+    return format_config[:payouts] if table.nil?
+
+    table.each.with_index(1).to_h { |cents, rank| [rank, cents] }
   end
+
+  # Written once, when the row is first saved. attr_readonly keeps any later
+  # save from moving it.
+  attr_readonly :payout_table_cents
+  before_validation :snapshot_payout_table, on: :create
+
+  def snapshot_payout_table
+    self.payout_table_cents ||= default_payout_table_cents
+  end
+  private :snapshot_payout_table
+
+  def default_payout_table_cents
+    if new_record?
+      FORMATS.dig(contest_type.to_s, :payouts)&.sort&.map(&:last)
+    else
+      PRE_SNAPSHOT_PAYOUTS[contest_type.to_s]
+    end
+  end
+  private :default_payout_table_cents
 
   # On-chain Contest PDA creation, server-funded (admin pays prize pool).
   # Invoked automatically by the after_create callback. Idempotent — re-running
@@ -430,8 +479,8 @@ class Contest < ApplicationRecord
       score_entries!
 
       # `id: :asc` is a deterministic tiebreaker: tied scores order by creation,
-      # so the integer-remainder payout split (below) always credits the earliest
-      # entry. Without it Postgres returns ties in physical/arbitrary order, making
+      # so the remainder cent of a split and a tie at the last paid place always
+      # go to the earliest entry. Without it Postgres returns ties in physical/arbitrary order, making
       # the split non-deterministic (a money bug + flaky tests once other rows exist).
       ranked = entries.where(status: [:active, :complete]).order(score: :desc, id: :asc).includes(:user).to_a
       ranked.each { |e| e.update!(status: "complete") if e.active? }
@@ -439,46 +488,22 @@ class Contest < ApplicationRecord
 
       return update!(status: "settled") if ranked.empty?
 
-      # Build ranks (ties get same rank)
-      ranks = []
-      ranked.each_with_index do |entry, i|
-        rank = if i == 0
-          1
-        elsif entry.score < ranked[i - 1].score
-          i + 1
-        else
-          ranks.last
+      # Ranks and prizes (Contest::PayoutSplit): ties share a rank, and no more
+      # entries are paid than the payout table has places.
+      split = PayoutSplit.call(ranked.map(&:score), payouts)
+      ranked.zip(split).each do |entry, (rank, share)|
+        if share > 0
+          TransactionLog.record!(user: entry.user, type: "payout", amount_cents: share, direction: "credit", source: self, description: "Payout rank ##{rank} for #{name}")
         end
-        ranks << rank
-      end
-
-      # Pay out based on format payouts
-      max_paid_rank = payouts.keys.max || 0
-      ranked.each_with_index do |entry, i|
-        rank = ranks[i]
-        share = 0
-
-        if rank <= max_paid_rank
-          tied_indices = ranks.each_index.select { |j| ranks[j] == rank }
-          tied_count = tied_indices.size
-          spanned_ranks = (rank..(rank + tied_count - 1)).to_a
-          total_prize = spanned_ranks.sum { |r| payouts[r] || 0 }
-          base_share = total_prize / tied_count
-          remainder = total_prize % tied_count
-          position_in_tie = tied_indices.index(i)
-          share = position_in_tie < remainder ? base_share + 1 : base_share
-          if share > 0
-            TransactionLog.record!(user: entry.user, type: "payout", amount_cents: share, direction: "credit", source: self, description: "Payout rank ##{rank} for #{name}")
-          end
-        end
-
         entry.update!(rank: rank, payout_cents: share)
       end
 
-      update!(status: "settled")
-
-      # Attempt onchain settlement (non-blocking)
+      # The settle transaction is built and queued BEFORE the contest reads as
+      # settled. A build that raises (an RPC failure, or a transaction too large
+      # for one packet) rolls back this whole lock, so the contest stays
+      # gradable and nothing reads as settled without a settlement queued.
       settle_onchain! if onchain?
+      update!(status: "settled")
     end
   end
 
@@ -749,6 +774,10 @@ class Contest < ApplicationRecord
     }
   end
 
+  # Builds the partially signed settle_contest transaction for this contest's
+  # paid entries and queues it for multisig cosigning. A failed build raises
+  # (Solana::Vault::SettleTooLargeError among others); #grade! calls this inside
+  # its lock, so a failure leaves the contest ungraded and gradable again.
   def settle_onchain!
     return unless onchain? && !onchain_settled?
 
@@ -776,9 +805,6 @@ class Contest < ApplicationRecord
       initiator_address: Solana::Keypair.admin.to_base58,
       metadata: { settlements: winners }.to_json
     )
-  rescue => e
-    ErrorLog.capture!(e)
-    # Don't block DB settlement — onchain can be retried
   end
 
   # Notify every winner (payout_cents > 0) of their winnings by email, AFTER
