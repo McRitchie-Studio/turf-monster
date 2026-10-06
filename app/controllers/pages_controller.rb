@@ -28,10 +28,14 @@ class PagesController < ApplicationController
   # @drop_signup_status is the no-JS round trip: a plain form post redirects
   # back here with flash[:drop_signup] ("ok" / "invalid"), and the form draws
   # its success or error state from it on the first paint.
+  #
+  # @next_contest is the page's one call to action (NextContest): a link to
+  # the next contest still open to enter, or the notify-me modal.
   def turf_monster_v2
     slugs = TurfMonsterRules.team_slugs | TurfMonsterRules.showcase_team_slugs
     @teams = Team.where(slug: slugs).index_by(&:slug)
     @drop_signup_status = flash[:drop_signup]
+    @next_contest = NextContest.pick
   end
 
   def terms

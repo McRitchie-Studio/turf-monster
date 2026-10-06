@@ -15,6 +15,12 @@
 # nothing, so a bot cannot tell it was caught. Only a malformed address is
 # refused (422), because that is about the visitor's own typing.
 #
+# SOURCE is the campaign that brought the visitor: the form's own ?reference=,
+# else the first-touch `reference` cookie ApplicationController#capture_reference
+# set on an earlier page view, so a visitor who landed with ?reference=tiktok
+# and signed up later is still credited. Counting visits is not this
+# controller's job.
+#
 # JSON for the Alpine form; a plain form post (no JS) redirects back to the
 # section with a flash the page reads to draw its success or error state.
 class DropSignupsController < ApplicationController
@@ -31,7 +37,7 @@ class DropSignupsController < ApplicationController
       DropSignup.register(
         email: params[:email],
         slate_key: NextSlateDrop::SLATE_KEY,
-        source: params[:reference].presence || params[:source],
+        source: params[:reference].presence || params[:source].presence || cookies[:reference],
         ip: request.remote_ip,
         user_agent: request.user_agent,
         user: current_user

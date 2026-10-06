@@ -21,6 +21,21 @@ class DropSignupsControllerTest < ActionDispatch::IntegrationTest
     assert row.ip.present?
   end
 
+  # First touch, then a later page view with no ?reference=: the cookie that
+  # capture_reference wrote on the landing still credits the campaign.
+  test "the source falls back to the first-touch reference cookie" do
+    get turf_monster_v2_path(reference: "tiktok")
+    get turf_monster_v2_path
+    post_json(email: "later@example.com")
+    assert_equal "tiktok", DropSignup.last.source
+  end
+
+  test "an explicit reference on the post beats the cookie" do
+    get turf_monster_v2_path(reference: "tiktok")
+    post_json(email: "explicit@example.com", reference: "newsletter")
+    assert_equal "newsletter", DropSignup.last.source
+  end
+
   test "the client cannot choose the slate" do
     post_json(email: "fan@example.com", slate_key: "made-up-drop")
     assert_equal NextSlateDrop::SLATE_KEY, DropSignup.last.slate_key

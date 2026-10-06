@@ -1,0 +1,58 @@
+<%# locals: (initial: "idle", id_prefix: "drop_signup", test_id: "v2-notify", card: true)
+
+    The notify-me form for the next slate drop, used by /turf-monster-v2's notify
+    section and by the drop-notify modal. Posts to DropSignupsController.
+
+    A plain POST without JS (the controller redirects back with a flash the page
+    reads into `initial`: "done" / "error" / "idle"); the Alpine submit
+    (dropNotifyForm, defined on /turf-monster-v2) takes it over with JS. Success
+    shows only after a 2xx. `id_prefix` keeps the input ids unique when the
+    section and the modal are both in the page; `card: false` drops the card
+    chrome where the modal already supplies it, and `test_id` names its
+    data-test hooks (the modal's are drop-modal-*). %>
+<div class="relative <%= card ? 'card p-6 md:p-8' : '' %> max-w-xl mx-auto text-left"
+     x-data="dropNotifyForm('<%= initial %>')" data-test="<%= test_id %>-form">
+  <div x-show="state === 'done'" <%= 'style="display: none;"'.html_safe unless initial == "done" %>
+       role="status" data-test="<%= test_id %>-success">
+    <p class="text-xl font-bold text-heading">You&rsquo;re on the list.</p>
+    <p class="text-secondary text-sm mt-1">We&rsquo;ll send one email when the <%= NextSlateDrop::LABEL %> slate drops.</p>
+  </div>
+
+  <%= form_with url: drop_signups_path, method: :post, local: true,
+        data: { turbo: false },
+        html: { "x-show": "state !== 'done'", "@submit.prevent": "submit($event)", novalidate: true,
+                style: (initial == "done" ? "display: none;" : nil) } do %>
+    <label for="<%= id_prefix %>_email" class="block text-sm font-semibold text-heading mb-2">Notify me when <%= NextSlateDrop::LABEL %> drops</label>
+    <div class="flex flex-col sm:flex-row gap-3">
+      <input type="email" id="<%= id_prefix %>_email" name="email" required autocomplete="email"
+             placeholder="you@example.com"
+             class="input flex-1 min-w-0"
+             aria-describedby="<%= id_prefix %>_help">
+      <button type="submit" class="btn btn-primary whitespace-nowrap"
+              :disabled="state === 'submitting'"
+              x-text="state === 'submitting' ? 'Sending…' : 'Notify me'">Notify me</button>
+    </div>
+    <%# The honeypot. Off-screen rather than display:none (some bots skip
+        hidden fields), out of the tab order, and hidden from assistive
+        tech. A human never fills it; the controller drops any post that
+        does, quietly, with the same 200 a real signup gets. %>
+    <div class="absolute -left-[9999px] h-px w-px overflow-hidden" aria-hidden="true">
+      <label for="<%= id_prefix %>_website">Website</label>
+      <input type="text" id="<%= id_prefix %>_website" name="website" tabindex="-1" autocomplete="off">
+    </div>
+    <%# The campaign rides along when this page was opened with ?reference=;
+        without one, the controller falls back to the first-touch cookie. %>
+    <% if params[:reference].present? %>
+      <input type="hidden" name="reference" value="<%= params[:reference].to_s.first(DropSignup::SOURCE_LIMIT) %>">
+    <% end %>
+    <%# The live region is mounted empty and hidden, and Alpine writes the
+        failure into it (error_live_regions_test holds every error line in
+        the app to that shape). The no-JS round trip has no Alpine to
+        write it, so its copy rides in a noscript beside it. %>
+    <p class="text-sm text-danger-ink mt-2" x-show="error" x-cloak x-text="error" role="alert" aria-live="assertive" aria-atomic="true"></p>
+    <% if initial == "error" %>
+      <noscript><p class="text-sm text-danger-ink mt-2">Enter a valid email address.</p></noscript>
+    <% end %>
+    <p id="<%= id_prefix %>_help" class="text-muted text-xs mt-3">One email when the slate drops. No spam.</p>
+  <% end %>
+</div>

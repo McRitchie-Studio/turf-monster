@@ -46,7 +46,7 @@ test.describe("turf-monster-v2 explainer", () => {
     await expect(root.getByRole("heading", { level: 1 })).toHaveText("Pick 6 teams. Stack points. Get paid.");
     await expect(page.locator('[data-test="v2-notify"]')).toContainText("Weeks 7-9 slate drops Tuesday morning");
     await expect(page.locator('[data-test="v2-how-to-play"]')).toContainText("How to play");
-    await expect(page.locator('[data-test="v2-closing"]')).toContainText("Start playing");
+    await expect(page.locator('[data-test="v2-closing-cta"]')).toHaveCount(1);
     await expect(page.locator('[data-test="phone-mock"]')).toHaveCount(2);
     // The hero phone shows the six showcase teams, and no opponent chip is
     // cut to an ellipsis: each is a 2-3 letter abbreviation.
@@ -72,10 +72,6 @@ test.describe("turf-monster-v2 explainer", () => {
     const before = await seconds.textContent();
     await expect(seconds).not.toHaveText(before, { timeout: 2500 });
 
-    // The hero CTA scrolls to the form.
-    await page.locator('[data-test="v2-hero"]').getByRole("link", { name: "Get notified for Weeks 7-9" }).click();
-    await expect(page).toHaveURL(/#notify$/);
-
     // A bad address first: the server's 422 must NOT read as success.
     const input = page.getByLabel("Notify me when Weeks 7-9 drops");
     await input.fill("not-an-email");
@@ -98,5 +94,45 @@ test.describe("turf-monster-v2 explainer", () => {
     await admin.goto("/admin/drop_signups");
     await expect(admin.locator('[data-test="admin-drop-signups"]')).toContainText(email);
     await adminContext.close();
+  });
+
+  // THE ONE CTA WITH NOTHING TO ENTER. The e2e seed always has open contests,
+  // so the spec holds them (coming_soon) for its own duration and releases
+  // exactly those afterwards, pass or fail: rows outlive a spec here.
+  test.describe("with no contest open to enter", () => {
+    let held = [];
+    test.beforeEach(async ({ request }) => {
+      const res = await request.post("/test/hold_open_contests", { data: { hold: "true" } });
+      held = (await res.json()).held;
+    });
+    test.afterEach(async ({ request }) => {
+      await request.post("/test/hold_open_contests", { data: { hold: "false", slugs: held } });
+    });
+
+    test("the hero CTA opens the notify modal, which ticks and signs a visitor up", async ({ page }) => {
+      await page.goto("/turf-monster-v2?reference=e2e-modal");
+      const cta = page.locator('[data-test="v2-hero-cta"]');
+      await expect(cta).toHaveText(/Get notified for Weeks 7-9|See the Weeks 7-9 slate/);
+      if (Date.now() >= DROPS_AT - 60_000) return; // after the drop the modal says "live" instead
+
+      await cta.click();
+      const dialog = page.getByRole("dialog", { name: "Get notified when Weeks 7-9 drops" });
+      await expect(dialog).toBeVisible();
+      const modal = dialog.locator('[data-test="drop-modal"]');
+      const seconds = modal.locator("[x-text=seconds]");
+      await expect(seconds).toHaveText(/^\d{2}$/);
+      const before = await seconds.textContent();
+      await expect(seconds).not.toHaveText(before, { timeout: 2500 });
+
+      const answered = page.waitForResponse((res) => res.url().endsWith("/drop-signups") && res.request().method() === "POST");
+      await modal.getByLabel("Notify me when Weeks 7-9 drops").fill(`e2e-modal-${Date.now()}@example.com`);
+      await modal.getByRole("button", { name: "Notify me" }).click();
+      expect((await answered).status()).toBe(200);
+      await expect(modal.locator('[data-test="drop-modal-success"]')).toContainText("You’re on the list.");
+
+      // Esc closes it.
+      await page.keyboard.press("Escape");
+      await expect(dialog).toBeHidden();
+    });
   });
 });

@@ -123,21 +123,19 @@
     <div class="grid items-center gap-12 md:grid-cols-2">
       <div class="text-center md:text-left">
         <span class="inline-block px-3 py-1 rounded-full border border-white/25 bg-white/10 text-white text-xs font-bold uppercase tracking-widest">NFL 2026</span>
-        <h1 class="mt-5 text-4xl md:text-6xl font-extrabold leading-tight text-white">
-          Pick 6 teams. Stack points. Get paid.
+        <%# ONE SENTENCE PER LINE at every width: three block spans, each kept
+            whole (whitespace-nowrap), at a size whose longest line, "Stack
+            points.", still fits the hero at 375px. %>
+        <h1 class="mt-5 text-[2rem] sm:text-5xl md:text-6xl font-extrabold leading-tight text-white">
+          <span class="block whitespace-nowrap">Pick 6 teams.</span>
+          <span class="block whitespace-nowrap">Stack points.</span>
+          <span class="block whitespace-nowrap">Get paid.</span>
         </h1>
         <p class="mt-5 text-lg text-white/80 max-w-xl mx-auto md:mx-0">
           Choose 6 NFL teams. Every point they score over three weeks counts, multiplied by that team&rsquo;s Turf Score &mdash; and underdogs carry the bigger multiplier, so a good longshot beats an obvious favorite.
         </p>
-        <div class="mt-8 flex flex-col sm:flex-row items-center gap-3 justify-center md:justify-start">
-          <% if dropped %>
-            <%= link_to "Play the #{NextSlateDrop::LABEL} slate", root_path,
-                  class: "btn btn-primary btn-lg shadow-lg shadow-primary/30 text-lg" %>
-          <% else %>
-            <a href="#notify" class="btn btn-primary btn-lg shadow-lg shadow-primary/30 text-lg">Get notified for <%= NextSlateDrop::LABEL %></a>
-          <% end %>
-          <%= link_to "Start playing", root_path,
-                class: "inline-flex items-center justify-center rounded-xl border border-white/30 px-6 py-3 text-base font-semibold text-white hover:bg-white/10 transition" %>
+        <div class="mt-8 flex justify-center md:justify-start">
+          <%= render "pages/next_contest_cta", pick: @next_contest, test_id: "v2-hero-cta" %>
         </div>
       </div>
 
@@ -167,78 +165,10 @@
         The board for NFL <%= NextSlateDrop::LABEL %> goes live <%= NextSlateDrop.drops_at.strftime("%A, %B %-d") %> at <%= NextSlateDrop.drops_at.strftime("%-l:%M %p") %> Mountain.
       </p>
 
-      <%# FOUR TILES ON ONE ROW, down to 375px: tighter padding and type below
-          sm, tabular-nums so the digits do not jitter as they tick. The region
-          is a timer with aria-live off, and the seconds tile is aria-hidden on
-          top of that, so a screen reader is never fed a per-second update. The
-          no-JS frame is minute-precise; seconds start at 00 until Alpine runs. %>
-      <div class="grid grid-cols-4 gap-2 sm:gap-3 max-w-md mx-auto mb-10" data-test="v2-countdown" role="timer" aria-live="off">
-        <div class="card px-1 py-3 sm:p-4">
-          <p class="font-mono tabular-nums text-2xl sm:text-3xl md:text-4xl font-bold text-heading" x-text="days"><%= remaining[:days] %></p>
-          <p class="label-upper mt-1 text-[10px] sm:text-xs">Days</p>
-        </div>
-        <div class="card px-1 py-3 sm:p-4">
-          <p class="font-mono tabular-nums text-2xl sm:text-3xl md:text-4xl font-bold text-heading" x-text="hours"><%= format("%02d", remaining[:hours]) %></p>
-          <p class="label-upper mt-1 text-[10px] sm:text-xs">Hours</p>
-        </div>
-        <div class="card px-1 py-3 sm:p-4">
-          <p class="font-mono tabular-nums text-2xl sm:text-3xl md:text-4xl font-bold text-heading" x-text="minutes"><%= format("%02d", remaining[:minutes]) %></p>
-          <p class="label-upper mt-1 text-[10px] sm:text-xs">Minutes</p>
-        </div>
-        <div class="card px-1 py-3 sm:p-4" aria-hidden="true" data-test="v2-countdown-seconds">
-          <p class="font-mono tabular-nums text-2xl sm:text-3xl md:text-4xl font-bold text-heading" x-text="seconds">00</p>
-          <p class="label-upper mt-1 text-[10px] sm:text-xs">Seconds</p>
-        </div>
-      </div>
+      <%= render "pages/drop_countdown_tiles", remaining: remaining %>
 
-      <%# THE FORM. A plain POST without JS (the controller redirects back with a
-          flash this page reads into @drop_signup_status); the Alpine submit
-          takes it over with JS. Success shows only after a 2xx. %>
-      <% initial = { "ok" => "done", "invalid" => "error" }[@drop_signup_status] || "idle" %>
-      <div class="relative card p-6 md:p-8 max-w-xl mx-auto text-left"
-           x-data="dropNotifyForm('<%= initial %>')" data-test="v2-notify-form">
-        <div x-show="state === 'done'" <%= 'style="display: none;"'.html_safe unless initial == "done" %>
-             role="status" data-test="v2-notify-success">
-          <p class="text-xl font-bold text-heading">You&rsquo;re on the list.</p>
-          <p class="text-secondary text-sm mt-1">We&rsquo;ll send one email when the <%= NextSlateDrop::LABEL %> slate drops.</p>
-        </div>
-
-        <%= form_with url: drop_signups_path, method: :post, local: true,
-              data: { turbo: false },
-              html: { "x-show": "state !== 'done'", "@submit.prevent": "submit($event)", novalidate: true,
-                      style: (initial == "done" ? "display: none;" : nil) } do %>
-          <label for="drop_signup_email" class="block text-sm font-semibold text-heading mb-2">Notify me when <%= NextSlateDrop::LABEL %> drops</label>
-          <div class="flex flex-col sm:flex-row gap-3">
-            <input type="email" id="drop_signup_email" name="email" required autocomplete="email"
-                   placeholder="you@example.com"
-                   class="input flex-1 min-w-0"
-                   aria-describedby="drop_signup_help">
-            <button type="submit" class="btn btn-primary whitespace-nowrap"
-                    :disabled="state === 'submitting'"
-                    x-text="state === 'submitting' ? 'Sending…' : 'Notify me'">Notify me</button>
-          </div>
-          <%# The honeypot. Off-screen rather than display:none (some bots skip
-              hidden fields), out of the tab order, and hidden from assistive
-              tech. A human never fills it; the controller drops any post that
-              does, quietly, with the same 200 a real signup gets. %>
-          <div class="absolute -left-[9999px] h-px w-px overflow-hidden" aria-hidden="true">
-            <label for="drop_signup_website">Website</label>
-            <input type="text" id="drop_signup_website" name="website" tabindex="-1" autocomplete="off">
-          </div>
-          <% if params[:reference].present? %>
-            <input type="hidden" name="reference" value="<%= params[:reference].to_s.first(DropSignup::SOURCE_LIMIT) %>">
-          <% end %>
-          <%# The live region is mounted empty and hidden, and Alpine writes the
-              failure into it (error_live_regions_test holds every error line in
-              the app to that shape). The no-JS round trip has no Alpine to
-              write it, so its copy rides in a noscript beside it. %>
-          <p class="text-sm text-danger-ink mt-2" x-show="error" x-cloak x-text="error" role="alert" aria-live="assertive" aria-atomic="true"></p>
-          <% if initial == "error" %>
-            <noscript><p class="text-sm text-danger-ink mt-2">Enter a valid email address.</p></noscript>
-          <% end %>
-          <p id="drop_signup_help" class="text-muted text-xs mt-3">One email when the slate drops. No spam.</p>
-        <% end %>
-      </div>
+      <%= render "pages/drop_notify_form", initial: { "ok" => "done", "invalid" => "error" }[@drop_signup_status] || "idle",
+                 id_prefix: "drop_signup" %>
     </div>
 
     <div x-show="dropped" <%= 'style="display: none;"'.html_safe unless dropped %> data-test="v2-live">
@@ -329,12 +259,9 @@
 
   <!-- ========== 4. CLOSING CTA ========== -->
   <section class="text-center pb-8" data-test="v2-closing">
-    <p class="text-2xl md:text-3xl font-bold text-heading mb-6">Ready for <%= NextSlateDrop::LABEL %>?</p>
-    <div class="flex flex-col sm:flex-row items-center justify-center gap-3">
-      <% unless dropped %>
-        <a href="#notify" class="btn btn-primary btn-lg shadow-lg shadow-primary/20 text-lg">Get notified for <%= NextSlateDrop::LABEL %></a>
-      <% end %>
-      <%= link_to "Start playing", root_path, class: "btn btn-outline btn-lg text-lg" %>
+    <p class="text-2xl md:text-3xl font-bold text-heading mb-6"><%= @next_contest.link? ? "Ready to play?" : "Ready for #{NextSlateDrop::LABEL}?" %></p>
+    <div class="flex justify-center">
+      <%= render "pages/next_contest_cta", pick: @next_contest, test_id: "v2-closing-cta" %>
     </div>
     <p class="text-muted text-sm mt-6">
       Never used a crypto wallet? Start with the

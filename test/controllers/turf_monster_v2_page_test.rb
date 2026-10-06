@@ -26,7 +26,7 @@ class TurfMonsterV2PageTest < ActionDispatch::IntegrationTest
     %w[Pick\ a\ contest Choose\ 6\ teams Climb\ the\ leaderboard\ and\ get\ paid].each do |step|
       assert_includes section_text("v2-how-to-play"), step
     end
-    assert_includes section_text("v2-closing"), "Start playing"
+    assert page_node.css('[data-test="v2-closing-cta"]').one?, "the closing band repeats the one CTA"
   end
 
   test "renders every section signed out" do
@@ -74,6 +74,7 @@ class TurfMonsterV2PageTest < ActionDispatch::IntegrationTest
       assert_includes live.text, "The Weeks 7-9 slate is live"
       assert live.css(%(a[href="#{root_path}"])).any?
       refute_includes section_text("v2-hero"), "Get notified", "the hero stops promising a notification once the slate is out"
+      assert_includes section_text("v2-hero"), "See the Weeks 7-9 slate"
     end
   end
 
@@ -91,7 +92,39 @@ class TurfMonsterV2PageTest < ActionDispatch::IntegrationTest
       assert p.css(%(a[href="#{getting_started_path}"])).any?, "USDC copy must link to Getting Started: #{p.text.squish}"
     end
     assert page_node.css(%(a[href="#{turf_monster_v1_path}"])).any?
-    assert page_node.css(%(a[href="#notify"])).any?, "the hero CTA scrolls to the notify section"
+  end
+
+  # THE ONE CTA, both ways. NextContest decides; the view only draws it.
+  test "with no contest open to enter, the one hero CTA opens the notify modal" do
+    Contest.update_all(coming_soon: true)
+    get turf_monster_v2_path
+    hero = page_node.css('[data-test="v2-hero"]').first
+    ctas = hero.css("a, button")
+    assert_equal 1, ctas.size, "one button in the hero"
+    cta = ctas.first
+    assert_equal "v2-hero-cta", cta["data-test"]
+    assert_equal "#notify", cta["href"], "no-JS falls back to the notify section"
+    assert_includes cta["@click.prevent"], "$store.modals.open('drop-notify'"
+    assert_includes response.body, %(id === 'drop-notify'), "the modal is registered with the host"
+  end
+
+  test "with a contest open to enter, the CTA links straight to it by name" do
+    slate = Slate.create!(name: "NFL 2026 Weeks 7-9", slug: "nfl-2026-weeks-7-9-cta", sport: "nfl", starts_at: 5.days.from_now)
+    contest = Contest.create!(name: "NFL 2026 Weeks 7-9", slug: "nfl-2026-weeks-7-9-cta", status: "open",
+                              entry_fee_cents: 1900, max_entries: 29, contest_type: "standard",
+                              slate: slate, starts_at: 5.days.from_now)
+    get turf_monster_v2_path
+    %w[v2-hero-cta v2-closing-cta].each do |id|
+      cta = page_node.css(%([data-test="#{id}"])).first
+      assert_equal contest_path(contest), cta["href"]
+      assert_equal "Play NFL 2026 Weeks 7-9", cta.text.strip
+    end
+  end
+
+  test "the headline is one sentence per line" do
+    get turf_monster_v2_path
+    lines = page_node.css('[data-test="v2-hero"] h1 span.block').map { |n| n.text.strip }
+    assert_equal ["Pick 6 teams.", "Stack points.", "Get paid."], lines
   end
 
   test "phones are decorative, with a caption beside each" do

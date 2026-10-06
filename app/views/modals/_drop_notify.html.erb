@@ -1,0 +1,33 @@
+<%# The slate-drop notify-me card: the live countdown to NextSlateDrop and the
+    notify-me form, for a visitor with no contest to enter yet. Opened by
+    /turf-monster-v2's call to action (pages/_next_contest_cta) with
+      $store.modals.open('drop-notify', { title: '...' })
+    and registered in modals/_host_extras, the app-wide registration list. The
+    engine host owns the dialog: role="dialog", aria-modal, its name from
+    props.title, Esc and click-outside close, Tab cycles inside the card.
+
+    ITS ALPINE FACTORIES LIVE ON /turf-monster-v2 (dropCountdown,
+    dropNotifyForm), the only page that opens this card. Open it from another
+    page and move the factories with it.
+
+    Single root, single quotes only inside x-data: the two rules the host
+    imposes on every registered card. %>
+<% remaining = NextSlateDrop.remaining %>
+<div data-test="drop-modal"
+     x-data="dropCountdown('<%= NextSlateDrop.drops_at.utc.iso8601 %>', <%= remaining[:days] %>, <%= remaining[:hours] %>, <%= remaining[:minutes] %>, <%= NextSlateDrop.dropped? %>)">
+  <%= render "studio/modals/blocks/card_header", size: :md, icon_emoji: "🏈", title: "#{NextSlateDrop::LABEL} drops Tuesday morning" do %>
+    The board goes live <%= NextSlateDrop.drops_at.strftime("%A, %B %-d") %> at <%= NextSlateDrop.drops_at.strftime("%-l:%M %p") %> Mountain. Get one email when it does.
+  <% end %>
+  <div class="px-5 pb-5 space-y-5">
+    <div x-show="!dropped">
+      <%= render "pages/drop_countdown_tiles", remaining: remaining %>
+    </div>
+    <div x-show="!dropped">
+      <%= render "pages/drop_notify_form", id_prefix: "drop_modal", test_id: "drop-modal", card: false %>
+    </div>
+    <div x-show="dropped" x-cloak class="text-center">
+      <p class="text-heading font-semibold mb-3">The <%= NextSlateDrop::LABEL %> slate is live.</p>
+      <%= link_to "Play now", root_path, class: "btn btn-primary w-full" %>
+    </div>
+  </div>
+</div>
