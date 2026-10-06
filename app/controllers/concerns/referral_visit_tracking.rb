@@ -40,7 +40,6 @@ module ReferralVisitTracking
 
   included do
     prepend_before_action :track_referral_visit
-    helper_method :attribution_param if respond_to?(:helper_method)
   end
 
   private
