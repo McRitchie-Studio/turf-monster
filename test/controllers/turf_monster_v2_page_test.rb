@@ -155,6 +155,17 @@ class TurfMonsterV2PageTest < ActionDispatch::IntegrationTest
     assert_includes page_node.css('[data-test="v2-hero-figure"] figcaption').text, "a laptop shows the live contests lobby"
   end
 
+  # The hold button's fizz that escapes the phone: a real fizz layer outside
+  # the frame, decorative only.
+  test "the escaping fizz is a real fizz layer, aria-hidden, outside the phone frame" do
+    get turf_monster_v2_path
+    escape = page_node.at_css('[data-test="v2-fizz-escape"]')
+    assert escape
+    assert_equal "true", escape["aria-hidden"]
+    assert escape.at_css(".hold-fizz .fizz-bit")
+    assert escape.ancestors('[data-test="phone-mock"]').empty?, "outside the screen's clip"
+  end
+
   test "phones are decorative, with a caption beside each" do
     get turf_monster_v2_path
     phones = page_node.css('[data-test="phone-mock"]')

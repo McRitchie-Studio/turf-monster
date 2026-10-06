@@ -27,7 +27,7 @@
   <div class="grid grid-cols-2 gap-2">
     <% TurfMonsterRules::SHOWCASE.each do |example| %>
       <%= render "pages/rules_team_card", example: example, teams: teams, compact: true, board_style: true,
-                 hovered: example.team_slug == hover_slug %>
+                 hovered: example.team_slug == hover_slug && teams[example.team_slug].present? %>
     <% end %>
   </div>
   <%# THE BOARD'S OWN HOLD BUTTON, idle: the engine's hold-stack, its two fizz
@@ -35,12 +35,9 @@
       styled by engine-motion.css, where the fizz is pure CSS: it simmers at
       rest and stops under prefers-reduced-motion. The fizz palette is the
       board's own (its fizzPalette): each pick's light, dark and alt in slots
-      3i+1..3i+3, from team_card_palette. No handlers and no hold script:
+      3i+1..3i+3 (TeamColorsHelper#fizz_palette_style). No handlers and no hold script:
       the phone is inert, so this only shows the button at rest. %>
-  <% fizz_vars = TurfMonsterRules::SHOWCASE.each_with_index.flat_map do |example, i|
-       pal = team_card_palette(teams[example.team_slug])
-       [[i * 3 + 1, pal[:fizz_light]], [i * 3 + 2, pal[:fizz_dark]], [i * 3 + 3, pal[:fizz_alt]]]
-     end.map { |slot, color| "--fizz-c-#{slot}:#{color}" }.join(";") %>
+  <% fizz_vars = fizz_palette_style(TurfMonsterRules::SHOWCASE.map { |example| teams[example.team_slug] }) %>
   <div class="mt-4" data-test="phone-hold-button">
     <span class="hold-stack fizz-lively" style="<%= fizz_vars %>">
       <%= render "studio/fizz_layer", seed: "phone" %>

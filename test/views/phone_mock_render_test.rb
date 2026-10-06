@@ -125,23 +125,24 @@ class PhoneMockRenderTest < ActionView::TestCase
     %w[Ravens Lions Bills Texans Falcons Cardinals].each { |old| refute_includes html, old }
   end
 
-  # ONE CARD WEARS THE BOARD'S LIT STATE: the board's own holo shell and its
-  # .is-selected look, on the card the page picked.
-  test "exactly one card carries the board's hover glow, the one picked" do
-    slug = TurfMonsterRules::SHOWCASE[3].team_slug
-    doc = Nokogiri::HTML.fragment(render_phone("phone_pick_board", teams, hover_slug: slug))
+  # ONE CARD WEARS THE BOARD'S LIT STATE, and it is the Seahawks: the board's
+  # own holo shell and its .is-selected look, on the card Alex picked. With no
+  # Seahawks Team row the card draws unlit rather than lit and nameless.
+  test "exactly one card, the Seahawks, carries the board's hover glow" do
+    Team.create!(name: "Seattle Seahawks", slug: "seattle-seahawks", mascot: "Seahawks", location: "Seattle",
+                 short_name: "SEA", sport: "football", league: "nfl", color_dark: "#002244", color_light: "#69BE28")
+    doc = Nokogiri::HTML.fragment(render_phone("phone_pick_board", teams, hover_slug: TurfMonsterRules::SHOWCASE_HOVER_SLUG))
     lit = doc.css('[data-test="phone-card-hover"]')
     assert_equal 1, lit.size
+    assert_includes lit.first.text, "Seahawks"
     assert lit.first.at_css(".holo-card.is-selected"), "the board's lit class"
     assert_equal 6, doc.css(".holo-wrap").size, "every card wears the board's holo shell"
     assert_equal 1, doc.css(".holo-card.is-selected").size
   end
 
-  test "the hover pick is random per render but seedable" do
-    a = TurfMonsterRules.showcase_hover_slug(random: Random.new(7))
-    b = TurfMonsterRules.showcase_hover_slug(random: Random.new(7))
-    assert_equal a, b
-    assert_includes TurfMonsterRules::SHOWCASE.map(&:team_slug), a
+  test "with no Seahawks Team row, no card is lit" do
+    doc = Nokogiri::HTML.fragment(render_phone("phone_pick_board", teams, hover_slug: "seattle-seahawks"))
+    assert_empty doc.css('[data-test="phone-card-hover"]')
   end
 
   # THE BOARD'S HOLD BUTTON, idle: the engine's hold-stack with the real fizz

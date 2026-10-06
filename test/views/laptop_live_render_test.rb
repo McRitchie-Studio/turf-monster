@@ -112,6 +112,28 @@ class LaptopLiveRenderTest < ActionDispatch::IntegrationTest
     assert_includes track["style"], "translateX(-#{expected}px)"
   end
 
+  # THE LINK UNDER THE LAPTOP: real, focusable, outside the inert laptop, to
+  # the snapshot contest's live page. Live: "Watch updates live". Finished:
+  # "See the latest results". Neither: no link.
+  test "the link under the laptop follows the snapshot contest" do
+    live_contest = nfl_contest("weeks-4-6-link", starts_at: 2.days.ago)
+    get turf_monster_v2_path
+    link = css_select('[data-test="v2-watch-live"]').first
+    assert_equal live_contest_path(live_contest), link["href"]
+    assert_includes link.text, "Watch updates live"
+    assert link.ancestors('[aria-hidden="true"], [inert]').empty?, "focusable: not inside the decorative laptop"
+
+    live_contest.update_columns(status: "settled")
+    get turf_monster_v2_path
+    link = css_select('[data-test="v2-watch-live"]').first
+    assert_includes link.text, "See the latest results"
+    refute_includes link.text, "Watch updates live"
+
+    Contest.delete_all
+    get turf_monster_v2_path
+    assert_empty css_select('[data-test="v2-watch-live"]')
+  end
+
   test "with nothing live, the most recently finished NFL contest shows" do
     nfl_contest("older-final", starts_at: 30.days.ago, status: "settled")
     nfl_contest("newer-final", starts_at: 10.days.ago, status: "settled")

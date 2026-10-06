@@ -2138,6 +2138,40 @@ html.dark { --rx-fill: 0 0 0; }
   animation: fizz-boil calc(var(--ft, 1.8s) * 0.62) linear calc(var(--fd, 0s) * 0.35) infinite;
 }
 
+/* /turf-monster-v2 hero phone: the hold button's fizz BREAKING OUT of the
+   phone. A second, real fizz layer (studio/_fizz_layer) is laid over the
+   button as a sibling of the phone frame, so the screen's rounded clip cannot
+   hold it. The box sits over the button; its bubbles are scattered past the
+   bezel (the inset, as .tt-contest-stack does for the rail) and travel 2.2x
+   the boil's distance, fading out on the way, so they read as carbonation
+   escaping the phone rather than art. Reduced motion: not drawn at all. */
+.hold-stack.v2-fizz-escape {
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  bottom: 26px; /* over the hold button: 18rem frame, 27.75rem screen */
+  height: 34px;
+  z-index: 20;
+  pointer-events: none;
+}
+/* Wide on the right and above (toward the laptop's base and the bezel), flush
+   on the left, which faces the hero copy, so no bubble drifts over the text. */
+.hold-stack.v2-fizz-escape > .hold-fizz {
+  inset: -26px -34px -26px 0;
+}
+.hold-stack.v2-fizz-escape .fizz-bit {
+  animation: v2-fizz-escape calc(var(--ft, 1.8s) * 0.9) linear var(--fd, 0s) infinite;
+}
+@keyframes v2-fizz-escape {
+  0% { opacity: 0; transform: translate3d(0, 0, 0) scale(0.4); }
+  20% { opacity: 0.9; }
+  70% { opacity: 0.45; }
+  100% { opacity: 0; transform: translate3d(calc(var(--fx, 0px) * 2.2), calc(var(--fy, 0px) * 2.2), 0) scale(1.1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hold-stack.v2-fizz-escape { display: none; }
+}
+
 /* ── Small white text on bg-primary: no override needed ──────────────────────
    This file used to end with a compound override that repainted
    bg-primary + text-white + text-xs/text-sm fills in #1b5e20, because the old
