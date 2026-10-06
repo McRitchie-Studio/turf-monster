@@ -33,25 +33,33 @@
   // modules run AFTER Alpine walks x-data, so a factory defined there is not
   // there yet on a fresh load.
 
-  // The countdown. The server renders the first frame (days/hours/minutes and
-  // which state is showing), so the page reads right with JS off; this only
-  // keeps it moving and flips it to "live" at the instant.
+  // The countdown. The server renders the first frame (days/hours/minutes
+  // and which state is showing), so the page reads right with JS off; this
+  // ticks it every second, stops the interval at zero, and flips the section
+  // to "live" at the instant. Hours, minutes and seconds are zero-padded
+  // strings, so the tiles keep their width as the digits change.
   window.dropCountdown = function (iso, days, hours, minutes, dropped) {
+    var pad = function (n) { return (n < 10 ? '0' : '') + n; };
     return {
       target: Date.parse(iso),
-      days: days, hours: hours, minutes: minutes, dropped: dropped,
+      days: days, hours: pad(hours), minutes: pad(minutes), seconds: '00', dropped: dropped,
       timer: null,
       init: function () {
         this.tick();
-        this.timer = setInterval(this.tick.bind(this), 10000);
+        if (!this.dropped) this.timer = setInterval(this.tick.bind(this), 1000);
       },
       destroy: function () { clearInterval(this.timer); },
       tick: function () {
         var s = Math.max(0, Math.floor((this.target - Date.now()) / 1000));
-        this.dropped = s <= 0;
         this.days = Math.floor(s / 86400);
-        this.hours = Math.floor((s % 86400) / 3600);
-        this.minutes = Math.floor((s % 3600) / 60);
+        this.hours = pad(Math.floor((s % 86400) / 3600));
+        this.minutes = pad(Math.floor((s % 3600) / 60));
+        this.seconds = pad(s % 60);
+        if (s <= 0) {
+          clearInterval(this.timer);
+          this.timer = null;
+          this.dropped = true;
+        }
       }
     };
   };
@@ -159,18 +167,27 @@
         The board for NFL <%= NextSlateDrop::LABEL %> goes live <%= NextSlateDrop.drops_at.strftime("%A, %B %-d") %> at <%= NextSlateDrop.drops_at.strftime("%-l:%M %p") %> Mountain.
       </p>
 
-      <div class="grid grid-cols-3 gap-3 max-w-sm mx-auto mb-10" data-test="v2-countdown" role="timer" aria-live="off">
-        <div class="card p-4">
-          <p class="font-mono text-3xl md:text-4xl font-bold text-heading" x-text="days"><%= remaining[:days] %></p>
-          <p class="label-upper mt-1">Days</p>
+      <%# FOUR TILES ON ONE ROW, down to 375px: tighter padding and type below
+          sm, tabular-nums so the digits do not jitter as they tick. The region
+          is a timer with aria-live off, and the seconds tile is aria-hidden on
+          top of that, so a screen reader is never fed a per-second update. The
+          no-JS frame is minute-precise; seconds start at 00 until Alpine runs. %>
+      <div class="grid grid-cols-4 gap-2 sm:gap-3 max-w-md mx-auto mb-10" data-test="v2-countdown" role="timer" aria-live="off">
+        <div class="card px-1 py-3 sm:p-4">
+          <p class="font-mono tabular-nums text-2xl sm:text-3xl md:text-4xl font-bold text-heading" x-text="days"><%= remaining[:days] %></p>
+          <p class="label-upper mt-1 text-[10px] sm:text-xs">Days</p>
         </div>
-        <div class="card p-4">
-          <p class="font-mono text-3xl md:text-4xl font-bold text-heading" x-text="hours"><%= remaining[:hours] %></p>
-          <p class="label-upper mt-1">Hours</p>
+        <div class="card px-1 py-3 sm:p-4">
+          <p class="font-mono tabular-nums text-2xl sm:text-3xl md:text-4xl font-bold text-heading" x-text="hours"><%= format("%02d", remaining[:hours]) %></p>
+          <p class="label-upper mt-1 text-[10px] sm:text-xs">Hours</p>
         </div>
-        <div class="card p-4">
-          <p class="font-mono text-3xl md:text-4xl font-bold text-heading" x-text="minutes"><%= remaining[:minutes] %></p>
-          <p class="label-upper mt-1">Minutes</p>
+        <div class="card px-1 py-3 sm:p-4">
+          <p class="font-mono tabular-nums text-2xl sm:text-3xl md:text-4xl font-bold text-heading" x-text="minutes"><%= format("%02d", remaining[:minutes]) %></p>
+          <p class="label-upper mt-1 text-[10px] sm:text-xs">Minutes</p>
+        </div>
+        <div class="card px-1 py-3 sm:p-4" aria-hidden="true" data-test="v2-countdown-seconds">
+          <p class="font-mono tabular-nums text-2xl sm:text-3xl md:text-4xl font-bold text-heading" x-text="seconds">00</p>
+          <p class="label-upper mt-1 text-[10px] sm:text-xs">Seconds</p>
         </div>
       </div>
 

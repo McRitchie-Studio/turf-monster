@@ -50,8 +50,15 @@ test.describe("turf-monster-v2 explainer", () => {
     await expect(page.locator('[data-test="phone-mock"]')).toHaveCount(2);
 
     // The countdown is live: Alpine owns the numbers, and they are numbers.
-    const days = page.locator('[data-test="v2-countdown"]').locator("[x-text=days]");
-    await expect(days).toHaveText(/^\d+$/);
+    const countdown = page.locator('[data-test="v2-countdown"]');
+    await expect(countdown.locator("[x-text=days]")).toHaveText(/^\d+$/);
+    for (const unit of ["hours", "minutes", "seconds"]) {
+      await expect(countdown.locator(`[x-text=${unit}]`)).toHaveText(/^\d{2}$/);
+    }
+    // It visibly moves: the seconds tile changes within two seconds.
+    const seconds = countdown.locator("[x-text=seconds]");
+    const before = await seconds.textContent();
+    await expect(seconds).not.toHaveText(before, { timeout: 2500 });
 
     // The hero CTA scrolls to the form.
     await page.locator('[data-test="v2-hero"]').getByRole("link", { name: "Get notified for Weeks 7-9" }).click();

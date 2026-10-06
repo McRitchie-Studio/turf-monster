@@ -54,7 +54,12 @@ class TurfMonsterV2PageTest < ActionDispatch::IntegrationTest
     travel_to(NextSlateDrop::DROPS_AT - (2.days + 5.hours + 7.minutes)) do
       get turf_monster_v2_path
       countdown = page_node.css('[data-test="v2-countdown"]').first
-      assert_equal %w[2 5 7], countdown.css("[x-text]").map { |n| n.text.strip }
+      # Four tiles; the no-JS frame is minute-precise, zero-padded, and its
+      # seconds wait at 00 for Alpine.
+      assert_equal %w[2 05 07 00], countdown.css("[x-text]").map { |n| n.text.strip }
+      assert_equal %w[days hours minutes seconds], countdown.css("[x-text]").map { |n| n["x-text"] }
+      assert_equal "off", countdown["aria-live"], "the countdown must not announce every tick"
+      assert_equal "true", countdown.css('[data-test="v2-countdown-seconds"]').first["aria-hidden"]
       live = page_node.css('[data-test="v2-live"]').first
       assert_match(/display:\s*none/, live["style"].to_s, "the live state starts hidden before the drop")
       assert_includes page_node.to_html, NextSlateDrop.drops_at.utc.iso8601, "Alpine counts down to the same instant"
