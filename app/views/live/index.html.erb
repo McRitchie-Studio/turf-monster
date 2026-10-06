@@ -217,14 +217,11 @@
     // machine already knows. The <time> element's datetime attribute is the
     // source of truth, so this is idempotent — running it twice on the same node
     // reformats from the attribute, never from its own previous output.
-    var KICKOFF_FORMATS = {
-      kickoff:     { weekday: 'short', hour: 'numeric', minute: '2-digit' },
-      'played-on': { weekday: 'short', month: 'short', day: 'numeric' }
-    };
+    var KICKOFF_FORMATS = <%= render "live/kickoff_formats" %>;
     function formatKickoffs(root) {
       var scope = root || document;
       Array.prototype.forEach.call(
-        scope.querySelectorAll('time[data-role="kickoff"], time[data-role="played-on"]'),
+        scope.querySelectorAll('time[data-role="kickoff"], time[data-role="kickoff-date"], time[data-role="played-on"]'),
         function (el) {
           var iso = el.getAttribute('datetime');
           if (!iso) return;

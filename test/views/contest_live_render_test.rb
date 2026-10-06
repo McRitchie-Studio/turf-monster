@@ -337,6 +337,24 @@ class ContestLiveRenderTest < ActionDispatch::IntegrationTest
     assert_equal "Kickoff", latest.css("[data-test='live-plays-result']").first.text.strip
   end
 
+  test "the touchdown is shown first, and a finished game never waits for a kickoff" do
+    @upcoming.update_columns(status: "in_progress", period: 4, clock: "0:03", slug: @upcoming.name_slug)
+    slate_matchups(:m3).update!(game_slug: @upcoming.slug)
+    GamePlay.create!(game_slug: @upcoming.slug, external_id: "EV811", sequence: 811, kind: "score", yards: 12,
+                     play_type: "Rushing Touchdown", team_slug: @upcoming.home_team_slug,
+                     text: "R.Runner left tackle for 12 yards, TOUCHDOWN.")
+    get_live
+    latest = css_select("#game_#{@upcoming.slug}_plays [data-test='live-plays-latest']").first
+    assert_equal "Touchdown", latest.css("[data-test='live-plays-result']").first.text.strip
+
+    GamePlay.create!(game_slug: @upcoming.slug, external_id: "EV812", sequence: 812, kind: "break",
+                     play_type: "Official Timeout", text: "Official Timeout at 00:03.")
+    @upcoming.update_columns(status: "completed", status_detail: "Final")
+    get_live
+    latest = css_select("#game_#{@upcoming.slug}_plays [data-test='live-plays-latest']").first
+    assert_not_equal "pending-kickoff", latest["data-play-kind"]
+  end
+
   test "a play that names nobody shows its team in the avatar slot" do
     start_game_with_plays
     get_live
