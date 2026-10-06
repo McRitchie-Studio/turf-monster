@@ -87,7 +87,9 @@ Rails.application.configure do
   # cross-process, so they work correctly. (MagicLink single-use no longer rides
   # Rails.cache — it's a DB `consumed_at` column now; see app/models/magic_link.rb.)
   # Shares the Sidekiq Redis (REDIS_URL), namespaced to avoid key collisions; the
-  # error_handler degrades gracefully (a Redis blip logs instead of 500ing).
+  # error_handler degrades gracefully (a Redis blip logs instead of 500ing) and
+  # CacheErrorReporter pages through Sentry once a minute per process, since an
+  # outage also turns off the rack-attack throttles and stops Sidekiq.
   cache_redis_url = ENV.fetch("REDIS_URL", "redis://localhost:6379/0")
   cache_store_options = {
     url: cache_redis_url,
@@ -95,14 +97,15 @@ Rails.application.configure do
     expires_in: 90.minutes,
     reconnect_attempts: 1,
     error_handler: ->(method:, returning:, exception:) {
-      Rails.logger.error("[cache] #{method} failed: #{exception.class}: #{exception.message}")
+      CacheErrorReporter.call(method: method, returning: returning, exception: exception)
     }
   }
   # Heroku Redis serves rediss:// (TLS) with a self-signed cert; redis-client
   # verifies peer certs by default and would REJECT it. Because the error_handler
-  # above swallows the connection error, that failure would be SILENT — every
-  # Rails.cache op returns nil/false, which no-ops every rack-attack throttle
-  # (counters never increment, so the limits are off). Mirror config/initializers/sidekiq.rb:
+  # above swallows the connection error, that failure would surface only as a log
+  # line and a sampled Sentry event — every Rails.cache op returns nil/false,
+  # which no-ops every rack-attack throttle (counters never increment, so the
+  # limits are off). Mirror config/initializers/sidekiq.rb:
   # keep the connection encrypted, skip chain verification (Heroku's documented
   # guidance for their Redis add-on).
   if cache_redis_url.start_with?("rediss://")

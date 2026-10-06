@@ -95,7 +95,10 @@ Key facts that constrain the design:
   not an accident: a closed rule would lock every user out of sign-in, checkout
   and cash-out for the outage. The reasons per rule are the "Cache outage" note
   at the top of `rack_attack.rb`; the proof runs against a store that fails as
-  production's does (`test/support/redis_cache_outage.rb`).
+  production's does (`test/support/redis_cache_outage.rb`). The outage pages:
+  the store's error_handler, `CacheErrorReporter`, logs every swallowed error
+  and reports the first in each minute, per process, through `Rails.error` to
+  Sentry (the forwarder is subscribed in `config/initializers/sentry.rb`).
 - **Cache key prefix is the literal `rack::attack:`** (double colon). The e2e
   reseed (`TestController#reseed` → `Rails.cache.delete_matched("rack::attack:*")`)
   and the manual dev clear both match that exact string. Any new counter that
