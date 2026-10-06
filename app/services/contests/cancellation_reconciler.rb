@@ -4,7 +4,7 @@
 # (Admin::PendingTransactionsController#confirm); a cancel signed anywhere else
 # (Squads, a CLI) leaves the row reading "not cancelled" forever. Mainnet
 # contest 34 (world-cup-week-1-turf-totals) is the case that found this: cancelled
-# on chain 2026-06-08, still `onchain_cancelled: false` in October.
+# on chain, yet still `onchain_cancelled: false` months later.
 #
 # DRY RUN BY DEFAULT. Nothing is written unless `write: true`
 # (`WRITE=1 bin/rails contests:reconcile_cancelled`). Idempotent: a contest that

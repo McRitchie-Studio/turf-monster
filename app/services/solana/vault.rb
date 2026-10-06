@@ -2690,27 +2690,6 @@ module Solana
       }
     end
 
-    # LIVE token balance of a contest's prize-pool PDA (base units), read-only.
-    # nil when the account does not exist (closed by close_contest, or never
-    # created). Raises on an RPC failure, so a caller can never mistake an
-    # unreadable pool for an empty one.
-    #
-    # This is NOT the Contest account's `prize_pool` field: that u64 records what
-    # create_contest funded and is never decremented, so a cancelled contest still
-    # reports it (mainnet contest 34 reads prize_pool 500_000_000 with an empty
-    # pool account). Only the SPL token account says whether the money left.
-    # SPL token account layout: mint [0,32), owner [32,64), amount u64 LE [64,72).
-    def read_prize_pool_balance(contest_slug, commitment: "confirmed")
-      pda, _ = prize_pool_pda(contest_slug)
-      info = client.get_account_info(Keypair.encode_base58(pda), commitment: commitment)
-      return nil unless info&.dig("value")
-
-      data = Base64.decode64(info["value"]["data"][0])
-      raise "prize pool account for #{contest_slug} is #{data.bytesize} bytes, not an SPL token account" if data.bytesize < 72
-
-      data.byteslice(64, 8).unpack1("Q<")
-    end
-
     # ── Entry tokens (turf-vault v0.9.0+) ───────────────────────────────────
     # On-chain EntryTokenAccount PDAs per token. Source enum: 0=operator, 1=stripe, 2=moonpay.
 
@@ -3819,6 +3798,27 @@ module Solana
       simulate_wire!(signed_wire_base64, label: "Pre-flight", refusal: PreflightRejected,
                                          unrunnable: PreflightUnavailable, require_verdict: true)
       true
+    end
+
+    # LIVE token balance of a contest's prize-pool PDA (base units), read-only.
+    # nil when the account does not exist (closed by close_contest, or never
+    # created). Raises on an RPC failure, so a caller can never mistake an
+    # unreadable pool for an empty one.
+    #
+    # This is NOT the Contest account's `prize_pool` field: that u64 records what
+    # create_contest funded and is never decremented, so a cancelled contest still
+    # reports it (mainnet contest 34 reads prize_pool 500_000_000 with an empty
+    # pool account). Only the SPL token account says whether the money left.
+    # SPL token account layout: mint [0,32), owner [32,64), amount u64 LE [64,72).
+    def read_prize_pool_balance(contest_slug, commitment: "confirmed")
+      pda, _ = prize_pool_pda(contest_slug)
+      info = client.get_account_info(Keypair.encode_base58(pda), commitment: commitment)
+      return nil unless info&.dig("value")
+
+      data = Base64.decode64(info["value"]["data"][0])
+      raise "prize pool account for #{contest_slug} is #{data.bytesize} bytes, not an SPL token account" if data.bytesize < 72
+
+      data.byteslice(64, 8).unpack1("Q<")
     end
 
     private
