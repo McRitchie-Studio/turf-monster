@@ -162,6 +162,8 @@ class LaptopLiveRenderTest < ActionDispatch::IntegrationTest
     enter(contest, viewer, 50.0) # even the viewer's own entry must not read as theirs
     Message.create!(contest: contest, user: users(:jordan), body: "secret chat body do not show")
     Message.create!(contest: contest, user: users(:jordan), system: true, body: "🎉 jordan_test joined the contest")
+    joined = Message.create!(contest: contest, user: nameless, system: true, body: "🎉 #{nameless.display_name} joined the contest")
+    Reaction.create!(message: joined, user: nameless, emoji: Reaction::ALLOWED.first)
 
     log_in_as(viewer)
     live = laptop.at_css('[data-test="laptop-live"]')
@@ -175,6 +177,7 @@ class LaptopLiveRenderTest < ActionDispatch::IntegrationTest
     assert_empty live.css(".chat-admin"), "no admin chat controls revealed"
     assert_includes live.at_css('[data-test="laptop-live-chat"]').text, "jordan_test joined the contest",
                     "system join lines do render"
+    assert_includes live.at_css('[data-test="laptop-live-chat"]').text, "A player joined the contest"
     assert_includes live.at_css('[data-test="laptop-live-leaderboard"]').text, "Player 1",
                     "a player with no username is Player N, never an email or wallet"
   end

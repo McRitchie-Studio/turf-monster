@@ -17,8 +17,9 @@
 #
 # NAMES. A player with no username would be labelled by User#display_name's
 # fallbacks, an email prefix or a truncated wallet. Those users are relabelled
-# "Player N" (N = their rank) on the in-memory records only, before rendering;
-# nothing is saved.
+# "Player N" (N = their rank) in the leaderboard and "A player" in the chat
+# (join lines and reaction titles), on the in-memory records only, before
+# rendering; nothing is saved.
 class LaptopLiveSnapshot
   GEO_STATE = "CO".freeze
   STRIPPED = "script, turbo-cable-stream-source".freeze
@@ -145,7 +146,15 @@ class LaptopLiveSnapshot
       user.username = "Player #{i + 1}"
     end
     @showcase.messages.each do |message|
-      message.user.username = "A player" if message.user && message.user.username.blank?
+      user = message.user
+      if user && user.username.blank?
+        was = user.display_name
+        user.username = "A player"
+        # The join line baked the old label into its text when it was posted.
+        message.body = message.body.to_s.sub(was, user.username)
+      end
+      # The reaction pills title themselves with each reactor's name.
+      message.reactions.each { |r| r.user.username = "A player" if r.user && r.user.username.blank? }
     end
   end
 end
