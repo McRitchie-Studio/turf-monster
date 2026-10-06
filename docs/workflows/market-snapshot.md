@@ -154,8 +154,8 @@ same.
 `Nfl::BuildSpanSlate#call` refuses to rebuild a slate backing live Selections
 (`app/services/nfl/build_span_slate.rb:46`). **The ingest service now has an equivalent
 guard (site 1, above); the seed path (site 2) does not.** Settlement multiplies by the
-stored `turf_score` — `Selection#compute_points!` reads the frozen column and never
-recomputes it (`app/models/selection.rb:35`, `:42`) — so a reseed via site 2 still
+stored `turf_score` — `Selection#compute_points!` writes what `Selection#computed_points`
+reads from the frozen column, never recomputing it (`app/models/selection.rb:44`, `:49`) — so a reseed via site 2 still
 re-prices any picks already locked on the slates it touches, and payouts settle on-chain.
 
 > ⚠️ `slate-build-split` (#263) closed **site 1**. Site 2 lives in the seed and still needs
