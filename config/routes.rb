@@ -739,7 +739,7 @@ Rails.application.routes.draw do
   # send it (manual only: nothing schedules it).
   namespace :admin do
     get  "drop_signups/announcement",         to: "drop_signups#announcement",        as: :drop_signups_announcement
-    post "drop_signups/announcement",         to: "drop_signups#send_announcement",   as: :send_drop_signups_announcement
+    post "drop_signups/announcement",         to: "drop_signups#send_announcement"
     get  "drop_signups/announcement/preview", to: "drop_signups#announcement_preview", as: :drop_signups_announcement_preview
     resources :drop_signups, only: [:index]
   end
