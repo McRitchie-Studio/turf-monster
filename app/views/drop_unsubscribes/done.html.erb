@@ -1,0 +1,8 @@
+<% content_for(:title, "Unsubscribed — Turf Monster") %>
+<div class="max-w-md mx-auto py-16 px-4 text-center" data-test="drop-unsubscribe-done">
+  <h1 class="text-heading text-2xl font-bold mb-3">You're unsubscribed</h1>
+  <p class="text-secondary mb-6">
+    We won't email <span class="font-mono"><%= @signup.email %></span> about <%= NextSlateDrop.display_label %> again.
+  </p>
+  <%= link_to "Back to Turf Monster", turf_monster_v2_path, class: "btn btn-outline" %>
+</div>

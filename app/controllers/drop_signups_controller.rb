@@ -21,6 +21,14 @@
 # and signed up later is still credited. Counting visits is not this
 # controller's job.
 #
+# THE CONFIRMATION EMAIL. Every accepted submit asks the row to queue its
+# confirmation (DropSignup#deliver_confirmation!), and the row's atomic claim on
+# confirmation_sent_at makes every ask after the first a no-op: a duplicate
+# submit, from this IP or any other, never mails the address twice. The
+# honeypot returns before any of this, so a caught bot mails nobody. The
+# response does not depend on whether a mail was queued, or on which variant it
+# will be (new player or existing account), so the page leaks neither.
+#
 # JSON for the Alpine form; a plain form post (no JS) redirects back to the
 # section with a flash the page reads to draw its success or error state.
 class DropSignupsController < ApplicationController
@@ -45,6 +53,7 @@ class DropSignupsController < ApplicationController
     end
 
     if signup.persisted?
+      queue_confirmation(signup)
       respond_ok
     else
       respond_invalid
@@ -52,6 +61,20 @@ class DropSignupsController < ApplicationController
   end
 
   private
+
+  # Never fatal: the visitor is on the list whether or not the confirmation
+  # queued, so a mail-side failure is filed in ErrorLog (rescue_and_log would
+  # re-raise into a 500) and the claim has already been released for a retry.
+  def queue_confirmation(signup)
+    signup.deliver_confirmation!
+  rescue StandardError => e
+    Rails.logger.error("[drop-signup] confirmation_failed signup=#{signup.id} #{e.class}: #{e.message}")
+    begin
+      ErrorLog.capture!(e)
+    rescue StandardError
+      nil
+    end
+  end
 
   def respond_ok
     respond_to do |format|

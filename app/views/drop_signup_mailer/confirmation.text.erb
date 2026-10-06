@@ -1,0 +1,17 @@
+You're on the list.
+
+We'll email <%= @signup.email %> once when <%= @label %> drops: <%= @drops_at_label %>.
+
+<% if @variant == :new_player -%>
+While you wait, finish setting up your Turf Monster account so you're ready to play the moment the slate opens. The link below signs you in with this address. It works once and expires in <%= Studio.magic_link_ttl.in_minutes.round %> minutes; after that it takes you to sign-in with your email filled in.
+<% else -%>
+Your Turf Monster account is all set. Brush up on how scoring works so you're ready when the slate opens.
+<% end -%>
+
+<%= @primary_label %>: <%= @primary_url %>
+
+<%= @secondary_label %>: <%= @secondary_url %>
+
+---
+You're getting this because <%= @signup.email %> asked to hear when <%= @label %> drops.
+Unsubscribe: <%= @unsubscribe_url %>
