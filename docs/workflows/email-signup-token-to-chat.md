@@ -108,7 +108,7 @@
 
 12. **Send a chat message** — the composer in the chat panel POSTs to `contest_messages_path(contest)` (`app/views/contests/_chat_panel.html.erb:38`) from `send()` (`:220-264`) → `MessagesController#create` (`app/controllers/messages_controller.rb:8-33`).
     - The class-body `before_action :set_contest` (`:4`, definition `MessagesController#set_contest` at `:130-133`) and `before_action :require_chat_enabled` (`:5`, definition `MessagesController#require_chat_enabled` at `:135-138`, which reads the `chat_enabled` DB column).
-    - `@contest.chat_participant?(current_user)` at `:9` requires `admin?` or an `active`/`complete` entry (`app/models/contest.rb:936-940`) — step 10 satisfies it.
+    - `@contest.chat_participant?(current_user)` at `:9` requires `admin?` or an `active`/`complete` entry (`app/models/contest.rb:935-939`) — step 10 satisfies it.
     - Per-user flood guard: at most 5 messages per 15 seconds in `MessagesController#posting_too_fast?` (`app/controllers/messages_controller.rb:142-147`), checked at `:13-15`.
     - The save is wrapped in `rescue_and_log(target: message, parent: @contest)` (`:24-30`).
     - The `after_create_commit :broadcast_new_message` declaration (`app/models/message.rb:61`) runs `Message#broadcast_new_message` (`:87-96`), which calls Turbo's `broadcast_prepend_to([contest, :messages], target: "contest_#{contest_id}_messages", partial: "messages/message")` at `:88-93`.

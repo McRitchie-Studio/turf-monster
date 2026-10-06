@@ -393,13 +393,12 @@ class Contest < ApplicationRecord
 
   # The prize per finishing rank, in cents: { rank => cents }. A contest pays
   # the table it was created with (#payout_table_cents); a contest not yet
-  # saved pays its format's current row; a retired format pays what its
+  # saved pays its format's current row; a retired format reads what its
   # entries were paid.
   def payouts
-    table = payout_table_cents.presence || default_payout_table_cents
-    return format_config[:payouts] if table.nil?
+    return retired_format_config[:payouts] if retired_format?
 
-    table.each.with_index(1).to_h { |cents, rank| [rank, cents] }
+    (payout_table_cents.presence || default_payout_table_cents || []).each.with_index(1).to_h { |cents, rank| [rank, cents] }
   end
 
   # Written once, when the row is first saved. attr_readonly keeps any later

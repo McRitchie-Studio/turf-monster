@@ -2506,7 +2506,7 @@ module Solana
     # limit. Contest formats pay at most Contest::MAX_PAID_RANKS entries, which
     # fits by construction; this names the failure if a table ever does not.
     def assert_settle_fits_one_packet!(wire_base64, winner_count)
-      size = Base64.strict_decode64(wire_base64).bytesize
+      size = Base64.decode64(wire_base64).bytesize
       return size if size <= PACKET_DATA_SIZE
 
       raise SettleTooLargeError,
