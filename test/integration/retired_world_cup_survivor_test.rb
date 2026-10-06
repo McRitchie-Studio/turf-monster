@@ -113,6 +113,16 @@ class RetiredWorldCupSurvivorTest < ActionDispatch::IntegrationTest
     assert_select "[data-final-standings]", 1
   end
 
+test "an admin sees no grade, lock or conclude control on an open retired contest" do
+  Contest.where(id: @retired.id).update_all(status: "open")
+  log_in_as(@admin)
+  get contest_page_path(@retired)
+  assert_response :success
+  assert_select "form[action=?]", grade_contest_path(@retired), 0
+  assert_not_includes response.body, "lockContestViaPhantom("
+  assert_not_includes response.body, "concludeContestViaPhantom("
+end
+
   test "an open retired contest renders standings, never a board, and the poll and live board answer" do
     Contest.where(id: @retired.id).update_all(status: "open")
 
