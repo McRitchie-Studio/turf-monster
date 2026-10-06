@@ -1,0 +1,53 @@
+<%# Per-reference funnel. Locals: report (ReferralReport). The email column
+    renders only when report.emails? — absent is not the same as zero. %>
+<div class="card overflow-x-auto mb-8" data-referral-table>
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="border-b border-subtle text-left text-muted">
+        <th class="px-3 py-2">Reference</th>
+        <th class="px-3 py-2 text-right">Clicks</th>
+        <th class="px-3 py-2 text-right">Visitors</th>
+        <th class="px-3 py-2">Top landing paths</th>
+        <% if report.emails? %>
+          <th class="px-3 py-2 text-right" data-col="email">Email signups</th>
+          <th class="px-3 py-2 text-right" data-col="email-rate">Email rate</th>
+        <% end %>
+        <th class="px-3 py-2 text-right">Account signups</th>
+        <th class="px-3 py-2 text-right">Account rate</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% report.rows.each do |row| %>
+        <tr class="border-b border-subtle" data-reference-row="<%= row.reference %>">
+          <td class="px-3 py-2 font-mono">
+            <%= link_to row.reference, admin_referrals_path(days: report.window, reference: row.reference),
+                  class: "text-primary hover:underline" %>
+          </td>
+          <td class="px-3 py-2 font-mono text-right text-heading" data-cell="clicks"><%= number_with_delimiter(row.clicks) %></td>
+          <td class="px-3 py-2 font-mono text-right text-secondary" data-cell="visitors"><%= number_with_delimiter(row.visitors) %></td>
+          <td class="px-3 py-2 text-xs text-secondary">
+            <% if row.top_paths.any? %>
+              <% row.top_paths.each do |path, count| %>
+                <div><span class="font-mono"><%= path.presence || "—" %></span> <span class="text-muted">(<%= count %>)</span></div>
+              <% end %>
+            <% else %>
+              <span class="text-muted">—</span>
+            <% end %>
+          </td>
+          <% if report.emails? %>
+            <td class="px-3 py-2 font-mono text-right" data-cell="email"><%= row.email_signups %></td>
+            <td class="px-3 py-2 font-mono text-right text-secondary" data-cell="email-rate"><%= row.email_rate ? "#{row.email_rate}%" : "—" %></td>
+          <% end %>
+          <td class="px-3 py-2 font-mono text-right" data-cell="accounts"><%= row.account_signups %></td>
+          <td class="px-3 py-2 font-mono text-right text-secondary" data-cell="account-rate"><%= row.account_rate ? "#{row.account_rate}%" : "—" %></td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+  <% if report.rows.empty? %>
+    <p class="px-3 py-6 text-center text-muted text-sm" data-referral-empty>No referral clicks or signups in this window yet.</p>
+  <% end %>
+  <% unless report.emails? %>
+    <p class="px-3 py-2 text-xs text-muted border-t border-subtle" data-email-absent>Email signups appear here once the notify-me list (DropSignup) is live.</p>
+  <% end %>
+</div>

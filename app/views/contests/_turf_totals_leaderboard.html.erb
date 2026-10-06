@@ -110,7 +110,7 @@
     <div class="flex flex-wrap gap-3">
       <% if contest.open? && !contest.locked? %>
         <% active_count = contest.entries.where(status: [:active, :complete]).count %>
-        <% if contest.max_entries.nil? || active_count < contest.max_entries %>
+        <% if AppFlags.test_scaffolding? && (contest.max_entries.nil? || active_count < contest.max_entries) %>
           <%= button_to "Fill Contest", fill_contest_path(contest), method: :post,
             class: "btn btn-secondary btn-lg" %>
         <% end %>
@@ -120,19 +120,25 @@
           class="btn btn-lg bg-yellow-700 hover:bg-yellow-600 text-white">Lock in 60s</button>
       <% end %>
 
-      <% next_game = contest.matchups.pending.includes(:game).select { |m| m.game.present? }.sort_by { |m| m.game.kickoff_at || Time.current }.first %>
-      <% if next_game %>
-        <%= button_to "Simulate: #{next_game.team.name} vs #{next_game.opponent_team&.name}",
-          simulate_game_contest_path(contest), method: :post,
-          class: "btn btn-primary btn-lg" %>
-        <%= button_to "Simulate 5", simulate_batch_contest_path(contest, count: 5), method: :post,
-          class: "btn btn-outline btn-lg" %>
-        <%= button_to "Simulate 20", simulate_batch_contest_path(contest, count: 20), method: :post,
-          class: "btn btn-outline btn-lg" %>
-      <% end %>
+      <%# Test actions (ContestsController::TEST_ACTIONS) render only while ENABLE_TEST_SCAFFOLDING is on. %>
+      <% if AppFlags.test_scaffolding? %>
+        <% next_game = contest.matchups.pending.includes(:game).select { |m| m.game.present? }.sort_by { |m| m.game.kickoff_at || Time.current }.first %>
+        <% if next_game %>
+          <%= button_to "Simulate: #{next_game.team.name} vs #{next_game.opponent_team&.name}",
+            simulate_game_contest_path(contest), method: :post,
+            class: "btn btn-primary btn-lg" %>
+          <%= button_to "Simulate 5", simulate_batch_contest_path(contest, count: 5), method: :post,
+            data: { turbo_confirm: "Simulate the next 5 games? Their scores are shared by every contest on this slate." },
+            class: "btn btn-outline btn-lg" %>
+          <%= button_to "Simulate 20", simulate_batch_contest_path(contest, count: 20), method: :post,
+            data: { turbo_confirm: "Simulate the next 20 games? Their scores are shared by every contest on this slate." },
+            class: "btn btn-outline btn-lg" %>
+        <% end %>
 
-      <%= button_to "Jump (Simulate All)", jump_contest_path(contest), method: :post,
-        class: "btn btn-primary btn-lg" %>
+        <%= button_to "Jump (Simulate All)", jump_contest_path(contest), method: :post,
+          data: { turbo_confirm: "Simulate every remaining game and settle this contest?" },
+          class: "btn btn-primary btn-lg" %>
+      <% end %>
 
       <%= link_to "Rank Matchups", slate_path(contest.slate),
         class: "px-6 py-2 bg-surface-alt hover:bg-surface-alt/80 text-heading font-bold rounded-xl shadow transition inline-flex items-center" %>

@@ -17,6 +17,21 @@ class ContestsController < ApplicationController
   # B4 / OPSEC-048: frozen accounts can browse but cannot spend or enter.
   before_action :require_unfrozen_account, only: [:enter, :prepare_entry, :confirm_onchain_entry, :toggle_selection]
 
+  # The contest test actions write random scores into SHARED games rows, settle,
+  # mint comped entries or destroy entries. They answer only while
+  # ENABLE_TEST_SCAFFOLDING is on (AppFlags.test_scaffolding?), and never where
+  # real money could move or be decided, whatever the flag says
+  # (Contest#test_action_refusal). The flag is the switch; the money check is
+  # the floor, so turning the flag on for a rehearsal cannot reach a paid contest.
+  TEST_ACTIONS = %i[jump simulate_game simulate_batch fill reset].freeze
+  TEST_ACTIONS_OFF_MESSAGE = "Test actions are off: ENABLE_TEST_SCAFFOLDING is not set on this app.".freeze
+  TEST_ACTION_REFUSALS = {
+    onchain: "Test actions are refused on an on-chain contest.",
+    paid: "Test actions are refused on a contest with paid on-chain entries.",
+    shared_games: "Test actions are refused: this contest shares games with an on-chain or paid contest."
+  }.freeze
+  before_action :refuse_test_action, only: TEST_ACTIONS
+
   # The contests page is three bands, and each one answers a different question:
   #
   #   1. the featured rail  — what can I play right now?  (Contest.featured_order)
@@ -1847,6 +1862,18 @@ class ContestsController < ApplicationController
   end
 
   private
+
+  # Gate for TEST_ACTIONS. Runs after require_admin, so only an admin reaches
+  # it; a refusal is a flash on the contest page and changes nothing.
+  def refuse_test_action
+    reason =
+      if AppFlags.test_scaffolding?
+        TEST_ACTION_REFUSALS[@contest.test_action_refusal(action_name)]
+      else
+        TEST_ACTIONS_OFF_MESSAGE
+      end
+    redirect_to contest_path(@contest), alert: reason if reason
+  end
 
   # Entry-time age gate (ENABLE_AGE_GATE). When the gate is on and this user
   # hasn't verified their DOB, refuse the entry BEFORE any payment and hand the
