@@ -40,4 +40,10 @@ class DropUnsubscribesController < ApplicationController
     rescue_and_log(target: @signup.user) { @signup.unsubscribe! }
     render :done
   end
+
+  private
+
+  # An old browser (or an iMessage-style previewer's pinned old UA) must still
+  # be able to unsubscribe: allow_browser would 406 the page and its POST.
+  def public_preview_request? = true
 end

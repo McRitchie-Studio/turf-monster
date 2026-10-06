@@ -38,6 +38,13 @@ class DropUnsubscribeTest < ActionDispatch::IntegrationTest
     assert_response :success
   end
 
+  test "an old browser can unsubscribe (no allow_browser 406)" do
+    old_safari = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Safari/605.1.15"
+    post drop_unsubscribe_confirm_path(token: @token), headers: { "HTTP_USER_AGENT" => old_safari }
+    assert_response :success
+    assert @signup.reload.unsubscribed?
+  end
+
   test "an unsubscribed address is never mailed again" do
     post drop_unsubscribe_confirm_path(token: @token)
     refute @signup.reload.deliver_confirmation!
