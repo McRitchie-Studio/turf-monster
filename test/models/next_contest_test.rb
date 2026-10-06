@@ -74,4 +74,16 @@ class NextContestTest < ActiveSupport::TestCase
     5.times { |i| contest("more-#{i}", starts_at: (i + 5).days.from_now) }
     assert_equal NextContest::LOBBY_LIMIT, NextContest.lobby.contests.size
   end
+
+  test "the live showcase prefers a contest being played, then the latest finished, then nil" do
+    assert_nil NextContest.live_showcase
+    finished = contest("finished", starts_at: 20.days.ago, status: "settled")
+    assert_equal finished, NextContest.live_showcase.contest
+    playing = contest("playing", starts_at: 1.day.ago)
+    showcase = NextContest.live_showcase
+    assert_equal playing, showcase.contest
+    assert showcase.live?
+    contest("soccer-live", starts_at: 1.hour.ago, slate: slates(:one))
+    assert_equal playing, NextContest.live_showcase.contest, "NFL only"
+  end
 end

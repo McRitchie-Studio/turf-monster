@@ -50,6 +50,36 @@ module NextContest
     Lobby.new(contests: shown, entry_counts: counts)
   end
 
+  # The laptop on /turf-monster-v2's hero shows a contest's LIVE page: the NFL
+  # contest being played right now (locked, not settled), else the one that
+  # finished most recently. nil when there is neither; the laptop then falls
+  # back to the lobby list.
+  #
+  # Everything the snapshot draws, loaded here so the view issues no query of
+  # its own: the games in the live page's three phases (Contest#games_by_phase,
+  # the same buckets ContestsController#live uses), the game the page would
+  # open on, and the top `leaders` entries with their users preloaded.
+  LiveShowcase = Data.define(:contest, :games, :focus_slug, :leaders) do
+    def live? = contest.live?
+  end
+
+  def self.live_showcase(now: Time.current, leaders: 3)
+    nfl = Contest.where(status: [:open, :settled], coming_soon: false)
+                 .joins(:slate).where(slates: { sport: "nfl" })
+                 .includes(:slate).to_a
+                 .reject(&:cancelled?).select(&:turf_totals?)
+    playing  = nfl.select(&:live?).max_by { |c| c.locks_at || c.created_at }
+    finished = nfl.select(&:concluded?).max_by { |c| c.concludes_at || c.locks_at || c.created_at }
+    contest = playing || finished
+    return nil unless contest
+
+    games = contest.games_by_phase(now)
+    focus = (games[:active].first || games[:upcoming].first || games[:completed].first)&.slug
+    top = contest.entries.where(status: [:active, :complete]).includes(:user)
+                 .order(score: :desc, id: :asc).limit(leaders).to_a
+    LiveShowcase.new(contest: contest, games: games, focus_slug: focus, leaders: top)
+  end
+
   def self.enterable_at?(contest, now)
     at = contest.locks_at
     at.nil? || at > now

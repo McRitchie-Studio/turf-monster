@@ -1,4 +1,4 @@
-<%# locals: (lobby:)
+<%# locals: (lobby:, showcase: nil)
 
     A CSS laptop (screen bezel, hinge, a thin base) showing the contests lobby,
     live: one row per contest from NextContest.lobby, drawn with the lobby
@@ -20,13 +20,27 @@
     order and the pointer path. The figure's caption carries the text
     alternative.
 
+    THE LIVE PAGE FIRST. With a contest being played or just finished
+    (NextContest.live_showcase), the screen draws its live page,
+    pages/_laptop_live, scaled from a 1280px canvas (0.33125). The lobby rows
+    below are the fallback when there is none.
+
     EMPTY IS A STATE, NOT A BLANK. With fewer than lobby's limit of real
     contests, a row for the next drop (NextSlateDrop) follows the table,
     labelled with its date (or "Contests coming soon" once that date passes),
     so the visible corner of the screen is never empty. %>
-<div class="w-[36rem]" aria-hidden="true" inert data-test="laptop-mock">
-  <div class="rounded-t-2xl bg-neutral-800 p-3 shadow-2xl ring-1 ring-white/10">
-    <div class="h-[22rem] overflow-hidden rounded-md bg-page text-body" data-test="laptop-lobby">
+<div class="w-[28rem]" aria-hidden="true" inert data-test="laptop-mock">
+  <div class="rounded-t-2xl bg-neutral-800 p-3 shadow-xl ring-1 ring-white/10">
+    <div class="aspect-[16/10] overflow-hidden rounded-md bg-page text-body" data-test="laptop-lobby">
+      <% if showcase %>
+        <%# The canvas: a hard 1280px desktop width, scaled to the screen's width
+            (28rem less the 0.75rem bezels = 26.5rem = 424px; 424 / 1280 =
+            0.33125). The screen is a fixed 16:10 box with overflow-hidden, so
+            whatever runs past it is clipped. %>
+        <div class="w-[1280px] origin-top-left scale-[0.33125]" data-test="laptop-canvas">
+          <%= render "pages/laptop_live", showcase: showcase %>
+        </div>
+      <% else %>
       <div class="flex items-center gap-4 border-b border-subtle py-3 pl-[5.5rem] pr-5">
         <p class="text-base font-extrabold text-heading">Turf <span class="tm-wordmark">Monster</span></p>
         <p class="text-xs font-semibold text-heading">Contests</p>
@@ -63,6 +77,7 @@
           <% end %>
         </div>
       </div>
+      <% end %>
     </div>
   </div>
   <div class="h-1.5 bg-neutral-600"></div>

@@ -103,6 +103,18 @@ test.describe("turf-monster-v2 explainer", () => {
     const laptop = page.locator('[data-test="laptop-mock"]');
     await expect(laptop).toBeVisible();
     await expect(laptop.locator('[data-test="laptop-lobby"]')).toContainText("Contests");
+    // A live snapshot, when there is one, is a 1280px desktop canvas scaled
+    // into the screen, so nothing in it is squeezed into an ellipsis.
+    const canvas = laptop.locator('[data-test="laptop-canvas"]');
+    if (await canvas.count()) {
+      const m = await canvas.evaluate((c) => ({
+        width: c.offsetWidth,
+        squeezed: [...c.querySelectorAll("*")].filter((e) => e.children.length === 0 && e.textContent.trim() &&
+          e.scrollWidth > e.clientWidth + 1 && getComputedStyle(e).overflow !== "visible").length
+      }));
+      expect(m.width).toBe(1280);
+      expect(m.squeezed).toBe(0);
+    }
     expect(await page.evaluate(() => document.documentElement.scrollWidth === document.documentElement.clientWidth)).toBe(true);
 
     await page.setViewportSize({ width: 375, height: 800 });

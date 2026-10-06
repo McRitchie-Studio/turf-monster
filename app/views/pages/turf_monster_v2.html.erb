@@ -141,16 +141,16 @@
 
       <%# THE PHONE, centered in the right column with its caption directly
           under it, and from xl up a LAPTOP behind it, as on Calm's page. The
-          laptop hangs off the phone's wrapper: its top a little above the
-          phone's, its left bezel under the phone's right third, and it runs
+          laptop hangs off the phone's wrapper, set back: its top above the
+          phone's, the phone over only its lower-left corner, and it runs
           past the hero's right edge, where the section's overflow-hidden clips
           it, so it never adds page width. It is absolutely positioned, so it never moves the
           phone or the copy column. Below xl it is not drawn: at lg the column leaves
           too thin a sliver of screen beside the phone to read. %>
       <figure class="flex flex-col items-center" data-test="v2-hero-figure">
         <div class="relative">
-          <div class="hidden xl:block absolute z-0 left-[66%] -top-6" data-test="laptop-anchor">
-            <%= render "pages/laptop_lobby", lobby: @lobby %>
+          <div class="hidden xl:block absolute z-0 left-[80%] -top-14" data-test="laptop-anchor">
+            <%= render "pages/laptop_lobby", lobby: @lobby, showcase: @live_showcase %>
           </div>
           <div class="relative z-10 drop-shadow-2xl">
             <%= render layout: "pages/phone_frame", locals: { screen_class: "h-[26.5rem]" } do %>
