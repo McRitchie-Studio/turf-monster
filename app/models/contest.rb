@@ -315,7 +315,7 @@ class Contest < ApplicationRecord
 
     # Test scaffolding — $1 entry, gated behind ENABLE_TEST_SCAFFOLDING (AppFlags.test_scaffolding?).
     # A low-stakes end-to-end rehearsal tier: 9 entries → $9 gross / $9 payout / $0 margin.
-    # BREAK-EVEN BY DESIGN (operator call, 2026-08-27): this tier exists to rehearse the full
+    # BREAK-EVEN BY DESIGN: this tier exists to rehearse the full
     # entry → onchain → grade → payout path with real money at pocket-change stakes, not to earn.
     # A short fill loses money: grading pays only the ranks that EXIST (see max_paid_rank
     # below), so 1 entry pays $5 (-$4), 2 pay $7 (-$5), and 3+ pay the full $9 — making
@@ -871,7 +871,7 @@ class Contest < ApplicationRecord
     {
       active:    (buckets[:active]    || []).sort_by { |g| g.kickoff_at || now },
       upcoming:  (buckets[:upcoming]  || []).sort_by { |g| g.kickoff_at || (now + 100.years) },
-      completed: (buckets[:completed] || []).sort_by { |g| g.kickoff_at || now } # oldest first: the strip wraps from MNF to Thursday (Alex, 2026-10-05)
+      completed: (buckets[:completed] || []).sort_by { |g| g.kickoff_at || now } # oldest first: the strip wraps from MNF to Thursday
     }
   end
 

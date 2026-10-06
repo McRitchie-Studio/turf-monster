@@ -70,9 +70,8 @@
     <% end %>
 
     <% if ball %>
-      <%# THE BALL IS THE TEAM THAT HAS IT (Alex, 2026-10-04). A white dot said
-          where; the offence's own mark says where AND whose, which the line
-          above otherwise has to be read for. A plain dot remains for the snap
+      <%# THE BALL IS THE TEAM THAT HAS IT: the offence's own mark says where
+          AND whose, which the line above otherwise has to be read for. A plain dot remains for the snap
           on which the feed names a spot but no possession. %>
       <% holder = game.possession_team %>
       <% if holder&.emoji.present? %>
@@ -103,7 +102,7 @@
     down, spot = game.down_distance_label.to_s.split(/\s+at\s+/, 2)
     detail = game.status_detail.presence
     detail = nil if detail && game.clock.present? && detail.include?(game.clock)
-    # THE OFFENCE'S OWN TWO COLOURS (Alex, 2026-10-05): Detroit with the ball
+    # THE OFFENCE'S OWN TWO COLOURS: Detroit with the ball
     # reads silver into Honolulu blue (LiveBoardHelper#team_two_tone_ink). The
     # line is about the team that has it, and the pair changing hands with the
     # ball is the cue. With no possession to read, one accent from each side.
@@ -138,18 +137,16 @@
           data-test="live-focus-possession"><%= game.possession_line %></span>
   <% end %>
 <% else %>
-  <%# NOT BEING PLAYED: the middle third says WHEN (Alex, 2026-10-05). The date
-      and kickoff used to share the top third with the venue, three lines in a
-      box built for two; there is no ball to place before kickoff or after the
-      whistle, so this third was empty and that one was crowded.
+  <%# NOT BEING PLAYED: the middle third says WHEN. There is no ball to place
+      before kickoff or after the whistle, so this third holds the date and
+      kickoff, and the top third keeps the venue alone.
 
       Date and kickoff are BOTH written by the browser in the reader's own zone
       — the app runs on UTC, so a server-rendered date is a day out for anyone
       west of it. The text inside each is a truthful fallback. %>
   <% if game.completed? %>
     <%# A FINISHED GAME SAYS "FINAL", big, and the day it was played under it —
-        "Sun, Oct 4" (Alex, 2026-10-05). The kickoff time stopped mattering at
-        the whistle. "Final/OT" keeps its overtime; a bare "Final" is the badge.
+        "Sun, Oct 4". The kickoff time stops mattering at the whistle. "Final/OT" keeps its overtime; a bare "Final" is the badge.
 
         The day is written by the browser in the reader's zone, like every date
         on this card: a Sunday-night game is a Monday in UTC. %>

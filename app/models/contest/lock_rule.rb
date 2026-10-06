@@ -9,7 +9,7 @@ class Contest
   #
   # NON-NFL (World Cup and anything else): the first kickoff, exactly as before.
   #
-  # NFL (Alex, 2026-10-02): 11:00 AM America/Denver on the slate's OPENING SUNDAY —
+  # NFL: 11:00 AM America/Denver on the slate's OPENING SUNDAY —
   # the 1 PM ET window, which is when a week's slate really starts. Thursday
   # Night Football used to lock the whole contest on Thursday. Precisely:
   #
@@ -20,10 +20,9 @@ class Contest
   #      in November).
   #   3. Never EARLIER than the first kickoff — a Sunday-night-only slate locks
   #      at its own kickoff, not five hours before it.
-  #   4. Never LATER than the slate's LAST kickoff. Not in Alex's statement; added
-  #      because without it a slate with no game on or after that Sunday (a
-  #      Thursday-only or Saturday-only slate) would stay open after every game
-  #      in it had started. A span slate's last kickoff is weeks out, so this
+  #   4. Never LATER than the slate's LAST kickoff, because without it a slate
+  #      with no game on or after that Sunday (a Thursday-only or Saturday-only
+  #      slate) would stay open after every game in it had started. A span slate's last kickoff is weeks out, so this
   #      never bites there. Rule 3 wins over rule 4: they only meet on a slate
   #      whose games all fall before the Sunday, and then it locks at the first.
   #

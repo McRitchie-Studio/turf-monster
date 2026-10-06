@@ -74,9 +74,9 @@ module TurfMonster
       # him, not here.
       #
       # THERE IS NO "alex"/"xan" CAST MEMBER, AND ADDING ONE BACK IS A MISTAKE.
-      # Xan (8K81…, the identity this file called "Alex Bot" until 2026-09-15)
-      # is the fee payer and contest creator -- but the SERVER signs as it from
-      # SOLANA_ADMIN_KEY on the dyno, never through this class, and
+      # Xan (8K81…, the identity once called "Alex Bot") is the fee payer and
+      # contest creator -- but the SERVER signs as it from SOLANA_ADMIN_KEY on
+      # the dyno, never through this class, and
       # Driver::DEFAULT_CAST explains why it could not play even if it were
       # filed. Its item is agent.xan.solana in the studio-agents-admin vault,
       # which this service account cannot read. The entry is gone; leave it gone.

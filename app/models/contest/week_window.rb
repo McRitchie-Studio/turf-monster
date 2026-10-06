@@ -6,7 +6,7 @@ class Contest
   # next week's DET-ARI sat in the strip beside tonight's DET-CAR at 0-0, and the
   # carousel rotated through games nobody could watch for seven days.
   #
-  # THE WEEK (Alex, 2026-10-04): it turns over on Tuesday at 7:00 AM Denver. Not
+  # THE WEEK: it turns over on Tuesday at 7:00 AM Denver. Not
   # at midnight Monday, because Monday Night Football is still being talked
   # about then; by Tuesday morning the week that matters is the next one. A
   # zone, not a fixed offset, so the turn stays at 7 on the wall clock across

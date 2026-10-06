@@ -297,7 +297,7 @@ sites**, when this list next needs checking — a fourth surface costs one butto
 and no new call site. **None of the three renders the account card**, the
 `accounts/solana_wallet_section` partial, which is mounted only by
 `app/views/accounts/show.html.erb:119` and by `/profile` through the engine
-section registry (`config/initializers/studio.rb:158`). An Alpine store is
+section registry (`config/initializers/studio.rb:157`). An Alpine store is
 per-document, so `expectedSwitchAddresses`
 (`app/javascript/solana_stores.js:70`) is always empty on the account page and a
 suppressed switch cannot occur there at all.

@@ -486,16 +486,16 @@ class ApplicationController < ActionController::Base
     nil # context is best-effort; never break the request path
   end
 
-  # Funnel/campaign attribution. Captures a `?reference=` URL param into a
-  # cookie on first touch (never overwritten) so it survives the journey to
-  # signup, where it's written onto the new user across all auth paths.
-  # Landing pages also seed this cookie with their slug — see
-  # LandingPagesController#show.
+  # Funnel/campaign attribution. Captures `?r=` (or `?reference=`; see
+  # ReferralVisitTracking#attribution_param) into a cookie on first touch (never
+  # overwritten) so it survives the journey to signup, where it's written onto
+  # the new user across all auth paths. Landing pages also seed this cookie
+  # with their slug — see LandingPagesController#show.
   def capture_reference
-    return if params[:reference].blank?
+    return if (reference = attribution_param).nil?
     return if cookies[:reference].present?
 
-    cookies[:reference] = { value: params[:reference].to_s.first(64), expires: 30.days }
+    cookies[:reference] = { value: reference, expires: 30.days }
   end
 
   # OPSEC-045: enforces session-token binding. Runs early so a stale session
@@ -732,7 +732,7 @@ class ApplicationController < ActionController::Base
       # a wallet-less account can't enter even a FREE contest. Derived
       # RPC-free (see wallet_setup_required?).
       walletSetupRequired: wallet_setup_required?,
-      # The first-name ask, as an ENTRY VALIDATION (operator call, 2026-08-15).
+      # The first-name ask, as an ENTRY VALIDATION.
       # eligibilityBlocker reads this FIRST — ahead of age, wallet and funding —
       # so hold-to-confirm collects the name before anything else.
       #
@@ -787,8 +787,8 @@ class ApplicationController < ActionController::Base
   end
 
   # Navbar balance — on-chain USDC + USDT COMBINED for connected wallets
-  # (operator request 2026-06-10: the pill shows total spendable dollars; the
-  # /account tiles stay per-currency).
+  # (the pill shows total spendable dollars; the /account tiles stay
+  # per-currency).
   # NON-BLOCKING + cache-first: the render path NEVER issues a Solana RPC.
   # Returns:
   #   - the SUM of the preloaded @wallet_balances[:usdc] + [:usdt] when a

@@ -32,7 +32,7 @@ namespace :admin do
     end.freeze
 
     # THE SWAP DEADLOCK. Two kickoff rows can want each other's names — `alex`
-    # and `mcritchie` traded owners on 2026-09-04 — and the holder check below
+    # and `mcritchie` trade owners in a swap — and the holder check below
     # then refuses BOTH: each wants a name the other is sitting on. A single
     # pass reports two CONFLICTs, writes nothing, and exits 0, so the swap looks
     # done and never happened.

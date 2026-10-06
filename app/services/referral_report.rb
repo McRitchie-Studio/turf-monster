@@ -49,6 +49,16 @@ class ReferralReport
     nil
   end
 
+  # Clicks per reference over everything kept (RETENTION), for just the names
+  # given, in one grouped query. A name nobody clicked is absent, not zero.
+  # /admin/short_links reads its click column from here.
+  def self.clicks_for(references)
+    refs = Array(references).filter_map { |ref| ReferralVisit.normalize_reference(ref) }.uniq
+    return {} if refs.empty?
+
+    ReferralVisit.where(reference: refs).group(:reference).count
+  end
+
   # Percent, one decimal. nil when there is nothing to divide by.
   def self.rate(count, base)
     return nil if count.nil? || base.to_i.zero?

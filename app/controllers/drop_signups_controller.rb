@@ -45,7 +45,7 @@ class DropSignupsController < ApplicationController
       DropSignup.register(
         email: params[:email],
         slate_key: NextSlateDrop::SLATE_KEY,
-        source: params[:reference].presence || params[:source].presence || cookies[:reference],
+        source: attribution_param || params[:source].presence || cookies[:reference],
         ip: request.remote_ip,
         user_agent: request.user_agent,
         user: current_user

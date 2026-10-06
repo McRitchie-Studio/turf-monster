@@ -3119,7 +3119,7 @@ module Solana
     # #entry_funding_status) distinguish a transient read FAILURE from a confirmed
     # $0 wallet — both otherwise collapse to `usdc: 0` here (a fresh wallet with no
     # ATA AND a flaked read both yield no USDC entry in `tokens`), which would
-    # FALSE-BLOCK a genuinely funded user during a flake (Avi review 2026-06-13).
+    # FALSE-BLOCK a genuinely funded user during a flake.
     # The default (false) preserves the navbar-hydrate behavior: a transient flake
     # just renders a stale/zero pill, never an error. Both RPC reads (get_balance
     # AND get_token_accounts_by_owner) share one rescue so a connection-level fault

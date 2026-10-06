@@ -2078,7 +2078,7 @@
       <%# Top Up Wallet — the Coinbase-forward funds modal. It is NO LONGER the
           entry blocker's answer: the funds wall routes to Get USDC below
           (showFundsNeeded then showGetUsdc), because this modal leads with the CDP
-          onramp and that rail has no legal clearance (operator, 2026-09-06).
+          onramp and that rail has no legal clearance.
           selectionBoard#showWalletTopup is kept but has NO CALLER; what to do with
           this modal and the Add Funds hub meanwhile is an operator decision about
           those surfaces. NOTHING OPENS IT AT HEAD. Both ways in are closed:
@@ -2116,7 +2116,7 @@
           showFundsNeeded now gives whichever funding method came up short. It
           carries ONE route, a Phantom row, and hands off to nothing else: a
           revision that linked onward into Top Up Wallet was removed, because that
-          modal leads with the uncleared CDP onramp (operator, 2026-09-06). The
+          modal leads with the uncleared CDP onramp. The
           absence is pinned by test/views/buy_usdc_modal_test.rb, "the card offers
           Phantom and NOTHING resembling a payment rail" — do not restore the link.
           Registered ungated alongside wallet-topup / buy-entry-token for the same
@@ -2162,7 +2162,7 @@
           <%# The sparkle is passed, not defaulted: the block ships 🎉 and this card
               is the quieter half of the celebration — the confetti burst already
               fires from fireFreeEntryConfetti, so the glyph does not need to shout
-              it a second time (operator, 2026-09-07). %>
+              it a second time. %>
           <%= render "studio/modals/blocks/free_entry_earned",
                 icon_emoji: "✨",
                 subtitle: "Well done! You earned a <strong class='text-heading font-semibold'>Free Entry Token &#127915;</strong>. Keep earning more free entries with each level.".html_safe %>

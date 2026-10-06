@@ -8,10 +8,9 @@
     updates just this (the tile gives its wrapper the id game_<slug>_status)
     and the clock, the down and the ball keep moving between scores. %>
 <%# WHERE IT IS PLAYED, first, in every state — the PLACE in bold and the
-    building under it (Alex, 2026-10-05): "New Orleans, LA" over "Caesars
+    building under it: "New Orleans, LA" over "Caesars
     Superdome", "London, England" over "Tottenham Hotspur Stadium". A reader
-    knows a game by its city before its stadium, and one line holding both ran
-    the width of the rail in the quietest type on the card.
+    knows a game by its city before its stadium.
 
     A venue we hold only a building for prints that building in the bold line:
     it is the one thing we know about where. %>
@@ -23,8 +22,6 @@
           data-test="live-focus-stadium"><%= game.venue_stadium %></span>
   <% end %>
 <% end %>
-<%# THE PLACE ALONE, live or not (Alex, 2026-10-05). The clock used to sit
-    under it here and the down above the field; watching a replay, the clock
-    read as belonging to the stadium and the down floated between the two
-    thirds. The clock now heads the middle third, over the field, and the down
-    sits under it — see live/_game_field. %>
+<%# THE PLACE ALONE, live or not. The clock heads the middle third, over the
+    field, and the down sits under it — see live/_game_field — so neither reads
+    as belonging to the stadium. %>

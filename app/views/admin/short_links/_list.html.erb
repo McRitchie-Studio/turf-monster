@@ -1,0 +1,56 @@
+<%# locals: (short_links:, clicks:) %>
+<%# The campaign short links table on /admin/short_links. clicks is
+    ReferralReport.clicks_for, keyed by normalized reference. %>
+<div class="card overflow-x-auto" data-short-links>
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="border-b border-subtle text-muted text-[10px] uppercase tracking-wide">
+        <th class="text-left px-4 py-3">Short link</th>
+        <th class="text-left px-3 py-3">Goes to</th>
+        <th class="text-left px-3 py-3">Reference</th>
+        <th class="text-right px-3 py-3">Clicks</th>
+        <th class="text-center px-3 py-3">Status</th>
+        <th class="text-left px-3 py-3">Created</th>
+        <th class="text-right px-4 py-3">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% short_links.each do |short_link| %>
+        <% short_url = link_url(token: short_link.token) %>
+        <tr class="border-b border-subtle/40 hover:bg-inset transition" data-short-link="<%= short_link.token %>">
+          <td class="px-4 py-3">
+            <%= render "components/copy_button", text: short_url, display: short_url.sub(%r{\Ahttps?://}, "") %>
+          </td>
+          <td class="px-3 py-3">
+            <%= link_to short_link.target_path, short_link.target_path, target: "_blank", rel: "noopener",
+                  class: "font-mono text-xs text-primary hover:underline break-all" %>
+          </td>
+          <td class="px-3 py-3">
+            <%= link_to short_link.reference, admin_referrals_path(days: "all", reference: short_link.reference),
+                  class: "font-mono text-xs text-secondary hover:underline" %>
+          </td>
+          <td class="px-3 py-3 text-right font-mono text-heading" data-clicks>
+            <%= number_with_delimiter(clicks[short_link.reference].to_i) %>
+          </td>
+          <td class="px-3 py-3 text-center">
+            <% if short_link.active? %>
+              <span class="text-[10px] font-bold px-2 py-0.5 rounded-full" style="background: rgb(var(--color-primary-500-rgb) / 0.15); color: var(--color-primary-badge-ink); border: 1px solid rgb(var(--color-primary-500-rgb) / 0.4);">LIVE</span>
+            <% else %>
+              <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-inset text-muted border border-subtle">DISABLED</span>
+            <% end %>
+          </td>
+          <td class="px-3 py-3 text-muted text-xs whitespace-nowrap"><%= short_link.created_at.to_date.to_fs(:long) %></td>
+          <td class="px-4 py-3 text-right whitespace-nowrap">
+            <%= link_to "Edit", edit_admin_short_link_path(short_link), class: "btn btn-outline btn-sm" %>
+            <%= button_to (short_link.active? ? "Disable" : "Enable"), toggle_admin_short_link_path(short_link),
+                  method: :patch, class: "btn btn-outline btn-sm", form: { class: "inline-block ml-1" },
+                  data: (short_link.active? ? { turbo_confirm: %(Disable /l/#{short_link.token}? Clicks will land on the home page untracked.) } : {}) %>
+          </td>
+        </tr>
+      <% end %>
+      <% if short_links.empty? %>
+        <tr><td colspan="7" class="px-4 py-10 text-center text-muted">No short links yet. Create the first one.</td></tr>
+      <% end %>
+    </tbody>
+  </table>
+</div>
