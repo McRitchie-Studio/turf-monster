@@ -1,0 +1,137 @@
+<%# locals: (contest:, sim:, frames:)
+
+    THE LAPTOP'S SIMULATED TOUCHDOWNS (Alex, 2026-10-06). The featured game in
+    the live snapshot opens at LaptopScoreSimulation's 3-7, and every
+    INTERVAL_MS a touchdown lands, drawn by /contests/<slug>/live's OWN
+    machinery rather than a copy of it:
+
+      contests/_live_script    the live page's script, unchanged, attached to
+                               the snapshot's focus panel and strip by their
+                               real wrapper ids (pages/_laptop_live)
+      live/_score_banner       the banner it raises
+      a hidden goal feed       the node a real score appends
+
+    Each frame is what Contest::LiveBroadcast.goal_scored would send: the
+    focus tile and strip chip at the new score, then the goal-feed node.
+    LaptopLiveSnapshot#frames renders them server-side from the live page's
+    partials, and the driver below swaps them in and appends the node, as Turbo
+    does. The live script does the rest: the banner, the row wash, the
+    touchdown sweep, the score pop, the hot score, the card's glow ring.
+    "Touchdown +7" in the rail and the moving ball arrive with the tile.
+
+    LOCAL ONLY. No cable subscription and no request: every frame is in the
+    page. The leaderboard is never touched and keeps its real numbers.
+
+    IT RUNS ONLY WHEN IT CAN BE SEEN: from xl (below it the laptop is not
+    drawn), while the laptop is on screen, and while the tab is visible. Under
+    prefers-reduced-motion it never starts, and the laptop holds the static
+    opening frame. After the last frame it loops back to the opening one. %>
+<%# The live script's goal feed. The two holds are shortened from the live
+    page's 50s and 45s so a score cools before the next one lands. %>
+<div id="contest_<%= contest.id %>_goal_feed" class="hidden" aria-hidden="true"
+     data-hot-ms="8000" data-glow-ms="8000"></div>
+<div hidden data-test="laptop-sim"
+     data-game-slug="<%= sim.source.slug %>"
+     data-interval-ms="<%= LaptopScoreSimulation::INTERVAL_MS %>"
+     data-contest-id="<%= contest.id %>"
+     data-opening="<%= sim.opening.game.away_score %>-<%= sim.opening.game.home_score %>">
+  <%# Frames 1..TOUCHDOWNS. Frame 0, the opening 3-7, is the snapshot itself;
+      the driver copies it on load to loop back to. %>
+  <% frames.each do |frame| %>
+    <template data-frame="<%= frame[:index] %>" data-part="tile"><%= frame[:tile].html_safe %></template>
+    <template data-frame="<%= frame[:index] %>" data-part="chip"><%= frame[:chip].html_safe %></template>
+    <template data-frame="<%= frame[:index] %>" data-part="feed"><%= frame[:feed].html_safe %></template>
+  <% end %>
+</div>
+<%= render "live/score_banner" %>
+<%= render "contests/live_script", contest: contest %>
+<script>
+  (function () {
+    var root = document.querySelector('[data-test="laptop-sim"]');
+    if (!root || root.dataset.wired) return;   // once per page, across Turbo visits
+    root.dataset.wired = '1';
+
+    var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduced) return;                         // the static opening frame
+
+    var id      = root.dataset.contestId;
+    var slug    = root.dataset.gameSlug;
+    var every   = Number(root.dataset.intervalMs) || 10000;
+    var feed    = document.getElementById('contest_' + id + '_goal_feed');
+    var focus   = document.getElementById('contest_' + id + '_focus');
+    var games   = document.getElementById('contest_' + id + '_games');
+    var laptop  = root.closest('[data-test="laptop-mock"]') || root;
+    var wide    = window.matchMedia('(min-width: 1280px)');
+    var tileAt  = '[data-test="live-focus-game"][data-focus-slug="' + slug + '"]';
+    var chipAt  = '[data-test="live-game-chip"][data-game-slug="' + slug + '"]';
+    var count   = root.querySelectorAll('template[data-part="tile"]').length + 1;
+    if (!feed || !focus || count < 2) return;
+
+    // FRAME 0 IS THE PAGE AS IT LOADED: copies of the opening tile and chip,
+    // taken before anything moves, are what the loop comes back to.
+    var opening = {
+      tile: focus.querySelector(tileAt) && focus.querySelector(tileAt).cloneNode(true),
+      chip: games && games.querySelector(chipAt) && games.querySelector(chipAt).cloneNode(true)
+    };
+
+    var index = 0, timer = null, onScreen = false, observer = null;
+
+    function part(i, name) {
+      if (i === 0) return opening[name] || null;
+      var t = root.querySelector('template[data-frame="' + i + '"][data-part="' + name + '"]');
+      return t ? t.content.firstElementChild : null;
+    }
+
+    function swap(container, selector, fresh) {
+      if (!container || !fresh) return;
+      Array.prototype.forEach.call(container.querySelectorAll(selector), function (node) {
+        node.replaceWith(fresh.cloneNode(true));
+      });
+    }
+
+    // The panel first, then the announcement: the live script lights the
+    // scoring row on the next animation frame, so it finds the new score.
+    function show(i) {
+      swap(focus, tileAt, part(i, 'tile'));
+      swap(games, chipAt, part(i, 'chip'));
+      var node = part(i, 'feed');
+      if (node) feed.appendChild(node.cloneNode(true));
+      root.dataset.frame = String(i);
+    }
+
+    function step() {
+      if (!root.isConnected) return stop(true);  // Turbo left the page
+      index = (index + 1) % count;
+      show(index);
+    }
+
+    function running() {
+      return root.isConnected && wide.matches && onScreen && document.visibilityState === 'visible';
+    }
+    function sync() {
+      if (running()) { if (!timer) timer = setInterval(step, every); }
+      else if (timer) { clearInterval(timer); timer = null; }
+    }
+    function stop(detach) {
+      if (timer) { clearInterval(timer); timer = null; }
+      if (detach) {
+        document.removeEventListener('visibilitychange', sync);
+        if (wide.removeEventListener) wide.removeEventListener('change', sync);
+        if (observer) observer.disconnect();
+      }
+    }
+
+    document.addEventListener('visibilitychange', sync);
+    if (wide.addEventListener) wide.addEventListener('change', sync);
+    if ('IntersectionObserver' in window) {
+      observer = new IntersectionObserver(function (entries) {
+        onScreen = entries.some(function (e) { return e.isIntersecting; });
+        sync();
+      });
+      observer.observe(laptop);
+    } else {
+      onScreen = true;
+      sync();
+    }
+  })();
+</script>

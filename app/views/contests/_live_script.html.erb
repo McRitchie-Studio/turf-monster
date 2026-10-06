@@ -39,8 +39,13 @@
     feed.dataset.observed = '1';
 
     var REDUCED = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-    var HOT_MS  = window.NFL_HOT_MS  || 50000;    // a score stays lit
-    var GLOW_MS = window.NFL_GLOW_MS || 45000;    // a card wears its team ring
+    // A HOST CAN SHORTEN THE TWO LONGEST HOLDS on the feed element itself, not
+    // on window: the /turf-monster-v2 laptop runs this script over a simulated
+    // touchdown every ten seconds, where a 50s hold would leave both teams lit
+    // for good, and a window global would outlive that page into a Turbo visit
+    // to the real live page.
+    var HOT_MS  = Number(feed.dataset.hotMs)  || window.NFL_HOT_MS  || 50000;    // a score stays lit
+    var GLOW_MS = Number(feed.dataset.glowMs) || window.NFL_GLOW_MS || 45000;    // a card wears its team ring
     var MOVE_MS = window.TT_MOVE_MS  || 60000;    // a rank badge stays up
     var FLASH_MS = window.TT_FLASH_MS || 10000;   // a moved row stays washed
 

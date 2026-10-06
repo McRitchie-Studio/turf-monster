@@ -15,6 +15,19 @@
 # debug block, so the snapshot runs no code and opens no cable
 # subscription; the caller also marks it x-ignore, aria-hidden and inert.
 #
+# THE FEATURED GAME IS SIMULATED. The game the live page opens on is drawn
+# from LaptopScoreSimulation's opening frame (3-7, in progress), not from its
+# row, and #frames renders every later frame of that simulation through the
+# same partials and the same clean-up, for the page's own score script to swap
+# in. Nothing is written.
+#
+# TIMES IN MOUNTAIN. The live page prints kickoffs in UTC and lets its script
+# rewrite them in the reader's zone; the snapshot runs no script, so it
+# rewrites them here, in NextSlateDrop::ZONE (the zone this page already
+# states its drop time in), in the same formats the live script uses. The
+# laptop's copy of that script still re-formats them in the reader's zone once
+# it runs, exactly as /live does for a signed-out visitor.
+#
 # NAMES. A player with no username would be labelled by User#display_name's
 # fallbacks, an email prefix or a truncated wallet. Those users are relabelled
 # "Player N" (N = their rank) in the leaderboard and "A player" in the chat
@@ -35,19 +48,69 @@ class LaptopLiveSnapshot
     "expanded" => false, "!expanded" => true, "$store.devMode" => false
   }.freeze
 
+  # The formats contests/_live_script's formatKickoffs writes, per data-role.
+  TIME_FORMATS = {
+    "kickoff" => "%a %-l:%M %p",
+    "kickoff-date" => "%b %-d",
+    "played-on" => "%a, %b %-d"
+  }.freeze
+
   def self.render(showcase, host:, https:)
-    new(showcase).render(host: host, https: https)
+    new(showcase, host: host, https: https).render
   end
 
-  def initialize(showcase)
-    @showcase = showcase
+  attr_reader :simulation
+
+  def initialize(showcase, host:, https:)
+    @host = host
+    @https = https
+    focus_game = showcase.games.values.flatten.find { |game| game.slug == showcase.focus_slug }
+    @simulation = focus_game && LaptopScoreSimulation.new(focus_game)
+    @showcase = @simulation ? with_game(showcase, @simulation.opening.game) : showcase
   end
 
-  def render(host:, https:)
+  def render
     anonymize!
-    session = { geo_state: GEO_STATE, "geo_state" => GEO_STATE }
-    renderer = ContestsController.renderer.new(http_host: host, https: https, "rack.session" => session)
-    html = renderer.render(partial: "pages/laptop_live", locals: { showcase: @showcase })
+    doc = clean(renderer.render(partial: "pages/laptop_live", locals: { showcase: @showcase }))
+    collapse_navbar(doc)
+    rotate_strip(doc)
+    doc.to_html.html_safe # rubocop:disable Rails/OutputSafety -- our own partials' render, scripts removed
+  end
+
+  # EVERY TOUCHDOWN OF THE SIMULATION, as the three things a real score sends
+  # the live page (Contest::LiveBroadcast.goal_scored): the featured game's
+  # focus tile and its strip chip at the new score, and the goal-feed node the
+  # page's script turns into the banner and the row animations. Each is drawn
+  # by the live page's own partial and cleaned exactly as the snapshot is.
+  #
+  # The opening frame is not here: it is the snapshot the page loads with, and
+  # the page's script keeps a copy of it to loop back to. That saves the page a
+  # second copy of the largest frame.
+  def frames
+    return [] unless @simulation
+
+    contest = @showcase.contest
+    @simulation.frames.drop(1).map do |frame|
+      game = frame.game
+      tile = renderer.render(partial: "contests/live_focus",
+                             locals: { active: [game], upcoming: [], completed: [], contest: contest, focus_slug: game.slug })
+      chip = renderer.render(partial: "contests/live_game_chip", locals: { game: game })
+      feed = renderer.render(partial: "contests/goal_feed_item",
+                             locals: { event: "goal", goal: frame.goal, team: frame.team, player: nil, game: game })
+      { index: frame.index, tile: inert(clean(tile)), chip: inert(clean(chip)), feed: inert(clean(feed)) }
+    end
+  end
+
+  private
+
+  def renderer
+    @renderer ||= begin
+      session = { geo_state: GEO_STATE, "geo_state" => GEO_STATE }
+      ContestsController.renderer.new(http_host: @host, https: @https, "rack.session" => session)
+    end
+  end
+
+  def clean(html)
     doc = Nokogiri::HTML::DocumentFragment.parse(html)
     doc.css(STRIPPED).each(&:remove)
     # The leaderboard partial ends with a collapsible "Contest JSON" debug block
@@ -57,12 +120,48 @@ class LaptopLiveSnapshot
     doc.css(".json-debug").each { |node| (node.ancestors("details").first || node).remove }
     resolve_x_show(doc)
     resolve_focus_class(doc)
-    collapse_navbar(doc)
-    rotate_strip(doc)
-    doc.to_html.html_safe # rubocop:disable Rails/OutputSafety -- our own partials' render, scripts removed
+    localize_times(doc)
+    doc
   end
 
-  private
+  # The showcase with one game swapped for its simulated copy, in place in
+  # whichever phase list holds it.
+  def with_game(showcase, game)
+    games = showcase.games.transform_values do |list|
+      list.map { |g| g.slug == game.slug ? game : g }
+    end
+    showcase.with(games: games)
+  end
+
+  # A frame is swapped into the x-ignore snapshot after Alpine has started,
+  # and whether Alpine walks a node added under x-ignore is its own business.
+  # So a frame carries no Alpine at all: its one x-show is already resolved
+  # (the featured tile is the one shown) and its bindings are inert here.
+  ALPINE_ATTRIBUTE = /\A(x-|@|:)/
+
+  def inert(doc)
+    doc.traverse do |node|
+      next unless node.element?
+
+      node.attribute_nodes.each { |attr| node.remove_attribute(attr.name) if attr.name.match?(ALPINE_ATTRIBUTE) }
+    end
+    doc.to_html
+  end
+
+  def localize_times(doc)
+    zone = Time.find_zone!(NextSlateDrop::ZONE)
+    doc.css("time[datetime][data-role]").each do |node|
+      format = TIME_FORMATS[node["data-role"]]
+      next unless format
+
+      at = begin
+        Time.iso8601(node["datetime"])
+      rescue ArgumentError
+        next # keep the server's fallback text
+      end
+      node.content = at.in_time_zone(zone).strftime(format)
+    end
+  end
 
   # The games strip marks the game being watched with
   #   :class="focus === '<slug>' ? 'tt-chip-focused' : ''"

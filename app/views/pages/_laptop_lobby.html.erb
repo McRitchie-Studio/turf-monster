@@ -1,4 +1,4 @@
-<%# locals: (lobby:, showcase: nil, live_html: nil)
+<%# locals: (lobby:, showcase: nil, live_html: nil, sim: nil, sim_frames: [])
 
     A CSS laptop (screen bezel, hinge, a thin base) showing the contests lobby,
     live: one row per contest from NextContest.lobby, drawn with the lobby
@@ -25,6 +25,10 @@
     pages/_laptop_live, scaled from a 1280 x 800 canvas (0.33125). The lobby rows
     below are the fallback when there is none.
 
+    ITS FEATURED GAME IS SIMULATED (LaptopScoreSimulation): it opens at 3-7 and
+    pages/_laptop_score_sim plays a touchdown every ten seconds through the
+    live page's own script.
+
     EMPTY IS A STATE, NOT A BLANK. With fewer than lobby's limit of real
     contests, a row for the next drop (NextSlateDrop) follows the table,
     labelled with its date (or "Contests coming soon" once that date passes),
@@ -41,6 +45,9 @@
             never squeezed. The HTML is LaptopLiveSnapshot's signed-out render. %>
         <div class="w-[1280px] origin-top-left scale-[0.33125]" data-test="laptop-canvas">
           <%= live_html %>
+          <% if sim %>
+            <%= render "pages/laptop_score_sim", contest: showcase.contest, sim: sim, frames: sim_frames %>
+          <% end %>
         </div>
       <% else %>
       <div class="flex items-center gap-4 border-b border-subtle py-3 pl-[5.5rem] pr-5">
