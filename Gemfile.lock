@@ -422,7 +422,7 @@ GEM
     stripe (19.5.0)
       bigdecimal
       logger
-    studio-engine (0.91.1)
+    studio-engine (0.92.0)
       aws-sdk-s3 (~> 1.218)
       faker (>= 2.0, < 4.0)
       geocoder (>= 1.8, < 2.0)
@@ -433,6 +433,7 @@ GEM
       solid_queue (>= 1.0, < 2.0)
       tailwindcss-rails (~> 4.5)
       turbo-rails (>= 1.0)
+      view_component (>= 4.0, < 5)
     tailwindcss-rails (4.6.0)
       railties (>= 7.0.0)
       tailwindcss-ruby (~> 4.0)
@@ -453,6 +454,10 @@ GEM
     uri (1.1.1)
     useragent (0.16.11)
     version_gem (1.1.9)
+    view_component (4.15.0)
+      actionview (>= 7.1.0)
+      activesupport (>= 7.1.0)
+      concurrent-ruby (~> 1)
     web-console (4.3.0)
       actionview (>= 8.0.0)
       bindex (>= 0.4.0)
