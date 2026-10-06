@@ -15,7 +15,7 @@ class DbSpanTracingTest < ActiveSupport::TestCase
     attr_accessor :action_name, :controller_name
 
     def initialize
-      @action_name = "world_cup"
+      @action_name = "index"
       @controller_name = "contests"
     end
 
@@ -54,7 +54,7 @@ class DbSpanTracingTest < ActiveSupport::TestCase
     assert_match(/connect=[\d.]+ms/, log)
     assert_match(/execute=[\d.]+ms/, log)
     assert_match(/queries=\d+/, log)
-    assert_match(/controller=contests#world_cup/, log)
+    assert_match(/controller=contests#index/, log)
   end
 
   test "records connect and execute spans separately" do

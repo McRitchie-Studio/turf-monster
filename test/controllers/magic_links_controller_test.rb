@@ -149,9 +149,8 @@ class MagicLinksControllerTest < ActionDispatch::IntegrationTest
     post magic_link_consume_path(token: token)
 
     assert_redirected_to root_path
-    # Root is contests#world_cup, a redirector to the live board, so ONE more hop
-    # is expected and correct. What must never happen is landing back on an auth
-    # page or on /account — that bounce IS the bug.
+    # Root is the contests lobby. What must never happen is landing back on an
+    # auth page or on /account — that bounce IS the bug.
     follow_redirect!
     assert_not_equal account_path, request.path
     assert_not_equal signin_path, request.path

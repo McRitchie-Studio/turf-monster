@@ -368,12 +368,12 @@ class EntryTest < ActiveSupport::TestCase
     assert_equal 6, entry.reload.selections.count
   end
 
-  test "update_picks! refuses survivor entries" do
-    # Stand up a survivor contest + entry
-    survivor = Contest.create!(name: "Survivor", slate: @contest.slate, contest_type: "survivor_wc_paid",
-                                 entry_fee_cents: 1900, max_entries: 59, status: :open, starts_at: 2.weeks.from_now,
-                                 game_type: "world_cup_survivor", slug: "test-survivor")
-    entry = survivor.entries.create!(user: @user, status: :active)
+  test "update_picks! refuses an entry on a retired-format contest" do
+    retired = Contest.create!(name: "Retired", slate: @contest.slate, contest_type: "standard",
+                              entry_fee_cents: 1900, max_entries: 59, status: :open, starts_at: 2.weeks.from_now,
+                              slug: "test-retired")
+    entry = retired.entries.create!(user: @user, status: :active)
+    write_retired_format!(retired)
 
     error = assert_raises(RuntimeError) { entry.update_picks!([]) }
     assert_match(/not supported/i, error.message)

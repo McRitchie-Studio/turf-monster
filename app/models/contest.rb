@@ -177,8 +177,8 @@ class Contest < ApplicationRecord
   # The contest the app spotlights — the admin-set main contest, else the newest
   # open contest, else the newest open/settled (a freshly-graded contest still
   # serves as a leaderboard landing until a newer one opens). Single source of
-  # truth for the featured rail's lead card and the entry-gift landing
-  # (EntryGift#landing_contest).
+  # truth for the entry-gift landing (EntryGift#landing_contest) and the admin
+  # gift and free-entry defaults.
   #
   # THE FALLBACKS SKIP COMING SOON; THE ADMIN PIN DOES NOT. `coming_soon` is a
   # boolean independent of status, so a coming-soon contest IS `open` and can be

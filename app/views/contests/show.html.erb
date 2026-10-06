@@ -14,8 +14,8 @@
     1200x630 card. studio-engine's link preview reads content_for(:og_image) as
     the page-level override, so nil here — a contest with no banner — falls
     through to the site identity's image (/admin/link_preview) and then to
-    /og.png exactly as before. "/" is the contests lobby, which carries the
-    site-wide card. %>
+    /og.png exactly as before. "/" is the contests lobby, which leads with the
+    featured contest's banner (contests/index). %>
 <% content_for :og_image, contest_og_image_url(@contest) %>
 <%# Title + description: the contest's own name and money line, so a shared
     link previews as this contest rather than the site-wide default copy. %>

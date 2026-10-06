@@ -2,10 +2,11 @@
 
 require "test_helper"
 
-# WHICH CONTEST "/" LANDS ON.
+# WHICH CONTEST THE APP SPOTLIGHTS.
 #
-# Contest.featured is the single source of truth for the root redirect
-# (ContestsController#world_cup) and the magic-link sign-in landing. It resolves
+# Contest.featured is the single source of truth for the entry-gift landing,
+# the admin gift and free-entry defaults, and the lobby's link-preview banner.
+# It resolves
 # down three rungs — the admin's pinned main contest, then the newest OPEN
 # contest, then the newest open-or-settled one — and these tests pin what each
 # rung is allowed to return.
@@ -13,8 +14,8 @@ require "test_helper"
 # THE RULE UNDER TEST: the two automatic rungs skip a contest flagged
 # `coming_soon`; the admin's pin does not. `coming_soon` is a boolean that is
 # independent of status, so a coming-soon contest is `open` and sorts into the
-# newest-open query like any other — which is how "/" came to land visitors on
-# a contest they could only read about. Filtering it out of the fallbacks fixes
+# newest-open query like any other, and would spotlight a contest visitors can
+# only read about. Filtering it out of the fallbacks fixes
 # that; filtering it out of the PIN would instead overrule an admin who chose
 # that contest on purpose, so the pin case is asserted separately and in the
 # opposite direction.
@@ -82,8 +83,7 @@ class ContestFeaturedTest < ActiveSupport::TestCase
     contest("soon-a", created_at: 2.days.ago, coming_soon: true)
     contest("soon-b", created_at: 1.day.ago, coming_soon: true)
 
-    # nil is the contract world_cup reads to redirect to /contests instead. A
-    # coming-soon board has nothing to spotlight, so the index is the landing.
+    # nil is the contract: a coming-soon board has nothing to spotlight.
     assert_nil Contest.featured
   end
 
