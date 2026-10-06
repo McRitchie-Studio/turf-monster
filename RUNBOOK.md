@@ -91,6 +91,11 @@ Troubleshooting guide for autonomous agents. Format: problem, diagnosis, fix.
 - Diagnosis: `heroku run bin/rails db:migrate --app turf-monster-mainnet` errors. Check exact SQL error in logs.
 - Fix: Connect via `heroku pg:psql --app turf-monster-mainnet` to inspect state. If partially applied, check `schema_migrations` table.
 
+## Responses Not Compressed (or Compression Misbehaving)
+
+- Diagnosis: `curl -s -o /dev/null -D - -H 'Accept-Encoding: gzip' https://turfmonster.media/turf-monster-v2` should show `content-encoding: gzip` and `vary: ...Accept-Encoding`. Cloudflare is DNS-only for this domain, so the app (Rack::Deflater, `lib/response_compression.rb`) is the only thing that compresses HTML/JSON; assets come pre-gzipped from Sprockets via ActionDispatch::Static. Bodies under 1 KB, streams, files, images, video, archives, PDFs and fonts are skipped on purpose.
+- Fix: If compression breaks a client, turn it off without a deploy: `heroku config:set COMPRESS_RESPONSES=0 --app <app>` (restarts the dynos), then fix the policy in `lib/response_compression.rb`. Unset the var to restore the default.
+
 ## Solana RPC Errors
 
 **Rate limit (HTTP 429)**
