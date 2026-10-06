@@ -378,7 +378,7 @@ These are guards with reproductions behind them, not defensive padding.
 
   It reads `Contest#status`, never `onchain_settled`: `grade!` writes
   `settled` and only then attempts `Contest#settle_onchain!`
-  (`app/models/contest.rb:697-699`), so a graded, paid-out contest routinely reads
+  (`app/models/contest.rb:736-738`), so a graded, paid-out contest routinely reads
   `onchain_settled` false.
 - **It will not un-complete a finished game.** A stale scoreboard row would
   otherwise re-open a settled game and re-fire the FINAL broadcast.
