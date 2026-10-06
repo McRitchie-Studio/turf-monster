@@ -131,6 +131,12 @@
     <%= render "hub_tile", name: "Transactions",      url: admin_transactions_path, status: :flagged %>
   <% end %>
 
+  <%# Below every tile docs/workflows cites by line, so appending moves none. %>
+  <%= render layout: "hub_section", locals: { title: "Marketing" } do %>
+    <%= render "hub_tile", name: "Referrals", url: admin_referrals_path,
+          note: "Clicks to email and account signups per ?reference= link" %>
+  <% end %>
+
   <%# Actions — buttons and POST forms; a flex row, not the hub_section tile grid. %>
   <section>
     <h2 class="label-upper font-bold mb-3">Actions</h2>

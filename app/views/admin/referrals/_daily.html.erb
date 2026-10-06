@@ -1,0 +1,34 @@
+<%# One reference, day by day, newest first. Locals: report, reference, daily. %>
+<section data-referral-daily="<%= reference %>">
+  <div class="flex items-baseline justify-between mb-3">
+    <h2 class="text-lg font-bold text-heading">By day: <span class="font-mono"><%= reference %></span></h2>
+    <%= link_to "Close", admin_referrals_path(days: report.window), class: "text-xs text-secondary hover:text-primary" %>
+  </div>
+  <div class="card overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-subtle text-left text-muted">
+          <th class="px-3 py-2">Date</th>
+          <th class="px-3 py-2 text-right">Clicks</th>
+          <th class="px-3 py-2 text-right">Visitors</th>
+          <% if report.emails? %><th class="px-3 py-2 text-right">Email signups</th><% end %>
+          <th class="px-3 py-2 text-right">Account signups</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% daily.each do |day| %>
+          <tr class="border-b border-subtle" data-day="<%= day.date.iso8601 %>">
+            <td class="px-3 py-2 font-mono text-xs"><%= day.date.strftime("%a %b %-d") %></td>
+            <td class="px-3 py-2 font-mono text-right <%= day.clicks.zero? ? 'text-muted' : 'text-heading' %>"><%= day.clicks %></td>
+            <td class="px-3 py-2 font-mono text-right text-secondary"><%= day.visitors %></td>
+            <% if report.emails? %><td class="px-3 py-2 font-mono text-right"><%= day.email_signups %></td><% end %>
+            <td class="px-3 py-2 font-mono text-right"><%= day.account_signups %></td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+    <% if daily.empty? %>
+      <p class="px-3 py-6 text-center text-muted text-sm">No activity for this reference yet.</p>
+    <% end %>
+  </div>
+</section>
