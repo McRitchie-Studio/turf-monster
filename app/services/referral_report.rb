@@ -99,8 +99,8 @@ class ReferralReport
     ref_visits = visits.where(reference: ref)
     clicks = ref_visits.group(:visited_on).count
     visitors = ref_visits.group(:visited_on).distinct.count(:visitor_id)
-    accounts = count_by_day(account_scope.where("#{normalized_sql("users.reference")} = ?", ref))
-    emails = emails? ? count_by_day(email_scope.where("#{normalized_sql(email_source_column)} = ?", ref)) : {}
+    accounts = count_by_day(account_scope.where(normalized(User.arel_table[:reference]).eq(ref)))
+    emails = emails? ? count_by_day(email_scope.where(normalized(email_model.arel_table[:source]).eq(ref))) : {}
 
     dates = since_date ? (since_date..@today).to_a : (clicks.keys | accounts.keys | emails.keys)
 
@@ -131,14 +131,13 @@ class ReferralReport
     since_time ? scope.where(created_at: since_time..) : scope
   end
 
-  def email_source_column
-    "#{email_model.quoted_table_name}.source"
-  end
-
   # The SQL twin of ReferralVisit.normalize_reference, so a raw "TikTok" on a
-  # user groups with the "tiktok" clicks.
-  def normalized_sql(column)
-    Arel.sql("LEFT(LOWER(TRIM(#{column})), #{ReferralVisit::REFERENCE_LIMIT})")
+  # user groups with the "tiktok" clicks: LEFT(LOWER(TRIM(column)), 64), built
+  # from Arel nodes so no SQL is assembled from strings.
+  def normalized(attribute)
+    fn = Arel::Nodes::NamedFunction
+    fn.new("LEFT", [fn.new("LOWER", [fn.new("TRIM", [attribute])]),
+                    Arel::Nodes.build_quoted(ReferralVisit::REFERENCE_LIMIT)])
   end
 
   def count_by_day(scope)
@@ -149,8 +148,8 @@ class ReferralReport
     clicks = visits.group(:reference).count
     visitors = visits.group(:reference).distinct.count(:visitor_id)
     paths = visits.group(:reference, :landing_path).count
-    accounts = account_scope.group(normalized_sql("users.reference")).count
-    emails = emails? ? email_scope.group(normalized_sql(email_source_column)).count : {}
+    accounts = account_scope.group(normalized(User.arel_table[:reference])).count
+    emails = emails? ? email_scope.group(normalized(email_model.arel_table[:source])).count : {}
 
     top_paths = Hash.new { |h, k| h[k] = [] }
     paths.sort_by { |(_, path), count| [-count, path.to_s] }.each do |(ref, path), count|
