@@ -62,8 +62,8 @@
      - `before_create :set_initial_session_token` (`:111`) runs `User#set_initial_session_token` (`:530-532`), writing `users.session_token` for the OPSEC-045 cookie binding.
      - `after_create :generate_managed_wallet!` (`:126`) runs `User#generate_managed_wallet!` (`:574-602`): `Solana::Keypair.generate` (local ed25519, **no RPC**) at `:590`, then the encrypted keypair is written to `web2_solana_address` + `encrypted_web2_solana_private_key` at `:591-594`. It early-returns for admins (`:589`, OPSEC-044) and for every signup while `AppFlags.web3_only_onboarding?` is on (`:583`).
      - `after_commit :enqueue_onchain_account_setup, on: :create` (`:130`) runs `User#enqueue_onchain_account_setup` (`:811-813`), which enqueues `CreateOnchainUserAccountJob`. Async — the user is logged in before the PDA settles.
-   - `set_app_session(user)` at `app/controllers/magic_links_controller.rb:185` writes `session[:turf_user_id]` and `session[:session_token]` and clears any stale `session[:onchain]` (`app/controllers/application_controller.rb:36-50`).
-   - Consuming the link proves email ownership, so `email_verified_at` is stamped at `app/controllers/magic_links_controller.rb:184`.
+   - `set_app_session(user)` at `app/controllers/magic_links_controller.rb:186` writes `session[:turf_user_id]` and `session[:session_token]` and clears any stale `session[:onchain]` (`app/controllers/application_controller.rb:36-50`).
+   - Consuming the link proves email ownership, so `email_verified_at` is stamped at `app/controllers/magic_links_controller.rb:185`.
 
 6. **Buy 1 token via Stripe** — `TokensController#buy` (`app/controllers/tokens_controller.rb:7-16`) renders `app/views/tokens/buy.html.erb` with `StripePurchase.available_packs` (`:8`).
    - Pack catalog: the frozen `PACKS` constant (`app/models/stripe_purchase.rb:15-22`) — `"single"` is 1 token at `19_00` cents, the `"trio"` bundle is 3 at `49_00`, and both share one checkout path with a different `pack_id`. `"test_trio"` ($5) is hidden unless `AppFlags.test_scaffolding?` is on, which is what `StripePurchase.available_packs` decides (`:41-43`).
