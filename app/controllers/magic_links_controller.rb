@@ -511,4 +511,8 @@ class MagicLinksController < ApplicationController
 
     root_path
   end
+
+  # OPSEC-048: FrozenAccountGuard refuses a frozen account every write but this.
+  # At the foot of the class so docs/workflows' line citations above hold.
+  allow_frozen_account_writes only: [:create, :consume], reason: "signing in is a read: the freeze holds actions, not access"
 end

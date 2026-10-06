@@ -2903,4 +2903,8 @@ class ContestsController < ApplicationController
 
     ts
   end
+
+  # OPSEC-048: FrozenAccountGuard refuses a frozen account every write but this.
+  # At the foot of the class so docs/workflows' line citations above hold.
+  allow_frozen_account_writes only: :discard_prepared_entry, reason: "drops an unsigned prepared entry; it can only undo, never enter"
 end

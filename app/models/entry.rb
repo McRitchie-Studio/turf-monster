@@ -30,6 +30,11 @@ class Entry < ApplicationRecord
   # race-safe backstop; this validation gives a clean error message.
   validates :onchain_tx_signature, uniqueness: true, allow_nil: true
 
+  # OPSEC-048: a frozen account can neither start an entry nor make one live.
+  include FrozenAccount::Validation
+  validates_account_not_frozen :user, on: :create
+  validates_account_not_frozen :user, on: :update, if: -> { will_save_change_to_status?(to: "active") }
+
   private
 
   def sync_user_contest_entered

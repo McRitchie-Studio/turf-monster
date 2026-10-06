@@ -218,4 +218,8 @@ class SolanaSessionsController < ApplicationController
   rescue ActiveRecord::RecordNotUnique
     false
   end
+
+  # OPSEC-048: FrozenAccountGuard refuses a frozen account every write but this.
+  # At the foot of the class so docs/workflows' line citations above hold.
+  allow_frozen_account_writes only: :report_failure, reason: "client wallet-failure telemetry; writes a log line, acts for no one"
 end

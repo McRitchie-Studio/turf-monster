@@ -13,7 +13,7 @@ require "test_helper"
 # the MCP endpoint will take.
 class ApiKeyAuthenticationTest < ActionDispatch::IntegrationTest
   class ProbeController < Api::V1::BaseController
-    allow_frozen_account_writes only: :dispatch_tool
+    allow_frozen_account_writes only: :dispatch_tool, reason: "test double: asks write_refusal per tool"
     before_action :require_age_verified, only: :enter
 
     cattr_accessor :reraise, default: false
@@ -295,12 +295,24 @@ class ApiKeyAuthenticationTest < ActionDispatch::IntegrationTest
 
   # --- the opt-out must name its actions -------------------------------------------
 
-  # Called bare, skip_before_action would lift the freeze gate from every
-  # action of the controller, present and future. That spelling must not load.
+  # A bare opt-out would lift the freeze gate from every action of the
+  # controller, present and future. That spelling must not load, and neither
+  # may one that does not say why. Each case below passes the OTHER keyword,
+  # so the one under test is the one that refuses.
   test "allow_frozen_account_writes refuses to be called without only:" do
-    assert_raises(ArgumentError) { Class.new(Api::V1::BaseController) { allow_frozen_account_writes } }
-    assert_raises(ArgumentError) { Class.new(Api::V1::BaseController) { allow_frozen_account_writes only: [] } }
-    assert_raises(ArgumentError) { Class.new(Api::V1::BaseController) { allow_frozen_account_writes only: nil } }
-    assert_raises(ArgumentError) { Class.new(Api::V1::BaseController) { allow_frozen_account_writes except: :read } }
+    why = "test"
+    assert_raises(ArgumentError) { Class.new(Api::V1::BaseController) { allow_frozen_account_writes reason: why } }
+    assert_raises(ArgumentError) { Class.new(Api::V1::BaseController) { allow_frozen_account_writes only: [], reason: why } }
+    assert_raises(ArgumentError) { Class.new(Api::V1::BaseController) { allow_frozen_account_writes only: nil, reason: why } }
+    assert_raises(ArgumentError) { Class.new(Api::V1::BaseController) { allow_frozen_account_writes except: :read, reason: why } }
+  end
+
+  test "allow_frozen_account_writes refuses to be called without a reason" do
+    assert_raises(ArgumentError) { Class.new(Api::V1::BaseController) { allow_frozen_account_writes only: :create } }
+    assert_raises(ArgumentError) { Class.new(Api::V1::BaseController) { allow_frozen_account_writes only: :create, reason: " " } }
+    klass = Class.new(Api::V1::BaseController) { allow_frozen_account_writes only: :create, reason: "control" }
+    assert klass.frozen_write_exempt?(:create), "a named action with a reason loads and is exempt"
+    assert_not klass.frozen_write_exempt?(:update)
+    assert_not Api::V1::BaseController.frozen_write_exempt?(:create), "the exemption stays on the subclass"
   end
 end

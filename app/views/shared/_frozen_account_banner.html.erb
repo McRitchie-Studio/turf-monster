@@ -1,0 +1,12 @@
+<%# OPSEC-048 account freeze banner, on every page a frozen account sees
+    (layouts/_navbar and layouts/landing). Server-rendered and JS-free, like the
+    impersonation banner beside it. Present tense, one sentence and a contact. %>
+<% message = capture do %>
+  <span data-frozen-banner><strong><%= FrozenAccount::BANNER %></strong> Contact <a href="mailto:support@turfmonster.media" class="underline">support@turfmonster.media</a>.</span>
+<% end %>
+
+<%= render "shared/app_banner",
+           tone: :frozen,
+           density: :normal,
+           wrap: true,
+           message: message %>

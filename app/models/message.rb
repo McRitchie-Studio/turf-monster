@@ -13,6 +13,9 @@ class Message < ApplicationRecord
   before_validation { self.body = body.strip if body.is_a?(String) }
 
   validates :body, presence: true, length: { maximum: BODY_MAX_LENGTH }
+  # OPSEC-048: a frozen account cannot post in a contest chat.
+  include FrozenAccount::Validation
+  validates_account_not_frozen :user, on: :create
 
   # hidden_at nil = visible. Admin soft-delete sets it (see #hide!).
   scope :visible, -> { where(hidden_at: nil) }

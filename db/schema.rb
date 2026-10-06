@@ -10,9 +10,20 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_06_190000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_06_230000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
+
+  create_table "account_freeze_events", force: :cascade do |t|
+    t.string "action", null: false
+    t.bigint "admin_id"
+    t.datetime "created_at", null: false
+    t.string "reason", null: false
+    t.string "source", null: false
+    t.bigint "user_id", null: false
+    t.index ["admin_id"], name: "index_account_freeze_events_on_admin_id"
+    t.index ["user_id", "created_at"], name: "index_account_freeze_events_on_user_id_and_created_at"
+  end
 
   create_table "active_storage_attachments", force: :cascade do |t|
     t.bigint "blob_id", null: false
@@ -1181,6 +1192,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_190000) do
     t.index ["web3_solana_address"], name: "index_users_on_web3_solana_address", unique: true, where: "(web3_solana_address IS NOT NULL)"
   end
 
+  add_foreign_key "account_freeze_events", "users"
+  add_foreign_key "account_freeze_events", "users", column: "admin_id"
   add_foreign_key "active_storage_attachments", "active_storage_blobs", column: "blob_id"
   add_foreign_key "active_storage_variant_records", "active_storage_blobs", column: "blob_id"
   add_foreign_key "aeropay_purchases", "users"

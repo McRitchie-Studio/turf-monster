@@ -93,4 +93,8 @@ class SessionsController < ApplicationController
     reset_session
     redirect_to signin_path, notice: "Logged out."
   end
+
+  # OPSEC-048: FrozenAccountGuard refuses a frozen account every write but this.
+  # At the foot of the class so docs/workflows' line citations above hold.
+  allow_frozen_account_writes only: [:create, :sso_continue], reason: "signing in is a read: the freeze holds actions, not access"
 end

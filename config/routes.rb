@@ -759,4 +759,12 @@ Rails.application.routes.draw do
   end
   # The e2e lane's experiment fixture (TestController#seed_page_experiment).
   post "test/seed_page_experiment", to: "test#seed_page_experiment" unless Rails.env.production?
+
+  # OPSEC-048: the operator's account freeze and unfreeze, each with a reason
+  # and an AccountFreezeEvent row (Admin::AccountFreezesController). At the end
+  # of the file for the same no-citation-moves reason as above.
+  namespace :admin do
+    post   "users/:user_slug/freeze", to: "account_freezes#create",  as: :freeze_user
+    delete "users/:user_slug/freeze", to: "account_freezes#destroy", as: :unfreeze_user
+  end
 end

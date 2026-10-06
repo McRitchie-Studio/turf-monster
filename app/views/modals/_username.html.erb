@@ -18,7 +18,17 @@
        phone with no injected wallet takes the redirect transport instead
        of being refused. See shared/_username_rename_intent.
 %>
-<% if current_user.can_change_username? %>
+<% if account_frozen? %>
+  <%# OPSEC-048: a frozen account cannot rename (User validation, FrozenAccountGuard). %>
+  <div x-data="{}" data-frozen-cta>
+    <%= render 'studio/modals/blocks/card_header',
+          size: :lg,
+          icon: :error,
+          title: "Username locked",
+          subtitle: "#{FrozenAccount::CTA_REASON}, so you cannot change your username." %>
+    <button @click="$store.modals.close()" class="btn btn-outline btn-lg w-full">Dismiss</button>
+  </div>
+<% elsif current_user.can_change_username? %>
   <%# On-chain rename via studio-engine's leveling-activity primitive
       (studio/modals/blocks/_change_username). The engine owns the input + Save +
       Saved + spinner; TM owns the on-chain save as an app-supplied callback:

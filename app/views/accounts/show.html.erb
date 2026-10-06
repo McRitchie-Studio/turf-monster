@@ -98,9 +98,16 @@
 
       <div class="text-xl font-bold text-heading mb-3"><%= current_user.display_name %></div>
 
-      <button type="button" @click="$store.modals.open('username')" class="btn btn-outline btn-sm">
-        Change username
-      </button>
+      <% if account_frozen? %>
+        <button type="button" disabled data-frozen-cta title="<%= FrozenAccount::CTA_REASON %>" class="btn btn-outline btn-sm opacity-60 cursor-not-allowed">
+          Change username
+        </button>
+        <p class="text-xs text-muted mt-1"><%= FrozenAccount::CTA_REASON %>.</p>
+      <% else %>
+        <button type="button" @click="$store.modals.open('username')" class="btn btn-outline btn-sm">
+          Change username
+        </button>
+      <% end %>
     </div>
 
   </div>

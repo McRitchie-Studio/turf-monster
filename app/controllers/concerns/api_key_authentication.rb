@@ -26,12 +26,13 @@
 #
 # WHAT IT KEEPS, and how a write endpoint uses it:
 #
-#   * The account freeze (OPSEC-048), DEFAULT-DENY. A frozen account is refused
-#     403 `account_frozen` on every request that is not a GET or a HEAD, with
-#     nothing to remember: a new write endpoint is covered the day it is routed.
-#     Reads stay open, as they do on the web. A controller opts an action out
-#     by name — `allow_frozen_account_writes only: :call_tool` — and then owes
-#     the check itself.
+#   * The account freeze (OPSEC-048), DEFAULT-DENY: FrozenAccountGuard, the
+#     same gate the web runs. A frozen account is refused 403 `account_frozen`
+#     on every request that is not a GET or a HEAD, with nothing to remember: a
+#     new write endpoint is covered the day it is routed. Reads stay open, as
+#     they do on the web. A controller opts an action out by name and reason —
+#     `allow_frozen_account_writes only: :call_tool, reason: "…"` — and then
+#     owes the check itself.
 #   * The age gate, ON REQUEST. A key stamped `not_required` can outlive
 #     ENABLE_AGE_GATE being turned on, so an action that enters a contest
 #     re-asks: `before_action :require_age_verified`.
@@ -63,8 +64,7 @@ module ApiKeyAuthentication
     expired_api_key: "That API key has expired. Create a new one on your account page."
   }.freeze
 
-  FROZEN_MESSAGE = "This account is on hold pending review of a recent payment. " \
-                   "Contact support@turfmonster.media.".freeze
+  FROZEN_MESSAGE = FrozenAccount::MESSAGE
   AGE_GATE_MESSAGE = "Verify your age on turfmonster.media before entering a contest. " \
                      "Sign in, open your account page, and confirm your date of birth.".freeze
 
@@ -86,26 +86,15 @@ module ApiKeyAuthentication
     rescue_from ActionDispatch::Http::Parameters::ParseError, with: :render_api_malformed_body
 
     before_action :authenticate_api_key!
-    # After authentication, so a keyless write is still a 401, not a 403.
-    before_action :refuse_frozen_account_writes
-  end
-
-  class_methods do
-    # The explicit opt-out from the default freeze gate, for the actions named
-    # in `only:`. An action named here is reachable by a frozen account on any
-    # verb, so it owes `frozen_account_refusal` (or `require_unfrozen_account`)
-    # wherever it actually writes.
+    # After authentication, so a keyless write is still a 401, not a 403. The
+    # include adds its before_action HERE, after the one above; included at
+    # the module level it would run first, while current_user is still nil.
     #
-    # `only:` is REQUIRED and may not be empty. Called bare, skip_before_action
-    # would lift the gate from every action of the controller, present and
-    # future, which is the opposite of default-deny; so the one spelling that
-    # does that does not load.
-    def allow_frozen_account_writes(only:)
-      actions = Array(only).map(&:to_sym)
-      raise ArgumentError, "allow_frozen_account_writes needs only: with at least one action" if actions.empty?
-
-      skip_before_action :refuse_frozen_account_writes, only: actions
-    end
+    # Its `allow_frozen_account_writes only:, reason:` is the explicit opt-out.
+    # An action named there is reachable by a frozen account on any verb, so it
+    # owes `frozen_account_refusal` (or `require_unfrozen_account`) wherever it
+    # actually writes. `only:` and `reason:` are REQUIRED and may not be empty.
+    include FrozenAccountGuard
   end
 
   private
@@ -138,13 +127,13 @@ module ApiKeyAuthentication
   # Three layers, each built on the one before:
   #   *_refusal        the question. Renders nothing; nil means "go ahead".
   #   require_*        the question as a before_action: renders the refusal.
-  #   refuse_frozen_…  require_unfrozen_account on every non-read, by default.
+  #   FrozenAccountGuard  require_unfrozen_account on every non-read, by default.
 
   # OPSEC-048, the API's copy. nil, or why this account may not write.
   def frozen_account_refusal
     return unless current_user&.frozen?
 
-    Refusal.new(:account_frozen, FROZEN_MESSAGE, :forbidden)
+    Refusal.new(FrozenAccount::CODE.to_sym, FROZEN_MESSAGE, FrozenAccount::STATUS)
   end
 
   # The entry age gate, re-asked at the moment of a write. Eligibility is
@@ -171,10 +160,9 @@ module ApiKeyAuthentication
     render_api_refusal(age_gate_refusal)
   end
 
-  # GET and HEAD are the reads; every other verb is treated as a write.
-  def refuse_frozen_account_writes
-    return if request.get? || request.head?
-
+  # FrozenAccountGuard's refusal, in this surface's envelope. The guard decides
+  # (GET and HEAD are the reads; every other verb is a write); this renders.
+  def render_frozen_account_refusal
     require_unfrozen_account
   end
 

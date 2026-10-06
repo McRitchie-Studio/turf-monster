@@ -5,7 +5,7 @@
     per-message Hide buttons for admins — broadcast partials can't know the
     viewer, so visibility is driven by this container class. %>
 <% messages = local_assigns.fetch(:messages) { Message.recent_for(contest) } %>
-<% can_post = logged_in? && contest.chat_enabled? && contest.chat_participant?(current_user) %>
+<% can_post = logged_in? && !account_frozen? && contest.chat_enabled? && contest.chat_participant?(current_user) %>
 <%# Quest 2 typewriter deck (contests_helper#chat_prompt_samples). Gated on
     @quest_step, which contests#show sets only for an entrant — because the ONLY
     thing that dispatches quest-chat-active is the quest card, and contests#live
@@ -61,7 +61,7 @@
         <%= link_to "Sign in", signin_path, class: "text-primary hover:text-primary-300 font-medium" %> to join the chat.
       </p>
     <% elsif !can_post %>
-      <p class="text-sm text-muted text-center py-1">Enter the contest to join the chat.</p>
+      <p class="text-sm text-muted text-center py-1" <%= "data-frozen-cta" if account_frozen? %>><%= account_frozen? ? "Chat is off while your account is frozen." : "Enter the contest to join the chat." %></p>
     <% else %>
       <form class="flex items-center gap-2" @submit.prevent="send()">
         <%# Quest 2: .chat-input-glow while the "Send Your First Message" mission

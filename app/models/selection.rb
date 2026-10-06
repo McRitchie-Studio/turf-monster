@@ -5,6 +5,9 @@ class Selection < ApplicationRecord
   belongs_to :slate_matchup
 
   validates :slate_matchup_id, uniqueness: { scope: :entry_id }
+  # OPSEC-048: no new pick on a frozen account's entry (edit_entry, the cart).
+  include FrozenAccount::Validation
+  validates_account_not_frozen -> { entry&.user }, on: :create
 
   # Points for one pick.
   #

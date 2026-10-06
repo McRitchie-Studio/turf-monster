@@ -1121,14 +1121,13 @@ class ApplicationController < ActionController::Base
 
   # B4 / OPSEC-048: block money-moving actions when the account is frozen
   # (chargeback / refund / dispute pending review). Read-only access stays open.
+  # Every non-GET already passes FrozenAccountGuard; this is the same refusal
+  # on any verb, for an action that must ask outright.
   def require_unfrozen_account
     return unless logged_in?
     return unless current_user.frozen?
-    msg = "Your account is on hold pending review of a recent payment. Please contact support@turfmonster.media."
-    respond_to do |format|
-      format.html { redirect_to account_path, alert: msg }
-      format.json { render json: { error: msg }, status: :forbidden }
-    end
+
+    render_frozen_account_refusal
   end
 
   # Shared server-side guard for user-supplied image uploads (avatars, contest
@@ -1156,4 +1155,9 @@ class ApplicationController < ActionController::Base
   # Page A/B tests: assignment, the sticky variant cookie, visit counts, and
   # the experiment a conversion is credited to (PageExperimentTracking).
   include PageExperimentTracking
+
+  # OPSEC-048, DEFAULT-DENY: a frozen account is refused every request that is
+  # not a GET or a HEAD (FrozenAccountGuard). Last on purpose, so its callback
+  # runs after authentication resolves, and so this file's cited lines hold.
+  include FrozenAccountGuard
 end
