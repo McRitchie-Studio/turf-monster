@@ -465,7 +465,7 @@ hand-maintained rows were wrong twice running; the floor is what stops a third.
 The version above is the EARLIEST tag containing the commit that wired them
 (`06bda3b`), not a tag that happens to carry it. **The gap this paragraph used
 to describe is CLOSED, and closing it is why the sentence changed:** the Gemfile
-pin (`Gemfile:225`) reads `"~> 0.12"` — raised there from `"~> 0.9", ">= 0.9.2"`
+pin (`Gemfile:223`) reads `"~> 0.12"` — raised there from `"~> 0.9", ">= 0.9.2"`
 on 2026-09-20 for `Solana::Cosign` — so the resolver itself refuses 0.6.x, and
 `test/lib/engine_pin_contract_test.rb`'s `SOLANA_STUDIO_MINIMUM` asserts the
 resolve against 0.9.2 as well. That constant deliberately stays at 0.9.2: it is a

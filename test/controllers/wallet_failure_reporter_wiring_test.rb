@@ -68,7 +68,7 @@ class WalletFailureReporterWiringTest < ActionDispatch::IntegrationTest
   # "Report wallet failures from both web3 modals", whose EARLIEST containing tag
   # is v0.7.0. Stated as the earliest containing tag rather than as a list of
   # tags that carry it, because a list is falsified by the very next release —
-  # this repo has already paid for that mistake at length (see Gemfile:108).
+  # this repo has already paid for that mistake at length (see Gemfile:106).
   #
   # DERIVED, not read off a changelog. Across the installed gem corpus,
   # solana_studio/modals/_wallet_connect.html.erb EXISTS from 0.5.3 carrying
