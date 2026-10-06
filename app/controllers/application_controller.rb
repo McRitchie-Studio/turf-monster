@@ -1160,4 +1160,25 @@ class ApplicationController < ActionController::Base
   # not a GET or a HEAD (FrozenAccountGuard). Last on purpose, so its callback
   # runs after authentication resolves, and so this file's cited lines hold.
   include FrozenAccountGuard
+
+  private
+
+  # FrozenAccountGuard's refusal, for the web. A browser form post (plain or
+  # Turbo) asks for text/html and gets a 303 back with the message as an alert;
+  # a fetch() from the page's own JS (*/* or JSON) gets the 403 JSON it reads
+  # `error` from, with the same `code` the agent API answers.
+  def render_frozen_account_refusal
+    if frozen_refusal_wants_html?
+      redirect_back_or_to account_path, alert: FrozenAccount::MESSAGE, status: :see_other
+    else
+      render json: { error: FrozenAccount::MESSAGE, code: FrozenAccount::CODE }, status: FrozenAccount::STATUS
+    end
+  end
+
+  def frozen_refusal_wants_html?
+    return false if request.xhr?
+    return false if request.content_mime_type&.json?
+
+    request.headers["Accept"].to_s.include?("text/html")
+  end
 end

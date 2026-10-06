@@ -14,7 +14,7 @@ class AccountFreezeTest < ActionDispatch::IntegrationTest
     post enter_contest_path(contest)
 
     assert_redirected_to account_path
-    assert_match(/on hold/i, flash[:alert])
+    assert_match(/frozen/i, flash[:alert])
   end
 
   test "frozen user is blocked from buying tokens" do
@@ -23,7 +23,7 @@ class AccountFreezeTest < ActionDispatch::IntegrationTest
     post tokens_stripe_checkout_path, params: { pack: "trio" }
 
     assert_redirected_to account_path
-    assert_match(/on hold/i, flash[:alert])
+    assert_match(/frozen/i, flash[:alert])
   end
 
   test "frozen user is blocked from withdrawing" do
@@ -32,7 +32,7 @@ class AccountFreezeTest < ActionDispatch::IntegrationTest
     post withdraw_wallet_path, params: { amount: 10 }
 
     assert_redirected_to account_path
-    assert_match(/on hold/i, flash[:alert])
+    assert_match(/frozen/i, flash[:alert])
   end
 
   test "frozen user can still view read-only account page" do

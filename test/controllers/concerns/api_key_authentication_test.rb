@@ -112,7 +112,7 @@ class ApiKeyAuthenticationTest < ActionDispatch::IntegrationTest
 
     assert_equal 403, @status
     assert_equal "account_frozen", error["code"]
-    assert_match(/on hold/i, error["message"])
+    assert_match(/frozen/i, error["message"])
   end
 
   test "the default covers every writing verb" do
@@ -172,7 +172,7 @@ class ApiKeyAuthenticationTest < ActionDispatch::IntegrationTest
     assert_equal 200, @status, "the question must not render the REST error for the caller"
     body = JSON.parse(@body)
     assert_equal "account_frozen", body["tool_error"]
-    assert_match(/on hold/i, body["text"])
+    assert_match(/frozen/i, body["text"])
     assert_not body.key?("error")
   end
 

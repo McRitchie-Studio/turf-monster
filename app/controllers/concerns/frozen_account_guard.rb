@@ -69,21 +69,9 @@ module FrozenAccountGuard
     render_frozen_account_refusal if frozen_account_write_blocked?
   end
 
-  # The web's answer. ApiKeyAuthentication overrides it with its own envelope.
-  def render_frozen_account_refusal
-    if frozen_refusal_wants_html?
-      redirect_back_or_to account_path, alert: FrozenAccount::MESSAGE, status: :see_other
-    else
-      render json: { error: FrozenAccount::MESSAGE, code: FrozenAccount::CODE }, status: FrozenAccount::STATUS
-    end
-  end
-
-  # A browser form post (plain or Turbo) asks for text/html; a fetch() from the
-  # page's own JS sends */* or JSON and reads `error` from a JSON body.
-  def frozen_refusal_wants_html?
-    return false if request.xhr?
-    return false if request.content_mime_type&.json?
-
-    request.headers["Accept"].to_s.include?("text/html")
-  end
+  # The answer itself, `render_frozen_account_refusal`, is the HOST's, in its
+  # own envelope: ApplicationController's for the web, ApiKeyAuthentication's
+  # for the API. It is deliberately not defined here, not even as a stub: this
+  # module is included after ApiKeyAuthentication, so it sits ahead of it in
+  # the method lookup and any definition here would shadow the API's.
 end

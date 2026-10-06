@@ -207,7 +207,7 @@ class Webhooks::StripeControllerTest < ActionDispatch::IntegrationTest
     contest = contests(:one)
     post enter_contest_path(contest)
     assert_redirected_to account_path
-    assert_match(/on hold/i, flash[:alert])
+    assert_match(/frozen/i, flash[:alert])
   end
 
   # ── Unknown event types ────────────────────────────────────────────────
