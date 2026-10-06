@@ -22,4 +22,8 @@ if ENV["SENTRY_DSN"].present?
     config.send_default_pii = false
     config.send_modules = false
   end
+
+  # A Redis cache outage reports through Rails.error (CacheErrorReporter); this
+  # sends those reports, and only those, to Sentry.
+  Rails.application.config.after_initialize { CacheErrorReporter.subscribe_sentry! }
 end

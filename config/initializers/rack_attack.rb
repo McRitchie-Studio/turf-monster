@@ -20,10 +20,13 @@
 # Rails.cache is a redis_cache_store whose error_handler swallows connection
 # errors (config/environments/production.rb), so while Redis is down an
 # increment answers nil rather than raising. rack-attack 6.8 reads that nil as
-# a new bucket and counts 1 (Rack::Attack::Cache#do_count), every limit here is
+# a new bucket and counts 1 (`result || 1` in Rack::Attack::Cache#do_count;
+# RedisCacheStoreProxy defines its own #increment only for ActiveSupport < 6, so
+# on this Rails the store's nil reaches do_count unchanged), every limit here is
 # at least 1, and so no request is throttled until Redis is back. Nothing
 # raises, so no `rescue` in this file runs either. The outage is loud even so:
-# the error_handler logs "[cache] increment failed" on every counted request.
+# the error_handler (CacheErrorReporter) logs "[cache] increment failed" on
+# every counted request and reports to Sentry once a minute per process.
 #
 # Failing closed was weighed rule by rule and refused, because a closed rule
 # refuses EVERYONE it matches, not only the abuser:
@@ -31,8 +34,9 @@
 #     be with Redis up. Dropping it would lose every real person's click for
 #     the length of the outage to cap a script that happens to run inside it.
 #   - login, signup, magic link, email verification, wallet sign-in: a closed
-#     rule is a sign-in outage for every user. Passwords stay hashed, magic
-#     links single-use, wallet signatures verified; only the rate is lost.
+#     rule is a sign-in outage for every user. Turf has no passwords (POST
+#     /login only bounces to the magic-link page), magic links stay single-use
+#     and wallet signatures verified; only the rate is lost.
 #   - checkout, deposit, cash-out, withdraw: a closed rule stops every purchase
 #     and every cash-out. Each is behind its own authorization, and cash-out is
 #     bounded by its state machine (cdp_offramp_send/user below). The faucet and
