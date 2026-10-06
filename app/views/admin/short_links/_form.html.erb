@@ -1,0 +1,53 @@
+<%# locals: (short_link:) %>
+<% field_class = "w-full text-sm rounded-md border border-subtle px-2 py-1.5" %>
+<% field_style = "background: var(--color-surface-alt); color: var(--color-text);" %>
+<% url = short_link.persisted? ? admin_short_link_path(short_link.token_in_database) : admin_short_links_path %>
+
+<%= form_with model: short_link, scope: :campaign_link, url: url, local: true, class: "space-y-5" do |f| %>
+  <% if short_link.errors.any? %>
+    <div class="rounded-lg border border-danger bg-danger/10 text-danger-ink text-sm px-4 py-3" role="alert">
+      <p class="font-semibold mb-1"><%= pluralize(short_link.errors.count, "error") %> to fix:</p>
+      <ul class="list-disc list-inside space-y-0.5">
+        <% short_link.errors.full_messages.each do |msg| %>
+          <li><%= msg %></li>
+        <% end %>
+      </ul>
+    </div>
+  <% end %>
+
+  <div class="card p-6 space-y-4">
+    <div>
+      <%= f.label :token, "Name", class: "text-muted text-[10px] uppercase tracking-wide block mb-1" %>
+      <%= f.text_field :token, required: true, placeholder: "tt", autocomplete: "off", spellcheck: false,
+            class: "#{field_class} font-mono", style: field_style %>
+      <p class="text-muted text-xs mt-1">
+        The short URL is <span class="font-mono"><%= request.base_url %>/l/&lt;name&gt;</span>.
+        2 to 32 lowercase letters, digits and hyphens.
+        <% if short_link.persisted? %><strong class="text-heading">Renaming breaks every copy already shared.</strong><% end %>
+      </p>
+    </div>
+
+    <div>
+      <%= f.label :target_path, "Goes to", class: "text-muted text-[10px] uppercase tracking-wide block mb-1" %>
+      <%= f.text_field :target_path, required: true, placeholder: "/turf-monster-v2", spellcheck: false,
+            class: "#{field_class} font-mono", style: field_style %>
+      <p class="text-muted text-xs mt-1">A page on this site, starting with <span class="font-mono">/</span>. Its own query string is kept.</p>
+    </div>
+
+    <div>
+      <%= f.label :reference, "Reference", class: "text-muted text-[10px] uppercase tracking-wide block mb-1" %>
+      <%= f.text_field :reference, required: true, placeholder: "tiktok-bio", spellcheck: false,
+            class: "#{field_class} font-mono", style: field_style %>
+      <p class="text-muted text-xs mt-1">
+        The name clicks and signups are counted under on
+        <%= link_to "Referrals", admin_referrals_path, class: "text-primary hover:underline" %>.
+        One name per placement; never reuse one for a different channel.
+      </p>
+    </div>
+  </div>
+
+  <div class="flex items-center gap-3">
+    <%= f.submit (short_link.persisted? ? "Save" : "Create Short Link"), class: "btn btn-success" %>
+    <%= link_to "Cancel", admin_short_links_path, class: "btn btn-outline" %>
+  </div>
+<% end %>

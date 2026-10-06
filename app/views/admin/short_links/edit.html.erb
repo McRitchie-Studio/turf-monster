@@ -1,0 +1,6 @@
+<% content_for(:title, "Edit Short Link — Admin") %>
+
+<div class="max-w-2xl mx-auto py-8 px-4 space-y-6">
+  <h1 class="text-heading text-2xl font-bold">Edit <span class="font-mono">/l/<%= @short_link.token_in_database %></span></h1>
+  <%= render "admin/short_links/form", short_link: @short_link %>
+</div>
