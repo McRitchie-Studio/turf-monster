@@ -117,6 +117,23 @@ class ReferralVisitTrackingTest < ActionDispatch::IntegrationTest
     Rack::Attack.cache.store = prior_store
   end
 
+  # The cap fails open on a Redis outage, as every rack-attack rule does
+  # (config/initializers/rack_attack.rb, "Cache outage").
+  test "with Redis down, clicks past the per-address limit are recorded and the page still answers" do
+    limit = Rack::Attack::REFERRAL_VISIT_LIMIT
+
+    RedisCacheOutage.with_rack_attack do |swallowed|
+      assert_difference "ReferralVisit.count", limit + 5 do
+        (limit + 5).times do |n|
+          returning_visitor(format("00000000-0000-4000-a000-%012d", n))
+          get root_path, params: { reference: "tiktok" }, headers: BROWSER.dup
+          assert_includes [200, 302], response.status
+        end
+      end
+      refute_empty swallowed, "the store must actually have failed"
+    end
+  end
+
   test "a page view with no reference records nothing and sets no visitor cookie" do
     assert_no_difference("ReferralVisit.count") { get root_path, headers: BROWSER.dup }
     assert_nil cookies[ReferralVisitTracking::VISITOR_COOKIE]
