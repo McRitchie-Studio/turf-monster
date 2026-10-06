@@ -1251,7 +1251,11 @@
 # the retired format, and e2e/game_started_lock.spec.js gained one case: a saved cart
 # returning through the root lobby is handed back to its contest page. Derived with
 # bin/e2e-lane-derive --write.
-total_specs: 400
+# 400 -> 402 (turf-frozen-accounts-block-actions): two specs in e2e/frozen_account_banner.spec.js.
+# A frozen player sees the banner painted on four pages and a disabled rename with its reason,
+# and the banner goes the moment the freeze lifts. Runs in chromium, no skip. Derived with
+# bin/e2e-lane-derive --write.
+total_specs: 402
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1630,7 +1634,9 @@ allowed_skips: 4
 # no skip, so excluded holds at 17 and allowed_skips at 4.
 # 379 -> 378 (remove-world-cup-survivor): the net one spec beside total_specs above; chromium,
 # no skip, so excluded holds at 17 and allowed_skips at 4.
-executed: 379
+# 379 -> 381 (turf-frozen-accounts-block-actions): the two frozen-banner specs beside
+# total_specs above; chromium, no skip, so excluded holds at 17 and allowed_skips at 4.
+executed: 381
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a
