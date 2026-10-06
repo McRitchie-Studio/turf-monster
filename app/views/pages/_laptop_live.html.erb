@@ -1,78 +1,44 @@
 <%# locals: (showcase:)
 
-    The laptop screen's contest LIVE page, as a static snapshot: what
-    /contests/<slug>/live draws for NextContest.live_showcase's contest (the one
-    being played, else the one that finished last). The featured game and the
-    games strip are the live page's OWN partials (live/_game_tile,
-    contests/_live_games) with real data. The featured game is the tile at its
-    board size, not :hero: the hero type is set for a full-width row and
-    truncates team names in this column.
+    /contests/<slug>/live as a SIGNED-OUT visitor sees it, for the laptop on
+    /turf-monster-v2's hero. Rendered by LaptopLiveSnapshot (a session-less
+    renderer, so every viewer read in these partials is a guest's) and built
+    from the live page's OWN partials in the live page's own order:
 
-    A DESKTOP PAGE, SHRUNK. The caller draws this on a 1280px canvas scaled to
-    the laptop screen, so it gets desktop layout (Tailwind breakpoints read the
-    viewport, which is desktop wherever the laptop shows) and is clipped by the
-    screen, never squeezed.
+      layouts/_navbar             signed-out chrome (preview: no scroll handler)
+      contests/_live_header       slate, name, live badge, "← Contest"
+      contests/_live_focus        the featured game
+      contests/_live_games        the games strip
+      contests/_chat_panel        left column: SYSTEM lines only (messages:)
+      contests/_turf_totals_leaderboard  right column, viewer: nil
 
-    STATIC. The whole subtree carries x-ignore, so Alpine never walks it: no
-    carousel, no polling. It subscribes to nothing (no turbo_stream_from here;
-    the live page's streams live in live.html.erb, which is not rendered).
-
-    THE LEADERBOARD IS NOT contests/_turf_totals_leaderboard, deliberately. That
-    partial reads current_user (admin controls, "Add 2nd Entry" buttons) and
-    draws every empty seat, and it names players with User#display_name, which
-    falls back to an EMAIL prefix or a truncated WALLET. On a public marketing
-    page none of that may appear, whoever is signed in. So the top entries are
-    drawn here from the same rows: rank, the player's chosen username (or
-    "Player N" when there is none), and score. The live page is public
-    (ContestsController skips authentication for :live), so a username shown
-    there is already public. The contest chat is omitted entirely: no message
-    body is drawn.
-
-    LAID OUT FOR WHAT SHOWS. The phone covers a small lower-left corner of the
-    screen and the hero clips its right side, so the content runs in one
-    540px column starting 140px in, which lands wholly in the visible region. %>
+    The wrapper classes are contests/live's own. The whole subtree is x-ignore:
+    Alpine never walks it, and LaptopLiveSnapshot strips every script and cable
+    stream from the output. %>
 <% contest = showcase.contest %>
-<div x-ignore class="w-[1280px]" data-test="laptop-live">
-  <div class="flex items-center gap-5 border-b border-subtle px-6 py-3">
-    <p class="text-xl font-extrabold text-heading">Turf <span class="tm-wordmark">Monster</span></p>
-    <p class="text-sm font-semibold text-heading">Contests</p>
-    <p class="text-sm text-muted">Rules</p>
-  </div>
-  <div class="ml-[140px] w-[540px] space-y-4 py-5">
-    <div>
-      <% if contest.slate %>
-        <p class="text-sm text-secondary font-medium"><%= contest.slate.name %></p>
-      <% end %>
-      <% badge = contest_live_badge(contest) %>
-      <p class="text-2xl font-extrabold text-heading flex items-center gap-2 flex-wrap">
-        <%= contest.name %>
-        <span class="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider <%= badge[:classes] %>">
-          <span class="h-2 w-2 rounded-full <%= badge[:dot] %>"></span> <%= badge[:label] %>
-        </span>
-      </p>
+<div x-ignore class="w-[1280px] h-[800px] overflow-hidden bg-page text-body" data-test="laptop-live">
+  <%# The live page's own styles: the chip glow is OFF by default there
+      (.tt-chip) and ON only for the focused chip (.tt-chip-focused), so
+      without them every chip in the strip glows. %>
+  <%= render "live/score_animations" %>
+  <%= render "contests/live_page_styles" %>
+  <%= render "layouts/navbar", show_logged_in: false, preview: true %>
+  <div class="max-w-7xl mx-auto px-4 py-6">
+    <%= render "contests/live_header", contest: contest %>
+    <div class="mb-4">
+      <%= render "contests/live_focus", **showcase.games, contest: contest, focus_slug: showcase.focus_slug %>
     </div>
-
-    <% focus_game = showcase.games.values.flatten.find { |g| g.slug == showcase.focus_slug } %>
-    <% if focus_game %>
-      <%= render "live/game_tile", game: focus_game, scorers: true %>
-    <% end %>
-
-    <div class="overflow-hidden"><%= render "contests/live_games", **showcase.games, contest: contest %></div>
-
-    <div class="card p-4" data-test="laptop-live-leaderboard">
-      <p class="text-sm font-bold text-heading mb-3">Leaderboard</p>
-      <% if showcase.leaders.empty? %>
-        <p class="text-sm text-muted">No entries yet.</p>
-      <% end %>
-      <ol class="space-y-2">
-        <% showcase.leaders.each_with_index do |entry, i| %>
-          <li class="flex items-center gap-3" data-test="laptop-live-leader">
-            <span class="w-6 text-center font-mono font-bold text-heading"><%= i + 1 %></span>
-            <span class="flex-1 truncate font-semibold text-heading"><%= entry.user&.username.presence || "Player #{i + 1}" %></span>
-            <span class="font-mono font-bold text-primary"><%= number_with_precision(entry.score, precision: 1) %></span>
-          </li>
-        <% end %>
-      </ol>
+    <div>
+      <%= render "contests/live_games", **showcase.games, contest: contest %>
+    </div>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start mb-8">
+      <div class="lg:col-start-2 lg:row-start-1" data-test="laptop-live-leaderboard">
+        <%= render "contests/turf_totals_leaderboard", compact: true, viewer: nil, contest: contest,
+                   entries: showcase.entries, matchups: showcase.matchups, onchain_contest: nil %>
+      </div>
+      <div class="lg:col-start-1 lg:row-start-1" data-test="laptop-live-chat">
+        <%= render "contests/chat_panel", contest: contest, messages: showcase.messages %>
+      </div>
     </div>
   </div>
 </div>

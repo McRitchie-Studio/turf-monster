@@ -40,6 +40,7 @@ class PagesController < ApplicationController
     @next_contest = NextContest.pick
     @lobby = NextContest.lobby
     @live_showcase = NextContest.live_showcase
+    @laptop_live_html = @live_showcase && LaptopLiveSnapshot.render(@live_showcase, host: request.host_with_port, https: request.ssl?)
   end
 
   def terms

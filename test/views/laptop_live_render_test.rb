@@ -1,9 +1,10 @@
 require "test_helper"
 
-# [component] + [integration] The hero laptop's contest-live snapshot: a live
-# contest, a finished one, and none (the lobby fallback). Plus the privacy
-# rules for a public marketing page: signed-out chrome whoever is signed in,
-# no chat bodies, no emails or wallets, usernames only.
+# [component] + [integration] The hero laptop's live-page snapshot, rendered
+# from the live page's own partials as a SIGNED-OUT visitor sees it: a live
+# contest, a finished one, and none (the lobby fallback). Then the privacy
+# rules for a public page, checked signed in as an admin: none of the viewer's
+# identity, no player-typed chat, no email or wallet labels.
 class LaptopLiveRenderTest < ActionDispatch::IntegrationTest
   setup do
     SeasonConfig.set_main_contest!(nil)
@@ -20,6 +21,10 @@ class LaptopLiveRenderTest < ActionDispatch::IntegrationTest
                     contest_type: "standard", slate: @slate, starts_at: starts_at)
   end
 
+  def enter(contest, user, score)
+    contest.entries.create!(user: user, status: :active).tap { |e| e.update_column(:score, score) }
+  end
+
   def laptop
     get turf_monster_v2_path
     assert_response :success
@@ -28,18 +33,53 @@ class LaptopLiveRenderTest < ActionDispatch::IntegrationTest
     node
   end
 
-  test "a contest being played shows its live page, with the top entries by score" do
+  test "a contest being played shows its live page from the real partials, signed out" do
     contest = nfl_contest("weeks-4-6-live", starts_at: 2.days.ago)
-    contest.entries.create!(user: users(:jordan), status: :active).update_column(:score, 120.5)
-    contest.entries.create!(user: users(:sam), status: :active).update_column(:score, 140.0)
+    enter(contest, users(:jordan), 120.5)
+    enter(contest, users(:sam), 140.0)
 
-    node = laptop
-    live = node.at_css('[data-test="laptop-live"]')
+    live = laptop.at_css('[data-test="laptop-live"]')
     assert live, "the live snapshot draws"
     assert live.key?("x-ignore"), "static: Alpine never walks it"
+    assert_empty live.css("script, turbo-cable-stream-source"), "no code and no cable subscription"
     assert_includes live.text, "Weeks 4 6 Live"
-    assert_equal %w[sam_test jordan_test], live.css('[data-test="laptop-live-leader"]').map { |li| li.css("span")[1].text.strip }
-    assert_includes live.text, "140.0"
+    assert live.at_css('a[href$="/contest"]') || live.text.include?("← Contest"), "the live header's back link"
+    assert_includes live.text, "Sign in", "the navbar is the signed-out chrome"
+
+    board = live.at_css('[data-test="laptop-live-leaderboard"]')
+    assert_operator board.text.index("sam_test"), :<, board.text.index("jordan_test"), "ranked by score"
+    assert_includes board.text, "👑", "the crown on #1"
+    # With Alpine ignored, the picks row a guest's desktop shows (dkFull) is
+    # revealed statically and the narrow-column fan is hidden.
+    assert board.css('[x-show="dkFull"]').any?
+    assert board.css('[x-show="dkFull"]').none? { |n| n.key?("x-cloak") }
+    assert board.css('[x-show="!dkFull"]').all? { |n| n["style"].to_s.include?("display: none") }
+    first_payout = contest.payouts.values.max / 100.0
+    assert_includes board.text, ActionController::Base.helpers.number_to_currency(first_payout), "#1's payout"
+  end
+
+  # THE GLOW. On the real page only the chip of the game being watched glows
+  # (Alpine adds tt-chip-focused); the snapshot resolves that server-side, so
+  # exactly one chip carries it, and the live page's styles (which turn every
+  # other chip's glow off) ride along.
+  test "exactly one games-strip chip is lit, the featured game's" do
+    contest = nfl_contest("weeks-4-6-glow", starts_at: 2.days.ago)
+    # Same week, so the live page's week window shows both.
+    second = Game.create!(slug: "e-at-f-glow", home_team_slug: "team-f", away_team_slug: "team-e",
+                          kickoff_at: games(:future_game).kickoff_at + 3.hours, status: "scheduled", venue: "Test Stadium")
+    games = [games(:future_game), second]
+    games.each do |g|
+      SlateMatchup.create!(slate: @slate, team_slug: g.home_team_slug, opponent_team_slug: g.away_team_slug, game_slug: g.slug)
+    end
+
+    showcase = NextContest.live_showcase
+    assert_equal contest, showcase.contest
+    live = laptop.at_css('[data-test="laptop-live"]')
+    chips = live.css('[data-test="live-game-chip"]')
+    assert_operator chips.size, :>=, 2
+    lit = chips.select { |c| c["class"].to_s.split.include?("tt-chip-focused") }
+    assert_equal [showcase.focus_slug], lit.map { |c| c["data-game-slug"] }
+    assert_includes live.to_html, ".tt-chip-focused", "the live page's chip styles are included"
   end
 
   test "with nothing live, the most recently finished NFL contest shows" do
@@ -59,26 +99,31 @@ class LaptopLiveRenderTest < ActionDispatch::IntegrationTest
     assert node.at_css('[data-test="laptop-lobby-row"]') || node.at_css('[data-test="laptop-lobby-next-drop"]')
   end
 
-  # PRIVACY. Signed in as an admin with a username, email and wallet, the
-  # laptop still draws the signed-out chrome and none of the viewer's details;
-  # a leader with no username is "Player N", never an email prefix or wallet;
-  # and no chat message body appears.
-  test "signed in, the laptop shows nothing of the viewer and no chat" do
+  # PRIVACY, signed in as an admin with a username, email, wallet and seeds.
+  test "signed in, the laptop shows nothing of the viewer and no player-typed chat" do
     viewer = users(:alex)
     viewer.update_columns(web3_solana_address: "So1anaViewerAddre55xxxxxxxxxxxxxxxxxxxxxxxx", seeds: 777)
     contest = nfl_contest("weeks-4-6-private", starts_at: 2.days.ago)
     nameless = users(:casey)
     nameless.update_columns(username: nil)
-    contest.entries.create!(user: nameless, status: :active).update_column(:score, 99.0)
+    enter(contest, nameless, 99.0)
+    enter(contest, viewer, 50.0) # even the viewer's own entry must not read as theirs
     Message.create!(contest: contest, user: users(:jordan), body: "secret chat body do not show")
+    Message.create!(contest: contest, user: users(:jordan), system: true, body: "🎉 jordan_test joined the contest")
 
     log_in_as(viewer)
-    html = laptop.to_html
-    [viewer.username, viewer.email, viewer.web3_solana_address, "777", "secret chat body",
-     nameless.email.to_s, nameless.email.to_s.split("@").first.capitalize].reject(&:blank?).each do |private_bit|
-      refute_includes html, private_bit, "the laptop must not show #{private_bit.inspect}"
+    live = laptop.at_css('[data-test="laptop-live"]')
+    html = live.to_html
+    ["secret chat body", viewer.email, viewer.web3_solana_address, nameless.email.to_s,
+     nameless.email.to_s.split("@").first.capitalize, "Contest JSON"].reject(&:blank?).each do |bit|
+      refute_includes html, bit, "the laptop must not show #{bit.inspect}"
     end
-    assert_includes html, "Player 1", "a player with no username is anonymous"
-    assert_includes Nokogiri::HTML.fragment(html).at_css('[data-test="laptop-live"]').text, "Contests"
+    assert_includes live.text, "Sign in", "signed-out chrome even when the viewer is signed in"
+    refute_includes live.text, "Add 2nd Entry"
+    assert_empty live.css(".chat-admin"), "no admin chat controls revealed"
+    assert_includes live.at_css('[data-test="laptop-live-chat"]').text, "jordan_test joined the contest",
+                    "system join lines do render"
+    assert_includes live.at_css('[data-test="laptop-live-leaderboard"]').text, "Player 1",
+                    "a player with no username is Player N, never an email or wallet"
   end
 end

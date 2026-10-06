@@ -55,15 +55,18 @@ module NextContest
   # finished most recently. nil when there is neither; the laptop then falls
   # back to the lobby list.
   #
-  # Everything the snapshot draws, loaded here so the view issues no query of
-  # its own: the games in the live page's three phases (Contest#games_by_phase,
-  # the same buckets ContestsController#live uses), the game the page would
-  # open on, and the top `leaders` entries with their users preloaded.
-  LiveShowcase = Data.define(:contest, :games, :focus_slug, :leaders) do
+  # Everything the snapshot draws, loaded here with the live page's own
+  # preloads (ContestsController#load_contest_board_data) so the view issues no
+  # per-row query: the games in their three phases and the one the page opens
+  # on, the ranked matchups and entries the real leaderboard partial reads, and
+  # the chat's SYSTEM lines only ("joined the contest"), selected by the
+  # `system` column, never by matching text. A player-typed message is never
+  # loaded, so it cannot be drawn.
+  LiveShowcase = Data.define(:contest, :games, :focus_slug, :matchups, :entries, :messages) do
     def live? = contest.live?
   end
 
-  def self.live_showcase(now: Time.current, leaders: 3)
+  def self.live_showcase(now: Time.current)
     nfl = Contest.where(status: [:open, :settled], coming_soon: false)
                  .joins(:slate).where(slates: { sport: "nfl" })
                  .includes(:slate).to_a
@@ -75,9 +78,15 @@ module NextContest
 
     games = contest.games_by_phase(now)
     focus = (games[:active].first || games[:upcoming].first || games[:completed].first)&.slug
-    top = contest.entries.where(status: [:active, :complete]).includes(:user)
-                 .order(score: :desc, id: :asc).limit(leaders).to_a
-    LiveShowcase.new(contest: contest, games: games, focus_slug: focus, leaders: top)
+    matchups = contest.matchups.ranked.includes(:team, :opponent_team, :game).to_a
+    entries = contest.entries.where(status: [:active, :complete])
+                     .includes(:user, selections: { slate_matchup: [:team, :game] })
+                     .order(score: :desc).to_a
+    messages = Message.visible.system_messages.where(contest: contest)
+                      .includes(user: { avatar_attachment: :blob }, reactions: :user)
+                      .order(created_at: :desc, id: :desc).limit(20).to_a
+    LiveShowcase.new(contest: contest, games: games, focus_slug: focus, matchups: matchups,
+                     entries: entries, messages: messages)
   end
 
   def self.enterable_at?(contest, now)
