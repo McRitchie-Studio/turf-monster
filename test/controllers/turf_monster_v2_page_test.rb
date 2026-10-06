@@ -99,8 +99,9 @@ class TurfMonsterV2PageTest < ActionDispatch::IntegrationTest
     Contest.update_all(coming_soon: true)
     get turf_monster_v2_path
     hero = page_node.css('[data-test="v2-hero"]').first
-    ctas = hero.css("a, button")
-    assert_equal 1, ctas.size, "one button in the hero"
+    # The decorative figure (inert phone and laptop mockups) is not a CTA.
+    ctas = hero.css("a, button").reject { |n| n.ancestors('[data-test="v2-hero-figure"]').any? }
+    assert_equal 1, ctas.size, "one button in the hero copy"
     cta = ctas.first
     assert_equal "v2-hero-cta", cta["data-test"]
     assert_equal "#notify", cta["href"], "no-JS falls back to the notify section"

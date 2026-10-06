@@ -1,4 +1,4 @@
-<%# locals: (teams:)
+<%# locals: (teams:, hover_slug: nil)
 
     The pick board, phone-sized: six recognizable teams from
     TurfMonsterRules::SHOWCASE (real ranks and opponents, board order), drawn
@@ -26,10 +26,37 @@
   </div>
   <div class="grid grid-cols-2 gap-2">
     <% TurfMonsterRules::SHOWCASE.each do |example| %>
-      <%= render "pages/rules_team_card", example: example, teams: teams, compact: true, board_style: true %>
+      <%= render "pages/rules_team_card", example: example, teams: teams, compact: true, board_style: true,
+                 hovered: example.team_slug == hover_slug %>
     <% end %>
   </div>
-  <div class="mt-3 rounded-full bg-primary py-2.5 text-center text-xs font-bold text-white shadow-lg shadow-primary/30">
-    Hold to confirm
+  <%# THE BOARD'S OWN HOLD BUTTON, idle: the engine's hold-stack, its two fizz
+      layers (studio/_fizz_layer, the real partial) and the hold-btn face, all
+      styled by engine-motion.css, where the fizz is pure CSS: it simmers at
+      rest and stops under prefers-reduced-motion. The fizz palette is the
+      board's own (its fizzPalette): each pick's light, dark and alt in slots
+      3i+1..3i+3, from team_card_palette. No handlers and no hold script:
+      the phone is inert, so this only shows the button at rest. %>
+  <% fizz_vars = TurfMonsterRules::SHOWCASE.each_with_index.flat_map do |example, i|
+       pal = team_card_palette(teams[example.team_slug])
+       [[i * 3 + 1, pal[:fizz_light]], [i * 3 + 2, pal[:fizz_dark]], [i * 3 + 3, pal[:fizz_alt]]]
+     end.map { |slot, color| "--fizz-c-#{slot}:#{color}" }.join(";") %>
+  <div class="mt-4" data-test="phone-hold-button">
+    <span class="hold-stack fizz-lively" style="<%= fizz_vars %>">
+      <%= render "studio/fizz_layer", seed: "phone" %>
+      <%= render "studio/fizz_layer", seed: "phone~extra", extra: true %>
+      <button type="button" class="hold-btn" tabindex="-1" style="--duration: 2000ms">
+        <div class="hold-icon">
+          <svg class="progress" viewBox="0 0 32 32"><circle r="8" cx="16" cy="16"/></svg>
+          <svg class="tick" viewBox="0 0 24 24"><polyline points="18,7 11,16 6,12"/></svg>
+        </div>
+        <ul class="hold-text">
+          <li>Hold to confirm</li>
+          <li>Almost there...</li>
+          <li>Confirmed!</li>
+          <li>Entry Blocked</li>
+        </ul>
+      </button>
+    </span>
   </div>
 </div>

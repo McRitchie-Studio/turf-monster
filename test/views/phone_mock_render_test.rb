@@ -19,8 +19,8 @@ class PhoneMockRenderTest < ActionView::TestCase
     Team.where(slug: TurfMonsterRules.team_slugs | TurfMonsterRules.showcase_team_slugs).index_by(&:slug)
   end
 
-  def render_phone(screen, teams)
-    render(layout: "pages/phone_frame") { render("pages/#{screen}", teams: teams) }
+  def render_phone(screen, teams, **locals)
+    render(layout: "pages/phone_frame") { render("pages/#{screen}", teams: teams, **locals) }
   end
 
   test "the pick board draws the six showcase cards inside an aria-hidden frame" do
@@ -123,5 +123,39 @@ class PhoneMockRenderTest < ActionView::TestCase
     assert_includes html, "533.5"
     expected.each_value { |(_, _, product)| assert_includes html, format("%.1f", product) }
     %w[Ravens Lions Bills Texans Falcons Cardinals].each { |old| refute_includes html, old }
+  end
+
+  # ONE CARD WEARS THE BOARD'S LIT STATE: the board's own holo shell and its
+  # .is-selected look, on the card the page picked.
+  test "exactly one card carries the board's hover glow, the one picked" do
+    slug = TurfMonsterRules::SHOWCASE[3].team_slug
+    doc = Nokogiri::HTML.fragment(render_phone("phone_pick_board", teams, hover_slug: slug))
+    lit = doc.css('[data-test="phone-card-hover"]')
+    assert_equal 1, lit.size
+    assert lit.first.at_css(".holo-card.is-selected"), "the board's lit class"
+    assert_equal 6, doc.css(".holo-wrap").size, "every card wears the board's holo shell"
+    assert_equal 1, doc.css(".holo-card.is-selected").size
+  end
+
+  test "the hover pick is random per render but seedable" do
+    a = TurfMonsterRules.showcase_hover_slug(random: Random.new(7))
+    b = TurfMonsterRules.showcase_hover_slug(random: Random.new(7))
+    assert_equal a, b
+    assert_includes TurfMonsterRules::SHOWCASE.map(&:team_slug), a
+  end
+
+  # THE BOARD'S HOLD BUTTON, idle: the engine's hold-stack with the real fizz
+  # layers (CSS-only fizz) and the board's team-colour fizz palette.
+  test "the phone's hold button is the board's own, with its fizz and palette" do
+    doc = Nokogiri::HTML.fragment(render_phone("phone_pick_board", teams))
+    stack = doc.at_css('[data-test="phone-hold-button"] .hold-stack.fizz-lively')
+    assert stack
+    assert_equal 2, stack.css(".hold-fizz").size, "the resting and hover fizz layers"
+    assert stack.at_css(".fizz-bit")
+    assert_includes stack["style"], "--fizz-c-1:"
+    assert_includes stack["style"], "--fizz-c-18:"
+    assert_equal "Hold to confirm", stack.at_css(".hold-btn .hold-text li").text
+    assert_equal "-1", stack.at_css(".hold-btn")["tabindex"]
+    assert doc.at_css('[data-test="phone-mock"]').key?("inert"), "the phone is inert: nothing in it takes focus or a click"
   end
 end

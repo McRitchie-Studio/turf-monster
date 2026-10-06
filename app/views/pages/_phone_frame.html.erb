@@ -6,7 +6,8 @@
 
       render layout: "pages/phone_frame" do ... end
 
-    DECORATIVE. The whole frame is aria-hidden: its type is phone-sized, and a
+    DECORATIVE. The whole frame is aria-hidden and inert (nothing inside can
+    take focus or a click, the idle hold button included): its type is phone-sized, and a
     screen reader would read a second copy of content the page already says.
     Every call site puts a visible caption beside it as the text alternative.
 
@@ -14,7 +15,7 @@
     content it holds rather than leaving an empty band at the bottom (the
     literal class is written at the call site, where Tailwind can see it). %>
 <div class="relative mx-auto w-[17rem] shrink-0 rounded-[2.75rem] bg-neutral-900 p-2.5 shadow-2xl ring-1 ring-white/10"
-     aria-hidden="true" data-test="phone-mock">
+     aria-hidden="true" inert data-test="phone-mock">
   <div class="relative <%= screen_class %> overflow-hidden rounded-[2.25rem] bg-page text-body">
     <%# The camera island, over the status bar the way the real one sits. %>
     <div class="absolute left-1/2 top-2 z-10 h-6 w-24 -translate-x-1/2 rounded-full bg-neutral-900"></div>

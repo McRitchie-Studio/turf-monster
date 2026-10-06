@@ -1,4 +1,4 @@
-<%# locals: (example:, teams:, compact: false, board_style: false)
+<%# locals: (example:, teams:, compact: false, board_style: false, hovered: false)
 
     A STATIC twin of contests/_multi_week_team_card, for the rules page.
 
@@ -22,11 +22,23 @@
         lg and truncate, which cut "IND" to "I..." inside the scaled phone)
     The number keeps ONE decimal on both styles (see the note below), so the
     phone agrees with the "1.0x" in the v2 page's own prose. Off by default:
-    v1 renders unchanged. %>
+    v1 renders unchanged.
+
+    board_style also wraps the card in the board's own hologram shell
+    (holo-wrap / holo-border / holo-card, application.css), and `hovered: true`
+    gives it the board's lit state: the rotating ring in the team's alt colour
+    and the 1.04 lift. A static page cannot hold :hover, so it wears
+    .is-selected, which the board's stylesheet styles identically (minus the
+    one-shot sheen sweep). %>
 <% team = teams[example.team_slug] %>
 <% pal  = team_card_palette(team) %>
-<div class="rounded-2xl border-2 shadow overflow-hidden <%= compact ? 'p-3' : 'p-5' %> text-center"
-     style="background: <%= pal[:gradient] %>; border-color: <%= pal[:border] %>; color: <%= pal[:fg] %>;">
+<% if board_style %>
+<div class="holo-wrap relative" style="--glow-c: <%= normalize_hex(team&.color_alt) || normalize_hex(team&.color_light) || pal[:accent] %>;"<%= ' data-test="phone-card-hover"'.html_safe if hovered %>>
+  <span class="holo-border-glow" aria-hidden="true"></span>
+  <span class="holo-border" aria-hidden="true"></span>
+<% end %>
+<div class="<%= 'holo-card relative ' if board_style %><%= 'is-selected ' if board_style && hovered %>rounded-2xl border-2 shadow overflow-hidden <%= compact ? 'p-3' : 'p-5' %> text-center"
+     style="background: <%= pal[:gradient] %>; border-color: <%= pal[:border] %>; color: <%= pal[:fg] %>;<%= " --glow-soft: #{rgba(pal[:glow], 0.3)};" if board_style %>">
   <% if team&.location.present? %>
     <p class="<%= compact ? 'text-[10px]' : 'text-sm' %> font-medium leading-tight truncate"
        style="color: <%= pal[:location] %>"><%= team.location %></p>
@@ -80,3 +92,6 @@
     <% end %>
   </div>
 </div>
+<% if board_style %>
+</div>
+<% end %>

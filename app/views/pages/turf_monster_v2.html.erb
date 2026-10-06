@@ -108,7 +108,7 @@
   <!-- ========== 1. HERO ========== -->
   <%# Two layered backgrounds: a field of small radial-gradient "stars" over
       the night gradient. Fixed hex on purpose (see the header). %>
-  <section class="relative overflow-hidden rounded-3xl px-6 py-12 md:px-12 md:py-16"
+  <section class="relative overflow-hidden rounded-3xl px-6 py-12 md:px-12 md:py-16 xl:pt-24"
            data-test="v2-hero"
            style="background-image:
              radial-gradient(1px 1px at 12% 18%, #ffffffcc 50%, transparent 51%),
@@ -155,18 +155,24 @@
           width. Absolutely positioned, so it never moves the phone or the
           copy. Below xl it is not drawn: the column leaves too thin a sliver
           beside the phone to read. %>
-      <figure class="flex flex-col items-center xl:items-start" data-test="v2-hero-figure">
+      <figure class="flex flex-col items-center xl:items-start xl:mb-[75px]" data-test="v2-hero-figure">
         <div class="relative">
-          <div class="hidden xl:block absolute z-0 left-[80%] -top-14 origin-top-left scale-110" data-test="laptop-anchor">
+          <div class="hidden xl:block absolute z-0 left-[80%] -top-[5.5rem] origin-top-left scale-110 [filter:drop-shadow(0_28px_48px_rgb(0_0_0/0.3))]" data-test="laptop-anchor">
             <%= render "pages/laptop_lobby", lobby: @lobby, showcase: @live_showcase, live_html: @laptop_live_html %>
           </div>
-          <div class="relative z-10 drop-shadow-2xl">
-            <%= render layout: "pages/phone_frame", locals: { screen_class: "h-[26.5rem]" } do %>
-              <%= render "pages/phone_pick_board", teams: @teams %>
+          <%# From xl the phone (and its caption, below) sits half a phone-width
+              right and a sixth of its height down from the laptop's anchor, so
+              the featured game on the laptop clears the phone's top and the
+              phone covers the chat column instead. A transform, so the laptop,
+              which hangs off this wrapper, stays put; the figure's mb reserves
+              the room the shift takes below. %>
+          <div class="relative z-10 drop-shadow-2xl xl:translate-x-[140px] xl:translate-y-[75px]" data-test="v2-hero-phone">
+            <%= render layout: "pages/phone_frame", locals: { screen_class: "h-[28rem]" } do %>
+              <%= render "pages/phone_pick_board", teams: @teams, hover_slug: @hover_slug %>
             <% end %>
           </div>
         </div>
-        <figcaption class="relative z-10 mt-4 w-[17rem] text-center text-xs text-white/70">
+        <figcaption class="relative z-10 mt-4 w-[17rem] text-center text-xs text-white/70 xl:translate-x-[140px] xl:translate-y-[75px]">
           Real cards from the Weeks 1&ndash;3 board.<span class="sr-only"> Behind the phone, a laptop shows the live contests lobby.</span>
         </figcaption>
       </figure>

@@ -177,6 +177,12 @@ module TurfMonsterRules
     SHOWCASE.sum(&:entry_points).round(1)
   end
 
+  # Which hero-phone card wears the board's lit (hovered) state: one of the
+  # six at random per render. `random:` is injectable so a test can seed it.
+  def self.showcase_hover_slug(random: Random)
+    SHOWCASE.sample(random: random).team_slug
+  end
+
   # The hero phone's teams and their opponents, for /turf-monster-v2's one
   # Team query alongside .team_slugs.
   def self.showcase_team_slugs
