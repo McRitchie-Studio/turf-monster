@@ -48,6 +48,14 @@ class OmniauthCallbacksController < ApplicationController
 
     # Linking from /account while logged in
     if logged_in?
+      # OPSEC-048: linking Google is an identity write, and the freeze refuses
+      # those. The callback arrives as a GET, which FrozenAccountGuard (every
+      # non-GET) never sees, so the refusal is made here. Signing in with
+      # Google (the branch below) stays open: the freeze holds actions, not access.
+      if current_user.frozen?
+        return finish_oauth(account_path, success: false, alert: FrozenAccount::MESSAGE)
+      end
+
       existing = User.find_by(provider: auth.provider, uid: auth.uid)
       if existing && existing.id != current_user.id
         # OPSEC-005: don't silently merge. The previous behavior here was
