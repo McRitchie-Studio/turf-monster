@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { reseed, loginAdmin } = require("./helpers");
+const { reseed, loginAdmin, allowMotion } = require("./helpers");
 
 test.beforeEach(async ({ request }) => await reseed(request));
 
@@ -161,5 +161,101 @@ test.describe("turf-monster-v2 explainer", () => {
       await page.keyboard.press("Escape");
       await expect(dialog).toBeHidden();
     });
+  });
+});
+
+// THE LAPTOP'S SIMULATED TOUCHDOWNS (LaptopScoreSimulation). The laptop shows a
+// live page only while an NFL contest is being played, so the spec LOCKS
+// nfl-weeks-15-17 through the real admin path (as nfl_live_scoreboard.spec.js
+// does: off-chain, it only moves starts_at) and hands it back open after, pass
+// or fail. The visitor is a separate, signed-out context.
+const SIM_CONTEST = "nfl-weeks-15-17";
+
+async function setLock(page, slug, inSeconds) {
+  await page.goto(`/contests/${slug}`);
+  const status = await page.evaluate(async ([contestSlug, seconds]) => {
+    const token = document.querySelector('meta[name="csrf-token"]');
+    const res = await fetch(`/contests/${contestSlug}/lock`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": token ? token.content : "" },
+      body: JSON.stringify({ in_seconds: seconds }),
+    });
+    return res.status;
+  }, [slug, inSeconds]);
+  expect(status).toBeLessThan(400);
+}
+
+// The featured game's two scores, away then home, as the visible tile shows them.
+function featuredScore(page) {
+  return page.evaluate(() => {
+    const root = document.querySelector('[data-test="laptop-sim"]');
+    const tile = [...document.querySelectorAll('[data-test="laptop-live"] [data-test="live-focus-game"]')]
+      .find((t) => t.dataset.focusSlug === root.dataset.gameSlug);
+    return [...tile.querySelectorAll('[data-role="team-row"] [data-role="score"]')].map((s) => s.textContent.trim()).join("-");
+  });
+}
+
+test.describe("turf-monster-v2 laptop: simulated live scoring", () => {
+  test.beforeEach(async ({ page }) => {
+    await loginAdmin(page);
+    await setLock(page, SIM_CONTEST, 0);
+  });
+  test.afterEach(async ({ page }) => {
+    await loginAdmin(page);
+    await setLock(page, SIM_CONTEST, 3600);
+  });
+
+  test("at 1920 the game opens at 3-7, labelled, and a touchdown lands within ten seconds", async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width: 1920, height: 1080 }, timezoneId: "America/Denver" });
+    const page = await context.newPage();
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    await allowMotion(page);
+    await page.goto("/turf-monster-v2");
+
+    await expect(page.locator('[data-test="laptop-sim"]')).toHaveAttribute("data-opening", "3-7");
+    expect(await featuredScore(page)).toBe("3-7");
+    const label = page.locator('[data-test="laptop-sim-label"]');
+    await expect(label).toBeVisible();
+    await expect(label).toHaveText("Simulated preview");
+
+    // The kickoffs on the strip read in the visitor's zone, as on /live.
+    const kickoffs = await page.evaluate(() =>
+      [...document.querySelectorAll('[data-test="laptop-live"] time[data-role="kickoff"]')].map((t) => ({
+        text: t.textContent.trim(),
+        want: new Date(t.getAttribute("datetime")).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" }),
+      })));
+    for (const k of kickoffs) expect(k.text).toBe(k.want);
+
+    // The live page's own banner and the scoring line arrive with the score.
+    await expect.poll(() => featuredScore(page), { timeout: 11_500, intervals: [250] }).toBe("10-7");
+    await expect(page.locator("#nfl-score-overlay")).toBeVisible();
+    await expect(page.locator("#nfl-score-banner")).toContainText(/touchdown/i);
+    const rail = page.locator('[data-test="laptop-live"] [data-test="live-focus-game"]:visible [data-test="live-focus-event"]');
+    await expect(rail.first()).toHaveAttribute("data-event-label", "Touchdown");
+    await expect(rail).toHaveCount(3);
+    expect(errors).toEqual([]);
+    await context.close();
+  });
+
+  test("under reduced motion, and below xl, the score holds at 3-7", async ({ browser }) => {
+    const reduced = await browser.newContext({ viewport: { width: 1920, height: 1080 }, reducedMotion: "reduce" });
+    const narrow = await browser.newContext({ viewport: { width: 1024, height: 900 }, reducedMotion: "no-preference" });
+    const still = await reduced.newPage();
+    const small = await narrow.newPage();
+    await still.goto("/turf-monster-v2");
+    await small.goto("/turf-monster-v2");
+    await expect(still.locator('[data-test="laptop-sim-label"]')).toBeVisible();
+    expect(await featuredScore(still)).toBe("3-7");
+
+    await still.waitForTimeout(11_000);
+    expect(await featuredScore(still)).toBe("3-7");
+    await expect(still.locator("#nfl-score-overlay")).toBeHidden();
+    // Below xl the laptop is not drawn, and the timer never runs.
+    await expect(small.locator('[data-test="laptop-mock"]')).toBeHidden();
+    expect(await small.locator('[data-test="laptop-sim"]').getAttribute("data-frame")).toBeNull();
+    expect(await featuredScore(small)).toBe("3-7");
+    await reduced.close();
+    await narrow.close();
   });
 });
