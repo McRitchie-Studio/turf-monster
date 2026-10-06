@@ -1,5 +1,6 @@
 # Queues the drop announcement for every address DropAnnouncement says is still
-# owed it. The guards (admin, drop time, typed count) ran in the controller; the
+# owed it. DropAnnouncement#send! runs it in the admin's request (perform_now);
+# it is a job so it can also be re-driven from a console with perform_later. The guards (admin, drop time, typed count) ran in the controller; the
 # guard that matters here is the per-row claim in
 # DropSignup#deliver_announcement!, so this job is safe to retry, to run twice
 # at once, or to run again after a partial failure: a row already claimed is

@@ -4,8 +4,6 @@ require "test_helper"
 # manual Send that is admin-only, refuses before the drop without "send early",
 # and refuses unless the operator typed the current count.
 class Admin::DropAnnouncementTest < ActionDispatch::IntegrationTest
-  include ActiveJob::TestHelper
-
   KEY = NextSlateDrop::SLATE_KEY
 
   setup do
@@ -15,6 +13,8 @@ class Admin::DropAnnouncementTest < ActionDispatch::IntegrationTest
     DropSignup.create!(email: "gone@example.com", slate_key: KEY, unsubscribed_at: 1.day.ago)
     DropSignup.create!(email: "next@example.com", slate_key: "nfl-2026-weeks-10-12")
   end
+
+  def announcements = EmailDelivery.where(email_key: "DropSignupMailer#announcement")
 
   def before_drop(&) = travel_to(NextSlateDrop.drops_at - 1.day, &)
   def after_drop(&)  = travel_to(NextSlateDrop.drops_at + 1.hour, &)
@@ -30,8 +30,8 @@ class Admin::DropAnnouncementTest < ActionDispatch::IntegrationTest
       get admin_drop_signups_announcement_preview_path(email: "announcement", variant: "new_player")
       assert_response :redirect
     end
-    assert_no_enqueued_jobs(only: DropAnnouncementJob)
     assert_nil DropSignup.find_by(email: "a@example.com").notified_at
+    assert_equal 0, announcements.count
   end
 
   test "shows the exact recipient count: this drop, not notified, not unsubscribed" do
@@ -64,17 +64,16 @@ class Admin::DropAnnouncementTest < ActionDispatch::IntegrationTest
     end
     assert_redirected_to admin_drop_signups_announcement_path
     assert_match(/hasn't dropped yet/, flash[:alert])
-    assert_no_enqueued_jobs(only: DropAnnouncementJob)
+    assert_equal 0, announcements.count
   end
 
-  test "before the drop, send early with the typed count enqueues the send" do
+  test "before the drop, send early with the typed count queues one email per owed address" do
     log_in_as(users(:alex))
     before_drop do
-      assert_enqueued_with(job: DropAnnouncementJob, args: [KEY]) do
-        post admin_drop_signups_announcement_path, params: { confirm_count: "2", send_early: "1" }
-      end
+      post admin_drop_signups_announcement_path, params: { confirm_count: "2", send_early: "1" }
     end
     assert_match(/Queued the announcement for 2 addresses/, flash[:notice])
+    assert_equal %w[a@example.com b@example.com], announcements.pluck(:to).sort
   end
 
   test "after the drop, no early flag is needed" do
@@ -82,10 +81,9 @@ class Admin::DropAnnouncementTest < ActionDispatch::IntegrationTest
     after_drop do
       get admin_drop_signups_announcement_path
       assert_select '[data-test="announcement-send-early"]', count: 0
-      assert_enqueued_with(job: DropAnnouncementJob) do
-        post admin_drop_signups_announcement_path, params: { confirm_count: "2" }
-      end
+      post admin_drop_signups_announcement_path, params: { confirm_count: "2" }
     end
+    assert_equal 2, announcements.count
   end
 
   test "a wrong or missing typed count is refused" do
@@ -96,15 +94,14 @@ class Admin::DropAnnouncementTest < ActionDispatch::IntegrationTest
         assert_match(/Type 2/, flash[:alert], typed.inspect)
       end
     end
-    assert_no_enqueued_jobs(only: DropAnnouncementJob)
+    assert_equal 0, announcements.count
   end
 
   test "sending, then the page shows what went out; a second send has nobody left" do
     log_in_as(users(:alex))
     after_drop do
-      perform_enqueued_jobs(only: DropAnnouncementJob) do
-        post admin_drop_signups_announcement_path, params: { confirm_count: "2" }
-      end
+      post admin_drop_signups_announcement_path, params: { confirm_count: "2" }
+      post admin_drop_signups_announcement_path, params: { confirm_count: "2" } # a double-click
       get admin_drop_signups_announcement_path
       assert_select '[data-test="announcement-recipient-count"]', text: "0"
       assert_select '[data-test="announcement-claimed"]', text: "3"
@@ -112,6 +109,6 @@ class Admin::DropAnnouncementTest < ActionDispatch::IntegrationTest
       post admin_drop_signups_announcement_path, params: { confirm_count: "0" }
       assert_match(/Nobody is left/, flash[:alert])
     end
-    assert_equal 2, EmailDelivery.where(email_key: "DropSignupMailer#announcement").count
+    assert_equal 2, announcements.count, "the double-click mailed nobody twice"
   end
 end

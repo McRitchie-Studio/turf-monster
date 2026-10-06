@@ -9,9 +9,14 @@
 #
 # WHEN: not before NextSlateDrop.drops_at unless the operator ticks "send early".
 #
-# ONCE: the send only enqueues DropAnnouncementJob. Each row is then claimed
-# atomically (DropSignup#deliver_announcement!), so a double-click, two admins,
-# a job retry or two jobs at once still mail every address at most once.
+# ONCE: the send runs DropAnnouncementJob in the request (perform_now), which
+# claims each row atomically (DropSignup#deliver_announcement!) and writes one
+# EmailDelivery outbox row per recipient; each of those is its own
+# EmailDeliveryJob on Sidekiq, which actually sends and retries. Claiming in
+# the request is quick (an UPDATE and an INSERT per address) and lets the
+# operator see "queued N, failed M" the moment the page comes back. A
+# double-click, two admins, a reload or a retry still mail every address at
+# most once: whoever loses a row's claim skips it.
 #
 # PROGRESS reads the rows back: claimed (notified_at set) splits into sent /
 # failed / queued by the EmailDelivery outbox row each claim was recorded with,
@@ -40,7 +45,8 @@ class DropAnnouncement
     NextSlateDrop.dropped?(now)
   end
 
-  # Raises Refusal (with the operator-facing reason) or enqueues the job.
+  # Raises Refusal (with the operator-facing reason) or claims and queues every
+  # owed address, returning { queued:, failed: }.
   def send!(confirm_count:, early: false, now: Time.current)
     raise Refusal, "Only the current drop (#{NextSlateDrop::SLATE_KEY}) can be announced." unless slate_key == NextSlateDrop::SLATE_KEY
     raise Refusal, "#{NextSlateDrop::LABEL} hasn't dropped yet. Tick \"Send early\" to send anyway." if !dropped?(now) && !early
@@ -51,8 +57,7 @@ class DropAnnouncement
       raise Refusal, "Type #{count} (the recipient count) to confirm. The count may have changed since the page loaded."
     end
 
-    DropAnnouncementJob.perform_later(slate_key)
-    count
+    DropAnnouncementJob.perform_now(slate_key)
   end
 
   def progress

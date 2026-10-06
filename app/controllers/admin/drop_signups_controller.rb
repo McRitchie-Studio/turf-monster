@@ -41,12 +41,14 @@ module Admin
 
     # POST /admin/drop_signups/announcement
     def send_announcement
-      count = DropAnnouncement.new.send!(
+      result = DropAnnouncement.new.send!(
         confirm_count: params[:confirm_count],
         early: params[:send_early] == "1"
       )
-      redirect_to admin_drop_signups_announcement_path,
-                  notice: "Queued the announcement for #{count} #{'address'.pluralize(count)}."
+      message = "Queued the announcement for #{result[:queued]} #{'address'.pluralize(result[:queued])}."
+      message += " #{result[:failed]} failed to queue and stay on the list; see ErrorLog." if result[:failed].positive?
+      flash[result[:failed].positive? ? :alert : :notice] = message
+      redirect_to admin_drop_signups_announcement_path
     rescue DropAnnouncement::Refusal => e
       redirect_to admin_drop_signups_announcement_path, alert: e.message
     end

@@ -752,4 +752,7 @@ Rails.application.routes.draw do
        constraints: { token: %r{[^/]+} }, format: false
   post "drop-signups/unsubscribe/:token", to: "drop_unsubscribes#create", as: :drop_unsubscribe_confirm,
        constraints: { token: %r{[^/]+} }, format: false
+
+  # Test-only, like the block above; appended here so no cited line moves.
+  post "test/seed_drop_signups", to: "test#seed_drop_signups" unless Rails.env.production?
 end
