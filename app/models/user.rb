@@ -797,6 +797,11 @@ class User < ApplicationRecord
       changed = true
     end
 
+    # A freeze holds the username where it is (frozen_identity_change?). Every
+    # sign-in path calls this, so renaming a frozen account back to its parked
+    # username would raise RecordInvalid and lock it out of signing in.
+    return changed if frozen?
+
     parked_username = identity[:username].presence
     return changed if parked_username.blank?
     return changed if username.present? && username.casecmp?(parked_username)
