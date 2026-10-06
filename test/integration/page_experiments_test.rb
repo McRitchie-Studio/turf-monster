@@ -211,6 +211,40 @@ class PageExperimentsTest < ActionDispatch::IntegrationTest
     assert_equal %w[turf-monster-v2 control], [user.experiment_slug, user.variant_key]
   end
 
+  test "a new account made with Google records the variant" do
+    OmniAuth.config.mock_auth[:google_oauth2] = OmniAuth::AuthHash.new(
+      provider: "google_oauth2", uid: "ab-998877", info: { email: "googlefan@example.com", name: "Google Fan" }
+    )
+    visit_page(v: "fantasy-football")
+    post "/auth/google_oauth2?age_attestation=1"
+    follow_redirect!
+    user = User.find_by!(email: "googlefan@example.com")
+    assert_equal %w[turf-monster-v2 fantasy-football], [user.experiment_slug, user.variant_key]
+  ensure
+    OmniAuth.config.mock_auth.delete(:google_oauth2)
+  end
+
+  test "a new account made with a wallet records the variant" do
+    visit_page(v: "control")
+    key = Ed25519::SigningKey.generate
+    pubkey = Solana::Keypair.encode_base58(key.verify_key.to_bytes)
+    get "/auth/solana/nonce"
+    nonce = JSON.parse(response.body)["nonce"]
+    message = "www.example.com wants you to sign in with your Solana account:\n#{pubkey}\n\nNonce: #{nonce}"
+    post "/auth/solana/verify", as: :json,
+                                params: { message: message, signature: Solana::Keypair.encode_base58(key.sign(message)),
+                                          pubkey: pubkey, age_attestation: "1" }
+    assert_response :success
+    user = User.find_by!(web3_solana_address: pubkey)
+    assert_equal %w[turf-monster-v2 control], [user.experiment_slug, user.variant_key]
+  end
+
+  test "an account made with no experiment cookie records none" do
+    link = Studio::Link.create_magic_link(email: "plainuser@example.com", age_attested: true)
+    post magic_link_consume_path(token: link.token)
+    assert_nil User.find_by!(email: "plainuser@example.com").experiment_slug
+  end
+
   # --- the admin ------------------------------------------------------------------------
 
   test "the report is admin-only" do
