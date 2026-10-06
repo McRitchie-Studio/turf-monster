@@ -3800,10 +3800,17 @@ module Solana
       true
     end
 
+    # Raised when the RPC answers getAccountInfo without a `value` key. Only an
+    # explicit `"value": null` means the account does not exist; a reply with
+    # no `value` at all (a proxy, a truncated body, an error shape) says nothing
+    # about the pool and must not read as "closed".
+    class PrizePoolUnreadable < StandardError; end
+
     # LIVE token balance of a contest's prize-pool PDA (base units), read-only.
     # nil when the account does not exist (closed by close_contest, or never
-    # created). Raises on an RPC failure, so a caller can never mistake an
-    # unreadable pool for an empty one.
+    # created): the RPC answers `"value": null`. Raises on an RPC failure or a
+    # reply that carries no `value` key, so a caller can never mistake an
+    # unreadable pool for a closed or empty one.
     #
     # This is NOT the Contest account's `prize_pool` field: that u64 records what
     # create_contest funded and is never decremented, so a cancelled contest still
@@ -3813,7 +3820,10 @@ module Solana
     def read_prize_pool_balance(contest_slug, commitment: "confirmed")
       pda, _ = prize_pool_pda(contest_slug)
       info = client.get_account_info(Keypair.encode_base58(pda), commitment: commitment)
-      return nil unless info&.dig("value")
+      unless info.is_a?(Hash) && info.key?("value")
+        raise PrizePoolUnreadable, "getAccountInfo for the #{contest_slug} prize pool answered without a value key: #{info.inspect[0, 200]}"
+      end
+      return nil if info["value"].nil?
 
       data = Base64.decode64(info["value"]["data"][0])
       raise "prize pool account for #{contest_slug} is #{data.bytesize} bytes, not an SPL token account" if data.bytesize < 72

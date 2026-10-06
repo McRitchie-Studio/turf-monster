@@ -123,10 +123,71 @@ class ContestGradeTiePayoutsTest < ActiveSupport::TestCase
     assert_equal 0, TransactionLog.where(source: @contest).count
   end
 
+  # A contest cancelled on chain still reads `status: "open"`, so nothing but
+  # the cancel guard stands between it and a second payout. The control below
+  # runs the same on-chain, locked contest with a settle build that succeeds,
+  # so the refusal is the guard and not a missing precondition.
+  test "grade! on a contest cancelled on chain raises and writes nothing" do
+    make_onchain_and_locked
+    @contest.update_columns(onchain_cancelled: true)
+    e1 = make_active_entry(score: 100.0)
+    vault = settle_vault
+
+    error = Solana::Vault.stub(:new, vault) do
+      assert_raises(Contest::CancelledContestError) { grade! }
+    end
+
+    assert_match "cancelled on chain", error.message
+    assert_equal [], vault.calls, "the settle must never be built"
+    assert_equal "open", @contest.reload.status
+    assert_equal "active", e1.reload.status
+    assert_nil e1.rank
+    assert_nil e1.payout_cents.nonzero?
+    assert_equal 0, TransactionLog.where(source: @contest).count
+    assert_equal 0, PendingTransaction.where(target: @contest).count
+  end
+
+  test "control: the same contest, not cancelled, grades, pays and queues the settle" do
+    make_onchain_and_locked
+    e1 = make_active_entry(score: 100.0)
+    vault = settle_vault
+
+    Solana::Vault.stub(:new, vault) { grade! }
+
+    assert_equal "settled", @contest.reload.status
+    assert_equal 300_00, e1.reload.payout_cents
+    assert_equal 1, vault.calls.size
+    assert_equal 1, TransactionLog.where(source: @contest).count
+    assert_equal 1, PendingTransaction.where(target: @contest, tx_type: "settle_contest").count
+  end
+
+  test "jump! refuses a contest cancelled on chain before simulating anything" do
+    @contest.update_columns(onchain_cancelled: true)
+    @contest.stub(:matchups, -> { flunk "jump! simulated games for a cancelled contest" }) do
+      assert_raises(Contest::CancelledContestError) { @contest.jump! }
+    end
+  end
+
   private
 
   def grade!
     @contest.stub(:score_entries!, nil) { @contest.grade! }
+  end
+
+  def make_onchain_and_locked
+    @contest.update_columns(onchain_contest_id: "CancelGuardPda1111111111111111111111111111", starts_at: 1.hour.ago)
+  end
+
+  # Records each settle build and answers like a successful one.
+  def settle_vault
+    vault = Object.new
+    vault.instance_variable_set(:@calls, [])
+    vault.define_singleton_method(:calls) { @calls }
+    vault.define_singleton_method(:build_settle_contest) do |slug, winners, **_kw|
+      @calls << [slug, winners]
+      { serialized_tx: Base64.strict_encode64("settle-#{slug}") }
+    end
+    vault
   end
 
   # The column is attr_readonly, so a test sets a different table the way the

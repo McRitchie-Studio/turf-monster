@@ -548,6 +548,7 @@ module TurfMonster
 
         graded = remote.call(<<~RUBY)
           contest = Contest.find_by!(slug: #{slug.inspect})
+          raise "\#{contest.slug} was cancelled on chain; it cannot be graded" if contest.cancelled?
           vault = Solana::Vault.new
 
           # Move the lock to NOW, on-chain first (the chain is master) and then
