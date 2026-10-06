@@ -88,7 +88,7 @@ The contest PDA at `[b"contest", sha256(slug)]`, derived by `Solana::Vault#conte
 
 #### 2d. Per-user UserAccount PDA — fires lazily on first entry
 
-`Solana::Vault#ensure_user_account` (`app/services/solana/vault.rb:1462-1471`) is called inline by every entry path — `ContestsController#prepare_entry` calls it at `app/controllers/contests_controller.rb:1041` (step 4). It checks the PDA size and either no-ops, creates the PDA via `Solana::Vault#create_user_account` (`app/services/solana/vault.rb:1473-1520`), or raises on schema drift. For most admins this is a no-op, because the class-body `after_commit :enqueue_onchain_account_setup, on: :create` (`app/models/user.rb:130`) already ran `User#enqueue_onchain_account_setup` (`:811-813`) at signup, enqueuing `CreateOnchainUserAccountJob` (`app/jobs/create_onchain_user_account_job.rb`; see `docs/AUTH.md`).
+`Solana::Vault#ensure_user_account` (`app/services/solana/vault.rb:1462-1471`) is called inline by every entry path — `ContestsController#prepare_entry` calls it at `app/controllers/contests_controller.rb:1041` (step 4). It checks the PDA size and either no-ops, creates the PDA via `Solana::Vault#create_user_account` (`app/services/solana/vault.rb:1473-1520`), or raises on schema drift. For most admins this is a no-op, because the class-body `after_commit :enqueue_onchain_account_setup, on: :create` (`app/models/user.rb:130`) already ran `User#enqueue_onchain_account_setup` (`:816-818`) at signup, enqueuing `CreateOnchainUserAccountJob` (`app/jobs/create_onchain_user_account_job.rb`; see `docs/AUTH.md`).
 
 ### 3. Admin creates a contest
 
@@ -123,8 +123,8 @@ The contest test actions (Fill, Next Game / Simulate, Next 5 / 20, All / Jump, a
 Two-stage hold-to-confirm followed by the Phantom direct-entry signing flow:
 
 1. **Toggle 6 selections** on the matchup board — `POST /contests/:id/toggle_selection` per click (`ContestsController#toggle_selection` — `app/controllers/contests_controller.rb:1505-1526`). Each call `find_or_create_by!`s the cart entry (`:1513`) and toggles a `Selection` row (`:1516`).
-2. **Hold-to-confirm** triggers `confirmEntry()` in `app/views/contests/_turf_totals_board.html.erb:1566-1983`:
-   - It branches on `useOnchainFlow = sess.isWeb3 && this.contestOnchain` (`:1630`, taken at `:1644`). Admin = web3 = always the on-chain branch.
+2. **Hold-to-confirm** triggers `confirmEntry()` in `app/views/contests/_turf_totals_board.html.erb:1572-1989`:
+   - It branches on `useOnchainFlow = sess.isWeb3 && this.contestOnchain` (`:1636`, taken at `:1650`). Admin = web3 = always the on-chain branch.
    - There is no client-side wrong-wallet throw on this path any more; the binding is server-side (see the failure modes below).
 3. **`POST /contests/:id/prepare_entry`** — `ContestsController#prepare_entry` (`app/controllers/contests_controller.rb:999-1159`):
    - Requires `onchain_session?` (`:1020`) — the admin's Phantom-auth session has it from step 1.
