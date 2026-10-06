@@ -289,6 +289,8 @@ class Api::V1::EntryWritesTest < ActionDispatch::IntegrationTest
     write_retired_format!(@contest)
     enter
     assert_refused "unsupported_contest"
+    assert_match(/takes no entries/, json.dig("error", "message"))
+    assert_no_match(/enter it/i, json.dig("error", "message"), "a retired contest is entered nowhere")
   end
 
   # ── POST: 409 and 503 ─────────────────────────────────────────────────────
