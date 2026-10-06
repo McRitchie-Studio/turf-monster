@@ -465,6 +465,16 @@ class Contest < ApplicationRecord
     end
   end
 
+  # True when any entry on this contest, in any status, carries an on-chain
+  # payment: a signature from a consumed entry token or a vault entry, or an
+  # entry PDA. Comped fills carry neither. An abandoned entry counts too: its
+  # money landed, and its row is the only record of it. The contest test
+  # actions (jump, simulate, fill, reset) refuse such a contest; see
+  # ContestsController#refuse_test_action.
+  def paid_entries?
+    entries.where("onchain_tx_signature IS NOT NULL OR onchain_entry_id IS NOT NULL").exists?
+  end
+
   def jump!
     raise "Contest is already settled" if settled?
 
