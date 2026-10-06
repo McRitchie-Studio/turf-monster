@@ -136,7 +136,9 @@
   <%# Below every tile docs/workflows cites by line, so appending moves none. %>
   <%= render layout: "hub_section", locals: { title: "Marketing" } do %>
     <%= render "hub_tile", name: "Referrals", url: admin_referrals_path,
-          note: "Clicks to email and account signups per ?reference= link" %>
+          note: "Clicks to email and account signups per ?r= link" %>
+    <%= render "hub_tile", name: "Short Links", url: admin_short_links_path,
+          note: "Campaign links at /l/<name> for bios and posts" %>
   <% end %>
 
   <%# Actions — buttons and POST forms; a flex row, not the hub_section tile grid. %>

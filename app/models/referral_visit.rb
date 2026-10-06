@@ -53,6 +53,30 @@ class ReferralVisit < ApplicationRecord
 
   scope :since, ->(date) { date ? where(visited_on: date..) : all }
 
+  # The URL parameters that name a reference, in precedence order. `r` is the
+  # short spelling for links people paste into a bio; `reference` is the long
+  # one every link made before it carries, and keeps working for good.
+  ATTRIBUTION_PARAMS = %w[r reference].freeze
+
+  # The reference a request's parameters name, or nil. `r` wins when both are
+  # present; the value is stripped and cut to REFERENCE_LIMIT but keeps its
+  # case (the cookie and users.reference store it raw; .record downcases).
+  #
+  # A Coinflow checkout return (?coinflow=return&reference=<purchase slug>) is
+  # a payment reference, not a marketing one, so it names none. Every
+  # attribution read goes through here (ReferralVisitTracking#attribution_param)
+  # so that exclusion cannot be forgotten at one of them.
+  def self.attribution_from(params)
+    return nil if params[:coinflow].present?
+
+    ATTRIBUTION_PARAMS.each do |key|
+      value = params[key]
+      value = value.strip.first(REFERENCE_LIMIT) if value.is_a?(String)
+      return value if value.is_a?(String) && value.present?
+    end
+    nil
+  end
+
   # "  TikTok " -> "tiktok". nil for a blank value.
   def self.normalize_reference(raw)
     raw.to_s.strip.downcase.first(REFERENCE_LIMIT).presence

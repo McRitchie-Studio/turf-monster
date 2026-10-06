@@ -486,16 +486,16 @@ class ApplicationController < ActionController::Base
     nil # context is best-effort; never break the request path
   end
 
-  # Funnel/campaign attribution. Captures a `?reference=` URL param into a
-  # cookie on first touch (never overwritten) so it survives the journey to
-  # signup, where it's written onto the new user across all auth paths.
-  # Landing pages also seed this cookie with their slug — see
-  # LandingPagesController#show.
+  # Funnel/campaign attribution. Captures `?r=` (or `?reference=`; see
+  # ReferralVisitTracking#attribution_param) into a cookie on first touch (never
+  # overwritten) so it survives the journey to signup, where it's written onto
+  # the new user across all auth paths. Landing pages also seed this cookie
+  # with their slug — see LandingPagesController#show.
   def capture_reference
-    return if params[:reference].blank?
+    return if (reference = attribution_param).nil?
     return if cookies[:reference].present?
 
-    cookies[:reference] = { value: params[:reference].to_s.first(64), expires: 30.days }
+    cookies[:reference] = { value: reference, expires: 30.days }
   end
 
   # OPSEC-045: enforces session-token binding. Runs early so a stale session
