@@ -78,6 +78,10 @@ class GamePlay < ApplicationRecord
   # ESPN's play type -> the word a fan would use. First match wins, so the
   # specific cases sit above the general ones they contain.
   RESULTS = [
+    # The try after a touchdown, made or missed — before "touchdown", which
+    # some feeds repeat in its text.
+    [/extra point|\bpat\b/i,                "Extra Point"],
+    [/two-point|2pt/i,                     "Two-Point Try"],
     [/touchdown/i,                         "Touchdown"],
     [/safety/i,                            "Safety"],
     [/intercept/i,                         "Interception"],
@@ -199,20 +203,54 @@ class GamePlay < ApplicationRecord
   # Breaks that only fill time are looked past. Halftime and the end of the game
   # are not: they ARE what is happening, and the second half opens with its own
   # kickoff anyway.
-  PASS_OVER = ["Official Timeout", "Timeout", "Two-Minute Warning", "End of Quarter"].freeze
+  #
+  # The try after a touchdown is looked past too, made or MISSED: either way the
+  # next snap is still the kickoff.
+  PASS_OVER = ["Official Timeout", "Timeout", "Two-Minute Warning", "End of Quarter",
+               "Extra Point", "Two-Point Try"].freeze
+  SCORES = ["Touchdown", "Field Goal", "Safety"].freeze
 
   # The score the next kickoff follows, or nil. `plays` is newest first.
-  def self.awaiting_kickoff_after(plays)
-    plays.each do |play|
+  #
+  # TWO MOMENTS, IN ORDER (Alex, 2026-10-05). While the score is itself the
+  # newest play, the bar shows THE SCORE — "Touchdown, 12 yard rush" is the
+  # news. Only once something fills the gap after it (the TV break, the try)
+  # does the bar move on to what everyone is waiting for. And never for a game
+  # that is over: a walk-off score has no kickoff coming.
+  def self.awaiting_kickoff_after(plays, game: nil)
+    return nil if game&.completed?
+
+    plays.each_with_index do |play, index|
       next if PASS_OVER.include?(play.result_label)
-      return nil unless play.kind == "score" || %w[Touchdown Field\ Goal Safety].include?(play.result_label)
+      return nil unless play.kind == "score" || SCORES.include?(play.result_label)
+      return nil if index.zero?
+
       return play
     end
     nil
   end
 
+  # WHO SCORED, read off the score itself: each play carries the running score
+  # after it, so the side whose total rose on this play is the side that
+  # scored. That is right for a pick-six (the play is the offence's; the points
+  # are not) and needs no goal to have been written yet. `plays` is newest
+  # first and must include the play before the score. nil when the feed sent no
+  # running score, and the caller falls back.
+  def self.scoring_team_slug(score_play, plays:, game:)
+    index = plays.index(score_play)
+    before = index && plays[(index + 1)..].find { |play| !play.home_score.nil? && !play.away_score.nil? }
+    return nil if score_play.home_score.nil? || score_play.away_score.nil?
+
+    home_before = before&.home_score.to_i
+    away_before = before&.away_score.to_i
+    if score_play.home_score.to_i > home_before then game.home_team_slug
+    elsif score_play.away_score.to_i > away_before then game.away_team_slug
+    end
+  end
+
   # WHO KICKS: the team that scored — except after a safety, where the team
-  # that conceded it free-kicks. `scorer_slug` is the team the points went to.
+  # that conceded it free-kicks. `scorer_slug` is the team the points went to
+  # (see .scoring_team_slug).
   def self.kicking_team_slug(score_play, scorer_slug:, game:)
     return scorer_slug unless score_play.result_label == "Safety"
 

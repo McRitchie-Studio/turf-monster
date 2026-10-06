@@ -1,0 +1,9 @@
+<%# HOW THE BROWSER WRITES EVERY DATE ON A LIVE BOARD, as a JS object literal.
+    One table, rendered into both pages' scripts (live/index and
+    contests/_live_script): it was two copies, and the public page's had
+    already lost `kickoff-date`, so a scheduled game's date there stayed in UTC.
+    Keys are the <time> elements' data-role. %><%= raw({
+  "kickoff"      => { weekday: "short", hour: "numeric", minute: "2-digit" },
+  "kickoff-date" => { month: "short", day: "numeric" },
+  "played-on"    => { weekday: "short", month: "short", day: "numeric" }
+}.to_json) %>

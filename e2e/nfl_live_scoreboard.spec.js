@@ -1579,4 +1579,18 @@ test.describe("Live NFL scoreboard, in Denver", () => {
     }));
     expect(text).toBe("Sun, Oct 4");
   });
+
+  // The public page's table had lost `kickoff-date`, so a scheduled game's
+  // date stayed in UTC there. Both pages now render one shared table.
+  test("a scheduled game's date is rewritten in the reader's zone too", async ({ page }) => {
+    await page.goto("/live");
+    const text = await page.evaluate(() => new Promise((resolve) => {
+      const el = document.createElement("time");
+      Object.assign(el, { dateTime: "2026-10-12T00:20:00Z", textContent: "Oct 12" }); // SNF: Monday in UTC
+      el.dataset.role = "kickoff-date";
+      document.getElementById("nfl_live_scoreboard").appendChild(el);
+      setTimeout(() => resolve(el.textContent), 500);
+    }));
+    expect(text).toBe("Oct 11");
+  });
 });

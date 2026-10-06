@@ -391,11 +391,7 @@
     // only moves the error to everyone outside it. Idempotent: the <time>
     // element's datetime attribute is the source, never this function's own
     // previous output.
-    var KICKOFF_FORMATS = {
-      kickoff:      { weekday: 'short', hour: 'numeric', minute: '2-digit' },
-      'kickoff-date': { month: 'short', day: 'numeric' },
-      'played-on': { weekday: 'short', month: 'short', day: 'numeric' }
-    };
+    var KICKOFF_FORMATS = <%= render "live/kickoff_formats" %>;
     function formatKickoffs() {
       all('time[data-role="kickoff"], time[data-role="kickoff-date"], time[data-role="played-on"]').forEach(function (el) {
         var iso = el.getAttribute('datetime');
