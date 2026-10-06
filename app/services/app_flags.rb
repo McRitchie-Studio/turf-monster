@@ -5,20 +5,40 @@
 #   - the $1 "micro" contest tier   (see Contest::FORMATS / Contest.selectable_formats)
 #   - the $5 / 3-token entry bundle  (see StripePurchase::PACKS / .available_packs)
 #
-# Off by default everywhere — including production — unless the operator sets
-# ENABLE_TEST_SCAFFOLDING=true. To disable before launch, unset the env var.
-# Production BOOTS with it on (since 2026-08-27) so the $1 micro tier can be
-# rehearsed on mainnet; the boot logs at ERROR + Sentry rather than raising.
-# See config/initializers/test_scaffolding_guard.rb for what that costs.
+# Off by default everywhere unless the operator sets ENABLE_TEST_SCAFFOLDING=true.
+# Live production (live_production?: Rails production without QA_ENV) refuses to
+# boot with it on unless TEST_SCAFFOLDING_OVERRIDE names why, and the contest
+# test actions refuse there on the same terms (test_scaffolding_permitted?).
+# QA, development and test keep the flag. See
+# config/initializers/test_scaffolding_guard.rb.
 #
 # cdp_ramp? gates the Coinbase CDP Onramp/Offramp integration (buy USDC /
 # cash out via the Coinbase-hosted widget) — routes, controllers, and all UI
 # entry points. Off by default everywhere; unsetting ENABLE_CDP_RAMP is the
 # kill-switch. See docs/CDP_RAMP_INTEGRATION.md §2.
 module AppFlags
+  # Raised at boot when live production carries ENABLE_TEST_SCAFFOLDING with no
+  # TEST_SCAFFOLDING_OVERRIDE (config/initializers/test_scaffolding_guard.rb).
+  class TestScaffoldingRefused < StandardError; end
+
   # True when test-only scaffolding (micro tier, $5 token bundle) is enabled.
   def self.test_scaffolding?
     ENV["ENABLE_TEST_SCAFFOLDING"].to_s.strip.downcase == "true"
+  end
+
+  # The reason an operator gives for running test scaffolding on live
+  # production (TEST_SCAFFOLDING_OVERRIDE), or nil when none is given. The
+  # reason is free text, such as "micro-tier rehearsal, unset by 18:00"; a
+  # blank value is no override.
+  def self.test_scaffolding_override
+    ENV["TEST_SCAFFOLDING_OVERRIDE"].to_s.strip.presence
+  end
+
+  # True where test scaffolding may run at all: QA, development and test
+  # always, and live production only under a TEST_SCAFFOLDING_OVERRIDE. It is
+  # the environment half of the gate; test_scaffolding? is the switch.
+  def self.test_scaffolding_permitted?
+    !live_production? || test_scaffolding_override.present?
   end
 
   # True when the Coinbase CDP Onramp/Offramp (buy / cash out USDC) is enabled.
