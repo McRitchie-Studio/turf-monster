@@ -37,6 +37,14 @@ class DropSignupMailer < ApplicationMailer
   VARIANTS = %i[new_player existing_player].freeze
   PREVIEW_TOKEN = "preview".freeze
 
+  # THE IMAGE SEAM. Each email may open with a hero image, drawn by the
+  # branded_mailer layout from @banner_url / @banner_alt: an <img> with alt
+  # text when a URL is present, nothing at all when it is nil. Nothing supplies
+  # one today; the in-house email-image system plugs in here, as a callable
+  # (kind, variant, signup) -> { url:, alt: } or nil. Leave it nil and every
+  # email renders text-only.
+  class_attribute :hero_image_resolver, default: nil
+
   def confirmation(signup, variant: nil)
     prepare(signup, variant)
     @how_to_play_url = turf_monster_v2_url(anchor: "how-to-play")
@@ -84,6 +92,9 @@ class DropSignupMailer < ApplicationMailer
     @label   = NextSlateDrop.display_label
     @drops_at_label = NextSlateDrop.drops_at_label
     @variant = resolve_variant(signup, variant)
+    hero = hero_image_resolver&.call(action_name.to_sym, @variant, signup)
+    @banner_url = hero&.dig(:url).presence
+    @banner_alt = hero&.dig(:alt).presence || "#{@label} — Turf Monster"
     @unsubscribe_url = drop_unsubscribe_url(signup.persisted? ? signup.unsubscribe_token : PREVIEW_TOKEN)
 
     headers["List-Unsubscribe"] = "<#{@unsubscribe_url}>"
@@ -110,9 +121,9 @@ class DropSignupMailer < ApplicationMailer
     token = if signup.persisted?
               Studio::Link.create_magic_link(email: signup.email, return_to: return_to,
                                              age_attested: false, linkable: signup).token
-            else
+    else
               PREVIEW_TOKEN
-            end
+    end
     reference = signup.source.presence || NextSlateDrop::EMAIL_REFERENCE
     link_url(token: token, reference: reference) # the unified /l/<token> (Studio::LinksController < MagicLinksController), as UserMailer#magic_link
   end

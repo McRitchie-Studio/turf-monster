@@ -145,4 +145,27 @@ class DropSignupMailerTest < ActionMailer::TestCase
       DropSignupMailer.announcement(preview, variant: :new_player).message
     end
   end
+
+  # --- image seam ----------------------------------------------------------------
+
+  teardown { DropSignupMailer.hero_image_resolver = nil }
+
+  test "with no hero image resolver the emails carry no image" do
+    %i[confirmation announcement].each do |kind|
+      refute_includes DropSignupMailer.public_send(kind, signup("#{kind}@example.com")).html_part.body.to_s, "<img"
+    end
+  end
+
+  test "a hero image from the resolver renders with its alt text" do
+    seen = []
+    resolver = lambda do |kind, variant, _signup|
+      seen << [kind, variant]
+      { url: "https://cdn.example.com/#{kind}-#{variant}.png", alt: "Weeks 7–9 #{kind}" }
+    end
+    DropSignupMailer.hero_image_resolver = resolver
+    html = DropSignupMailer.announcement(signup).html_part.body.to_s
+    assert_includes html, %(src="https://cdn.example.com/announcement-new_player.png")
+    assert_includes html, %(alt="Weeks 7–9 announcement")
+    assert_equal [[:announcement, :new_player]], seen
+  end
 end
