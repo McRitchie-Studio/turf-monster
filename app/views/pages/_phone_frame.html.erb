@@ -1,0 +1,24 @@
+<%# A CSS phone — rounded bezel, a camera island, a status bar — holding live
+    markup rather than a screenshot, so the cards inside re-colour with the
+    board the day a team's palette is tuned. Used as a layout:
+
+      render layout: "pages/phone_frame" do ... end
+
+    DECORATIVE. The whole frame is aria-hidden: its type is phone-sized, and a
+    screen reader would read a second copy of content the page already says.
+    Every call site puts a visible caption beside it as the text alternative. %>
+<div class="relative mx-auto w-[17rem] shrink-0 rounded-[2.75rem] bg-neutral-900 p-2.5 shadow-2xl ring-1 ring-white/10"
+     aria-hidden="true" data-test="phone-mock">
+  <div class="relative h-[29rem] overflow-hidden rounded-[2.25rem] bg-page text-body">
+    <%# The camera island, over the status bar the way the real one sits. %>
+    <div class="absolute left-1/2 top-2 z-10 h-6 w-24 -translate-x-1/2 rounded-full bg-neutral-900"></div>
+    <div class="flex items-center justify-between px-6 pt-2.5 pb-1 text-[11px] font-semibold text-heading">
+      <span>9:41</span>
+      <span class="flex items-center gap-1">
+        <span class="inline-block h-2 w-3 rounded-sm bg-current opacity-80"></span>
+        <span class="inline-block h-2.5 w-5 rounded-sm border border-current opacity-80"></span>
+      </span>
+    </div>
+    <%= yield %>
+  </div>
+</div>

@@ -1,0 +1,322 @@
+<%# The top-of-funnel explainer, and the page that will become /about (the swap
+    is its own task; /about is untouched). Modelled on Calm's landing page: a
+    dark starry hero with one big CTA and the product in a phone, then a light
+    section with a second phone beside a short feature list.
+
+    Sections, in order:
+      1. HERO         what the game is, in one headline and two sentences
+      2. NOTIFY       the countdown to the next slate drop, and a notify-me form
+      3. HOW TO PLAY  four icon rows beside the scoring phone
+      4. CLOSING      the two CTAs again
+
+    NOTHING HERE IS A NEW RULE. Every fact is the v1 rules page's, and every
+    number is read from TurfMonsterRules (multipliers, the example entry) or
+    NextSlateDrop (the drop instant and its slate key), so this page cannot
+    disagree with the rules it summarises. The full rules stay on
+    turf_monster_v1_path, and this page links there.
+
+    ENTRY COST LINKS OUT, ALWAYS. The v1 operator rule holds here too: any
+    mention of what an entry costs links to getting_started_path.
+
+    THE HERO IS DARK IN BOTH THEMES, on purpose: it is the Calm night sky, so
+    its colours are fixed rather than theme tokens, and its text is white on
+    both. Everything below the hero is on theme tokens. %>
+<% content_for :title, "Turf Monster — Pick 6 NFL Teams, Stack Their Points" %>
+<% content_for :meta_description, "NFL pick'em: choose 6 teams, score every point they put up over three weeks multiplied by their Turf Score, and climb the leaderboard. The #{NextSlateDrop::LABEL} slate drops Tuesday morning." %>
+<% dropped   = NextSlateDrop.dropped? %>
+<% remaining = NextSlateDrop.remaining %>
+<% top_score = TurfMonsterRules.turf_score_for_rank(1) %>
+<% low_score = TurfMonsterRules.turf_score_for_rank(TurfMonsterRules::TEAM_COUNT) %>
+
+<script>
+  // Inline for the reason every page-level factory in this app is: importmap
+  // modules run AFTER Alpine walks x-data, so a factory defined there is not
+  // there yet on a fresh load.
+
+  // The countdown. The server renders the first frame (days/hours/minutes and
+  // which state is showing), so the page reads right with JS off; this only
+  // keeps it moving and flips it to "live" at the instant.
+  window.dropCountdown = function (iso, days, hours, minutes, dropped) {
+    return {
+      target: Date.parse(iso),
+      days: days, hours: hours, minutes: minutes, dropped: dropped,
+      timer: null,
+      init: function () {
+        this.tick();
+        this.timer = setInterval(this.tick.bind(this), 10000);
+      },
+      destroy: function () { clearInterval(this.timer); },
+      tick: function () {
+        var s = Math.max(0, Math.floor((this.target - Date.now()) / 1000));
+        this.dropped = s <= 0;
+        this.days = Math.floor(s / 86400);
+        this.hours = Math.floor((s % 86400) / 3600);
+        this.minutes = Math.floor((s % 3600) / 60);
+      }
+    };
+  };
+
+  // The notify-me form. SUCCESS ONLY ON A 2xx THE SERVER CONFIRMS: fetch does
+  // not reject on an HTTP error, so a 422 or 429 resolves like a 200 would,
+  // and the state is read from res.ok and the body, never from "it resolved".
+  // Form-encoded, not JSON, so the per-email throttle (which reads Rack's form
+  // params) sees the address.
+  window.dropNotifyForm = function (initial) {
+    return {
+      state: initial || 'idle', // 'idle' | 'submitting' | 'done' | 'error'
+      error: initial === 'error' ? 'Enter a valid email address.' : '',
+      submit: function (event) {
+        if (this.state === 'submitting') return;
+        var form = event.target;
+        var token = document.querySelector('meta[name=csrf-token]');
+        this.state = 'submitting';
+        this.error = '';
+        fetch(form.action, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Accept': 'application/json', 'X-CSRF-Token': token ? token.content : '' },
+          body: new URLSearchParams(new FormData(form))
+        }).then(function (res) {
+          return res.json().catch(function () { return {}; }).then(function (data) {
+            if (res.ok && data.ok) { this.state = 'done'; return; }
+            this.state = 'error';
+            this.error = res.status === 429 ? 'Too many tries. Give it a few minutes and try again.'
+                       : (data.error || 'Something went wrong. Try again.');
+          }.bind(this));
+        }.bind(this)).catch(function () {
+          this.state = 'error';
+          this.error = 'Could not reach the server. Check your connection and try again.';
+        }.bind(this));
+      }
+    };
+  };
+</script>
+
+<%# data-test hook: the tests scope their copy assertions to THIS subtree. The
+    layout ships site-wide meta that still advertises the World Cup season, so a
+    page-wide response.body scan would read the chrome, not the page. %>
+<div class="py-4 md:py-8 space-y-16 md:space-y-24" data-test="turf-monster-v2">
+
+  <!-- ========== 1. HERO ========== -->
+  <%# Two layered backgrounds: a field of small radial-gradient "stars" over
+      the night gradient. Fixed hex on purpose (see the header). %>
+  <section class="relative overflow-hidden rounded-3xl px-6 py-12 md:px-12 md:py-16"
+           data-test="v2-hero"
+           style="background-image:
+             radial-gradient(1px 1px at 12% 18%, #ffffffcc 50%, transparent 51%),
+             radial-gradient(1px 1px at 28% 72%, #ffffff99 50%, transparent 51%),
+             radial-gradient(1.5px 1.5px at 44% 34%, #ffffffb3 50%, transparent 51%),
+             radial-gradient(1px 1px at 63% 12%, #ffffff99 50%, transparent 51%),
+             radial-gradient(1px 1px at 78% 58%, #ffffffcc 50%, transparent 51%),
+             radial-gradient(1.5px 1.5px at 90% 26%, #ffffff80 50%, transparent 51%),
+             radial-gradient(1px 1px at 8% 88%, #ffffff80 50%, transparent 51%),
+             radial-gradient(1px 1px at 52% 92%, #ffffff99 50%, transparent 51%),
+             linear-gradient(160deg, #0b1026 0%, #18204f 45%, #3a2a6e 80%, #4a3780 100%);">
+    <div class="grid items-center gap-12 md:grid-cols-2">
+      <div class="text-center md:text-left">
+        <span class="inline-block px-3 py-1 rounded-full border border-white/25 bg-white/10 text-white text-xs font-bold uppercase tracking-widest">NFL 2026</span>
+        <h1 class="mt-5 text-4xl md:text-6xl font-extrabold leading-tight text-white">
+          Pick 6 teams. Stack their points. Get paid.
+        </h1>
+        <p class="mt-5 text-lg text-white/80 max-w-xl mx-auto md:mx-0">
+          Choose 6 NFL teams. Every point they score over three weeks counts, multiplied by that team&rsquo;s Turf Score &mdash; and underdogs carry the bigger multiplier, so a good longshot beats an obvious favorite.
+        </p>
+        <div class="mt-8 flex flex-col sm:flex-row items-center gap-3 justify-center md:justify-start">
+          <% if dropped %>
+            <%= link_to "Play the #{NextSlateDrop::LABEL} slate", root_path,
+                  class: "btn btn-primary btn-lg shadow-lg shadow-primary/30 text-lg" %>
+          <% else %>
+            <a href="#notify" class="btn btn-primary btn-lg shadow-lg shadow-primary/30 text-lg">Get notified for <%= NextSlateDrop::LABEL %></a>
+          <% end %>
+          <%= link_to "Start playing", root_path,
+                class: "inline-flex items-center justify-center rounded-xl border border-white/30 px-6 py-3 text-base font-semibold text-white hover:bg-white/10 transition" %>
+        </div>
+      </div>
+
+      <figure class="flex flex-col items-center">
+        <%= render layout: "pages/phone_frame" do %>
+          <%= render "pages/phone_pick_board", teams: @teams %>
+        <% end %>
+        <figcaption class="mt-4 max-w-xs text-center text-xs text-white/70">
+          The pick board: six team cards, each with its Turf Score and its three opponents. Real cards from the Weeks 1&ndash;3 board.
+        </figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ========== 2. NEXT CONTEST / NOTIFY ME ========== -->
+  <%# The countdown owns this section's x-data; the form nests inside it so it
+      can hide itself once the slate is live. The server picks the first frame
+      (style="display:none" on the state that is NOT current), so with JS off
+      the right half shows and the numbers are right as of the request. %>
+  <section id="notify" class="scroll-mt-24 max-w-3xl mx-auto text-center" data-test="v2-notify"
+           x-data="dropCountdown('<%= NextSlateDrop.drops_at.utc.iso8601 %>', <%= remaining[:days] %>, <%= remaining[:hours] %>, <%= remaining[:minutes] %>, <%= dropped %>)">
+    <p class="text-primary font-mono text-sm mb-2">Next contest</p>
+
+    <div x-show="!dropped" <%= 'style="display: none;"'.html_safe if dropped %>>
+      <h2 class="text-3xl md:text-4xl font-bold text-heading mb-3"><%= NextSlateDrop::LABEL %> slate drops Tuesday morning</h2>
+      <p class="text-secondary mb-8">
+        The board for NFL <%= NextSlateDrop::LABEL %> goes live <%= NextSlateDrop.drops_at.strftime("%A, %B %-d") %> at <%= NextSlateDrop.drops_at.strftime("%-l:%M %p") %> Mountain.
+      </p>
+
+      <div class="grid grid-cols-3 gap-3 max-w-sm mx-auto mb-10" data-test="v2-countdown" role="timer" aria-live="off">
+        <div class="card p-4">
+          <p class="font-mono text-3xl md:text-4xl font-bold text-heading" x-text="days"><%= remaining[:days] %></p>
+          <p class="label-upper mt-1">Days</p>
+        </div>
+        <div class="card p-4">
+          <p class="font-mono text-3xl md:text-4xl font-bold text-heading" x-text="hours"><%= remaining[:hours] %></p>
+          <p class="label-upper mt-1">Hours</p>
+        </div>
+        <div class="card p-4">
+          <p class="font-mono text-3xl md:text-4xl font-bold text-heading" x-text="minutes"><%= remaining[:minutes] %></p>
+          <p class="label-upper mt-1">Minutes</p>
+        </div>
+      </div>
+
+      <%# THE FORM. A plain POST without JS (the controller redirects back with a
+          flash this page reads into @drop_signup_status); the Alpine submit
+          takes it over with JS. Success shows only after a 2xx. %>
+      <% initial = { "ok" => "done", "invalid" => "error" }[@drop_signup_status] || "idle" %>
+      <div class="relative card p-6 md:p-8 max-w-xl mx-auto text-left"
+           x-data="dropNotifyForm('<%= initial %>')" data-test="v2-notify-form">
+        <div x-show="state === 'done'" <%= 'style="display: none;"'.html_safe unless initial == "done" %>
+             role="status" data-test="v2-notify-success">
+          <p class="text-xl font-bold text-heading">You&rsquo;re on the list.</p>
+          <p class="text-secondary text-sm mt-1">We&rsquo;ll send one email when the <%= NextSlateDrop::LABEL %> slate drops.</p>
+        </div>
+
+        <%= form_with url: drop_signups_path, method: :post, local: true,
+              data: { turbo: false },
+              html: { "x-show": "state !== 'done'", "@submit.prevent": "submit($event)", novalidate: true,
+                      style: (initial == "done" ? "display: none;" : nil) } do %>
+          <label for="drop_signup_email" class="block text-sm font-semibold text-heading mb-2">Notify me when <%= NextSlateDrop::LABEL %> drops</label>
+          <div class="flex flex-col sm:flex-row gap-3">
+            <input type="email" id="drop_signup_email" name="email" required autocomplete="email"
+                   placeholder="you@example.com"
+                   class="input flex-1 min-w-0"
+                   aria-describedby="drop_signup_help">
+            <button type="submit" class="btn btn-primary whitespace-nowrap"
+                    :disabled="state === 'submitting'"
+                    x-text="state === 'submitting' ? 'Sending…' : 'Notify me'">Notify me</button>
+          </div>
+          <%# The honeypot. Off-screen rather than display:none (some bots skip
+              hidden fields), out of the tab order, and hidden from assistive
+              tech. A human never fills it; the controller drops any post that
+              does, quietly, with the same 200 a real signup gets. %>
+          <div class="absolute -left-[9999px] h-px w-px overflow-hidden" aria-hidden="true">
+            <label for="drop_signup_website">Website</label>
+            <input type="text" id="drop_signup_website" name="website" tabindex="-1" autocomplete="off">
+          </div>
+          <% if params[:reference].present? %>
+            <input type="hidden" name="reference" value="<%= params[:reference].to_s.first(DropSignup::SOURCE_LIMIT) %>">
+          <% end %>
+          <p class="text-sm text-danger-ink mt-2" x-show="state === 'error'" x-text="error" role="alert"
+             <%= 'style="display: none;"'.html_safe unless initial == "error" %>><% if initial == "error" %>Enter a valid email address.<% end %></p>
+          <p id="drop_signup_help" class="text-muted text-xs mt-3">One email when the slate drops. No spam.</p>
+        <% end %>
+      </div>
+    </div>
+
+    <div x-show="dropped" <%= 'style="display: none;"'.html_safe unless dropped %> data-test="v2-live">
+      <h2 class="text-3xl md:text-4xl font-bold text-heading mb-3">The <%= NextSlateDrop::LABEL %> slate is live</h2>
+      <p class="text-secondary mb-8">The board is open. Pick your 6 teams before the contest locks.</p>
+      <%= link_to "Play now", root_path, class: "btn btn-primary btn-lg shadow-lg shadow-primary/20 text-lg" %>
+    </div>
+  </section>
+
+  <!-- ========== 3. HOW TO PLAY ========== -->
+  <%# Calm's "What do you get?" layout: a phone on one side, short icon rows on
+      the other. The rows are v1's four steps, condensed; the copy carries no
+      lock timing and no payout timing, for the reasons v1's own comments give. %>
+  <section class="rounded-3xl bg-surface border border-subtle px-6 py-12 md:px-12 md:py-16" data-test="v2-how-to-play">
+    <div class="grid items-center gap-12 md:grid-cols-2">
+      <figure class="order-2 md:order-1 flex flex-col items-center">
+        <%= render layout: "pages/phone_frame" do %>
+          <%= render "pages/phone_scoring", teams: @teams %>
+        <% end %>
+        <figcaption class="mt-4 max-w-xs text-center text-xs text-muted">
+          An entry after three weeks: each team&rsquo;s points times its Turf Score. The teams and Turf Scores are real; the point totals are made up.
+        </figcaption>
+      </figure>
+
+      <div class="order-1 md:order-2">
+        <h2 class="text-3xl md:text-4xl font-bold text-heading mb-2">How to play</h2>
+        <p class="text-secondary mb-8">Four steps. That&rsquo;s the whole game.</p>
+
+        <ul class="space-y-6">
+          <li class="flex gap-4">
+            <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary-ink" aria-hidden="true">
+              <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 18.75h-9m9 0a3 3 0 0 1 3 3h-15a3 3 0 0 1 3-3m9 0v-3.375c0-.621-.503-1.125-1.125-1.125h-.871M7.5 18.75v-3.375c0-.621.504-1.125 1.125-1.125h.872m5.007 0H9.497m5.007 0a7.454 7.454 0 0 1-.982-3.172M9.497 14.25a7.454 7.454 0 0 0 .981-3.172M5.25 4.236c-.982.143-1.954.317-2.916.52A6.003 6.003 0 0 0 7.73 9.728M5.25 4.236V4.5c0 2.108.966 3.99 2.48 5.228M5.25 4.236V2.721C7.456 2.41 9.71 2.25 12 2.25c2.291 0 4.545.16 6.75.47v1.516M7.73 9.728a6.726 6.726 0 0 0 2.748 1.35m8.272-6.842V4.5c0 2.108-.966 3.99-2.48 5.228m2.48-5.492a46.32 46.32 0 0 1 2.916.52 6.003 6.003 0 0 1-5.395 4.972m0 0a6.726 6.726 0 0 1-2.749 1.35m0 0a6.772 6.772 0 0 1-3.044 0"/></svg>
+            </span>
+            <div>
+              <h3 class="text-lg font-bold text-heading">Pick a contest</h3>
+              <p class="text-secondary text-sm leading-relaxed">
+                Each contest names the weeks it covers, how many players it holds, and the prizes on the line. Entries are paid in USDC; the
+                <%= link_to "Getting Started guide", getting_started_path, class: "text-primary hover:underline" %>
+                walks you through it.
+              </p>
+            </div>
+          </li>
+
+          <li class="flex gap-4">
+            <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary-ink" aria-hidden="true">
+              <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z"/></svg>
+            </span>
+            <div>
+              <h3 class="text-lg font-bold text-heading">Choose 6 teams</h3>
+              <p class="text-secondary text-sm leading-relaxed">
+                Tap 6 teams from the board, then hold to confirm. Each card shows the team&rsquo;s Turf Score and its opponents for all three weeks.
+              </p>
+            </div>
+          </li>
+
+          <li class="flex gap-4">
+            <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-violet/15 text-violet-ink" aria-hidden="true">
+              <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
+            </span>
+            <div>
+              <h3 class="text-lg font-bold text-heading">Points &times; Turf Score</h3>
+              <p class="text-secondary text-sm leading-relaxed" data-test="v2-turf-score-step">
+                Every point a team scores counts for you, multiplied by its Turf Score: <span class="font-mono text-violet-ink"><%= number_with_precision(top_score, precision: 1) %>x</span> for the team projected to score the most, up to <span class="font-mono text-violet-ink"><%= number_with_precision(low_score, precision: 1) %>x</span> for the team projected to score the least.
+              </p>
+            </div>
+          </li>
+
+          <li class="flex gap-4">
+            <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary-ink" aria-hidden="true">
+              <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z"/></svg>
+            </span>
+            <div>
+              <h3 class="text-lg font-bold text-heading">Climb the leaderboard and get paid</h3>
+              <p class="text-secondary text-sm leading-relaxed">
+                As scores come in your entry is re-scored, and the contest page shows where you stand. When the last game is over the standings are final, and payouts go to the wallet you entered from.
+              </p>
+            </div>
+          </li>
+        </ul>
+
+        <p class="text-secondary text-sm mt-8">
+          Want the details? Read the
+          <%= link_to "full rules", turf_monster_v1_path, class: "text-primary hover:underline font-semibold" %>.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== 4. CLOSING CTA ========== -->
+  <section class="text-center pb-8" data-test="v2-closing">
+    <p class="text-2xl md:text-3xl font-bold text-heading mb-6">Ready for <%= NextSlateDrop::LABEL %>?</p>
+    <div class="flex flex-col sm:flex-row items-center justify-center gap-3">
+      <% unless dropped %>
+        <a href="#notify" class="btn btn-primary btn-lg shadow-lg shadow-primary/20 text-lg">Get notified for <%= NextSlateDrop::LABEL %></a>
+      <% end %>
+      <%= link_to "Start playing", root_path, class: "btn btn-outline btn-lg text-lg" %>
+    </div>
+    <p class="text-muted text-sm mt-6">
+      Never used a crypto wallet? Start with the
+      <%= link_to "Getting Started guide", getting_started_path, class: "text-primary hover:underline" %>.
+    </p>
+  </section>
+
+</div>

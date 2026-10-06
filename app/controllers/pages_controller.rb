@@ -19,6 +19,19 @@ class PagesController < ApplicationController
     @teams = Team.where(slug: TurfMonsterRules.team_slugs).index_by(&:slug)
   end
 
+  # The explainer that will become /about (top of the funnel): what the game
+  # is, the countdown to the next slate drop, a notify-me form, and how to play.
+  # Its two phone mockups draw the SAME team cards v1 does, so it loads the
+  # same Team rows the same way — one query, nil-safe when rows are missing.
+  #
+  # @drop_signup_status is the no-JS round trip: a plain form post redirects
+  # back here with flash[:drop_signup] ("ok" / "invalid"), and the form draws
+  # its success or error state from it on the first paint.
+  def turf_monster_v2
+    @teams = Team.where(slug: TurfMonsterRules.team_slugs).index_by(&:slug)
+    @drop_signup_status = flash[:drop_signup]
+  end
+
   def terms
     # The Terms' state-eligibility section renders the LIVE enforcement list
     # (same source as /state-eligibility) so policy can't drift from the gate.
