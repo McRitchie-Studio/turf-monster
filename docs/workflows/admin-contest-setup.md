@@ -5,7 +5,7 @@
 > resets at each `##` heading. The number is bookkeeping; the SYMBOL beside it is
 > the claim, and `test/docs/workflow_citation_docs_test.rb` reddens when a
 > citation stops landing inside the definition its prose names.
-> That symbol check reaches **188 of the 231 citations** here. The other **43**
+> That symbol check reaches **187 of the 230 citations** here. The other **43**
 > sit in code with no enclosing definition the guard can derive, and they are not
 > all checked alike. **6 of those 43** are `config/routes.rb` entries, which get a
 > stricter check: each must OPEN on the line that carries its route, not merely
