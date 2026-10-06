@@ -1,0 +1,11 @@
+<%# locals: (window:, path_for:)
+    The 7 days / 30 days / all time switch. path_for is a lambda from a
+    window key to the URL. %>
+<nav class="flex flex-wrap items-center gap-2" aria-label="Window" data-experiment-window>
+  <% ExperimentReport::WINDOWS.each_key do |key| %>
+    <% label = key == "all" ? "All time" : "#{key} days" %>
+    <%= link_to label, path_for.call(key),
+          class: "btn btn-sm #{window == key ? 'btn-primary' : 'btn-outline'}",
+          aria: { current: (window == key ? "page" : nil) } %>
+  <% end %>
+</nav>

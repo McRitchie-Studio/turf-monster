@@ -176,7 +176,8 @@ class MagicLinksController < ApplicationController
     reset_prior_session!
     user = User.new(email: result.email,
                     age_attested_at: (Time.current if age_attestation_required?),
-                    reference: cookies[:reference].presence&.to_s&.first(64))
+                    reference: cookies[:reference].presence&.to_s&.first(64),
+                    **experiment_attribution)
     Studio.configure_new_user.call(user)
     rescue_and_log(target: user) do
       user.save!
@@ -353,7 +354,7 @@ class MagicLinksController < ApplicationController
     signin_path(**managed_wallet_params)
   end
 
-  # "Home" for turf is the root board (contests#world_cup) — the same place
+  # "Home" for turf is the root, the contests lobby (contests#index) — the same place
   # landing_path_for sends a link with no destination, so both halves of a link
   # click agree on where "the app" is.
   def link_home_path
@@ -500,10 +501,9 @@ class MagicLinksController < ApplicationController
   # "Otherwise" covers no destination, a bare "/", and the auth pages above,
   # which are never honored literally.
   #
-  # Root is contests#world_cup, the app's home board. It replaces a redirect to
-  # `Contest.featured` here: same intent, one destination, and it cannot resolve
-  # to nil the way the featured lookup could (which is why the contests-index
-  # fallback beside it is gone too).
+  # Root is contests#index, the contests lobby: one destination that never
+  # resolves to nil. A visitor mid-entry who lands there is handed back to the
+  # contest their saved cart names (shared/_pending_cart_handoff).
   def landing_path_for(result)
     # `result` is nil for an unrecognized token — the dead path calls this too.
     rt = result&.return_to

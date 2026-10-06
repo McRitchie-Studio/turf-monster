@@ -28,6 +28,10 @@
           <td class="px-3 py-3">
             <%= link_to short_link.reference, admin_referrals_path(days: "all", reference: short_link.reference),
                   class: "font-mono text-xs text-secondary hover:underline" %>
+            <% if short_link.experiment_slug.present? %>
+              <%= link_to "A/B: #{short_link.experiment_slug}", admin_experiment_path(short_link.experiment_slug),
+                    class: "block font-mono text-[10px] text-violet-ink hover:underline mt-0.5", data: { short_link_experiment: short_link.experiment_slug } %>
+            <% end %>
           </td>
           <td class="px-3 py-3 text-right font-mono text-heading" data-clicks>
             <%= number_with_delimiter(clicks[short_link.reference].to_i) %>

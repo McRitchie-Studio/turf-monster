@@ -873,13 +873,13 @@ not one this server produced.
 
 
 ### Multisig Settlement Flow
-1. `Contest#grade!` scores entries and calls `settle_onchain!`
-2. `settle_onchain!` calls `Vault#build_settle_contest` → creates a `PendingTransaction` with the partially-signed TX (2-of-3)
+1. `Contest#grade!` scores and pays entries through `Contest::PayoutSplit` (never more paid entries than the contest's payout table has places, at most `Contest::MAX_PAID_RANKS`), then calls `settle_onchain!`, then marks the contest `settled`
+2. `settle_onchain!` calls `Vault#build_settle_contest` → creates a `PendingTransaction` with the partially-signed TX (2-of-3). The builder measures the serialized wire and raises `Vault::SettleTooLargeError` past 1,232 bytes; any raise rolls the whole grade back, so a contest never reads `settled` without a queued settlement
 3. Admin visits `/admin/pending_transactions` (Treasury page)
 4. Clicks "Co-sign" → Phantom signs as the second signer → TX submitted to Solana
 5. On-chain: per-winner SPL transfer `prize_pool` PDA → winner USDC ATA (PDA-signed by `VaultState` seeds); contest status → Settled
 
-> ⚠️ `grade!` marks the DB `settled` (writes `payout_cents` + TransactionLog credits) even if the on-chain settle PT is never cosigned — the sweeper deliberately skips treasury PTs, so no alert fires on an un-cosigned settle. Cosign promptly or winners stay unpaid on-chain.
+> ⚠️ `grade!` marks the DB `settled` (writes `payout_cents` + TransactionLog credits) once the settle PT is queued, even if it is never cosigned — the sweeper deliberately skips treasury PTs, so no alert fires on an un-cosigned settle. Cosign promptly or winners stay unpaid on-chain.
 
 ## Navbar Balance
 

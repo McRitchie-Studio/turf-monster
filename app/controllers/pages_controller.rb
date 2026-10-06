@@ -35,7 +35,12 @@ class PagesController < ApplicationController
   # played or just finished (@live_showcase), else the lobby rows. On the live
   # page its featured game is simulated (@laptop_sim, LaptopScoreSimulation),
   # and @laptop_sim_frames are the later frames the page's script plays.
+  #
+  # @page_variant is the A/B variant this visitor sees when an experiment runs
+  # on this page (PageExperimentTracking), whose copy overrides the defaults
+  # the view holds; nil when none runs, and the page is unchanged.
   def turf_monster_v2
+    @page_variant = assign_page_experiment&.variant
     slugs = TurfMonsterRules.team_slugs | TurfMonsterRules.showcase_team_slugs
     @teams = Team.where(slug: slugs).index_by(&:slug)
     @drop_signup_status = flash[:drop_signup]

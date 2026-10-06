@@ -7,11 +7,12 @@
                                      the slate is live, and so does its name)
     The label is "Play Turf Monster" in every state; only the destination moves.
     The modal button is an anchor to #notify, so with JS off it still lands on
-    the page's own notify section. %>
+    the page's own notify section. data-cta="play" is the A/B tap the page's
+    experiment beacon counts (page_experiments.js), in either state. %>
 <% if pick.link? %>
   <%= link_to "Play Turf Monster", contest_path(pick.contest),
-        class: "btn btn-primary btn-lg shadow-lg shadow-primary/30 text-base sm:text-lg whitespace-nowrap", data: { test: test_id } %>
+        class: "btn btn-primary btn-lg shadow-lg shadow-primary/30 text-base sm:text-lg whitespace-nowrap", data: { test: test_id, cta: "play" } %>
 <% else %>
-  <a href="#notify" class="btn btn-primary btn-lg shadow-lg shadow-primary/30 text-base sm:text-lg whitespace-nowrap" data-test="<%= test_id %>"
+  <a href="#notify" class="btn btn-primary btn-lg shadow-lg shadow-primary/30 text-base sm:text-lg whitespace-nowrap" data-test="<%= test_id %>" data-cta="play"
      @click.prevent="$store.modals.open('drop-notify', { title: '<%= j(NextSlateDrop.dropped? ? "The #{NextSlateDrop::LABEL} slate is live" : "Get notified when #{NextSlateDrop::LABEL} drops") %>' })">Play Turf Monster</a>
 <% end %>

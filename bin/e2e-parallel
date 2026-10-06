@@ -150,7 +150,7 @@ if [ "$PARALLEL_SEED" = 1 ]; then
     db="${DBPREFIX}_${i}"
     (
       export DATABASE_URL="postgres:///${db}" TEST_DATABASE_URL="postgres:///${db}" RAILS_ENV=test
-      export ENABLE_COINFLOW=true ENABLE_AEROPAY=true  # onramp rails — see ONRAMP FLAGS above
+      export ENABLE_COINFLOW=true ENABLE_AEROPAY=true ENABLE_FIAT_RAILS=true  # onramp rails — see ONRAMP FLAGS above
       bin/rails db:drop db:create db:schema:load >"$LOGDIR/stack-$i.log" 2>&1
       bin/rails runner e2e/seed.rb >>"$LOGDIR/stack-$i.log" 2>&1
       exec bin/rails server -p "$port" -e test >>"$LOGDIR/server-$i.log" 2>&1
@@ -163,7 +163,7 @@ else
     db="${DBPREFIX}_${i}"
     if ! (
       export DATABASE_URL="postgres:///${db}" TEST_DATABASE_URL="postgres:///${db}" RAILS_ENV=test
-      export ENABLE_COINFLOW=true ENABLE_AEROPAY=true  # onramp rails — see ONRAMP FLAGS above
+      export ENABLE_COINFLOW=true ENABLE_AEROPAY=true ENABLE_FIAT_RAILS=true  # onramp rails — see ONRAMP FLAGS above
       bin/rails db:drop db:create db:schema:load >"$LOGDIR/stack-$i.log" 2>&1 &&
         bin/rails runner e2e/seed.rb >>"$LOGDIR/stack-$i.log" 2>&1
     ); then
@@ -178,7 +178,7 @@ else
     db="${DBPREFIX}_${i}"
     (
       export DATABASE_URL="postgres:///${db}" TEST_DATABASE_URL="postgres:///${db}" RAILS_ENV=test
-      export ENABLE_COINFLOW=true ENABLE_AEROPAY=true  # onramp rails — see ONRAMP FLAGS above
+      export ENABLE_COINFLOW=true ENABLE_AEROPAY=true ENABLE_FIAT_RAILS=true  # onramp rails — see ONRAMP FLAGS above
       exec bin/rails server -p "$port" -e test >>"$LOGDIR/server-$i.log" 2>&1
     ) &
     SERVER_PIDS+=("$!")

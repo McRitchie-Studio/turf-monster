@@ -32,7 +32,7 @@
             the same instant the landing page's card prints. %>
         <p class="text-secondary mb-6" data-test="claim-lock">
           Then make your
-          <%= @contest.world_cup_survivor? ? "pick" : "#{@contest.picks_required || Contest::TURF_TOTALS_DEFAULT_PICKS_REQUIRED} picks" %>
+          <%= @contest.picks_required || Contest::TURF_TOTALS_DEFAULT_PICKS_REQUIRED %> picks
           in <strong class="text-heading"><%= @contest.name %></strong>
           <% if (lock_time = claim_lock_time(@contest)) %>
             before <strong class="text-heading"><%= lock_time %></strong>.

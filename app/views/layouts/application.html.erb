@@ -1137,8 +1137,8 @@
           // The redundant auto-close countdown timer that used to live here
           // is gone: modals/blocks/_entry_confirmed.html.erb drives the
           // post-success redirect via the success_card's cta_drain. The
-          // onClose callback path is preserved for the world-cup-survivor
-          // flow that still relies on it.
+          // onClose callback stays settable for a caller that navigates on
+          // close (contests/_turf_totals_board, cosign.js).
           var _txCluster = document.body ? (document.body.dataset.solanaCluster || 'devnet') : 'devnet';
           var _txClusterParam = _txCluster === 'devnet' ? '?cluster=devnet' : '';
           var _onCurrent = function() {
@@ -1443,7 +1443,7 @@
             get recoveryLabel()   { return _propRead('recoveryLabel', null); },
             get recoveryPhantom() { return _propRead('recoveryPhantom', false); },
 
-            // onClose remains a settable callback (legacy survivor-board flow).
+            // onClose remains a settable callback (navigate-on-close callers).
             get onClose()         { return this._onCloseHandler; },
             set onClose(fn)       { this._onCloseHandler = fn; },
 

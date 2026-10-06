@@ -138,6 +138,10 @@ class OmniauthCallbacksController < ApplicationController
         result.update_column(:reference, cookies[:reference].to_s.first(64))
         cookies.delete(:reference)
       end
+      # And the page experiment variant the visitor was shown (PageExperimentTracking).
+      if new_signup && result.is_a?(User) && result.experiment_slug.blank? && (variant = experiment_attribution).present?
+        result.update_columns(variant)
+      end
 
       # Stamp the legal-age attestation on the freshly-created account
       # (enforced above; update_column mirrors the attribution stamp — no

@@ -1,0 +1,111 @@
+<%# locals: (experiment:)
+    The experiment and its variants in one form (accepts_nested_attributes_for).
+    A variant's blank copy field means "the page's own copy". A blank row with
+    no key is ignored, so the spare row costs nothing when left empty. %>
+<% field_class = "w-full text-sm rounded-md border border-subtle px-2 py-1.5" %>
+<% field_style = "background: var(--color-surface-alt); color: var(--color-text);" %>
+<% label_class = "text-muted text-[10px] uppercase tracking-wide block mb-1" %>
+<% url = experiment.persisted? ? admin_experiment_path(experiment.slug) : admin_experiments_path %>
+
+<%= form_with model: experiment, scope: :page_experiment, url: url, local: true, class: "space-y-5", data: { test: "experiment-form" } do |f| %>
+  <% if experiment.errors.any? %>
+    <div class="rounded-lg border border-danger bg-danger/10 text-danger-ink text-sm px-4 py-3" role="alert">
+      <p class="font-semibold mb-1"><%= pluralize(experiment.errors.count, "error") %> to fix:</p>
+      <ul class="list-disc list-inside space-y-0.5">
+        <% experiment.errors.full_messages.each do |msg| %>
+          <li><%= msg %></li>
+        <% end %>
+      </ul>
+    </div>
+  <% end %>
+
+  <div class="card p-6 space-y-4">
+    <div>
+      <%= f.label :name, "Name", class: label_class %>
+      <%= f.text_field :name, required: true, placeholder: "Explainer headline test", class: field_class, style: field_style %>
+    </div>
+    <div>
+      <%= f.label :slug, "Key", class: label_class %>
+      <%= f.text_field :slug, required: true, placeholder: "turf-monster-v2", spellcheck: false, disabled: experiment.persisted?,
+            class: "#{field_class} font-mono", style: field_style %>
+      <p class="text-muted text-xs mt-1">
+        Names the visitor&rsquo;s cookie (<span class="font-mono">exp_&lt;key&gt;</span>) and every count. Fixed once created.
+      </p>
+    </div>
+    <div>
+      <%= f.label :page_path, "Page", class: label_class %>
+      <%= f.text_field :page_path, required: true, placeholder: "/turf-monster-v2", spellcheck: false,
+            class: "#{field_class} font-mono", style: field_style %>
+      <p class="text-muted text-xs mt-1">The page whose copy the variants override. One running experiment per page.</p>
+    </div>
+    <label class="flex items-center gap-2 text-sm text-heading">
+      <%= f.check_box :active %>
+      Running (off pauses the split; every visitor sees the page&rsquo;s own copy, and the counts are kept)
+    </label>
+  </div>
+
+  <h2 class="text-heading text-lg font-bold">Variants</h2>
+  <p class="text-secondary text-sm -mt-3">
+    The share of new visitors each gets is its weight over the total (1 and 1 is 50/50). Weight 0 stops new visitors
+    landing on it. Leave a copy field blank to keep the page&rsquo;s own. Renaming a key after visitors have seen it
+    splits its counts.
+  </p>
+
+  <%= f.fields_for :variants do |vf| %>
+    <% v = vf.object %>
+    <div class="card p-6 space-y-4" data-variant-fields="<%= v.key.presence || "new" %>">
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div>
+          <%= vf.label :key, "Key", class: label_class %>
+          <%= vf.text_field :key, placeholder: "fantasy-football", spellcheck: false, class: "#{field_class} font-mono", style: field_style %>
+        </div>
+        <div>
+          <%= vf.label :label, "Label", class: label_class %>
+          <%= vf.text_field :label, placeholder: "Fantasy football angle", class: field_class, style: field_style %>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <%= vf.label :weight, "Weight", class: label_class %>
+            <%= vf.number_field :weight, min: 0, max: PageVariant::WEIGHT_RANGE.max, class: "#{field_class} font-mono", style: field_style %>
+          </div>
+          <div>
+            <%= vf.label :position, "Order", class: label_class %>
+            <%= vf.number_field :position, min: 0, class: "#{field_class} font-mono", style: field_style %>
+          </div>
+        </div>
+      </div>
+      <div>
+        <%= vf.label :headline, "Headline (one line per line)", class: label_class %>
+        <%= vf.text_area :headline, rows: 3, placeholder: "NFL Team\nFantasy\nFootball", class: field_class, style: field_style %>
+      </div>
+      <div>
+        <%= vf.label :subhead_desktop, "Subhead, desktop", class: label_class %>
+        <%= vf.text_area :subhead_desktop, rows: 2, class: field_class, style: field_style %>
+      </div>
+      <div>
+        <%= vf.label :subhead_mobile, "Subhead, phone", class: label_class %>
+        <%= vf.text_area :subhead_mobile, rows: 2, class: field_class, style: field_style %>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <%= vf.label :meta_title, "Page title", class: label_class %>
+          <%= vf.text_field :meta_title, class: field_class, style: field_style %>
+        </div>
+        <div>
+          <%= vf.label :meta_description, "Meta description", class: label_class %>
+          <%= vf.text_area :meta_description, rows: 2, class: field_class, style: field_style %>
+        </div>
+      </div>
+      <% if v.persisted? %>
+        <label class="flex items-center gap-2 text-xs text-muted">
+          <%= vf.check_box :_destroy %> Remove this variant (its counts stay in the tables, unlabelled)
+        </label>
+      <% end %>
+    </div>
+  <% end %>
+
+  <div class="flex items-center gap-3">
+    <%= f.submit (experiment.persisted? ? "Save" : "Create Experiment"), class: "btn btn-success" %>
+    <%= link_to "Cancel", (experiment.persisted? ? admin_experiment_path(experiment.slug) : admin_experiments_path), class: "btn btn-outline" %>
+  </div>
+<% end %>

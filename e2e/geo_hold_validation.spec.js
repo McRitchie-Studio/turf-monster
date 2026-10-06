@@ -1,6 +1,9 @@
 const { test, expect } = require("@playwright/test");
 const { reseed } = require("./helpers");
 
+// The e2e fixture contest (e2e/seed.rb): root is the lobby, the board is here.
+const CONTEST_PATH = "/contests/world-cup-2026";
+
 test.setTimeout(60_000);
 
 test.beforeEach(async ({ page, request }) => {
@@ -91,7 +94,7 @@ test("hold-to-confirm aborts at 1s with geo blocked modal", async ({ page }) => 
   await doLogin(page);
 
   // Select 6 matchups BEFORE enabling geo blocking (toggle_selection has require_geo_allowed)
-  await page.goto("/");
+  await page.goto(CONTEST_PATH);
   await page.waitForLoadState("networkidle");
 
   await page.evaluate(async () => {
@@ -127,7 +130,7 @@ test("hold-to-confirm aborts at 1s with geo blocked modal", async ({ page }) => 
   expect(geoCheck.blocked).toBe(true);
 
   // Navigate back to contest page (selections should still be there)
-  await page.goto("/");
+  await page.goto(CONTEST_PATH);
   await page.waitForLoadState("networkidle");
   await expect(page.locator("body")).toContainText("6 / 6");
 

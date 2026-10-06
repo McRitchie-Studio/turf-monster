@@ -84,13 +84,13 @@ class Api::V1::ContestSerializerTest < ActiveSupport::TestCase
   end
 
   # POST /api/v1/contests/:slug/entries refuses an account on hold or not yet
-  # age verified (ApiKeyAuthentication#write_refusal) and a survivor contest
+  # age verified (ApiKeyAuthentication#write_refusal) and a retired-format contest
   # (Entries::ApiSubmission). The field must not promise what the endpoint refuses.
   test "accepting_entries is false for a caller who may not write, and for a contest the API cannot enter" do
     assert_equal true, serialize(writable: true)[:accepting_entries]
     assert_equal false, serialize(writable: false)[:accepting_entries]
 
-    @contest.update!(game_type: :world_cup_survivor)
+    write_retired_format!(@contest, keep_slate: true)
     assert_equal [false, false], serialize.values_at(:supported, :accepting_entries)
   end
 
@@ -102,14 +102,14 @@ class Api::V1::ContestSerializerTest < ActiveSupport::TestCase
     assert_equal ["settled", true, false, true], serialize.values_at(:phase, :locked, :live, :settled)
   end
 
-  test "a survivor contest is listed, marked unsupported, with a note" do
-    @contest.update!(game_type: :world_cup_survivor, slate: nil)
+  test "a retired-format contest is listed, marked unsupported, with a note" do
+    write_retired_format!(@contest)
     data = serialize
 
-    assert_equal "world_cup_survivor", data[:game_type]
+    assert_nil data[:game_type]
     assert_equal false, data[:supported]
-    assert_equal Api::V1::ContestSerializer::SURVIVOR_NOTE, data[:note]
+    assert_equal Api::V1::ContestSerializer::RETIRED_FORMAT_NOTE, data[:note]
     assert_equal 0, data[:picks_required]
-    assert_equal 1, data[:max_entries_per_player]
+    assert_equal 0, data[:max_entries_per_player]
   end
 end

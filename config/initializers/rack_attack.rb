@@ -225,6 +225,14 @@ class Rack::Attack
     req.params["email"].to_s.strip.downcase.presence if req.post? && req.path == "/drop-signups"
   end
 
+  ### Throttle: page experiment beacons (/turf-monster-v2's CTA taps and
+  # first-paint visit). Each writes at most one row per visitor per event per
+  # day, and the write is also under referral_visit_allowed? below; this caps
+  # the request rate itself. A person taps a handful of CTAs a minute.
+  throttle("experiment_events/ip", limit: 30, period: 1.minute) do |req|
+    req.ip if req.post? && req.path == "/experiment-events"
+  end
+
   ### Throttle: contest chat — message-post flood backstop
   # Coarse per-IP cap; MessagesController enforces a precise per-user cooldown.
   throttle("chat_messages/ip", limit: 40, period: 1.minute) do |req|

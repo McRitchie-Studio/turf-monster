@@ -262,8 +262,8 @@ Open and settled contests, newest first. A contest that is still being created
 | Field | Notes |
 |-------|-------|
 | `slug` | The contest's id in every other route |
-| `game_type` | `turf_totals` or `world_cup_survivor` |
-| `supported` | `false` for a survivor contest: see [Survivor contests](#survivor-contests) |
+| `game_type` | `turf_totals`, or `null` for a retired format |
+| `supported` | `false` for a retired-format contest: see [Retired-format contests](#retired-format-contests) |
 | `sport` | `nfl` (American football) or `fifa` (World Cup soccer) |
 | `status` | The stored status: `open` or `settled` (`pending` only for an admin key reading one contest). A contest stays `open` after it locks, so read `phase` instead. |
 | `phase` | `open`: before the lock. `live`: locked, games being played, not graded. `settled`: graded and final. |
@@ -276,7 +276,7 @@ Open and settled contests, newest first. A contest that is still being created
 | `locks_at` | When the contest locks. Every pick in every entry is final from this moment, including picks whose own game starts later. `null` means no lock is scheduled. An NFL contest locks at 11:00 America/Denver on its opening Sunday (never before its first kickoff), so a Thursday or London game kicks off before it: that team is `locked` from its own kickoff. |
 | `concludes_at` | When results are scheduled to be final, if set |
 | `guaranteed_prize_cents` | The sum of `payouts` |
-| `payouts` | Prize per finishing rank. Ranks not listed win nothing. Tied entries pool the prizes of the places they cover and split them: two entries tied for first share first and second prize. **A paid rank nobody finishes in is not paid.** In a contest that pays five places and has three entries, fourth and fifth prize are not awarded and are not shared among the three. |
+| `payouts` | Prize per finishing rank. Ranks not listed win nothing. A contest keeps the prizes it was created with. Tied entries pool the prizes of the places they cover and split them: two entries tied for first share first and second prize. A contest never pays more entries than it has paid places: a tie that reaches past the last paid rank pays only its earliest entries, so a tie at the last paid rank pays the entry created first. **A paid rank nobody finishes in is not paid.** In a contest that pays five places and has three entries, fourth and fifth prize are not awarded and are not shared among the three. |
 | `max_entries`, `entries_count`, `spots_left` | The field's capacity, confirmed entries so far, and the room left (never negative) |
 | `picks_required` | Teams per entry |
 | `max_entries_per_player` | Entries one player may hold in this contest |
@@ -607,12 +607,11 @@ One entry, in the same shape, under an `entry` key:
 Another player's entry is a `404`, the same answer as a slug that does not exist.
 Read rivals through the leaderboard.
 
-### Survivor contests
+### Retired-format contests
 
-World Cup Survivor (`game_type: "world_cup_survivor"`) is played in rounds, one
-team per round, and is not served by this API yet. A survivor contest is listed
-so an agent knows it exists, and marked so it is not mistaken for a contest it
-can play:
+A contest from a format Turf Monster no longer runs (World Cup Survivor) is a
+closed record. It is listed so an agent knows it exists, and marked so it is not
+mistaken for a contest it can play:
 
 - in the list and the detail it has `"supported": false` and a `note`;
 - its detail has `"teams": []`;
@@ -817,7 +816,7 @@ spent.**
 | 422 | `contest_locked` | both | The lock time has passed | Nothing to do; entries and edits are closed. |
 | 422 | `contest_cancelled` | both | The contest was cancelled | Pick another contest. |
 | 422 | `coming_soon` | POST | The contest is advertised but not open for entries yet | Try again when `coming_soon` is `false`. |
-| 422 | `unsupported_contest` | both | A survivor contest (`supported: false`) | Send the player to the website. |
+| 422 | `unsupported_contest` | both | A retired-format contest (`supported: false`) | It takes no entries; its results are on the website. |
 | 422 | `contest_full` | POST | No spots left | Pick another contest. |
 | 422 | `entry_limit_reached` | POST | The player already holds `max_entries_per_player` entries here | Edit an existing entry instead. |
 | 422 | `invalid_picks` | both | Not exactly `picks_required` different ids, or an id that is not one of this contest's `teams[].matchup_id` | Re-read the contest and rebuild the lineup. For POST, send it with a **new** key (the old key is tied to the old picks). |

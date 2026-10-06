@@ -1,4 +1,4 @@
-class WalletsController < ApplicationController
+class WalletsController < ApplicationController # stripe_deposit parked: FiatRailsParked, docs/FIAT_RAILS.md
   before_action :require_login
   before_action :require_geo_allowed, only: [:withdraw, :stripe_deposit]
   # B4 / OPSEC-048: frozen accounts can view the wallet page but cannot move money.

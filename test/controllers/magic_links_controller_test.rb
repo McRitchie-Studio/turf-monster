@@ -126,10 +126,9 @@ class MagicLinksControllerTest < ActionDispatch::IntegrationTest
     # The chain is armed, and it OPENS on the first-name ask — no welcome beat in
     # front of it (retired 2026-08-15).
     assert_equal "first_name", session[:onboarding_prompt].first
-    # Root redirects on to the live board — the destination the old inline
-    # Contest.featured lookup produced directly.
+    # Root is the contests lobby, and it serves.
     follow_redirect!
-    assert_redirected_to contest_path(contests(:one))
+    assert_response :success
   end
 
   # --- the auth pages are a way IN, never a place to arrive -------------------
@@ -149,9 +148,8 @@ class MagicLinksControllerTest < ActionDispatch::IntegrationTest
     post magic_link_consume_path(token: token)
 
     assert_redirected_to root_path
-    # Root is contests#world_cup, a redirector to the live board, so ONE more hop
-    # is expected and correct. What must never happen is landing back on an auth
-    # page or on /account — that bounce IS the bug.
+    # Root is the contests lobby. What must never happen is landing back on an
+    # auth page or on /account — that bounce IS the bug.
     follow_redirect!
     assert_not_equal account_path, request.path
     assert_not_equal signin_path, request.path

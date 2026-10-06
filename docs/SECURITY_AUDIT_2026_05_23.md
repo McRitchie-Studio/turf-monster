@@ -54,7 +54,7 @@ Allowing GET to `/auth/google_oauth2` permits silent sign-in from any link. If t
 ---
 
 ### B2 — `ENABLE_TEST_SCAFFOLDING` deploy guardrail missing
-**Files:** `app/models/stripe_purchase.rb:16-23`, `app/models/contest.rb:104-108`, `app/services/app_flags.rb:12-14`
+**Files:** `app/models/stripe_purchase.rb:16-23`, `app/models/contest.rb:106-110`, `app/services/app_flags.rb:12-14`
 
 The flag unlocks a $1 micro contest tier and a $5/3-token bundle. Default is off, but there's no boot-time enforcement that it stays off in production. One stray Heroku config var → an attacker can buy unlimited tokens at $1.67 each and enter $1 contests indefinitely. This is the kind of thing that ships by mistake the day of launch.
 

@@ -38,6 +38,12 @@ module OnrampHelper
   #   :aeropay         -> AppFlags.aeropay?           (ENABLE_AEROPAY)
   #   :paypal, :venmo  -> Payments.paypal_checkout?   (provider + credentials)
   #   :stripe          -> Payments.stripe?            (provider + key enabled)
+  #
+  # The fiat rails are parked behind AppFlags.fiat_rails? (docs/FIAT_RAILS.md):
+  # while it is off they are hidden in EVERY environment, ahead of the
+  # show-everything-locally policy, because their routes answer 404.
+  FIAT_RAILS = %i[coinflow aeropay paypal venmo stripe].freeze
+
   def onramp_rail_visible?(rail)
     # Coinbase is the one rail whose destination is a MODAL rather than a route
     # or an on-page script, so it tracks that modal's registration in every
@@ -46,6 +52,7 @@ module OnrampHelper
     # Coinbase is what put a dead button in front of design review and made the
     # entire test suite render one.
     return cdp_ramp_modal_available? if rail.to_sym == :coinbase
+    return false if FIAT_RAILS.include?(rail.to_sym) && !AppFlags.fiat_rails?
 
     return true unless Rails.env.production?
 

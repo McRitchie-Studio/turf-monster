@@ -77,7 +77,7 @@ class Contest < ApplicationRecord
   # for why Sluggable's overwrite-on-save is neutralized.
   before_validation :backfill_slug, on: :create
 
-  # Turf Totals contests run off a Slate; World Cup Survivor contests don't.
+  # Turf Totals contests run off a Slate.
   validates :slate, presence: true, if: :turf_totals?
 
   # v0.17: locking is DERIVED from the on-chain lock_timestamp (mirrored to
@@ -85,7 +85,9 @@ class Contest < ApplicationRecord
   # `locked?` below computes the gate. The on-chain Contest PDA keeps a vestigial
   # `Locked` enum slot, but nothing sets it. (Pre-v0.17 had a `locked` status.)
   enum :status, { pending: "pending", open: "open", settled: "settled" }
-  enum :game_type, { turf_totals: "turf_totals", world_cup_survivor: "world_cup_survivor" }
+  # Turf Totals is the one game the app runs. A row a retired game type wrote
+  # reads `game_type` as nil and renders read-only (#retired_format?).
+  enum :game_type, { turf_totals: "turf_totals" }
 
   # "All contests on chain" enforcement (2026-05-17 GTM principle):
   # every Contest is backed by an on-chain Contest PDA on turf-vault.
@@ -175,8 +177,8 @@ class Contest < ApplicationRecord
   # The contest the app spotlights — the admin-set main contest, else the newest
   # open contest, else the newest open/settled (a freshly-graded contest still
   # serves as a leaderboard landing until a newer one opens). Single source of
-  # truth for the root redirect (ContestsController#world_cup) and the
-  # magic-link sign-in landing (MagicLinksController).
+  # truth for the entry-gift landing (EntryGift#landing_contest) and the admin
+  # gift and free-entry defaults.
   #
   # THE FALLBACKS SKIP COMING SOON; THE ADMIN PIN DOES NOT. `coming_soon` is a
   # boolean independent of status, so a coming-soon contest IS `open` and can be
@@ -264,14 +266,23 @@ class Contest < ApplicationRecord
     matchups_for_team(team_slug).first&.turf_score
   end
 
+  # A retired format takes no entries, so it asks for no picks and allows none.
   def picks_required
-    return 0 if world_cup_survivor?
+    return 0 if retired_format?
 
     self.class.picks_required_for_slate(slate)
   end
 
   def max_entries_per_user
-    world_cup_survivor? ? 1 : 3
+    retired_format? ? 0 : 3
+  end
+
+  # A contest whose game type or format the app no longer runs. Its row stays
+  # a closed record: the contest page renders its header and final standings,
+  # and every entry and grading action refuses it
+  # (ContestsController#refuse_retired_format).
+  def retired_format?
+    !turf_totals? || !FORMATS.key?(contest_type.to_s)
   end
 
   def entry_fee_dollars
@@ -294,39 +305,57 @@ class Contest < ApplicationRecord
     pool_cents / 100.0
   end
 
-  # GTM contest tiers (defined 2026-05-17). All at $19 entry fee.
+  # Contest tiers. All at $19 entry fee.
   # Margin per filled contest = gross revenue (entries × fee) − total payouts.
   #   tiny     :  3 entries → $57   gross / $45   payout / $12 margin (78.9%)
   #   small    :  5 entries → $95   gross / $75   payout / $20 margin (78.9%)
   #   medium   :  9 entries → $171  gross / $140  payout / $31 margin (81.9%)
   #   standard : 29 entries → $551  gross / $500  payout / $51 margin (90.7%)
   #   large    : 99 entries → $1881 gross / $1800 payout / $81 margin (95.7%)
+  #
+  # NO FORMAT PAYS MORE THAN MAX_PAID_RANKS PLACES. Settlement is one
+  # settle_contest call in one legacy transaction, and the 1,232-byte packet
+  # holds four paid entries on turf-vault v0.26 (five on v0.25). Grading never
+  # pays more entries than the table has places (Contest::PayoutSplit), so a
+  # format that fits here fits one settlement, ties included.
+  #
+  # A contest snapshots its row's payouts when it is created
+  # (#snapshot_payout_table) and grades from the snapshot, so editing a row here
+  # changes only contests created afterwards.
+  MAX_PAID_RANKS = 4
+
   FORMATS = {
     "tiny"     => { entry_fee_cents: 19_00, max_entries: 3,  payouts: { 1 => 45_00 } },
     "small"    => { entry_fee_cents: 19_00, max_entries: 5,  payouts: { 1 => 75_00 } },
     "medium"   => { entry_fee_cents: 19_00, max_entries: 9,  payouts: { 1 => 100_00, 2 => 40_00 } },
-    "standard" => { entry_fee_cents: 19_00, max_entries: 29, payouts: { 1 => 300_00, 2 => 50_00, 3 => 50_00, 4 => 50_00, 5 => 50_00 } },
-    "large"    => { entry_fee_cents: 19_00, max_entries: 99, payouts: { 1 => 1000_00, 2 => 100_00, 3 => 100_00, 4 => 100_00, 5 => 100_00, 6 => 100_00, 7 => 100_00, 8 => 100_00, 9 => 100_00 } },
-
-    # World Cup Survivor — single guaranteed prize, 59 entrants, one entry per user.
-    # Paid margin (full): $1,121 gross - $1,000 payout = $121. Free contest is a loss-leader.
-    "survivor_wc_paid" => { entry_fee_cents: 19_00, max_entries: 59, payouts: { 1 => 1000_00 } },
-    "survivor_wc_free" => { entry_fee_cents: 0,     max_entries: 59, payouts: { 1 => 200_00 } },
+    "standard" => { entry_fee_cents: 19_00, max_entries: 29, payouts: { 1 => 300_00, 2 => 100_00, 3 => 50_00, 4 => 50_00 } },
+    "large"    => { entry_fee_cents: 19_00, max_entries: 99, payouts: { 1 => 1000_00, 2 => 400_00, 3 => 200_00, 4 => 200_00 } },
 
     # Test scaffolding — $1 entry, gated behind ENABLE_TEST_SCAFFOLDING (AppFlags.test_scaffolding?).
     # A low-stakes end-to-end rehearsal tier: 9 entries → $9 gross / $9 payout / $0 margin.
     # BREAK-EVEN BY DESIGN: this tier exists to rehearse the full
     # entry → onchain → grade → payout path with real money at pocket-change stakes, not to earn.
-    # A short fill loses money: grading pays only the ranks that EXIST (see max_paid_rank
-    # below), so 1 entry pays $5 (-$4), 2 pay $7 (-$5), and 3+ pay the full $9 — making
+    # A short fill loses money: grading pays only the ranks that EXIST
+    # (Contest::PayoutSplit), so 1 entry pays $5 (-$4), 2 pay $7 (-$5), and 3+ pay the full $9 — making
     # THREE entries the worst case at -$6, not one. That is the accepted cost of the
     # rehearsal, and the reason the tier stays flag-gated.
     # Hidden from the create UIs unless the flag is on; DISABLE before the public launch.
-    # FORMATS still lists it always so an existing micro contest resolves config + grades
-    # correctly — which also FREEZES this payout table once a micro contest exists on-chain:
-    # payouts are re-derived from here at grade time, so editing them would settle against a
-    # prize_pool PDA funded at the old numbers (settle_contest.rs SettlementOverflow).
+    # FORMATS still lists it always so an existing micro contest resolves its config.
     "micro"            => { entry_fee_cents: 1_00, max_entries: 9, payouts: { 1 => 5_00, 2 => 2_00, 3 => 2_00 } }
+  }.freeze
+
+  # The payout table every contest created before payout snapshots carries,
+  # by format: the FORMATS payouts those contests were funded and opened with.
+  # Contests::PayoutTableBackfillJob writes it onto those rows, and #payouts
+  # reads it for any such row the job has not reached, so an open contest's
+  # prizes never change under its entrants.
+  PRE_SNAPSHOT_PAYOUTS = {
+    "tiny"     => [45_00],
+    "small"    => [75_00],
+    "medium"   => [100_00, 40_00],
+    "standard" => [300_00, 50_00, 50_00, 50_00, 50_00],
+    "large"    => [1000_00, 100_00, 100_00, 100_00, 100_00, 100_00, 100_00, 100_00, 100_00],
+    "micro"    => [5_00, 2_00, 2_00]
   }.freeze
 
   # Format keys hidden from the contest-create UIs unless ENABLE_TEST_SCAFFOLDING is on.
@@ -346,13 +375,50 @@ class Contest < ApplicationRecord
     [team_count, TURF_TOTALS_DEFAULT_PICKS_REQUIRED].min
   end
 
+  # A retired format has no FORMATS row, so its config is what the record
+  # itself holds: its own fee and size, and the prizes its entries were paid.
   def format_config
-    FORMATS[contest_type] || FORMATS["standard"]
+    FORMATS.fetch(contest_type.to_s) { retired_format_config }
   end
 
-  def payouts
-    format_config[:payouts]
+  def retired_format_config
+    @retired_format_config ||= {
+      entry_fee_cents: entry_fee_cents,
+      max_entries: max_entries,
+      payouts: entries.where("payout_cents > 0").order(:rank, :id).pluck(:payout_cents)
+                      .each.with_index(1).to_h { |cents, rank| [rank, cents] }
+    }
   end
+  private :retired_format_config
+
+  # The prize per finishing rank, in cents: { rank => cents }. A contest pays
+  # the table it was created with (#payout_table_cents); a contest not yet
+  # saved pays its format's current row; a retired format reads what its
+  # entries were paid.
+  def payouts
+    return retired_format_config[:payouts] if retired_format?
+
+    (payout_table_cents.presence || default_payout_table_cents || []).each.with_index(1).to_h { |cents, rank| [rank, cents] }
+  end
+
+  # Written once, when the row is first saved. attr_readonly keeps any later
+  # save from moving it.
+  attr_readonly :payout_table_cents
+  before_validation :snapshot_payout_table, on: :create
+
+  def snapshot_payout_table
+    self.payout_table_cents ||= default_payout_table_cents
+  end
+  private :snapshot_payout_table
+
+  def default_payout_table_cents
+    if new_record?
+      FORMATS.dig(contest_type.to_s, :payouts)&.sort&.map(&:last)
+    else
+      PRE_SNAPSHOT_PAYOUTS[contest_type.to_s]
+    end
+  end
+  private :default_payout_table_cents
 
   # On-chain Contest PDA creation, server-funded (admin pays prize pool).
   # Invoked automatically by the after_create callback. Idempotent — re-running
@@ -401,20 +467,28 @@ class Contest < ApplicationRecord
     raise "On-chain contest creation failed (DB row rolled back): #{e.message}"
   end
 
+  # A contest cancelled on chain keeps `status: "open"` (#cancelled?), so the
+  # settled? check alone lets it through. Grading it would record payouts and
+  # queue a settle for a contest whose pool is already drained or refunded.
+  class CancelledContestError < StandardError; end
+  CANCELLED_GRADE_MESSAGE = "Cannot grade: this contest was cancelled on chain.".freeze
+
   def grade!
     with_lock do
+      # First, before any write: with_lock has just reloaded the row, so this
+      # reads the cancel flag as it stands under the lock.
+      raise CancelledContestError, CANCELLED_GRADE_MESSAGE if cancelled?
       raise "Contest is already settled" if settled?
       # v0.19 (#6): the program rejects settle until the lock (or conclusion)
       # has passed — entries must be provably closed before grading. Gate here,
       # before any off-chain grading, so we don't grade in the DB then fail the
       # on-chain settle with 6028. `locked?` mirrors the on-chain lock_timestamp.
       raise "Cannot grade: the contest lock time hasn't passed — entries are still open." if onchain? && !locked?
-      # World Cup Survivor sets entry scores during round grading — skip matchup scoring.
-      score_entries! unless world_cup_survivor?
+      score_entries!
 
       # `id: :asc` is a deterministic tiebreaker: tied scores order by creation,
-      # so the integer-remainder payout split (below) always credits the earliest
-      # entry. Without it Postgres returns ties in physical/arbitrary order, making
+      # so the remainder cent of a split and a tie at the last paid place always
+      # go to the earliest entry. Without it Postgres returns ties in physical/arbitrary order, making
       # the split non-deterministic (a money bug + flaky tests once other rows exist).
       ranked = entries.where(status: [:active, :complete]).order(score: :desc, id: :asc).includes(:user).to_a
       ranked.each { |e| e.update!(status: "complete") if e.active? }
@@ -422,46 +496,22 @@ class Contest < ApplicationRecord
 
       return update!(status: "settled") if ranked.empty?
 
-      # Build ranks (ties get same rank)
-      ranks = []
-      ranked.each_with_index do |entry, i|
-        rank = if i == 0
-          1
-        elsif entry.score < ranked[i - 1].score
-          i + 1
-        else
-          ranks.last
+      # Ranks and prizes (Contest::PayoutSplit): ties share a rank, and no more
+      # entries are paid than the payout table has places.
+      split = PayoutSplit.call(ranked.map(&:score), payouts)
+      ranked.zip(split).each do |entry, (rank, share)|
+        if share > 0
+          TransactionLog.record!(user: entry.user, type: "payout", amount_cents: share, direction: "credit", source: self, description: "Payout rank ##{rank} for #{name}")
         end
-        ranks << rank
-      end
-
-      # Pay out based on format payouts
-      max_paid_rank = payouts.keys.max || 0
-      ranked.each_with_index do |entry, i|
-        rank = ranks[i]
-        share = 0
-
-        if rank <= max_paid_rank
-          tied_indices = ranks.each_index.select { |j| ranks[j] == rank }
-          tied_count = tied_indices.size
-          spanned_ranks = (rank..(rank + tied_count - 1)).to_a
-          total_prize = spanned_ranks.sum { |r| payouts[r] || 0 }
-          base_share = total_prize / tied_count
-          remainder = total_prize % tied_count
-          position_in_tie = tied_indices.index(i)
-          share = position_in_tie < remainder ? base_share + 1 : base_share
-          if share > 0
-            TransactionLog.record!(user: entry.user, type: "payout", amount_cents: share, direction: "credit", source: self, description: "Payout rank ##{rank} for #{name}")
-          end
-        end
-
         entry.update!(rank: rank, payout_cents: share)
       end
 
-      update!(status: "settled")
-
-      # Attempt onchain settlement (non-blocking)
+      # The settle transaction is built and queued BEFORE the contest reads as
+      # settled. A build that raises (an RPC failure, or a transaction too large
+      # for one packet) rolls back this whole lock, so the contest stays
+      # gradable and nothing reads as settled without a settlement queued.
       settle_onchain! if onchain?
+      update!(status: "settled")
     end
   end
 
@@ -515,6 +565,7 @@ class Contest < ApplicationRecord
   end
 
   def jump!
+    raise CancelledContestError, CANCELLED_GRADE_MESSAGE if cancelled?
     raise "Contest is already settled" if settled?
 
     transaction do
@@ -732,6 +783,10 @@ class Contest < ApplicationRecord
     }
   end
 
+  # Builds the partially signed settle_contest transaction for this contest's
+  # paid entries and queues it for multisig cosigning. A failed build raises
+  # (Solana::Vault::SettleTooLargeError among others); #grade! calls this inside
+  # its lock, so a failure leaves the contest ungraded and gradable again.
   def settle_onchain!
     return unless onchain? && !onchain_settled?
 
@@ -759,9 +814,6 @@ class Contest < ApplicationRecord
       initiator_address: Solana::Keypair.admin.to_base58,
       metadata: { settlements: winners }.to_json
     )
-  rescue => e
-    ErrorLog.capture!(e)
-    # Don't block DB settlement — onchain can be retried
   end
 
   # Notify every winner (payout_cents > 0) of their winnings by email, AFTER

@@ -76,8 +76,7 @@ module Admin
     end
 
     def load_contests
-      # All contests, both game types — a landing page can funnel to a
-      # Turf Totals or a World Cup Survivor contest.
+      # All contests — a landing page can funnel to any of them.
       @contests = Contest.order(created_at: :desc)
     end
 

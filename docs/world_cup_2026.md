@@ -105,40 +105,14 @@ Turf Totals contests normally require 6 picks. Short knockout slates require all
 available matchup cards instead, so semi-final contests require 4 picks and the
 third-place/final contests require 2 picks.
 
-## World Cup Survivor (parallel contest format)
+## World Cup Survivor (retired)
 
-Single-elimination survivor pick. Players pick ONE team per `SurvivorRound`; that team must win to advance. A wrong pick eliminates the entry permanently. Last survivor(s) take the prize.
-
-### Format
-
-- **Max entries per contest**: 59
-- **Max entries per user per contest**: 1 (vs 3 for Turf Totals)
-- **Picks required at entry confirm**: 0 — picks happen per-round, not up front
-- **Team reuse**: not allowed across rounds within a single entry (enforced by unique index on `[team_slug, entry_id]` on `SurvivorPick`)
-
-| Tier | Entry fee | Max entries | Winner take-all |
-|------|----------:|------------:|---------------:|
-| `survivor_wc_paid` | $19 | 59 | $1,000 |
-| `survivor_wc_free` | $0  | 59 | $200 |
-
-Both formats are defined in `Contest::FORMATS` alongside the Turf Totals tiers. Contest model exposes `game_type: :world_cup_survivor` for branching.
-
-### Round structure
-
-`SurvivorRound` is its own model: `number` (unique, ordered), `name`, `stage` (group/knockout), `status` (upcoming/locked/completed), `picks_lock_at` (nullable). Rounds align with the tournament's natural advancement gates — typically one round per matchday in the group stage, then per knockout fixture.
-
-- Group stage rounds let players pick from any team playing in that round.
-- Knockout rounds narrow to the surviving teams in the bracket.
-- `SurvivorRound.current` returns the earliest unlocked round; `picks_locked?` predicates the cutoff.
-
-### Lifecycle
-
-Survivor contests share the standard `pending → open → settled` lifecycle from Turf Totals (`locked` is a derived time-gate, not a status; see `Contest#locked?` and the contest lifecycle notes in `docs/SOLANA.md`), plus a per-round `grade_round` admin action that scores the current `SurvivorRound`, marks each `SurvivorPick.result` as `survived` or `eliminated`, and transitions the round to `completed`. The contest fully settles when one entry remains (or all remaining entries tie out on a shared elimination round and split the prize).
-
-### Key models + methods
-
-- `SurvivorRound` — `has_many :games` (dependent: nullify), `has_many :survivor_picks` (dependent: destroy).
-- `SurvivorPick` — `belongs_to :entry, :survivor_round, :team`. Unique `[survivor_round_id, entry_id]` + unique `[team_slug, entry_id]`.
-- `Entry#survivor?` / `Entry#eliminated?` — predicates for branching the UI.
-
-Kickoff memory: `project_turf_world_cup_survivor_kickoff` (2026-05-19, devnet soft launch).
+The survivor format is retired. Turf Totals is the one game the app runs, and
+nothing creates, enters, picks or grades a survivor contest. A contest row the
+format wrote stays a readable closed record: `game_type` reads as `nil`,
+`Contest#retired_format?` is true, its page renders final standings from the
+entries' stored rank and payout, and every entry and grading action refuses it
+(`ContestsController#refuse_retired_format`). The `survivor_rounds` and
+`survivor_picks` tables, `games.survivor_round_id` and `entries.eliminated_round`
+stay in the schema with no model or writer; mainnet and QA held no survivor rows
+when the format was retired.

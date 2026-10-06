@@ -370,7 +370,7 @@ class ApplicationController < ActionController::Base
     # applications, and crawled by underwriters' site scanners — they must
     # never 406 a preview fetcher or an old browser.
     return true if controller_name == "pages"
-    controller_name == "contests" && action_name.in?(%w[show world_cup index live])
+    controller_name == "contests" && action_name.in?(%w[show index live])
   end
 
   # Stamp the REAL logged-in user's last activity (admin dashboard "by recent
@@ -1147,4 +1147,13 @@ class ApplicationController < ActionController::Base
   # page; prepends its own before_action. At the END of the class on purpose:
   # docs/workflows cite this file by line number, and appending shifts none.
   include ReferralVisitTracking
+
+  # Parked fiat actions answer 404 while ENABLE_FIAT_RAILS is off
+  # (FiatRailsParked::CONTROLLER_ACTIONS). Included after ReferralVisitTracking
+  # so its prepended callback runs first: a parked route counts no click.
+  include FiatRailsGate
+
+  # Page A/B tests: assignment, the sticky variant cookie, visit counts, and
+  # the experiment a conversion is credited to (PageExperimentTracking).
+  include PageExperimentTracking
 end

@@ -11,9 +11,9 @@ module Api
     class ContestSerializer
       CURRENCY = "USD".freeze
 
-      SURVIVOR_NOTE = "World Cup Survivor contests are not served by this API yet. " \
-                      "They are listed so you know they exist; their teams, picks and " \
-                      "leaderboard are omitted. Play them on the website.".freeze
+      RETIRED_FORMAT_NOTE = "This contest ran a format Turf Monster no longer offers. " \
+                            "It is listed as a record; its teams, picks and leaderboard " \
+                            "are omitted. Its final standings are on the website.".freeze
 
       # contests.slates.sport is "nfl" or "fifa". The scoring column is named
       # `goals` for both; this is what it actually holds.
@@ -33,7 +33,7 @@ module Api
       end
 
       def as_json(*)
-        summary.merge(supported ? {} : { note: SURVIVOR_NOTE })
+        summary.merge(supported ? {} : { note: RETIRED_FORMAT_NOTE })
       end
 
       # The short form embedded in an entry.
@@ -52,7 +52,7 @@ module Api
       end
 
       def self.sport(contest)
-        contest.slate&.sport || (contest.world_cup_survivor? ? "fifa" : nil)
+        contest.slate&.sport
       end
 
       private
@@ -60,7 +60,7 @@ module Api
       attr_reader :contest, :facts
 
       def supported
-        contest.turf_totals?
+        !contest.retired_format?
       end
 
       def summary

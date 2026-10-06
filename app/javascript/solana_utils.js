@@ -257,8 +257,8 @@ export function refreshBalance() {
 // hydrateNavbar). A caller that cannot navigate schedules directly.
 //
 // AND A THIRD KIND, which the either/or above could not express: a surface that
-// stays put but MAY be navigated away from — the survivor board, whose success
-// card arms no countdown yet navigates when the user closes it. It takes both
+// stays put but MAY be navigated away from — a success card that arms no
+// countdown yet navigates when the user closes it. It takes both
 // paths at once. See onchainSettled for the full shape table.
 var ONCHAIN_SETTLE_KEY = "tm:onchain-settle-until";
 export var ONCHAIN_SETTLE_MS = 10000;
@@ -377,7 +377,7 @@ function settleRead(markerId) {
     // schedules no read at all, and a deferred read's marker was consumed by
     // settleOnLoadIfPending on the way in, so it passes null and retires nothing.
     // That mayNavigate caller wrote its marker for a navigation that MIGHT
-    // happen. If the user then leaves late — closing the survivor card
+    // happen. If the user then leaves late — closing such a card
     // navigates, which is the normal way out of it — the destination would
     // otherwise consume a marker whose window we have already served: blank a
     // pill that is showing the settled number and hold it blank for another
@@ -424,15 +424,15 @@ function scheduleOnchainSettle(delay, markerId) {
 }
 
 // THREE SHAPES, because a surface is not simply navigating or not. The middle
-// one is real and was missing, and the cost of not having it was a settle that
-// never fired at all on the survivor board.
+// one is real: without it a settle never fires at all on a surface that stays
+// put and navigates on close.
 //
 // opts.navigating  — the caller assigns window.location NOW. A setTimeout does
 //                    not survive unload, so leave the marker and schedule
 //                    nothing; the destination page runs the read.
 // opts.mayNavigate — the caller STAYS PUT, but the user may leave at any moment.
-//                    The survivor board is this shape: its success card sets no
-//                    lobbyUrl, so the engine's startCountdown() returns early and
+//                    A success card that sets no lobbyUrl is this shape:
+//                    the engine's startCountdown() returns early and
 //                    the card just sits there — yet modal.onClose assigns
 //                    window.location, and closing the card is the normal way out
 //                    of it. Needs BOTH halves: schedule in-page so the pill

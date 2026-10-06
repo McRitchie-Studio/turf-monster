@@ -127,6 +127,26 @@ class CampaignLinkTest < ActiveSupport::TestCase
                  link.destination("utm_medium" => "bio", "r" => "spoofed", "reference" => "spoofed")
   end
 
+  test "a variant is appended as v, replacing any v the target or the query carried" do
+    link = build(target_path: "/turf-monster-v2?v=stale")
+    assert_equal "/turf-monster-v2?utm_medium=bio&r=tiktok-bio&v=fantasy-football",
+                 link.destination({ "utm_medium" => "bio", "v" => "spoofed" }, "fantasy-football")
+    assert_equal "/turf-monster-v2?v=stale&r=tiktok-bio", link.destination, "no variant: the target is left as it is"
+  end
+
+  test "an experiment binds by slug, must exist, and unbinds when blanked" do
+    link = build(experiment_slug: "nope")
+    refute link.valid?
+    assert_match(/does not exist/, link.errors.full_messages.join)
+    PageExperiment.create!(slug: "exp", name: "x", page_path: "/turf-monster-v2",
+                           variants_attributes: [{ key: "a" }, { key: "b" }])
+    link.experiment_slug = " EXP "
+    assert link.valid?
+    assert_equal "exp", link.metadata["experiment"]
+    link.experiment_slug = ""
+    refute link.metadata.key?("experiment")
+  end
+
   test "resolve finds a campaign by its token in any case, and nothing else" do
     build.save!
     magic = Studio::Link.create_magic_link(email: "x@example.com")
