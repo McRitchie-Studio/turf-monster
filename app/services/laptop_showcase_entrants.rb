@@ -23,9 +23,11 @@
 # 0, and the leaderboard's own rule then withholds the crown, as it would for
 # real entries.
 #
-# ORDER. Real entries and showcase entrants are ranked together by score, the
-# board's own order; ties keep real entries first, then Mason, turf, mack.
-# With 3 or more real entries nothing changes.
+# ORDER. Real entries keep their own rows, ranks and prizes: the showcase
+# entrants are appended BELOW them, never ranked among them, so a made-up name
+# never outranks a real player (and a settled contest, whose rows read their
+# stored rank, never shows two 1st places). With 3 or more real entries
+# nothing changes.
 class LaptopShowcaseEntrants
   MIN_REAL = 3
 
@@ -45,11 +47,7 @@ class LaptopShowcaseEntrants
     showcase_entries = new(showcase).entries
     return showcase if showcase_entries.empty?
 
-    real = showcase.entries
-    ranked = (real + showcase_entries).each_with_index
-                                      .sort_by { |entry, i| [-entry.score.to_f, i] }
-                                      .map(&:first)
-    showcase.with(entries: ranked)
+    showcase.with(entries: showcase.entries + showcase_entries)
   end
 
   def self.image_for(slug)

@@ -109,10 +109,12 @@ class LaptopShowcaseEntrantsTest < ActionDispatch::IntegrationTest
     assert_empty node.css('img[data-test="showcase-avatar"]')
   end
 
-  test "with one real entry, it is ranked among the showcase by score" do
+  test "with one real entry, the showcase is appended below it, even when it outscores it" do
     user = users(:sam)
     user.update_columns(username: "onlyreal")
-    @contest.entries.create!(user: user, status: :active).tap { |e| e.update_column(:score, 10_000) }
+    @contest.entries.create!(user: user, status: :active).tap { |e| e.update_column(:score, 0) }
+    assert LaptopShowcaseEntrants.new(NextContest.live_showcase).entries.any? { |e| e.score.to_f.positive? },
+           "a showcase entrant outscores the real one, so order is not score's doing"
     assert_equal ["onlyreal", *NAMES], row_names(board)
   end
 end
