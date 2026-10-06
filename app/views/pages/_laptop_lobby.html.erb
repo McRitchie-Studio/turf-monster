@@ -1,4 +1,4 @@
-<%# locals: (lobby:, showcase: nil, live_html: nil)
+<%# locals: (lobby:, showcase: nil, live_html: nil, sim: nil, sim_frames: [])
 
     A CSS laptop (screen bezel, hinge, a thin base) showing the contests lobby,
     live: one row per contest from NextContest.lobby, drawn with the lobby
@@ -25,13 +25,21 @@
     pages/_laptop_live, scaled from a 1280 x 800 canvas (0.33125). The lobby rows
     below are the fallback when there is none.
 
+    ITS FEATURED GAME IS SIMULATED (LaptopScoreSimulation): it opens at 3-7 and
+    pages/_laptop_score_sim plays a touchdown every ten seconds through the
+    live page's own script. So the screen always wears the label, in its
+    top-right corner at the laptop's own scale (not the canvas's third), where
+    the hero shows it: right of the phone, and inside the hero's right clip,
+    which falls about 393px into the laptop (see the link under it). The text
+    is LaptopScoreSimulation::LABEL.
+
     EMPTY IS A STATE, NOT A BLANK. With fewer than lobby's limit of real
     contests, a row for the next drop (NextSlateDrop) follows the table,
     labelled with its date (or "Contests coming soon" once that date passes),
     so the visible corner of the screen is never empty. %>
 <div class="w-[28rem]" aria-hidden="true" inert data-test="laptop-mock">
   <div class="rounded-t-2xl bg-neutral-800 p-3 shadow-[0_24px_64px_-12px_rgb(0_0_0_/_0.35)] ring-1 ring-white/10">
-    <div class="aspect-[16/10] overflow-hidden rounded-md bg-page text-body" data-test="laptop-lobby">
+    <div class="relative aspect-[16/10] overflow-hidden rounded-md bg-page text-body" data-test="laptop-lobby">
       <% if showcase && live_html %>
         <%# The canvas: the live page at a 1280 x 800 desktop size (the screen's
             16:10), scaled to the screen's width (28rem less the 0.75rem bezels
@@ -41,7 +49,14 @@
             never squeezed. The HTML is LaptopLiveSnapshot's signed-out render. %>
         <div class="w-[1280px] origin-top-left scale-[0.33125]" data-test="laptop-canvas">
           <%= live_html %>
+          <% if sim %>
+            <%= render "pages/laptop_score_sim", contest: showcase.contest, sim: sim, frames: sim_frames %>
+          <% end %>
         </div>
+        <% if sim %>
+          <span class="absolute bottom-[0.5rem] right-[4.75rem] z-10 inline-flex items-center gap-1 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-neutral-900 shadow-md ring-1 ring-black/20"
+                data-test="laptop-sim-label"><%= sim.label %></span>
+        <% end %>
       <% else %>
       <div class="flex items-center gap-4 border-b border-subtle py-3 pl-[5.5rem] pr-5">
         <p class="text-base font-extrabold text-heading">Turf <span class="tm-wordmark">Monster</span></p>

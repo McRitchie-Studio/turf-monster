@@ -161,7 +161,8 @@
       <figure class="flex flex-col items-center xl:items-start" data-test="v2-hero-figure">
         <div class="relative">
           <div class="hidden xl:block absolute z-0 left-[178px] -top-14 origin-top-left scale-110 [filter:drop-shadow(0_28px_48px_rgb(0_0_0/0.3))]" data-test="laptop-anchor">
-            <%= render "pages/laptop_lobby", lobby: @lobby, showcase: @live_showcase, live_html: @laptop_live_html %>
+            <%= render "pages/laptop_lobby", lobby: @lobby, showcase: @live_showcase, live_html: @laptop_live_html,
+                       sim: @laptop_sim, sim_frames: @laptop_sim_frames || [] %>
             <%# A REAL LINK UNDER THE LAPTOP, outside its aria-hidden/inert box, to
                 the live page of the contest the snapshot shows: "Watch updates
                 live" while it is being played (with the live page's red dot,
