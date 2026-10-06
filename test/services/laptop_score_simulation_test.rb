@@ -56,9 +56,4 @@ class LaptopScoreSimulationTest < ActiveSupport::TestCase
     assert_equal before, @game.reload.attributes
     assert_equal "scheduled", @game.status
   end
-
-  test "the label is one constant" do
-    assert_equal "Simulated preview", LaptopScoreSimulation::LABEL
-    assert_equal LaptopScoreSimulation::LABEL, @sim.label
-  end
 end

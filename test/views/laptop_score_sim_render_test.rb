@@ -4,7 +4,7 @@ require "test_helper"
 # /turf-monster-v2: the snapshot opens the featured game at 3-7, the page
 # carries the simulation hook (the featured game, the opening score, every
 # frame drawn by the live page's own partials, the live page's own script),
-# the label renders, the snapshot's times read in Mountain, and nothing is
+# the snapshot's times read in Mountain, and nothing is
 # written to the database.
 class LaptopScoreSimRenderTest < ActionDispatch::IntegrationTest
   # Sat Jun 15 2030, 6:15 PM Mountain (MDT) — which is "Sun 12:15 AM" in UTC,
@@ -95,12 +95,6 @@ class LaptopScoreSimRenderTest < ActionDispatch::IntegrationTest
     assert_empty live.css("script, turbo-cable-stream-source"), "the snapshot itself still runs no code"
   end
 
-  test "the laptop is labelled as simulated" do
-    label = page_laptop.at_css('[data-test="laptop-sim-label"]')
-    assert label, "the label renders"
-    assert_equal LaptopScoreSimulation::LABEL, label.text.strip
-  end
-
   test "the snapshot's kickoff times read in Mountain, not UTC" do
     live = page_laptop.at_css('[data-test="laptop-live"]')
     chip = live.css('[data-test="live-game-chip"]').find { |c| c["data-game-slug"] == @evening.slug }
@@ -125,6 +119,5 @@ class LaptopScoreSimRenderTest < ActionDispatch::IntegrationTest
     Contest.delete_all
     laptop = page_laptop
     assert_nil laptop.at_css('[data-test="laptop-sim"]')
-    assert_nil laptop.at_css('[data-test="laptop-sim-label"]')
   end
 end

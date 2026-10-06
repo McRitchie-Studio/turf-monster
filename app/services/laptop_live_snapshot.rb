@@ -19,7 +19,7 @@
 # from LaptopScoreSimulation's opening frame (3-7, in progress), not from its
 # row, and #frames renders every later frame of that simulation through the
 # same partials and the same clean-up, for the page's own score script to swap
-# in. The laptop labels it (LaptopScoreSimulation::LABEL). Nothing is written.
+# in. Nothing is written.
 #
 # TIMES IN MOUNTAIN. The live page prints kickoffs in UTC and lets its script
 # rewrite them in the reader's zone; the snapshot runs no script, so it

@@ -205,7 +205,7 @@ test.describe("turf-monster-v2 laptop: simulated live scoring", () => {
     await setLock(page, SIM_CONTEST, 3600);
   });
 
-  test("at 1920 the game opens at 3-7, labelled, and a touchdown lands within ten seconds", async ({ browser }) => {
+  test("at 1920 the game opens at 3-7 and a touchdown lands within ten seconds", async ({ browser }) => {
     const context = await browser.newContext({ viewport: { width: 1920, height: 1080 }, timezoneId: "America/Denver" });
     const page = await context.newPage();
     const errors = [];
@@ -215,9 +215,6 @@ test.describe("turf-monster-v2 laptop: simulated live scoring", () => {
 
     await expect(page.locator('[data-test="laptop-sim"]')).toHaveAttribute("data-opening", "3-7");
     expect(await featuredScore(page)).toBe("3-7");
-    const label = page.locator('[data-test="laptop-sim-label"]');
-    await expect(label).toBeVisible();
-    await expect(label).toHaveText("Simulated preview");
 
     // The kickoffs on the strip read in the visitor's zone, as on /live.
     const kickoffs = await page.evaluate(() =>
@@ -245,7 +242,7 @@ test.describe("turf-monster-v2 laptop: simulated live scoring", () => {
     const small = await narrow.newPage();
     await still.goto("/turf-monster-v2");
     await small.goto("/turf-monster-v2");
-    await expect(still.locator('[data-test="laptop-sim-label"]')).toBeVisible();
+    await expect(still.locator('[data-test="laptop-mock"]')).toBeVisible();
     expect(await featuredScore(still)).toBe("3-7");
 
     await still.waitForTimeout(11_000);

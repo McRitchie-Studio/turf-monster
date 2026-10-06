@@ -27,12 +27,7 @@
 
     ITS FEATURED GAME IS SIMULATED (LaptopScoreSimulation): it opens at 3-7 and
     pages/_laptop_score_sim plays a touchdown every ten seconds through the
-    live page's own script. So the screen always wears the label, at the
-    laptop's own scale (not the canvas's third), in the bottom-right corner of
-    the part the hero shows: right of the phone, inside the hero's right clip
-    (about 393px into the laptop; see the link under it), and below the
-    scoring banner, which drops in at the top of the canvas and would cover
-    a label placed there. The text is LaptopScoreSimulation::LABEL.
+    live page's own script.
 
     EMPTY IS A STATE, NOT A BLANK. With fewer than lobby's limit of real
     contests, a row for the next drop (NextSlateDrop) follows the table,
@@ -40,7 +35,7 @@
     so the visible corner of the screen is never empty. %>
 <div class="w-[28rem]" aria-hidden="true" inert data-test="laptop-mock">
   <div class="rounded-t-2xl bg-neutral-800 p-3 shadow-[0_24px_64px_-12px_rgb(0_0_0_/_0.35)] ring-1 ring-white/10">
-    <div class="relative aspect-[16/10] overflow-hidden rounded-md bg-page text-body" data-test="laptop-lobby">
+    <div class="aspect-[16/10] overflow-hidden rounded-md bg-page text-body" data-test="laptop-lobby">
       <% if showcase && live_html %>
         <%# The canvas: the live page at a 1280 x 800 desktop size (the screen's
             16:10), scaled to the screen's width (28rem less the 0.75rem bezels
@@ -54,10 +49,6 @@
             <%= render "pages/laptop_score_sim", contest: showcase.contest, sim: sim, frames: sim_frames %>
           <% end %>
         </div>
-        <% if sim %>
-          <span class="absolute bottom-[0.5rem] right-[4.75rem] z-10 inline-flex items-center gap-1 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-neutral-900 shadow-md ring-1 ring-black/20"
-                data-test="laptop-sim-label"><%= sim.label %></span>
-        <% end %>
       <% else %>
       <div class="flex items-center gap-4 border-b border-subtle py-3 pl-[5.5rem] pr-5">
         <p class="text-base font-extrabold text-heading">Turf <span class="tm-wordmark">Monster</span></p>

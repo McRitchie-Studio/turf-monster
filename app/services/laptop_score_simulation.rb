@@ -13,11 +13,9 @@
 # matchups and its leaderboard are never touched; the laptop's leaderboard
 # keeps its real numbers.
 #
-# THE LABEL. These are real teams in a game that may not have been played, on
-# a public page, so the laptop always says the scores are simulated. LABEL is
-# the one place the wording lives.
+# NO LABEL ON THE LAPTOP. The first cut wore a "Simulated preview" badge; Alex
+# had it removed (2026-10-06). The scores are still never written anywhere.
 class LaptopScoreSimulation
-  LABEL = "Simulated preview".freeze
   INTERVAL_MS = 10_000
   OPENING = { away: 3, home: 7 }.freeze
   TOUCHDOWNS = 6
@@ -37,8 +35,6 @@ class LaptopScoreSimulation
   def initialize(game)
     @source = game
   end
-
-  def label = LABEL
 
   def opening = frames.first
 
