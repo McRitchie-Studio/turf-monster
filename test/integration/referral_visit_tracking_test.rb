@@ -3,6 +3,8 @@ require "test_helper"
 # [integration] Sitewide click counting (ReferralVisitTracking) and the
 # /admin/referrals report behind it.
 class ReferralVisitTrackingTest < ActionDispatch::IntegrationTest
+  include RackAttackClock
+
   BROWSER = { "User-Agent" => "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 " \
                               "(KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1" }.freeze
 
@@ -94,23 +96,27 @@ class ReferralVisitTrackingTest < ActionDispatch::IntegrationTest
 
   # Rack::Attack.referral_visit_allowed?: a client making up a new visitor
   # cookie per request is capped per address, and the page is still served.
+  # The clock is frozen so the loop counts into one bucket
+  # (test/support/rack_attack_clock.rb).
   test "clicks past the per-address limit are not recorded and the page still answers" do
     prior_store = Rack::Attack.cache.store
     Rack::Attack.cache.store = ActiveSupport::Cache::MemoryStore.new
     Rack::Attack.enabled = true
     limit = Rack::Attack::REFERRAL_VISIT_LIMIT
 
-    assert_difference "ReferralVisit.count", limit do
-      (limit + 5).times do |n|
-        returning_visitor(format("00000000-0000-4000-8000-%012d", n))
-        get root_path, params: { reference: "tiktok" }, headers: BROWSER.dup
-        assert_includes [200, 302], response.status, "the page answers as it would without tracking"
+    in_one_rack_attack_period(Rack::Attack::REFERRAL_VISIT_PERIOD) do
+      assert_difference "ReferralVisit.count", limit do
+        (limit + 5).times do |n|
+          returning_visitor(format("00000000-0000-4000-8000-%012d", n))
+          get root_path, params: { reference: "tiktok" }, headers: BROWSER.dup
+          assert_includes [200, 302], response.status, "the page answers as it would without tracking"
+        end
       end
-    end
 
-    assert_difference("ReferralVisit.count", 1, "another address is counted on its own") do
-      returning_visitor(format("00000000-0000-4000-9000-%012d", 1))
-      get root_path, params: { reference: "tiktok" }, headers: BROWSER.merge("REMOTE_ADDR" => "203.0.113.50")
+      assert_difference("ReferralVisit.count", 1, "another address is counted on its own") do
+        returning_visitor(format("00000000-0000-4000-9000-%012d", 1))
+        get root_path, params: { reference: "tiktok" }, headers: BROWSER.merge("REMOTE_ADDR" => "203.0.113.50")
+      end
     end
   ensure
     Rack::Attack.enabled = false

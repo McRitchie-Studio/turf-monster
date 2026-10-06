@@ -8,6 +8,8 @@ require "test_helper"
 # which is the property these tests pin, along with what it is keyed on and the
 # shape of the 429.
 class ApiRateLimitTest < ActionDispatch::IntegrationTest
+  include RackAttackClock
+
   def request_for(path, method: "GET", authorization: nil, ip: "203.0.113.9")
     env = Rack::MockRequest.env_for(path, method: method, "REMOTE_ADDR" => ip)
     env["HTTP_AUTHORIZATION"] = authorization if authorization
@@ -19,12 +21,14 @@ class ApiRateLimitTest < ActionDispatch::IntegrationTest
   end
 
   # Rack::Attack is off in the test environment and Rails.cache is a null
-  # store; turn the real middleware on, against a real counter, for one block.
-  def with_rack_attack
+  # store; turn the real middleware on, against a real counter, for one block,
+  # on a clock frozen so its requests count into one bucket
+  # (test/support/rack_attack_clock.rb).
+  def with_rack_attack(&block)
     prior_store = Rack::Attack.cache.store
     Rack::Attack.cache.store = ActiveSupport::Cache::MemoryStore.new
     Rack::Attack.enabled = true
-    yield
+    in_one_rack_attack_period(&block)
   ensure
     Rack::Attack.enabled = false
     Rack::Attack.cache.store = prior_store
