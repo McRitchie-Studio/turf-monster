@@ -327,6 +327,15 @@ class PagesControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
   end
 
+  test "the World Cup rules page prints the standard format's payout table" do
+    get turf_totals_v1_path
+
+    rows = css_select("[data-test='payout-table'] tbody tr").map { |tr| tr.css("td").map { |td| td.text.strip } }
+    expected = Contest::FORMATS.fetch("standard")[:payouts].sort.map { |place, cents| ["#{place.ordinalize} Place", format("$%d.%02d", *cents.divmod(100))] }
+    assert_equal expected, rows
+    assert_equal [["1st Place", "$300.00"], ["2nd Place", "$100.00"], ["3rd Place", "$50.00"], ["4th Place", "$50.00"]], rows
+  end
+
   # ── web3 onboarding guide ─────────────────────────────────────────────────
 
   test "getting started guide renders without auth with all five steps" do

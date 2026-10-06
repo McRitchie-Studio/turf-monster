@@ -116,9 +116,9 @@ holds the board overnight (rung 3) and Monday night football takes it at 8:15
 Monday morning, twelve hours before its kickoff (rung 2).
 
 **The order is a tiebreak, never an override.** The `focus_rank` column on `games`
-(`db/schema.rb:402`) is a position in ONE list covering the whole week — unique per
+(`db/schema.rb:403`) is a position in ONE list covering the whole week — unique per
 season slot (year + season type + week) through the partial index
-`index_games_on_focus_rank_per_slot` (`db/schema.rb:422`), and validated as a positive
+`index_games_on_focus_rank_per_slot` (`db/schema.rb:423`), and validated as a positive
 integer on `Game` (`app/models/game.rb:46`). `Live::FocusGame.best_ranked` reads it
 (`app/services/live/focus_game.rb:112`) only WITHIN the set a rung has already made
 eligible, which is what stops the marquee game of the week from sitting on the board
@@ -179,7 +179,7 @@ and a bad minute must not end a watch.
 
 **It is idempotent.** Every scoring event is keyed on ESPN's own play id
 (`external_id`) under the unique partial index
-`index_goals_on_external_id_when_present` (`db/schema.rb:443`), and
+`index_goals_on_external_id_when_present` (`db/schema.rb:444`), and
 `Nfl::LiveScores::PollCycle#sync_scoring_plays` indexes what it already holds by that
 id before writing (`app/services/nfl/live_scores/poll_cycle.rb:480-481`) — so a second
 identical cycle writes nothing and an interrupted one resumes by being run again.
@@ -351,7 +351,7 @@ These are guards with reproductions behind them, not defensive padding.
   new or withdrawn play re-sums the game and rewrites every `SlateMatchup#goals` it
   feeds. Under a contest whose ranks and payouts are final that leaves a
   leaderboard disagreeing with the money paid out, and `Contest#grade!`
-  (`app/models/contest.rb:422-484`) raises rather than regrade it.
+  (`app/models/contest.rb:470-508`) raises rather than regrade it.
   `Nfl::LiveScores::PollCycle#settled_verdicts`
   (`app/services/nfl/live_scores/poll_cycle.rb:175-200`) answers before any write,
   and `Nfl::LiveScores::PollCycle#slate_ids_for` (`:209-217`) asks from the union of
@@ -376,15 +376,15 @@ These are guards with reproductions behind them, not defensive padding.
   (`app/services/nfl/live_scores/poll_cycle.rb:224-232`) reports that case, so the
   trade is visible in the watch log rather than silent.
 
-  It reads `Contest#status`, never `onchain_settled`: `grade!` writes
-  `settled` and only then attempts `Contest#settle_onchain!`
-  (`app/models/contest.rb:753-755`), so a graded, paid-out contest routinely reads
+  It reads `Contest#status`, never `onchain_settled`: `grade!` queues the
+  settle transaction through `Contest#settle_onchain!` and then writes `settled`
+  (`app/models/contest.rb:781-783`), so a graded, paid-out contest routinely reads
   `onchain_settled` false.
 - **It will not un-complete a finished game.** A stale scoreboard row would
   otherwise re-open a settled game and re-fire the FINAL broadcast.
 - **It will not store an id-less play.** `play["id"].to_s` yields `""`, which the
   unique index `index_goals_on_external_id_when_present` covers with its
-  `WHERE external_id IS NOT NULL` predicate (`db/schema.rb:443`) — so a second id-less
+  `WHERE external_id IS NOT NULL` predicate (`db/schema.rb:444`) — so a second id-less
   play anywhere in the league would collide across games.
 
 ## The studio recap push

@@ -198,8 +198,8 @@ Phantom must be installed in the browser or available via mobile deep link.
    - Skips a user with no wallet (`:12`), then calls
      `Solana::Vault#ensure_user_account` (`:14`).
    - `ensure_user_account` is an idempotent no-op when the PDA already exists —
-     the `:ok` status returns `nil` (`app/services/solana/vault.rb:1444-1453`,
-     `:1447`) — so Sidekiq retries are safe.
+     the `:ok` status returns `nil` (`app/services/solana/vault.rb:1451-1460`,
+     `:1454`) — so Sidekiq retries are safe.
    - The job logs and re-`raise`s so Sidekiq retries
      (`app/jobs/create_onchain_user_account_job.rb:16-18`).
    - This is the FIRST on-chain TX in the whole flow — signup itself is pure
@@ -254,7 +254,7 @@ Phantom must be installed in the browser or available via mobile deep link.
        `build_enter_contest_with_token` (`:1082-1088`); otherwise the currency
        is resolved USDC-or-USDT (`:1020-1036`) and it builds
        `vault.build_enter_contest` (`:1099-1105`,
-       `app/services/solana/vault.rb:2203`). Either way the transaction comes
+       `app/services/solana/vault.rb:2210`). Either way the transaction comes
        back FULLY UNSIGNED.
      - Persists a `PendingTransaction` with `tx_type: "enter_contest"`,
        `status: "pending"`, `target: entry` and a metadata blob naming the entry
@@ -282,12 +282,12 @@ Phantom must be installed in the browser or available via mobile deep link.
      (`Solana::Cosign::Completer#complete`).
      - Re-runs `entry.assert_enterable!` BEFORE anything irreversible (`:1366`).
      - `Solana::Vault#cosign_expectation` (`:1395-1399`,
-       `app/services/solana/vault.rb:3436-3457`) rebuilds the expectation from
+       `app/services/solana/vault.rb:3458-3479`) rebuilds the expectation from
        the wire the server stored on the `PendingTransaction`, for this entry
        and wallet, and `Solana::Cosign::Expectation` judges the returned bytes
        against it before anything is signed.
      - `Solana::Vault#cosign_and_broadcast_entry` (definition
-       `app/services/solana/vault.rb:3560-3563`, called at
+       `app/services/solana/vault.rb:3582-3585`, called at
        `app/controllers/contests_controller.rb:1417-1421`) fills the admin
        slot, runs a simulation pre-flight, then sends and waits for
        confirmation.
@@ -299,7 +299,7 @@ Phantom must be installed in the browser or available via mobile deep link.
        user pay a second time.
      - **OPSEC-010 server-side proof.** `verify_and_confirm_onchain_entry!`
        re-derives the entry PDA through `Solana::Vault#entry_pda`
-       (`app/services/solana/vault.rb:458-463`) and refuses a client-supplied
+       (`app/services/solana/vault.rb:465-470`) and refuses a client-supplied
        PDA that disagrees
        (`app/controllers/contests_controller.rb:2615-2632`, `:2620`). Then
        `verify_solana_transaction!` (`:2543-2552`) fetches the transaction from
