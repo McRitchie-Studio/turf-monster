@@ -1,0 +1,46 @@
+<% content_for(:title, "Referrals — Turf Monster") %>
+
+<div class="max-w-7xl mx-auto px-4 py-8">
+  <h1 class="text-2xl font-extrabold text-heading mb-2">Referrals</h1>
+  <p class="text-secondary text-sm mb-6">
+    Clicks on trackable links (<span class="font-mono">?reference=&lt;name&gt;</span>, landing pages, <span class="font-mono">/tiktok</span>)
+    and the signups that followed. A click is one visitor, one reference, one day: refreshes do not count twice.
+  </p>
+
+  <%# -- Window -- %>
+  <nav class="flex flex-wrap items-center gap-2 mb-6" aria-label="Window" data-referral-window>
+    <% ReferralReport::WINDOWS.each_key do |key| %>
+      <% label = key == "all" ? "All time" : "#{key} days" %>
+      <%= link_to label, admin_referrals_path(days: key, reference: @reference),
+            class: "btn btn-sm #{@report.window == key ? 'btn-primary' : 'btn-outline'}",
+            aria: { current: (@report.window == key ? "page" : nil) } %>
+    <% end %>
+  </nav>
+
+  <%# -- Summary -- %>
+  <% totals = @report.totals %>
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+    <div class="card p-4">
+      <p class="label-upper">Clicks</p>
+      <p class="font-mono text-2xl text-heading" data-total-clicks><%= number_with_delimiter(totals.clicks) %></p>
+    </div>
+    <div class="card p-4">
+      <p class="label-upper">Visitors</p>
+      <p class="font-mono text-2xl text-heading"><%= number_with_delimiter(totals.visitors) %></p>
+    </div>
+    <div class="card p-4">
+      <p class="label-upper">Email signups</p>
+      <p class="font-mono text-2xl text-heading"><%= totals.email_signups.nil? ? "—" : number_with_delimiter(totals.email_signups) %></p>
+    </div>
+    <div class="card p-4">
+      <p class="label-upper">Account signups</p>
+      <p class="font-mono text-2xl text-heading"><%= number_with_delimiter(totals.account_signups) %></p>
+    </div>
+  </div>
+
+  <%= render "admin/referrals/table", report: @report %>
+
+  <% if @reference %>
+    <%= render "admin/referrals/daily", report: @report, reference: @reference, daily: @daily %>
+  <% end %>
+</div>

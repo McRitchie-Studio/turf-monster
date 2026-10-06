@@ -1142,4 +1142,9 @@ class ApplicationController < ActionController::Base
     file.respond_to?(:content_type) && file.respond_to?(:size) &&
       types.include?(file.content_type) && file.size <= max
   end
+
+  # Counts clicks on trackable links (?reference=, /lp/:slug, /tiktok) on every
+  # page; prepends its own before_action. At the END of the class on purpose:
+  # docs/workflows cite this file by line number, and appending shifts none.
+  include ReferralVisitTracking
 end
