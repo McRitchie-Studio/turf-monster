@@ -62,7 +62,6 @@ module FiatRailsParked
     "app/views/modals/auth/_paypal_tokens.html.erb" => :paypal,
     "app/views/modals/auth/_tokens.html.erb" => :stripe,
     "app/views/tokens/_pack_button.html.erb" => :fiat_callers,
-    "app/views/tokens/_pack_button_styles.html.erb" => :fiat_callers,
     "app/views/tokens/buy.html.erb" => :fiat_rails,
     "app/views/modals/_wallet_deposit.html.erb" => :fiat_rails,
     "app/views/contests/_turf_totals_board.html.erb" => :fiat_return_poll
