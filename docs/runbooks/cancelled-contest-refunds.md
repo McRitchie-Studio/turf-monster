@@ -41,8 +41,10 @@ For each paid entry (`entries.onchain_tx_signature` present), establish:
    operator `MintEntryToken` (source 0) after the cancel, a USDC transfer in, a
    `transaction_logs` credit, or a refund on the provider purchase row
    (`stripe_purchases.refunded_at`) and at the provider itself.
-3. **What the Terms owe.** An entry-fee refund is promised for a contest cancelled
-   **before** it locks, on request (`pages/terms`).
+3. **What the Terms owe** (`pages/terms`, `#refunds`). For a contest cancelled
+   **before** it locks, within 7 days: a voucher entry gets its credit restored
+   (or, on request, a refund to the original payment method); a USDC entry gets
+   USDC back. After the lock, entries are final.
 
 Then pick one, and record it on the task or the purchase row:
 
@@ -59,4 +61,4 @@ the entrant twice.
 
 | Contest | Cancelled on chain | Reconciled | Entrant refunds |
 |---------|-------------------|------------|-----------------|
-| 34 `world-cup-week-1-turf-totals` | 2026-06-08 05:38 UTC, 500 USDC back to the creator, pool 0 | `reconcile-cancelled-contest-34` | One paid entrant (user 68, Stripe voucher, $19). An operator voucher (source 0) was minted to them 22 minutes after the cancel and used the same morning on contest 67. The Stripe charge is unrefunded. Decision pending with Alex; the specifics are on the task card, not here, because this repo is public |
+| 34 `world-cup-week-1-turf-totals` | 2026-06-08 05:38 UTC, 500 USDC back to the creator, pool 0 | `reconcile-cancelled-contest-34` | One paid entrant (user 68, Stripe voucher, $19). An operator voucher (source 0) was minted to them 22 minutes after the cancel and used the same morning on contest 67. That restored the credit, which is the form the Terms promise for a voucher entry. The Stripe charge is unrefunded and owed only if the entrant asks. Decision pending with Alex; the specifics are on the task card, not here, because this repo is public |
