@@ -15,6 +15,9 @@ class LandingPagesController < ApplicationController
     # lands on the user at signup. An explicit ?reference= (captured by
     # ApplicationController#capture_reference) already in the cookie wins.
     cookies[:reference] = { value: @landing_page.slug, expires: 30.days } if cookies[:reference].blank?
+    # A click on the page counts under its slug, unless the link named its own
+    # reference (ReferralVisitTracking already counted that one).
+    record_referral_visit(@landing_page.slug) if params[:reference].blank?
 
     @contest = @landing_page.contest
   end
@@ -55,6 +58,9 @@ class LandingPagesController < ApplicationController
   def vanity
     slug  = params[:slug]
     query = request.query_parameters
+    # Counted here, on the spoken-aloud path, as well as on wherever it lands:
+    # the second hop is the same visitor, reference and day, so it dedupes.
+    record_referral_visit(slug) if params[:reference].blank?
 
     if viewable?(LandingPage.find_by(slug: slug))
       redirect_to landing_page_path(slug, query)

@@ -162,4 +162,33 @@ class GamePlayTest < ActiveSupport::TestCase
     assert_equal [other], defence.athletes, "the play's own team wins a tie"
     assert_empty GamePlay.new(game: game, team_slug: "team-a", text: "Two-Minute Warning").athletes
   end
+
+  # ── waiting for the kickoff ──────────────────────────────────────────────
+
+  def feed(*specs) = specs.map { |type, kind| GamePlay.new(play_type: type, kind: kind, text: "x") }
+
+  test "after a score, the TV timeout is looked past and the score is what the kickoff follows" do
+    plays = feed(["Official Timeout", "break"], ["Rushing Touchdown", "score"], ["Rush", "play"])
+    assert_equal "Touchdown", GamePlay.awaiting_kickoff_after(plays).result_label
+
+    plays = feed(["Timeout", "timeout"], ["Field Goal Good", "score"])
+    assert_equal "Field Goal", GamePlay.awaiting_kickoff_after(plays).result_label
+  end
+
+  test "the kickoff itself, any ordinary play, halftime or the end of the game ends the wait" do
+    assert_nil GamePlay.awaiting_kickoff_after(feed(["Kickoff", "kick"], ["Passing Touchdown", "score"]))
+    assert_nil GamePlay.awaiting_kickoff_after(feed(["Official Timeout", "break"], ["Rush", "play"]))
+    assert_nil GamePlay.awaiting_kickoff_after(feed(["End of Half", "break"], ["Field Goal Good", "score"]))
+    assert_nil GamePlay.awaiting_kickoff_after(feed(["Field Goal Missed", "kick"]))
+    assert_nil GamePlay.awaiting_kickoff_after([])
+  end
+
+  test "the scorer kicks off, except after a safety" do
+    game = Game.new(home_team_slug: "team-a", away_team_slug: "team-b")
+    td = GamePlay.new(play_type: "Rushing Touchdown", text: "x")
+    safety = GamePlay.new(play_type: "Safety", text: "x")
+
+    assert_equal "team-a", GamePlay.kicking_team_slug(td, scorer_slug: "team-a", game: game)
+    assert_equal "team-b", GamePlay.kicking_team_slug(safety, scorer_slug: "team-a", game: game)
+  end
 end

@@ -465,6 +465,55 @@ class Contest < ApplicationRecord
     end
   end
 
+  # Entries holding real money on chain, or money that may still be landing:
+  # a signature from a consumed entry token or a vault entry, an entry PDA, or
+  # a PendingTransaction aimed at the entry that already carries a signature
+  # (confirm_onchain_entry stamps it before broadcast, and the Entry's own
+  # columns land only after verification). Any status counts: an abandoned or
+  # cart entry whose payment landed is the only record of that money.
+  def self.paid_entries
+    in_flight = PendingTransaction.where(target_type: "Entry").where.not(tx_signature: [nil, ""]).select(:target_id)
+    Entry.where.not(onchain_tx_signature: [nil, ""])
+         .or(Entry.where.not(onchain_entry_id: [nil, ""]))
+         .or(Entry.where(id: in_flight))
+  end
+
+  # Every contest whose slate holds one of this contest's games, this one
+  # included. #matchups is the slate's matchups and the games rows are global,
+  # so jump!, simulate_next_game! and reset! rewrite results all of these
+  # contests read, and Game#score_affected_contests! re-scores them.
+  def contests_sharing_games
+    game_slugs = matchups.where.not(game_slug: [nil, ""]).select(:game_slug)
+    slate_ids = SlateMatchup.where(game_slug: game_slugs).select(:slate_id)
+    Contest.where(slate_id: slate_ids).or(Contest.where(slate_id: slate_id))
+  end
+
+  # Why a contest test action (ContestsController::TEST_ACTIONS) must not run
+  # here, whatever ENABLE_TEST_SCAFFOLDING says, or nil when it may:
+  #
+  #   :onchain      — this contest lives on chain. fill! reaches
+  #                   Entry#enter_onchain! through confirm!(comped: true) and can
+  #                   move real USDC from a managed seed wallet, and jump!
+  #                   settles on chain against the creator's prize pool, free
+  #                   entry or not. An in-flight entry also has no Entry
+  #                   columns yet (Entries::OnchainReconciler#eligible? is the
+  #                   same on-chain test).
+  #   :paid         — an entry on this contest is in Contest.paid_entries.
+  #   :shared_games — the action rewrites shared games (every action but fill),
+  #                   and a contest sharing them is on chain or holds a paid
+  #                   entry, so random scores would decide real money there.
+  def test_action_refusal(action)
+    return :onchain if onchain?
+    return :paid if Contest.paid_entries.where(contest_id: id).exists?
+    return nil if action.to_sym == :fill
+
+    sharing = contests_sharing_games
+    if sharing.where.not(onchain_contest_id: [nil, ""]).exists? ||
+       Contest.paid_entries.where(contest_id: sharing.select(:id)).exists?
+      :shared_games
+    end
+  end
+
   def jump!
     raise "Contest is already settled" if settled?
 
@@ -822,7 +871,7 @@ class Contest < ApplicationRecord
     {
       active:    (buckets[:active]    || []).sort_by { |g| g.kickoff_at || now },
       upcoming:  (buckets[:upcoming]  || []).sort_by { |g| g.kickoff_at || (now + 100.years) },
-      completed: (buckets[:completed] || []).sort_by { |g| g.kickoff_at || now }.reverse
+      completed: (buckets[:completed] || []).sort_by { |g| g.kickoff_at || now } # oldest first: the strip wraps from MNF to Thursday (Alex, 2026-10-05)
     }
   end
 

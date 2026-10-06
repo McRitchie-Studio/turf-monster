@@ -133,6 +133,12 @@
     <%= render "hub_tile", name: "Transactions",      url: admin_transactions_path, status: :flagged %>
   <% end %>
 
+  <%# Below every tile docs/workflows cites by line, so appending moves none. %>
+  <%= render layout: "hub_section", locals: { title: "Marketing" } do %>
+    <%= render "hub_tile", name: "Referrals", url: admin_referrals_path,
+          note: "Clicks to email and account signups per ?reference= link" %>
+  <% end %>
+
   <%# Actions — buttons and POST forms; a flex row, not the hub_section tile grid. %>
   <section>
     <h2 class="label-upper font-bold mb-3">Actions</h2>
@@ -146,7 +152,7 @@
       <%= button_to(geo_override_active? ? "Clear simulation" : "Simulate WA",
             admin_geo_toggle_path, method: :post,
             class: "btn btn-sm #{geo_override_active? ? 'btn-danger' : 'btn-outline'}") %>
-      <% if @latest_contest %>
+      <% if @latest_contest && AppFlags.test_scaffolding? %>
         <%= button_to "Reset Contest", reset_contest_path(@latest_contest), method: :post,
               data: { turbo_confirm: "Reset contest? This clears all entries and results." },
               class: "btn btn-danger btn-sm" %>

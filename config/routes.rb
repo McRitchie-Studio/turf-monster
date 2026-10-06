@@ -677,6 +677,11 @@ Rails.application.routes.draw do
   get "agents/guide",    to: "agents#guide",          as: :agents_guide, format: false
   get "llms.txt",        to: "agents#llms",           as: :llms_txt, format: false
 
+  # Referral link report: clicks (ReferralVisit) to email and account signups
+  # per ?reference=. Admin-only. Down here with the agent pages, below every
+  # line docs/workflows cites, so no citation moves.
+  get "admin/referrals", to: "admin/referrals#index", as: :admin_referrals
+
   # Test-only endpoints — exercised by Playwright e2e specs to seed
   # OAuth mock payloads and force referral cache values without staging
   # full signup flows. Guarded to non-production so Playwright (which runs

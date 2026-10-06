@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_05_120000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_05_150000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -680,6 +680,19 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_05_120000) do
     t.index ["message_id", "user_id", "emoji"], name: "index_reactions_uniqueness", unique: true
     t.index ["message_id"], name: "index_reactions_on_message_id"
     t.index ["user_id"], name: "index_reactions_on_user_id"
+  end
+
+  create_table "referral_visits", force: :cascade do |t|
+    t.datetime "first_seen_at", null: false
+    t.string "landing_path", limit: 255
+    t.string "reference", limit: 64, null: false
+    t.string "utm_campaign", limit: 100
+    t.string "utm_medium", limit: 100
+    t.string "utm_source", limit: 100
+    t.date "visited_on", null: false
+    t.string "visitor_id", limit: 36, null: false
+    t.index ["reference", "visitor_id", "visited_on"], name: "index_referral_visits_on_ref_visitor_day", unique: true
+    t.index ["visited_on", "reference"], name: "index_referral_visits_on_visited_on_and_reference"
   end
 
   create_table "season_configs", force: :cascade do |t|

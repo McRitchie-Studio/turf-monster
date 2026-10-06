@@ -310,6 +310,33 @@ class ContestLiveRenderTest < ActionDispatch::IntegrationTest
     assert_includes latest["title"], "(Shotgun) J.Goff pass short right"
   end
 
+  # The feed fills the gap after a score with an Official Timeout. The bar says
+  # what everyone is waiting for instead, and who kicks.
+  test "between a touchdown and its kickoff the bar reads Pending Kickoff" do
+    # A goal saves its game, and Game is Sluggable: the fixture's slug would be
+    # re-stamped out from under the matchup. Stamp it first, the way create does.
+    @upcoming.update_columns(status: "in_progress", period: 4, clock: "9:50", slug: @upcoming.name_slug)
+    slate_matchups(:m3).update!(game_slug: @upcoming.slug)
+    home = @upcoming.home_team_slug
+    GamePlay.create!(game_slug: @upcoming.slug, external_id: "EV801", sequence: 801, kind: "score",
+                     play_type: "Rushing Touchdown", team_slug: home, text: "R.Runner left tackle for 4 yards, TOUCHDOWN.")
+    GamePlay.create!(game_slug: @upcoming.slug, external_id: "EV802", sequence: 802, kind: "break",
+                     play_type: "Official Timeout", team_slug: home, text: "Official Timeout at 09:50.")
+    @upcoming.goals.create!(team_slug: home, points: 7, scoring_type: "touchdown")
+    get_live
+
+    latest = css_select("#game_#{@upcoming.slug}_plays [data-test='live-plays-latest']").first
+    assert_equal "pending-kickoff", latest["data-play-kind"]
+    assert_equal "Pending Kickoff", latest.css("[data-test='live-plays-result']").first.text.strip
+    assert_equal "#{@upcoming.home_team.short_name} kicks off", latest.css("[data-test='live-plays-detail']").first.text.strip
+
+    GamePlay.create!(game_slug: @upcoming.slug, external_id: "EV803", sequence: 803, kind: "kick",
+                     play_type: "Kickoff", team_slug: home, text: "K.Kicker kicks 65 yards, Touchback.")
+    get_live
+    latest = css_select("#game_#{@upcoming.slug}_plays [data-test='live-plays-latest']").first
+    assert_equal "Kickoff", latest.css("[data-test='live-plays-result']").first.text.strip
+  end
+
   test "a play that names nobody shows its team in the avatar slot" do
     start_game_with_plays
     get_live
