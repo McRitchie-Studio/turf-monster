@@ -113,7 +113,9 @@ An operator can freeze an account, and a payment dispute or refund can freeze
 one too. The freeze is the app's, not the chain's. A frozen account can still
 read: it can see contests, its own entries and `GET /api/v1/me`, and the player
 can sign in and out on the website. It cannot write: it cannot enter or edit an
-entry, chat, change its username, link a wallet, or take any on-chain step.
+entry, chat, change its username, link a wallet or a Google account, export its
+wallet key, or take any on-chain step. A key-export link mailed before the
+freeze is refused when it is opened after it.
 
 Every refused write gets the same answer, on every surface:
 
