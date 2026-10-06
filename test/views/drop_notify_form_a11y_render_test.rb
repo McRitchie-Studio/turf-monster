@@ -21,7 +21,7 @@ class DropNotifyFormA11yRenderTest < ActionView::TestCase
     assert_equal "-1", success["tabindex"]
     assert_equal "success", success["x-ref"]
     assert_includes html, "$watch('state', function (value) { if (value === 'done') " \
-                          "$nextTick(function () { setTimeout(function () { $refs.success.focus(); }); }); })"
+                          "$nextTick(function () { requestAnimationFrame(function () { setTimeout(function () { $refs.success.focus(); }); }); }); })"
   end
 
   test "the input names the error line and goes invalid only in the error state" do
