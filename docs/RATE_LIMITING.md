@@ -79,7 +79,7 @@ grep -n '^  throttle("' config/initializers/rack_attack.rb
 
 Key facts that constrain the design:
 
-- **Custom responder** (`rack_attack.rb:127-139`): HTTP **429**, `Content-Type:
+- **Custom responder** (`throttled_responder` in `rack_attack.rb`): HTTP **429**, `Content-Type:
   application/json`, `Retry-After: <period seconds>`, body
   `{ error, retry_after }`. The new contract extends this body.
 - **Plain `throttle` is a fixed window** — no escalation, no idle-reset.
@@ -89,6 +89,16 @@ Key facts that constrain the design:
 - **Counters live in `Rails.cache`** — Redis in prod (Lazarus audit #11 moved it
   off the per-dyno `:memory_store` that made limits effectively off) and dev;
   **`:null_store` in test**, and **`Rack::Attack.enabled = false` in test env**.
+- **Every rule fails open while Redis is down.** Production's
+  `redis_cache_store` swallows connection errors, so rack-attack counts 1 and
+  nothing is throttled until Redis is back; no `rescue` runs. That is a decision,
+  not an accident: a closed rule would lock every user out of sign-in, checkout
+  and cash-out for the outage. The reasons per rule are the "Cache outage" note
+  at the top of `rack_attack.rb`; the proof runs against a store that fails as
+  production's does (`test/support/redis_cache_outage.rb`). The outage pages:
+  the store's error_handler, `CacheErrorReporter`, logs every swallowed error
+  and reports the first in each minute, per process, through `Rails.error` to
+  Sentry (the forwarder is subscribed in `config/initializers/sentry.rb`).
 - **Cache key prefix is the literal `rack::attack:`** (double colon). The e2e
   reseed (`TestController#reseed` → `Rails.cache.delete_matched("rack::attack:*")`)
   and the manual dev clear both match that exact string. Any new counter that
@@ -431,4 +441,4 @@ the phasing above:
 - `app/controllers/messages_controller.rb#posting_too_fast?` — existing
   per-user stateful limiter (the model for custom counter logic).
 
-<!-- citation-guard: unswept (4 citations) — their paths were never qualified, so nothing has ever resolved them; re-measured 2026-09-15 and the coordinates have drifted off what the prose names -->
+<!-- citation-guard: unswept (3 citations) — their paths were never qualified, so nothing has ever resolved them; re-measured 2026-09-15 and the coordinates have drifted off what the prose names. 2026-10-06: the responder citation (rack_attack.rb:127-139) is now named by its symbol, so 4 became 3 -->

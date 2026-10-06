@@ -143,3 +143,12 @@ email_delivery_resend:
     across ticks. No-ops entirely where LOCAL_EMAIL_CAPTURE is on, since nothing
     there can ever reach sent and the sweep would loop forever.
   queue: default
+error_log_cleanup:
+  cron: "11 4 * * *"     # daily at 04:11 UTC (off-peak, before the sweepers above)
+  class: ErrorLogCleanupJob
+  active_job: true
+  description: >-
+    Delete error_logs rows older than 30 days, the retention ErrorLogCleanupJob
+    (studio-engine) defaults to. Runs with no arguments so the job's own default
+    stays the single source of the retention.
+  queue: default

@@ -1,5 +1,0 @@
-production:
-  error_log_cleanup:
-    class: ErrorLogCleanupJob
-    schedule: every day at 3am US/Pacific
-    args: []
