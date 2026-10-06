@@ -108,7 +108,7 @@
   <!-- ========== 1. HERO ========== -->
   <%# Two layered backgrounds: a field of small radial-gradient "stars" over
       the night gradient. Fixed hex on purpose (see the header). %>
-  <section class="relative overflow-hidden rounded-3xl px-6 py-12 md:px-12 md:py-16"
+  <section class="relative overflow-hidden rounded-3xl px-6 py-12 md:px-12 md:py-16 xl:pb-[82px]"
            data-test="v2-hero"
            style="--phone-x: 130px; --phone-y: 58px;
              background-image:
@@ -199,22 +199,16 @@
                 .v2-fizz-escape), fading before they reach anything readable.
                 Decoration only: aria-hidden, no pointer events, and gone
                 entirely under prefers-reduced-motion. %>
-            <%# The caption from xl: to the phone's LEFT, right-aligned, in the gap
-                between the copy and the phone at its lower third, clear of the
-                fizz below it. It moves with the phone's --phone-x/--phone-y. %>
-            <p class="hidden xl:block absolute right-full top-[60%] mr-4 w-[9rem] text-right text-xs leading-snug text-white/70" data-test="v2-phone-caption-xl">
-              Real cards from the Weeks 1&ndash;3 board.<span class="sr-only"> Behind the phone, a laptop shows the live contests lobby.</span>
-            </p>
             <span class="hold-stack fizz-lively v2-fizz-escape" aria-hidden="true" data-test="v2-fizz-escape"
                   style="<%= fizz_palette_style(TurfMonsterRules::SHOWCASE.map { |example| @teams[example.team_slug] }) %>">
               <%= render "studio/fizz_layer", seed: "phone-escape" %>
             </span>
           </div>
         </div>
-        <%# Below xl the caption sits under the centered phone. From xl there
-            is no room under the phone, so it moves beside it (inside the phone
-            wrapper, below) and this one is not drawn. %>
-        <figcaption class="relative z-10 mt-4 w-[18rem] text-center text-xs text-white/70 xl:hidden">
+        <%# Directly under the phone, centered on it, moving with the phone's
+            --phone-x/--phone-y. The hero's xl bottom padding is what makes room
+            for it below the shifted phone (see the section). %>
+        <figcaption class="relative z-10 mt-4 w-[18rem] text-center text-xs text-white/70 xl:translate-x-[var(--phone-x)] xl:translate-y-[var(--phone-y)]">
           Real cards from the Weeks 1&ndash;3 board.<span class="sr-only"> Behind the phone, a laptop shows the live contests lobby.</span>
         </figcaption>
       </figure>
