@@ -64,7 +64,9 @@ class DropSignupsControllerTest < ActionDispatch::IntegrationTest
     post drop_signups_path, params: { email: "nope" }
     assert_redirected_to turf_monster_v2_path(anchor: "notify")
     follow_redirect!
-    assert_select '[data-test="v2-notify-form"] [role="alert"]', text: /valid email/
+    assert_select '[data-test="v2-notify-form"] noscript', text: /valid email/
+    assert_includes css_select('[data-test="v2-notify-form"]').first["x-data"], "dropNotifyForm('error')",
+                    "with JS, the form starts in its error state and Alpine writes the message"
   end
 
   # allow_forgery_protection is off in the test env and does not arm inside an

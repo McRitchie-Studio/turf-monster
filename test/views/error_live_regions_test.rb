@@ -70,6 +70,9 @@ class ErrorLiveRegionsTest < ActiveSupport::TestCase
     ["contests/_quest_newsletter.html.erb", "error"]            => "alert",
     ["shared/_auth_card.html.erb", "error"]                     => "alert",
     ["wallet_exports/show.html.erb", "errorText"]               => "alert",
+    # The /turf-monster-v2 notify-me form: the visitor just pressed Notify me
+    # and is waiting on the answer, so a refusal is announced at once.
+    ["pages/turf_monster_v2.html.erb", "error"]                 => "alert",
     ["proof_of_reserves/show.html.erb", "bannerError"]          => "status"
   }.freeze
 

@@ -30,6 +30,7 @@ class WordmarkBrandGreenTest < ActiveSupport::TestCase
     landing_pages/show.html.erb
     landing_pages/claimed.html.erb
     pages/turf_monster_v1.html.erb
+    pages/_phone_pick_board.html.erb
   ].freeze
   LOGOTYPE_WORD = %r{<span class="([^"]*)">Monster</span>}
 
