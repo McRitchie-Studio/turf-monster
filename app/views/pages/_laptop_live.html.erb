@@ -1,4 +1,4 @@
-<%# locals: (showcase:)
+<%# locals: (showcase:, board_wired: false)
 
     /contests/<slug>/live as a SIGNED-OUT visitor sees it, for the laptop on
     /turf-monster-v2's hero. Rendered by LaptopLiveSnapshot (a session-less
@@ -29,8 +29,8 @@
     <%= render "contests/live_header", contest: contest %>
     <%# The live page's own wrapper ids (contests/live), so the copy of its
         script under the laptop finds the panel and the strip it animates
-        (pages/_laptop_score_sim). The leaderboard's id is deliberately left
-        off: the simulation never moves it. %>
+        (pages/_laptop_score_sim). The leaderboard's id is left off unless the
+        board is the scripted showcase (board_wired, below). %>
     <div id="contest_<%= contest.id %>_focus" class="mb-4">
       <%= render "contests/live_focus", **showcase.games, contest: contest, focus_slug: showcase.focus_slug %>
     </div>
@@ -38,7 +38,11 @@
       <%= render "contests/live_games", **showcase.games, contest: contest %>
     </div>
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start mb-8">
-      <div class="lg:col-start-2 lg:row-start-1" data-test="laptop-live-leaderboard">
+      <%# The board carries the live page's id only for the SCRIPTED showcase
+          (LaptopShowcaseEntrants::Script, no real entries): then the driver
+          swaps in each frame's board and the live script re-ranks it. A real
+          contest's board has no id and is never moved. %>
+      <div <% if board_wired %>id="contest_<%= contest.id %>_leaderboard" <% end %>class="lg:col-start-2 lg:row-start-1" data-test="laptop-live-leaderboard">
         <%= render "contests/turf_totals_leaderboard", compact: true, viewer: nil, contest: contest,
                    entries: showcase.entries, matchups: showcase.matchups, onchain_contest: nil %>
       </div>

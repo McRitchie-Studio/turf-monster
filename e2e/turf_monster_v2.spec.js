@@ -312,6 +312,39 @@ test.describe("turf-monster-v2 laptop: simulated live scoring", () => {
     await context.close();
   });
 
+  // THE SHOWCASE BOARD TRADES PLACES (Alex, 2026-10-06). nfl-weeks-15-17 has
+  // no real entries, so the laptop's board is the scripted showcase: Mason
+  // holds the featured game's home team, turf its away team. The first
+  // touchdown (away) puts turf on top; the second (home) puts Mason back. Read
+  // on Playwright's clock, from the board the live script re-ranks.
+  test("the showcase board trades first place with each touchdown", async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+    const page = await context.newPage();
+    await allowMotion(page);
+    await page.clock.install();
+    await page.goto("/turf-monster-v2");
+    const board = page.locator('[data-test="laptop-live-leaderboard"]');
+    await expect(board).toHaveAttribute("id", /^contest_\d+_leaderboard$/);
+    const leader = () => board.locator('[data-role="entry-row"]').first().locator(".font-bold.truncate").textContent();
+    const rows = () => board.locator('[data-role="entry-row"]').evaluateAll((els) => els.map((e) => e.dataset.entrySlug));
+
+    expect((await leader()).trim()).toBe("Mason");
+    expect(await rows()).toEqual(["showcase-mason", "showcase-turf", "showcase-mack"]);
+
+    await expect(page.locator('[data-test="laptop-sim"]')).toHaveAttribute("data-sim", "running");
+    await page.clock.runFor(10_500);
+    await expect.poll(async () => (await leader()).trim()).toBe("turf");
+    // The crown and the place badge go with the order: the board is redrawn.
+    const first = board.locator('[data-role="entry-row"]').first();
+    await expect(first).toHaveAttribute("data-rank", "1");
+    await expect(first.locator('[title="In the money"]')).toHaveCount(1);
+
+    await page.clock.runFor(10_000);
+    await expect.poll(async () => (await leader()).trim()).toBe("Mason");
+    expect(await rows()).toEqual(["showcase-mason", "showcase-turf", "showcase-mack"]);
+    await context.close();
+  });
+
   // THE LEAK: a laptop paused off-screen when the visitor left used to keep its
   // visibilitychange, resize and IntersectionObserver listeners alive across
   // the Turbo visit, one set per visit. window.__laptopSimLive counts drivers

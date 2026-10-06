@@ -1234,7 +1234,10 @@
 # The sim stops at the first combined 50 and holds it (on Playwright's clock, no wall time);
 # reduced motion switched on mid-visit stops it and restores 3-7; and leaving the page while
 # the laptop is paused tears every listener down. Derived with bin/e2e-lane-derive --write.
-total_specs: 396
+# 396 -> 397 (explainer-review-follow-ups): one spec in e2e/turf_monster_v2.spec.js. With no
+# real entries the laptop's board is the scripted showcase, and the first simulated touchdown
+# puts turf on top, the second puts Mason back. Derived with bin/e2e-lane-derive --write.
+total_specs: 397
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1604,7 +1607,9 @@ allowed_skips: 4
 # 372 -> 375 (explainer-review-follow-ups): the three laptop-sim specs described beside
 # total_specs above. All run in chromium and none skips, so excluded holds at 17 and
 # allowed_skips at 4. Derived with bin/e2e-lane-derive --write on this tree.
-executed: 375
+# 375 -> 376 (explainer-review-follow-ups): the showcase-board spec beside total_specs above;
+# chromium, no skip, so excluded holds at 17 and allowed_skips at 4.
+executed: 376
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

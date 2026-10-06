@@ -10,6 +10,9 @@
                                real wrapper ids (pages/_laptop_live)
       live/_score_banner       the banner it raises
       a hidden goal feed       the node a real score appends
+      the showcase board       when the contest has no real entries
+                               (LaptopShowcaseEntrants::Script), each frame's
+                               board, re-ranked by the live script
 
     Each frame is what Contest::LiveBroadcast.goal_scored would send: the
     focus tile and strip chip at the new score, then the goal-feed node.
@@ -59,6 +62,9 @@
     <template data-frame="<%= frame[:index] %>" data-part="tile"><%= frame[:tile].html_safe %></template>
     <template data-frame="<%= frame[:index] %>" data-part="chip"><%= frame[:chip].html_safe %></template>
     <template data-frame="<%= frame[:index] %>" data-part="feed"><%= frame[:feed].html_safe %></template>
+    <% if frame[:board] %>
+      <template data-frame="<%= frame[:index] %>" data-part="board"><%= frame[:board].html_safe %></template>
+    <% end %>
   <% end %>
 </div>
 <%= render "live/score_banner" %>
@@ -78,6 +84,8 @@
     var feed    = document.getElementById('contest_' + id + '_goal_feed');
     var focus   = document.getElementById('contest_' + id + '_focus');
     var games   = document.getElementById('contest_' + id + '_games');
+    // Present only for the scripted showcase board (pages/_laptop_live).
+    var board   = document.getElementById('contest_' + id + '_leaderboard');
     var laptop  = root.closest('[data-test="laptop-mock"]') || root;
     var wide    = window.matchMedia('(min-width: 1280px)');
     var tileAt  = '[data-test="live-focus-game"][data-focus-slug="' + slug + '"]';
@@ -89,7 +97,8 @@
     // taken before anything moves, put back if reduced motion turns on.
     var opening = {
       tile: focus.querySelector(tileAt) && focus.querySelector(tileAt).cloneNode(true),
-      chip: games && games.querySelector(chipAt) && games.querySelector(chipAt).cloneNode(true)
+      chip: games && games.querySelector(chipAt) && games.querySelector(chipAt).cloneNode(true),
+      board: board ? board.innerHTML : null
     };
 
     var index = 0, timer = null, onScreen = false, observer = null, live = true;
@@ -113,6 +122,14 @@
     function show(i) {
       swap(focus, tileAt, part(i, 'tile'));
       swap(games, chipAt, part(i, 'chip'));
+      // THE SHOWCASE BOARD, when there is one: replaced whole, as a broadcast
+      // updates the live board, so the live script re-ranks it (the slide, the
+      // wash, the rank badge, the score pop).
+      if (board) {
+        var next = i === 0 ? opening.board
+                 : (root.querySelector('template[data-frame="' + i + '"][data-part="board"]') || {}).innerHTML;
+        if (next != null) board.innerHTML = next;
+      }
       var node = part(i, 'feed');
       if (node) feed.appendChild(node.cloneNode(true));
       root.dataset.frame = String(i);

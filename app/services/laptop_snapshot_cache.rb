@@ -23,7 +23,7 @@
 module LaptopSnapshotCache
   TTL = 60.seconds
   # Bump to drop every entry at once when the snapshot's shape changes.
-  VERSION = 1
+  VERSION = 2
 
   def self.fetch(showcase, host:, https:, &)
     Rails.cache.fetch(key(showcase, host: host, https: https), expires_in: TTL, &)
