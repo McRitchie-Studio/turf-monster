@@ -242,13 +242,26 @@ class LiveFocusSituationRenderTest < ActionDispatch::IntegrationTest
       "a game nobody is playing has no down"
   end
 
-  test "a finished game says Final in the middle third" do
+  # FINAL in bold, the day it was played under it — not the kickoff time.
+  test "a finished game says Final in bold over the day it was played" do
+    @scheduled.update_columns(status: "completed", status_detail: "Final", kickoff_at: Time.utc(2026, 10, 4, 0, 20))
+    get live_path
+
+    field = field_for(@scheduled.slug)
+    final = field.css("[data-test='live-focus-final']").first
+    assert_equal "Final", final.text.strip
+    assert_includes final["class"].split, "font-extrabold"
+    played = field.css("time[data-role='played-on']").first
+    assert_equal "2026-10-04T00:20:00Z", played["datetime"]
+    assert_empty field.css("time[data-role='kickoff']"), "the kickoff time stopped mattering at the whistle"
+    assert_not_includes rail_for(@scheduled.slug).text, "Final"
+  end
+
+  test "a game that went to overtime keeps it in the bold line" do
     @scheduled.update_columns(status: "completed", status_detail: "Final/OT")
     get live_path
 
-    assert_includes field_for(@scheduled.slug).text, "Final"
-    assert_includes field_for(@scheduled.slug).text, "Final/OT"
-    assert_not_includes rail_for(@scheduled.slug).text, "Final"
+    assert_equal "Final/OT", field_line(@scheduled.slug, "final")
   end
 
   test "a venue with no place prints the building alone, in the bold line" do

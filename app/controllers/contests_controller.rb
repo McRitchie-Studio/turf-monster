@@ -2764,7 +2764,7 @@ class ContestsController < ApplicationController
   # outside every broadcast target so a score cannot reset it). This only picks
   # the starting one.
   def default_focus_game_slug(games)
-    (games[:active].first || games[:upcoming].first || games[:completed].first)&.slug
+    (games[:active].first || games[:upcoming].first || games[:completed].last)&.slug # completed is oldest-first; open on the latest final
   end
 
   # World Cup Survivor uses rounds + off-chain picks, not slate matchups.

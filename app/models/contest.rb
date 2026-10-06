@@ -822,7 +822,7 @@ class Contest < ApplicationRecord
     {
       active:    (buckets[:active]    || []).sort_by { |g| g.kickoff_at || now },
       upcoming:  (buckets[:upcoming]  || []).sort_by { |g| g.kickoff_at || (now + 100.years) },
-      completed: (buckets[:completed] || []).sort_by { |g| g.kickoff_at || now }.reverse
+      completed: (buckets[:completed] || []).sort_by { |g| g.kickoff_at || now } # oldest first: the strip wraps from MNF to Thursday (Alex, 2026-10-05)
     }
   end
 
