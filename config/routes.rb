@@ -683,6 +683,15 @@ Rails.application.routes.draw do
   # line docs/workflows cites, so no citation moves.
   get "admin/referrals", to: "admin/referrals#index", as: :admin_referrals
 
+  # Campaign short links (/l/<token> → target?r=<reference>; CampaignLink).
+  # Admin-only CRUD, no delete: a printed link is disabled, never removed.
+  # Down here for the same no-citation-moves reason as the report above.
+  namespace :admin do
+    resources :short_links, only: %i[index new create edit update], param: :token do
+      patch :toggle, on: :member
+    end
+  end
+
   # Test-only endpoints — exercised by Playwright e2e specs to seed
   # OAuth mock payloads and force referral cache values without staging
   # full signup flows. Guarded to non-production so Playwright (which runs

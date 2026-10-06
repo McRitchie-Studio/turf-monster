@@ -17,7 +17,7 @@ class LandingPagesController < ApplicationController
     cookies[:reference] = { value: @landing_page.slug, expires: 30.days } if cookies[:reference].blank?
     # A click on the page counts under its slug, unless the link named its own
     # reference (ReferralVisitTracking already counted that one).
-    record_referral_visit(@landing_page.slug) if params[:reference].blank?
+    record_referral_visit(@landing_page.slug) if attribution_param.nil?
 
     @contest = @landing_page.contest
   end
@@ -48,8 +48,8 @@ class LandingPagesController < ApplicationController
   # the answer changes when the page is created or switched off, and a browser
   # that cached a permanent redirect would keep the old one.
   #
-  # The query string rides along either way, so a ?reference= in the link still
-  # wins first touch (ApplicationController#capture_reference runs first).
+  # The query string rides along either way, so a ?r= (or ?reference=) in the
+  # link still wins first touch (ApplicationController#capture_reference runs first).
   #
   # No viewable page → the home page carrying ?reference=<slug>, NOT the /lp
   # "isn't available" bounce. Someone who typed the URL off a video still gets
@@ -60,7 +60,7 @@ class LandingPagesController < ApplicationController
     query = request.query_parameters
     # Counted here, on the spoken-aloud path, as well as on wherever it lands:
     # the second hop is the same visitor, reference and day, so it dedupes.
-    record_referral_visit(slug) if params[:reference].blank?
+    record_referral_visit(slug) if attribution_param.nil?
 
     if viewable?(LandingPage.find_by(slug: slug))
       redirect_to landing_page_path(slug, query)
