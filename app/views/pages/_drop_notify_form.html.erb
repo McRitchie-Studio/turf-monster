@@ -1,4 +1,4 @@
-<%# locals: (initial: "idle", id_prefix: "drop_signup", test_id: "v2-notify", card: true)
+<%# locals: (initial: "idle", id_prefix: "drop_signup", test_id: "v2-notify", card: true, stacked: false, visible_label: true)
 
     The notify-me form for the next slate drop, used by /turf-monster-v2's notify
     section and by the drop-notify modal. Posts to DropSignupsController.
@@ -9,7 +9,11 @@
     shows only after a 2xx. `id_prefix` keeps the input ids unique when the
     section and the modal are both in the page; `card: false` drops the card
     chrome where the modal already supplies it, and `test_id` names its
-    data-test hooks (the modal's are drop-modal-*).
+    data-test hooks (the modal's are drop-modal-*). `stacked: true` puts the
+    button full width under the input, both one height (the modal's narrow
+    card); `visible_label: false` keeps the label for assistive tech only
+    (sr-only), where a header above already says what the field is for. The
+    page's own section passes neither and stays one joined row from sm up.
 
     FOCUS AND ERRORS, for a keyboard or screen-reader visitor. On success the
     form disappears from under the focus, so focus moves to the success
@@ -37,20 +41,20 @@
         data: { turbo: false },
         html: { "x-show": "state !== 'done'", "@submit.prevent": "submit($event)", novalidate: true,
                 style: (initial == "done" ? "display: none;" : nil) } do %>
-    <label for="<%= id_prefix %>_email" class="block text-sm font-semibold text-heading mb-2">Notify me when <%= NextSlateDrop::LABEL %> drops</label>
+    <label for="<%= id_prefix %>_email" class="<%= visible_label ? 'block text-sm font-semibold text-heading mb-2' : 'sr-only' %>">Notify me when <%= NextSlateDrop::LABEL %> drops</label>
     <%# ONE JOINED ROW from sm up: the input fills the space up to the button,
         both the same height, the seam squared off. Stacked full width below
         sm. input-field is the engine's standard field (surface fill, strong
         border, primary border on focus); the ring adds a visible focus mark. %>
-    <div class="flex flex-col sm:flex-row items-stretch gap-3 sm:gap-0">
+    <div class="<%= stacked ? 'flex flex-col items-stretch gap-3' : 'flex flex-col sm:flex-row items-stretch gap-3 sm:gap-0' %>" data-test="<%= test_id %>-row">
       <input type="email" id="<%= id_prefix %>_email" name="email" required autocomplete="email"
              placeholder="you@example.com"
-             class="input-field flex-1 min-w-0 sm:rounded-r-none focus:ring-2 focus:ring-primary/30"
+             class="input-field <%= stacked ? 'w-full h-12' : 'flex-1 min-w-0 sm:rounded-r-none' %> focus:ring-2 focus:ring-primary/30"
              <%= 'aria-invalid="true"'.html_safe if initial == "error" %>
              :aria-invalid="state === 'error' ? 'true' : null"
              aria-describedby="<%= initial == "error" ? "#{id_prefix}_error #{id_prefix}_help" : "#{id_prefix}_help" %>"
              :aria-describedby="state === 'error' ? '<%= id_prefix %>_error <%= id_prefix %>_help' : '<%= id_prefix %>_help'">
-      <button type="submit" class="btn btn-primary whitespace-nowrap sm:rounded-l-none px-6"
+      <button type="submit" class="btn btn-primary whitespace-nowrap px-6 <%= stacked ? 'w-full h-12' : 'sm:rounded-l-none' %>"
               :disabled="state === 'submitting'"
               x-text="state === 'submitting' ? 'Sending…' : 'Notify me'">Notify me</button>
     </div>

@@ -20,13 +20,23 @@
     when the countdown crosses the instant with the card open. Each span's
     server text equals its x-text value, so Alpine's first paint changes
     nothing. %>
-<% before_title = "#{NextSlateDrop::LABEL} drops Tuesday morning" %>
+<%# The header names the slate with an en dash and the drop's date from
+    NextSlateDrop ("Weeks 7–9 drops Oct 20"); the form's label below is then
+    sr-only, since the header already says what the field is for. %>
+<% before_title = "#{NextSlateDrop::LABEL.tr('-', '–')} drops #{NextSlateDrop.drops_at.strftime('%b %-d')}" %>
 <% after_title = "#{NextSlateDrop::LABEL} is live" %>
 <% when_text = "#{NextSlateDrop.drops_at.strftime('%A, %B %-d')} at #{NextSlateDrop.drops_at.strftime('%-l:%M %p')} Mountain" %>
 <% before_sub = "The board goes live #{when_text}. Get one email when it does." %>
 <% after_sub = "The board went live #{when_text}." %>
 <% js = ->(text) { "'#{j(text)}'" } %>
+<%# AUTOFOCUS ON DESKTOP ONLY. The engine host focuses the dialog itself on
+    open and returns focus to the opener on close; once the card's open
+    animation (320ms, modal-card-mount) has run, a fine-pointer visitor's
+    focus moves on to the email field, inside the same trap. On a touch
+    device (pointer: coarse) it stays on the dialog: focusing the field would
+    raise the keyboard over the countdown. %>
 <div data-test="drop-modal" data-dropped="<%= dropped %>"
+     x-init="if (!dropped && !(window.matchMedia && window.matchMedia('(pointer: coarse)').matches)) setTimeout(function () { var f = $el.querySelector('input[type=email]'); if (f && f.offsetParent !== null) f.focus(); }, 340)"
      x-data="dropCountdown('<%= NextSlateDrop.drops_at.utc.iso8601 %>', <%= remaining[:days] %>, <%= remaining[:hours] %>, <%= remaining[:minutes] %>, <%= dropped %>)">
   <% title_html = tag.span(dropped ? after_title : before_title, "data-test": "drop-modal-title",
                            "x-text": "dropped ? #{js.(after_title)} : #{js.(before_title)}") %>
@@ -39,7 +49,8 @@
       <%= render "pages/drop_countdown_tiles", remaining: remaining %>
     </div>
     <div x-show="!dropped">
-      <%= render "pages/drop_notify_form", id_prefix: "drop_modal", test_id: "drop-modal", card: false %>
+      <%= render "pages/drop_notify_form", id_prefix: "drop_modal", test_id: "drop-modal", card: false,
+                 stacked: true, visible_label: false %>
     </div>
     <div x-show="dropped" x-cloak class="text-center">
       <p class="text-heading font-semibold mb-3">The <%= NextSlateDrop::LABEL %> slate is live.</p>

@@ -78,8 +78,42 @@ test.describe("notify-me form accessibility", () => {
       await cta.click();
       const dialog = page.getByRole("dialog", { name: "Get notified when Weeks 7-9 drops" });
       await expect(dialog).toBeVisible();
-      await expect(dialog.locator('[data-test="drop-modal-title"]')).toHaveText("Weeks 7-9 drops Tuesday morning");
+      await expect(dialog.locator('[data-test="drop-modal-title"]')).toHaveText("Weeks 7–9 drops Oct 20");
       await assertErrorThenSuccess(page, dialog.locator('[data-test="drop-modal"]'), "drop_modal", "drop-modal-success");
+    });
+
+    // AUTOFOCUS (Alex, 2026-10-06): on a fine pointer the email field takes
+    // focus once the card has opened, inside the dialog's trap; Escape closes
+    // it and focus goes back to the call to action that opened it.
+    test("on desktop the modal focuses the email field, and closing returns focus to the CTA", async ({ page }) => {
+      await page.goto("/turf-monster-v2");
+      if (!formIsUp()) return;
+      const cta = page.locator('[data-test="v2-hero-cta"]');
+      await cta.click();
+      const dialog = page.getByRole("dialog", { name: "Get notified when Weeks 7-9 drops" });
+      await expect(dialog).toBeVisible();
+      await expect(dialog.locator("#drop_modal_email")).toBeFocused();
+      // Stacked: the button sits under a full-width field of the same height.
+      const [field, button] = await Promise.all([
+        dialog.locator("#drop_modal_email").boundingBox(),
+        dialog.getByRole("button", { name: "Notify me" }).boundingBox(),
+      ]);
+      expect(button.y).toBeGreaterThan(field.y + field.height - 1);
+      expect(Math.abs(button.width - field.width)).toBeLessThan(1);
+      expect(Math.abs(button.height - field.height)).toBeLessThan(1);
+      const placeholderFits = await dialog.locator("#drop_modal_email").evaluate((el) => {
+        const probe = document.createElement("span");
+        const cs = getComputedStyle(el);
+        probe.style.font = cs.font; probe.style.position = "absolute"; probe.style.visibility = "hidden";
+        probe.textContent = el.placeholder; document.body.appendChild(probe);
+        const fits = probe.getBoundingClientRect().width <= el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+        probe.remove(); return fits;
+      });
+      expect(placeholderFits).toBe(true);
+
+      await page.keyboard.press("Escape");
+      await expect(dialog).toBeHidden();
+      await expect(cta).toBeFocused();
     });
   });
 });
