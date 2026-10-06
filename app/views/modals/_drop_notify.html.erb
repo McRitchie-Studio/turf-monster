@@ -13,10 +13,26 @@
     Single root, single quotes only inside x-data: the two rules the host
     imposes on every registered card. %>
 <% remaining = NextSlateDrop.remaining %>
-<div data-test="drop-modal"
-     x-data="dropCountdown('<%= NextSlateDrop.drops_at.utc.iso8601 %>', <%= remaining[:days] %>, <%= remaining[:hours] %>, <%= remaining[:minutes] %>, <%= NextSlateDrop.dropped? %>)">
-  <%= render "studio/modals/blocks/card_header", size: :md, icon_emoji: "🏈", title: "#{NextSlateDrop::LABEL} drops Tuesday morning" do %>
-    The board goes live <%= NextSlateDrop.drops_at.strftime("%A, %B %-d") %> at <%= NextSlateDrop.drops_at.strftime("%-l:%M %p") %> Mountain. Get one email when it does.
+<% dropped = NextSlateDrop.dropped? %>
+<%# THE HEADER FOLLOWS THE DROP, both ways. The server draws the state it is in
+    (the modal opens post-drop whenever no contest is open to enter yet, e.g.
+    before the new slate's contests are created), and the x-text keeps it right
+    when the countdown crosses the instant with the card open. Each span's
+    server text equals its x-text value, so Alpine's first paint changes
+    nothing. %>
+<% before_title = "#{NextSlateDrop::LABEL} drops Tuesday morning" %>
+<% after_title = "#{NextSlateDrop::LABEL} is live" %>
+<% when_text = "#{NextSlateDrop.drops_at.strftime('%A, %B %-d')} at #{NextSlateDrop.drops_at.strftime('%-l:%M %p')} Mountain" %>
+<% before_sub = "The board goes live #{when_text}. Get one email when it does." %>
+<% after_sub = "The board went live #{when_text}." %>
+<% js = ->(text) { "'#{j(text)}'" } %>
+<div data-test="drop-modal" data-dropped="<%= dropped %>"
+     x-data="dropCountdown('<%= NextSlateDrop.drops_at.utc.iso8601 %>', <%= remaining[:days] %>, <%= remaining[:hours] %>, <%= remaining[:minutes] %>, <%= dropped %>)">
+  <% title_html = tag.span(dropped ? after_title : before_title, "data-test": "drop-modal-title",
+                           "x-text": "dropped ? #{js.(after_title)} : #{js.(before_title)}") %>
+  <%= render "studio/modals/blocks/card_header", size: :md, icon_emoji: "🏈", title: title_html do %>
+    <%= tag.span(dropped ? after_sub : before_sub, "data-test": "drop-modal-subtitle",
+                 "x-text": "dropped ? #{js.(after_sub)} : #{js.(before_sub)}") %>
   <% end %>
   <div class="px-5 pb-5 space-y-5">
     <div x-show="!dropped">
