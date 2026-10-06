@@ -1147,4 +1147,9 @@ class ApplicationController < ActionController::Base
   # page; prepends its own before_action. At the END of the class on purpose:
   # docs/workflows cite this file by line number, and appending shifts none.
   include ReferralVisitTracking
+
+  # Parked fiat actions answer 404 while ENABLE_FIAT_RAILS is off
+  # (FiatRailsParked::CONTROLLER_ACTIONS). Included after ReferralVisitTracking
+  # so its prepended callback runs first: a parked route counts no click.
+  include FiatRailsGate
 end

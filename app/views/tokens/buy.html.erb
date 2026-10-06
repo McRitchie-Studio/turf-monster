@@ -94,7 +94,7 @@
         <button type="button" @click="$store.modals.open('cdp-ramp', { flow: 'buy', step: 'preflight' })"
                 class="btn btn-primary">Buy USDC</button>
       </div>
-    <% else %>
+    <% elsif AppFlags.fiat_rails? %>
       <section class="mb-8">
         <div class="flex items-baseline justify-between gap-3 mb-3">
           <h2 class="text-sm font-bold text-heading uppercase tracking-wider">Card &middot; Stripe</h2>
@@ -107,6 +107,10 @@
           <% end %>
         </div>
       </section>
+    <% else %>
+      <%# The fiat rails are parked (AppFlags.fiat_rails? off, docs/FIAT_RAILS.md):
+          no card checkout is offered and its routes answer 404. %>
+      <p class="text-sm text-secondary mb-8" data-fiat-rails-parked>Card purchases are offline.</p>
     <% end %>
   <% end %>
 

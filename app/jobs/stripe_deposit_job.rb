@@ -1,4 +1,4 @@
-class StripeDepositJob < ApplicationJob
+class StripeDepositJob < ApplicationJob # parked: FiatRailsParked, docs/FIAT_RAILS.md
   queue_as :default
 
   # v0.16: deposit-to-vault is gone. USDC now lands in the user's own ATA

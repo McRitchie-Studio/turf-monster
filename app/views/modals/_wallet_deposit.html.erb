@@ -37,15 +37,18 @@
   <div class="space-y-3">
     <%# Stripe card payment — opens checkout in a new tab. Default amount
         rounds the shortfall up to the next dollar with a $20 floor so the
-        user doesn't end up $0.01 short. %>
-    <form method="post" action="<%= stripe_deposit_wallet_path %>" target="_blank" data-turbo="false">
-      <input type="hidden" name="authenticity_token" value="<%= form_authenticity_token %>">
-      <input type="hidden" name="amount"
-             :value="Math.max(20, Math.ceil((props.neededCents || 0) / 100))">
-      <button type="submit" class="btn btn-primary btn-lg w-full">
-        Pay with Card
-      </button>
-    </form>
+        user doesn't end up $0.01 short. Parked with the fiat rails
+        (AppFlags.fiat_rails?, docs/FIAT_RAILS.md). %>
+    <% if AppFlags.fiat_rails? %>
+      <form method="post" action="<%= stripe_deposit_wallet_path %>" target="_blank" data-turbo="false">
+        <input type="hidden" name="authenticity_token" value="<%= form_authenticity_token %>">
+        <input type="hidden" name="amount"
+               :value="Math.max(20, Math.ceil((props.neededCents || 0) / 100))">
+        <button type="submit" class="btn btn-primary btn-lg w-full">
+          Pay with Card
+        </button>
+      </form>
+    <% end %>
 
     <%# Buy USDC via Coinbase (CDP onramp) — flag-gated; omitted (not
         disabled) when geo-blocked so this focused picker never shows a
