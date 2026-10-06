@@ -146,7 +146,9 @@ class CampaignLink < Studio::Link
   #
   # `variant`, when given, is appended as ?v=<key> and replaces any v the
   # target or the query carried (the visitor's assignment is the one shown).
-  def destination(extra = {}, variant: nil)
+  # Positional, not a keyword: callers pass `extra` as a bare hash with string
+  # keys, which Ruby would otherwise read as keywords.
+  def destination(extra = {}, variant = nil)
     uri = URI.parse(target_path)
     pairs = URI.decode_www_form(uri.query.to_s) + extra.to_h.map { |k, v| [k.to_s, v.to_s] }
     pairs.reject! { |key, _| ATTRIBUTION_KEYS.include?(key) || (variant && key == VARIANT_KEY) }

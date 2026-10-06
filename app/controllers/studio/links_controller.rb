@@ -93,7 +93,7 @@ module Studio
       set_referral_visitor_cookie
       assignment = (experiment = campaign.running_experiment) && resolve_experiment_assignment(experiment)
       variant = assignment&.key if assignment&.counted?
-      redirect_to campaign.destination(request.query_parameters, variant: variant), status: :found
+      redirect_to campaign.destination(request.query_parameters, variant), status: :found
     end
 
     # Attribution cookie the signup flow reads (same :reference cookie the legacy
