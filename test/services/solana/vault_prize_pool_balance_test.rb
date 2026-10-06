@@ -13,6 +13,7 @@ class Solana::VaultPrizePoolBalanceTest < ActiveSupport::TestCase
     def get_account_info(pubkey, **)
       @asked << pubkey
       raise "rpc down" if @value == :raise
+      return @value.fetch(:reply) if @value.is_a?(Hash) && @value.key?(:reply)
 
       { "value" => @value }
     end
@@ -43,6 +44,18 @@ class Solana::VaultPrizePoolBalanceTest < ActiveSupport::TestCase
 
   test "a closed pool account reads nil" do
     assert_nil balance(nil).first
+  end
+
+  # A closed account is an explicit `"value": null`. A reply with no `value`
+  # key at all (a proxy, a truncated body, an error shape) says nothing about
+  # the pool, so reading it as closed would tell the reconciler the money left.
+  test "a reply with no value key raises instead of reading as closed" do
+    error = assert_raises(Solana::Vault::PrizePoolUnreadable) { balance({ reply: { "context" => { "slot" => 1 } } }) }
+    assert_match "world-cup-week-1-turf-totals", error.message
+  end
+
+  test "a nil reply raises instead of reading as closed" do
+    assert_raises(Solana::Vault::PrizePoolUnreadable) { balance({ reply: nil }) }
   end
 
   test "a short account raises instead of reading a balance out of thin air" do
