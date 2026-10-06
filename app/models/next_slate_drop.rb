@@ -35,8 +35,25 @@ module NextSlateDrop
 
   DROPS_AT = wall_clock(DROP_DATE, DROP_HOUR)
 
+  # The campaign the drop announcement's links carry (?reference=), so a click
+  # from that email is told apart from every other way in. Swap to ?r= when the
+  # short param lands (sibling task); the value stays.
+  EMAIL_REFERENCE = "email-drop-w7".freeze
+
   def self.drops_at
     DROPS_AT
+  end
+
+  # How the emails name the moment, on Mountain wall clocks:
+  # "Tuesday, October 20 at 8:00 AM MDT". The zone abbreviation comes from the
+  # zone's own rules, so a drop after the fall-back reads MST.
+  def self.drops_at_label
+    DROPS_AT.in_time_zone(ZONE).strftime("%A, %B %-d at %-l:%M %p %Z")
+  end
+
+  # LABEL with a typographic en dash, for email copy ("Weeks 7–9").
+  def self.display_label
+    LABEL.tr("-", "\u2013")
   end
 
   def self.dropped?(now = Time.current)

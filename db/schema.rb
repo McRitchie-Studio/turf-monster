@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_06_060720) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_06_170000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -270,15 +270,19 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_060720) do
   end
 
   create_table "drop_signups", force: :cascade do |t|
+    t.bigint "announcement_delivery_id"
+    t.datetime "confirmation_sent_at"
     t.datetime "created_at", null: false
     t.string "email", null: false
     t.string "ip"
     t.datetime "notified_at"
     t.string "slate_key", null: false
     t.string "source"
+    t.datetime "unsubscribed_at"
     t.datetime "updated_at", null: false
     t.string "user_agent"
     t.bigint "user_id"
+    t.index ["announcement_delivery_id"], name: "index_drop_signups_on_announcement_delivery_id"
     t.index ["created_at"], name: "index_drop_signups_on_created_at"
     t.index ["slate_key", "email"], name: "index_drop_signups_on_slate_key_and_email", unique: true
     t.index ["user_id"], name: "index_drop_signups_on_user_id"
@@ -1148,6 +1152,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_060720) do
   add_foreign_key "contest_slates", "slates"
   add_foreign_key "contests", "slates"
   add_foreign_key "contests", "users"
+  add_foreign_key "drop_signups", "email_deliveries", column: "announcement_delivery_id", on_delete: :nullify
   add_foreign_key "drop_signups", "users", on_delete: :nullify
   add_foreign_key "email_deliveries", "users"
   add_foreign_key "entries", "contests"

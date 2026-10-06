@@ -9,8 +9,27 @@
 #
 # Validity is User.valid_email? — the same predicate the magic-link request
 # uses — so this list never holds an address the app would refuse to mail.
+#
+# MAILING (DropSignupMailer). Each row is mailed at most twice: one confirmation
+# when it joins, one announcement when the slate drops. Both are guarded the
+# same way, by a CLAIM: a conditional UPDATE that stamps the row's timestamp
+# only where it is still NULL (and the row is not unsubscribed), and only the
+# caller whose UPDATE touched exactly one row goes on to queue the email. Two
+# requests, two jobs, a double-click or a Sidekiq retry race on that one
+# statement and the database picks one winner, so no address can be mailed the
+# same email twice — not across IPs, not across processes. If queueing the email
+# then raises, the claim is released so a later attempt can try again.
+#
+# UNSUBSCRIBE is a signed id (`unsubscribe_token`): tamper-proof, purpose-bound
+# (a token minted for anything else does not resolve here) and it never expires,
+# because an unsubscribe link has to work whenever the mail is read.
 class DropSignup < ApplicationRecord
   belongs_to :user, optional: true
+  # The outbox row the drop announcement went out as (the receipt; notified_at
+  # is the claim). Read by DropAnnouncement#progress.
+  belongs_to :announcement_delivery, class_name: "EmailDelivery", optional: true
+
+  UNSUBSCRIBE_PURPOSE = :drop_unsubscribe
 
   # Column widths for the free-text request metadata. A user agent can be any
   # length the client likes; the row only needs enough to tell bots apart.
@@ -26,6 +45,14 @@ class DropSignup < ApplicationRecord
 
   scope :recent, -> { order(created_at: :desc, id: :desc) }
   scope :for_slate, ->(key) { where(slate_key: key) }
+  scope :subscribed, -> { where(unsubscribed_at: nil) }
+  # Who the drop announcement for `key` still owes: on that drop's list, never
+  # announced to, not unsubscribed.
+  scope :announceable, ->(key) { for_slate(key).subscribed.where(notified_at: nil) }
+
+  def self.find_by_unsubscribe_token(token)
+    find_signed(token.to_s, purpose: UNSUBSCRIBE_PURPOSE)
+  end
 
   # Find-or-create, idempotent under a race. Returns the row (persisted when
   # the address is valid, with errors when it is not). A concurrent twin that
@@ -46,7 +73,82 @@ class DropSignup < ApplicationRecord
     value.to_s.strip.downcase.presence
   end
 
+  def unsubscribe_token
+    signed_id(purpose: UNSUBSCRIBE_PURPOSE)
+  end
+
+  def unsubscribed?
+    unsubscribed_at.present?
+  end
+
+  # Idempotent: the first unsubscribe's time stands.
+  def unsubscribe!
+    return true if unsubscribed?
+
+    self.class.where(id: id, unsubscribed_at: nil).update_all(unsubscribed_at: Time.current, updated_at: Time.current)
+    reload
+    true
+  end
+
+  # The account this address belongs to, if any: the visitor's own when they
+  # were signed in, else a case-insensitive match on the address. Read at SEND
+  # time by the mailer (an address that signs up after joining the list gets
+  # the existing-player copy), never cached on the row.
+  def account
+    user || User.find_by("LOWER(email) = ?", email.to_s.downcase)
+  end
+
+  def existing_account?
+    account.present?
+  end
+
+  # Queue the "you're on the list" email once. Returns true only for the call
+  # that queued it; every later call (a duplicate submit, a retry) is a no-op.
+  def deliver_confirmation!
+    return false unless claim!(:confirmation_sent_at)
+
+    begin
+      Studio::Email.deliver(DropSignupMailer, :confirmation, self, to: email, user: user)
+    rescue StandardError
+      release!(:confirmation_sent_at) # only the claim's winner reaches here
+      raise
+    end
+    true
+  end
+
+  # Queue the drop announcement once and record the outbox row it went out as.
+  # Same claim as the confirmation, on notified_at.
+  def deliver_announcement!
+    return false unless claim!(:notified_at)
+
+    begin
+      delivery = Studio::Email.deliver(DropSignupMailer, :announcement, self, to: email, user: user)
+    rescue StandardError
+      release!(:notified_at) # only the claim's winner reaches here
+      raise
+    end
+    if delivery.is_a?(EmailDelivery)
+      self.class.where(id: id).update_all(announcement_delivery_id: delivery.id)
+      self.announcement_delivery_id = delivery.id
+    end
+    true
+  end
+
   private
+
+  # The atomic claim described at the top of the file.
+  def claim!(column)
+    now = Time.current
+    won = self.class.where(id: id, column => nil, unsubscribed_at: nil)
+                    .update_all(column => now, updated_at: now) == 1
+    self[column] = now if won
+    won
+  end
+
+  def release!(column)
+    self.class.where(id: id).update_all(column => nil)
+    self[column] = nil
+  end
 
   def normalize_fields
     self.email = self.class.normalize_email(email)
