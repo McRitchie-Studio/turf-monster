@@ -102,11 +102,7 @@ class ReferralReport
     accounts = count_by_day(account_scope.where("#{normalized_sql("users.reference")} = ?", ref))
     emails = emails? ? count_by_day(email_scope.where("#{normalized_sql(email_source_column)} = ?", ref)) : {}
 
-    dates = if since_date
-              (since_date..@today).to_a
-            else
-              (clicks.keys | accounts.keys | emails.keys)
-            end
+    dates = since_date ? (since_date..@today).to_a : (clicks.keys | accounts.keys | emails.keys)
 
     dates.sort.reverse.map do |date|
       DayRow.new(date: date, clicks: clicks[date].to_i, visitors: visitors[date].to_i,
