@@ -1,8 +1,10 @@
 <%# OPSEC-048 account freeze banner, on every page a frozen account sees
     (layouts/_navbar and layouts/landing). Server-rendered and JS-free, like the
-    impersonation banner beside it. Present tense, one sentence and a contact. %>
+    impersonation banner beside it. Present tense, one sentence and a contact.
+    Below sm the detail clause hides (FrozenAccount::BANNER_DETAIL), so a phone's
+    sticky header grows by the headline and the contact only. %>
 <% message = capture do %>
-  <span data-frozen-banner><strong><%= FrozenAccount::BANNER %></strong> Contact <a href="mailto:support@turfmonster.media" class="underline">support@turfmonster.media</a>.</span>
+  <span data-frozen-banner><strong><%= FrozenAccount::BANNER_HEADLINE %><span class="hidden sm:inline" data-frozen-banner-detail> <%= FrozenAccount::BANNER_DETAIL %></span></strong> Contact <a href="mailto:support@turfmonster.media" class="underline">support@turfmonster.media</a>.</span>
 <% end %>
 
 <%= render "shared/app_banner",
