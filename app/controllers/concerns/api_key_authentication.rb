@@ -133,7 +133,10 @@ module ApiKeyAuthentication
   def frozen_account_refusal
     return unless current_user&.frozen?
 
-    Refusal.new(FrozenAccount::CODE.to_sym, FROZEN_MESSAGE, FrozenAccount::STATUS)
+    # The literal, not FrozenAccount::CODE: agent_guide_guard_test reads the
+    # codes the API emits from the source. FrozenAccountWritesTest pins the web
+    # and the API to the same "account_frozen".
+    Refusal.new(:account_frozen, FROZEN_MESSAGE, :forbidden)
   end
 
   # The entry age gate, re-asked at the moment of a write. Eligibility is
