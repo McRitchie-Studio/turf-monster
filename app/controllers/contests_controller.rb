@@ -21,6 +21,8 @@ class ContestsController < ApplicationController
   # cancel stay open so an operator can still tidy the record.
   RETIRED_FORMAT_WRITES = %i[toggle_selection enter check_funding clear_picks grade fill lock prepare_lock_time confirm_lock_time prepare_conclusion_time confirm_conclusion_time jump simulate_game simulate_batch reset prepare_entry discard_prepared_entry stamp_entry_signature recover_pending_entry confirm_onchain_entry prepare_onchain_contest confirm_onchain_contest].freeze
   before_action :refuse_retired_format, only: RETIRED_FORMAT_WRITES
+  # A contest cancelled on chain still reads open; grading it would pay twice (Contest#grade!).
+  before_action :refuse_cancelled_grade, only: %i[grade jump]
 
   # The contest test actions write random scores into SHARED games rows, settle,
   # mint comped entries or destroy entries. They answer only while
@@ -1836,6 +1838,20 @@ class ContestsController < ApplicationController
     respond_to do |format|
       format.html { redirect_to contest_page_path(@contest), alert: RETIRED_FORMAT_MESSAGE }
       format.any { render json: { success: false, error: RETIRED_FORMAT_MESSAGE }, status: :unprocessable_entity }
+    end
+  end
+
+  # The same refusal Contest#grade! raises, answered here so it reaches the
+  # admin as a message and is not logged as an error. The model guard stays
+  # the floor for every other caller.
+  CANCELLED_GRADE_MESSAGE = Contest::CANCELLED_GRADE_MESSAGE
+
+  def refuse_cancelled_grade
+    return unless @contest.cancelled?
+
+    respond_to do |format|
+      format.html { redirect_to contest_page_path(@contest), alert: CANCELLED_GRADE_MESSAGE }
+      format.any { render json: { success: false, error: CANCELLED_GRADE_MESSAGE }, status: :unprocessable_entity }
     end
   end
 

@@ -471,12 +471,13 @@ class Contest < ApplicationRecord
   # settled? check alone lets it through. Grading it would record payouts and
   # queue a settle for a contest whose pool is already drained or refunded.
   class CancelledContestError < StandardError; end
+  CANCELLED_GRADE_MESSAGE = "Cannot grade: this contest was cancelled on chain.".freeze
 
   def grade!
     with_lock do
       # First, before any write: with_lock has just reloaded the row, so this
       # reads the cancel flag as it stands under the lock.
-      raise CancelledContestError, "Cannot grade: this contest was cancelled on chain." if cancelled?
+      raise CancelledContestError, CANCELLED_GRADE_MESSAGE if cancelled?
       raise "Contest is already settled" if settled?
       # v0.19 (#6): the program rejects settle until the lock (or conclusion)
       # has passed — entries must be provably closed before grading. Gate here,
@@ -564,7 +565,7 @@ class Contest < ApplicationRecord
   end
 
   def jump!
-    raise CancelledContestError, "Cannot grade: this contest was cancelled on chain." if cancelled?
+    raise CancelledContestError, CANCELLED_GRADE_MESSAGE if cancelled?
     raise "Contest is already settled" if settled?
 
     transaction do
