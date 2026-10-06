@@ -81,7 +81,7 @@ Every contest settlement → `PendingTransaction` row → 2-of-3 Squads cosign �
 **~6-8 tests, ~2 hours.** Critical for the first time you actually grade a real-money contest.
 
 ### BL5 — `Contest#grade!` tie-payout splitting has zero tests
-**File:** `app/models/contest.rb:171-223`
+**File:** `app/models/contest.rb:173-225`
 
 `#grade!` exists in `test/models/contest_test.rb` but only for the simple case. The code handles:
 - 2 entries tied for 1st (split $300)
