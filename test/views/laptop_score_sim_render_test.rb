@@ -60,11 +60,13 @@ class LaptopScoreSimRenderTest < ActionDispatch::IntegrationTest
     assert_equal LaptopScoreSimulation::INTERVAL_MS.to_s, sim["data-interval-ms"]
     assert_equal @contest.id.to_s, sim["data-contest-id"]
 
+    # Frame 0 is the snapshot itself; one template set per touchdown.
     tiles = sim.css('template[data-part="tile"]')
-    assert_equal LaptopScoreSimulation::TOUCHDOWNS + 1, tiles.size, "the opening frame and one per touchdown"
-    assert_equal tiles.size - 1, sim.css('template[data-part="feed"]').size, "every touchdown announces itself"
-    assert_equal [10, 7], featured_scores(tiles[1]), "the first touchdown is the away side's"
-    rail = tiles[1].css('[data-test="live-focus-event"]').map { |e| [e["data-event-label"], e.text.squish.split.last] }
+    assert_equal (1..LaptopScoreSimulation::TOUCHDOWNS).map(&:to_s), tiles.map { |t| t["data-frame"] }
+    assert_equal tiles.size, sim.css('template[data-part="feed"]').size, "every touchdown announces itself"
+    assert_equal [10, 7], featured_scores(tiles[0]), "the first touchdown is the away side's"
+    assert_equal [24, 28], featured_scores(tiles.last), "the last, before the loop"
+    rail = tiles[0].css('[data-test="live-focus-event"]').map { |e| [e["data-event-label"], e.text.squish.split.last] }
     assert_equal [["Touchdown", "+7"], ["Touchdown", "+7"], ["Field Goal", "+3"]], rail, "the scoring-play line arrives with the tile"
     feed = sim.at_css('template[data-frame="1"][data-part="feed"] [data-event="goal"]')
     assert_equal "touchdown", feed["data-scoring-type"]

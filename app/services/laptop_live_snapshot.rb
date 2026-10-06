@@ -77,27 +77,27 @@ class LaptopLiveSnapshot
     doc.to_html.html_safe # rubocop:disable Rails/OutputSafety -- our own partials' render, scripts removed
   end
 
-  # EVERY FRAME OF THE SIMULATION, as the three things a real score sends the
-  # live page (Contest::LiveBroadcast.goal_scored): the featured game's focus
-  # tile and its strip chip at the new score, and the goal-feed node the page's
-  # script turns into the banner and the row animations. The opening frame has
-  # no feed node: it is the state the page loads in, and the one it loops back
-  # to. Each is drawn by the live page's own partial and cleaned exactly as the
-  # snapshot is.
+  # EVERY TOUCHDOWN OF THE SIMULATION, as the three things a real score sends
+  # the live page (Contest::LiveBroadcast.goal_scored): the featured game's
+  # focus tile and its strip chip at the new score, and the goal-feed node the
+  # page's script turns into the banner and the row animations. Each is drawn
+  # by the live page's own partial and cleaned exactly as the snapshot is.
+  #
+  # The opening frame is not here: it is the snapshot the page loads with, and
+  # the page's script keeps a copy of it to loop back to. That saves the page a
+  # second copy of the largest frame.
   def frames
     return [] unless @simulation
 
     contest = @showcase.contest
-    @simulation.frames.map do |frame|
+    @simulation.frames.drop(1).map do |frame|
       game = frame.game
       tile = renderer.render(partial: "contests/live_focus",
                              locals: { active: [game], upcoming: [], completed: [], contest: contest, focus_slug: game.slug })
       chip = renderer.render(partial: "contests/live_game_chip", locals: { game: game })
-      feed = if frame.goal
-               renderer.render(partial: "contests/goal_feed_item",
-                               locals: { event: "goal", goal: frame.goal, team: frame.team, player: nil, game: game })
-             end
-      { tile: inert(clean(tile)), chip: inert(clean(chip)), feed: feed && inert(clean(feed)) }
+      feed = renderer.render(partial: "contests/goal_feed_item",
+                             locals: { event: "goal", goal: frame.goal, team: frame.team, player: nil, game: game })
+      { index: frame.index, tile: inert(clean(tile)), chip: inert(clean(chip)), feed: inert(clean(feed)) }
     end
   end
 

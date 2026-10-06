@@ -35,12 +35,12 @@
      data-interval-ms="<%= LaptopScoreSimulation::INTERVAL_MS %>"
      data-contest-id="<%= contest.id %>"
      data-opening="<%= sim.opening.game.away_score %>-<%= sim.opening.game.home_score %>">
-  <% frames.each_with_index do |frame, index| %>
-    <template data-frame="<%= index %>" data-part="tile"><%= frame[:tile].html_safe %></template>
-    <template data-frame="<%= index %>" data-part="chip"><%= frame[:chip].html_safe %></template>
-    <% if frame[:feed] %>
-      <template data-frame="<%= index %>" data-part="feed"><%= frame[:feed].html_safe %></template>
-    <% end %>
+  <%# Frames 1..TOUCHDOWNS. Frame 0, the opening 3-7, is the snapshot itself;
+      the driver copies it on load to loop back to. %>
+  <% frames.each do |frame| %>
+    <template data-frame="<%= frame[:index] %>" data-part="tile"><%= frame[:tile].html_safe %></template>
+    <template data-frame="<%= frame[:index] %>" data-part="chip"><%= frame[:chip].html_safe %></template>
+    <template data-frame="<%= frame[:index] %>" data-part="feed"><%= frame[:feed].html_safe %></template>
   <% end %>
 </div>
 <%= render "live/score_banner" %>
@@ -62,12 +62,22 @@
     var games   = document.getElementById('contest_' + id + '_games');
     var laptop  = root.closest('[data-test="laptop-mock"]') || root;
     var wide    = window.matchMedia('(min-width: 1280px)');
-    var count   = root.querySelectorAll('template[data-part="tile"]').length;
-    if (!feed || !focus || !count) return;
+    var tileAt  = '[data-test="live-focus-game"][data-focus-slug="' + slug + '"]';
+    var chipAt  = '[data-test="live-game-chip"][data-game-slug="' + slug + '"]';
+    var count   = root.querySelectorAll('template[data-part="tile"]').length + 1;
+    if (!feed || !focus || count < 2) return;
+
+    // FRAME 0 IS THE PAGE AS IT LOADED: copies of the opening tile and chip,
+    // taken before anything moves, are what the loop comes back to.
+    var opening = {
+      tile: focus.querySelector(tileAt) && focus.querySelector(tileAt).cloneNode(true),
+      chip: games && games.querySelector(chipAt) && games.querySelector(chipAt).cloneNode(true)
+    };
 
     var index = 0, timer = null, onScreen = false, observer = null;
 
     function part(i, name) {
+      if (i === 0) return opening[name] || null;
       var t = root.querySelector('template[data-frame="' + i + '"][data-part="' + name + '"]');
       return t ? t.content.firstElementChild : null;
     }
@@ -82,8 +92,8 @@
     // The panel first, then the announcement: the live script lights the
     // scoring row on the next animation frame, so it finds the new score.
     function show(i) {
-      swap(focus, '[data-test="live-focus-game"][data-focus-slug="' + slug + '"]', part(i, 'tile'));
-      swap(games, '[data-test="live-game-chip"][data-game-slug="' + slug + '"]', part(i, 'chip'));
+      swap(focus, tileAt, part(i, 'tile'));
+      swap(games, chipAt, part(i, 'chip'));
       var node = part(i, 'feed');
       if (node) feed.appendChild(node.cloneNode(true));
       root.dataset.frame = String(i);
