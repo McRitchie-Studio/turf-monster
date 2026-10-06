@@ -1241,10 +1241,11 @@
 # pointer the drop-notify modal focuses its email field once open, its button is stacked full
 # width under the field at the same height, the placeholder fits, and Escape returns focus to
 # the CTA. Derived with bin/e2e-lane-derive --write.
-# 398 -> 399 (drop-signup-emails): one spec in e2e/admin_drop_announcement.spec.js. The admin
+# 398 -> 400 (drop-signup-emails, merged over accepted's new spec in e2e/nfl_live_scoreboard.spec.js,
+# which landed without its own bump): ours is one spec in e2e/admin_drop_announcement.spec.js. The admin
 # previews the drop email, types the recipient count back, ticks Send early before the drop,
 # accepts the confirm dialog and reads the result counts. Derived with bin/e2e-lane-derive --write.
-total_specs: 399
+total_specs: 400
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1618,9 +1619,10 @@ allowed_skips: 4
 # chromium, no skip, so excluded holds at 17 and allowed_skips at 4.
 # 376 -> 377 (explainer-review-follow-ups): the modal-autofocus spec beside total_specs above;
 # chromium, no skip, so excluded holds at 17 and allowed_skips at 4.
-# 377 -> 378 (drop-signup-emails): the drop-announcement spec beside total_specs above;
+# 377 -> 379 (drop-signup-emails): the drop-announcement spec beside total_specs above, plus
+# accepted's nfl_live_scoreboard spec it merged over;
 # chromium, no skip, so excluded holds at 17 and allowed_skips at 4.
-executed: 378
+executed: 379
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

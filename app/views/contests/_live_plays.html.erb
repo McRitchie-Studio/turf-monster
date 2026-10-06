@@ -45,12 +45,14 @@
       heading: they are detail about the play, not the play. %>
   <% latest = plays.first %>
   <%# BETWEEN A SCORE AND ITS KICKOFF the bar says what everyone is waiting for,
-      not the TV timeout the feed puts in the gap (GamePlay.awaiting_kickoff_after).
-      The kicking team is read off the latest goal, which knows who scored. %>
+      not the TV timeout the feed puts in the gap (GamePlay.awaiting_kickoff_after). %>
   <%
-    awaiting = GamePlay.awaiting_kickoff_after(plays)
+    awaiting = GamePlay.awaiting_kickoff_after(plays, game: game)
     kicker   = if awaiting
-                 scorer = game.goals.max_by { |goal| goal.id.to_i }&.team_slug || awaiting.team_slug
+                 # From the score itself; the latest goal, then the play's own
+                 # team, only when the feed sent no running score.
+                 scorer = GamePlay.scoring_team_slug(awaiting, plays: plays, game: game) ||
+                          game.goals.max_by { |goal| goal.id.to_i }&.team_slug || awaiting.team_slug
                  [game.away_team, game.home_team].compact.find do |team|
                    team.slug == GamePlay.kicking_team_slug(awaiting, scorer_slug: scorer, game: game)
                  end
