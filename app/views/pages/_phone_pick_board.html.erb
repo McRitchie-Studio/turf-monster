@@ -1,7 +1,8 @@
 <%# locals: (teams:)
 
-    The pick board, phone-sized: the six-team example entry from
-    TurfMonsterRules::LINEUP, drawn with the SAME static card the v1 rules page
+    The pick board, phone-sized: six recognizable teams from
+    TurfMonsterRules::SHOWCASE (real ranks and opponents, board order), drawn
+    with the SAME static card the v1 rules page
     uses (pages/_rules_team_card), which reads every colour from
     TeamColorsHelper#team_card_palette. Nil-safe end to end: a missing Team row
     draws a neutral card with the slug's name, never a 500.
@@ -15,11 +16,11 @@
 <div class="w-[151.5%] origin-top-left scale-[0.66] px-3 pb-3" data-test="phone-pick-board">
   <div class="flex items-baseline justify-between px-1 pt-1 pb-2">
     <p class="text-sm font-extrabold text-heading">Turf <span class="tm-wordmark">Monster</span></p>
-    <p class="text-[10px] font-semibold text-muted"><%= TurfMonsterRules::LINEUP.size %> of 6 picked</p>
+    <p class="text-[10px] font-semibold text-muted"><%= TurfMonsterRules::SHOWCASE.size %> of 6 picked</p>
   </div>
   <div class="grid grid-cols-2 gap-2">
-    <% TurfMonsterRules::LINEUP.each do |example| %>
-      <%= render "pages/rules_team_card", example: example, teams: teams, compact: true %>
+    <% TurfMonsterRules::SHOWCASE.each do |example| %>
+      <%= render "pages/rules_team_card", example: example, teams: teams, compact: true, board_style: true %>
     <% end %>
   </div>
   <div class="mt-3 rounded-full bg-primary py-2.5 text-center text-xs font-bold text-white shadow-lg shadow-primary/30">

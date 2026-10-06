@@ -1,4 +1,4 @@
-<%# locals: (example:, teams:, compact: false)
+<%# locals: (example:, teams:, compact: false, board_style: false)
 
     A STATIC twin of contests/_multi_week_team_card, for the rules page.
 
@@ -11,7 +11,18 @@
     here comes from TeamColorsHelper#team_card_palette, the same helper the board
     uses, so re-tuning a team's brand re-colours this page in the same commit.
     `team` may be nil (a slug the DB has never heard of) — the helper is nil-safe
-    and returns the neutral field, so the card still draws. %>
+    and returns the neutral field, so the card still draws.
+
+    board_style: true draws two details the way the real board card
+    (contests/_multi_week_team_card) does, for /turf-monster-v2's phone mock:
+      - the multiplier reads "1.1x Points", digits in mono and a lowercase x
+        in the sans face, where the rules page says "1.1x Turf Score"
+      - the opponent chips print emoji + the 2-3 letter abbreviation at one
+        fixed size, never truncated (the default chips step up to text-sm at
+        lg and truncate, which cut "IND" to "I..." inside the scaled phone)
+    The number keeps ONE decimal on both styles (see the note below), so the
+    phone agrees with the "1.0x" in the v2 page's own prose. Off by default:
+    v1 renders unchanged. %>
 <% team = teams[example.team_slug] %>
 <% pal  = team_card_palette(team) %>
 <div class="rounded-2xl border-2 shadow overflow-hidden <%= compact ? 'p-3' : 'p-5' %> text-center"
@@ -30,8 +41,13 @@
         a whole number, so Baltimore read "1x" here while the prose two sections
         down called the same value "x1.0" — review flagged the mismatch. The page
         uses ONE notation throughout: suffix, one decimal. %>
-    <span class="font-mono font-bold <%= compact ? 'text-base' : 'text-2xl' %>" style="color: <%= pal[:fg] %>"><%= number_with_precision(example.turf_score, precision: 1) %>&times;</span>
-    <span class="<%= compact ? 'text-[10px]' : 'text-sm' %>" style="color: <%= pal[:fg_faint] %>">Turf Score</span>
+    <% if board_style %>
+      <span class="font-mono font-bold <%= compact ? 'text-base' : 'text-2xl' %>" style="color: <%= pal[:fg] %>"><%= number_with_precision(example.turf_score, precision: 1) %></span><span class="font-bold <%= compact ? 'text-sm' : 'text-xl' %>" style="color: <%= pal[:fg] %>">x</span>
+      <span class="<%= compact ? 'text-[10px]' : 'text-sm' %>" style="color: <%= pal[:fg_faint] %>" data-test="multiplier-label">Points</span>
+    <% else %>
+      <span class="font-mono font-bold <%= compact ? 'text-base' : 'text-2xl' %>" style="color: <%= pal[:fg] %>"><%= number_with_precision(example.turf_score, precision: 1) %>&times;</span>
+      <span class="<%= compact ? 'text-[10px]' : 'text-sm' %>" style="color: <%= pal[:fg_faint] %>">Turf Score</span>
+    <% end %>
   </p>
 
   <div class="<%= compact ? 'mt-2' : 'mt-3' %> flex items-center gap-2" aria-hidden="true">
@@ -50,9 +66,15 @@
         <p class="text-[9px] uppercase tracking-wide leading-tight" style="color: <%= pal[:grey] %>">Week <%= index + 1 %></p>
         <p class="mt-1 py-1 flex items-center justify-center gap-0.5 leading-none"
            style="background: <%= opponent_label_halo(opponent, team) %>">
-          <span class="text-[10px] lg:text-sm"><%= opponent&.emoji %></span>
-          <span class="text-[10px] lg:text-sm font-semibold truncate"
-                style="color: <%= opponent_label_color(opponent, team) %>"><%= opponent&.short_name || slug.split("-").last.upcase %></span>
+          <% if board_style %>
+            <span class="text-[10px]"><%= opponent&.emoji %></span>
+            <span class="text-[10px] font-semibold whitespace-nowrap" data-test="opponent-abbr"
+                  style="color: <%= opponent_label_color(opponent, team) %>"><%= opponent&.short_name || slug.split("-").map { |w| w[0] }.join.upcase.first(3) %></span>
+          <% else %>
+            <span class="text-[10px] lg:text-sm"><%= opponent&.emoji %></span>
+            <span class="text-[10px] lg:text-sm font-semibold truncate"
+                  style="color: <%= opponent_label_color(opponent, team) %>"><%= opponent&.short_name || slug.split("-").last.upcase %></span>
+          <% end %>
         </p>
       </div>
     <% end %>

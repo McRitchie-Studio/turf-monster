@@ -69,6 +69,36 @@ module TurfMonsterRules
                 weekly_points: [10, 23, 17])
   ].freeze
 
+  # The six cards on /turf-monster-v2's hero phone: recognizable teams, chosen
+  # for the explainer, in board order (Turf Score ascending, then rank). Same
+  # kind of input as LINEUP and read from the same live Weeks 1-3 slate:
+  #   rank      the production /benchmarks/nfl-2026-weeks-1-3 board (read
+  #             2026-10-05; it ranks LINEUP's six exactly as above)
+  #   opponents the nfl-2026-week-1..3 slates (which also agree with every
+  #             LINEUP opponent above)
+  # None of the six has a bye in Weeks 1-3, so every card is a three-game card.
+  # No weekly points: these cards are only ever drawn, never scored.
+  SHOWCASE = [
+    Example.new(team_slug: "san-francisco-49ers", rank: 1,
+                opponent_slugs: %w[los-angeles-rams miami-dolphins arizona-cardinals],
+                weekly_points: []),
+    Example.new(team_slug: "los-angeles-rams", rank: 4,
+                opponent_slugs: %w[san-francisco-49ers new-york-giants denver-broncos],
+                weekly_points: []),
+    Example.new(team_slug: "dallas-cowboys", rank: 5,
+                opponent_slugs: %w[new-york-giants washington-commanders baltimore-ravens],
+                weekly_points: []),
+    Example.new(team_slug: "seattle-seahawks", rank: 6,
+                opponent_slugs: %w[new-england-patriots arizona-cardinals washington-commanders],
+                weekly_points: []),
+    Example.new(team_slug: "minnesota-vikings", rank: 21,
+                opponent_slugs: %w[green-bay-packers chicago-bears tampa-bay-buccaneers],
+                weekly_points: []),
+    Example.new(team_slug: "new-orleans-saints", rank: 25,
+                opponent_slugs: %w[detroit-lions baltimore-ravens las-vegas-raiders],
+                weekly_points: [])
+  ].freeze
+
   # The three points on the curve section 03 names: both ends and the middle.
   CURVE = [
     { team_slug: "san-francisco-49ers", rank: 1,  note: "Safest points, smallest multiplier" },
@@ -137,6 +167,12 @@ module TurfMonsterRules
     (LINEUP + [FEATURE]).flat_map { |e| [e.team_slug, *e.opponent_slugs] }
       .concat(CURVE.map { |c| c[:team_slug] })
       .uniq
+  end
+
+  # The hero phone's teams and their opponents, for /turf-monster-v2's one
+  # Team query alongside .team_slugs.
+  def self.showcase_team_slugs
+    SHOWCASE.flat_map { |e| [e.team_slug, *e.opponent_slugs] }.uniq
   end
 
   # The multiplier for a CURVE row, derived exactly as an Example's is.

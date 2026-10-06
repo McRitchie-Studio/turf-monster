@@ -18,7 +18,7 @@ class TurfMonsterV2PageTest < ActionDispatch::IntegrationTest
 
   def assert_every_section_renders
     assert_response :success
-    assert_includes section_text("v2-hero"), "Pick 6 teams. Stack their points. Get paid."
+    assert_includes section_text("v2-hero"), "Pick 6 teams. Stack points. Get paid."
     assert_includes section_text("v2-hero"), "NFL 2026"
     assert_includes section_text("v2-notify"), "Weeks 7-9 slate drops Tuesday morning"
     assert_includes section_text("v2-notify"), "One email when the slate drops. No spam."
@@ -106,7 +106,7 @@ class TurfMonsterV2PageTest < ActionDispatch::IntegrationTest
     Team.where(slug: TurfMonsterRules.team_slugs).delete_all
     get turf_monster_v2_path
     assert_response :success
-    assert_includes page_node.css('[data-test="phone-pick-board"]').text, "Baltimore Ravens"
+    assert_includes page_node.css('[data-test="phone-pick-board"]').text, "San Francisco 49ers"
   end
 
   test "the no-JS round trip draws the success state from the flash" do

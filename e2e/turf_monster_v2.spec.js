@@ -43,11 +43,23 @@ test.describe("turf-monster-v2 explainer", () => {
     await page.goto("/turf-monster-v2");
 
     const root = page.locator('[data-test="turf-monster-v2"]');
-    await expect(root.getByRole("heading", { level: 1 })).toHaveText("Pick 6 teams. Stack their points. Get paid.");
+    await expect(root.getByRole("heading", { level: 1 })).toHaveText("Pick 6 teams. Stack points. Get paid.");
     await expect(page.locator('[data-test="v2-notify"]')).toContainText("Weeks 7-9 slate drops Tuesday morning");
     await expect(page.locator('[data-test="v2-how-to-play"]')).toContainText("How to play");
     await expect(page.locator('[data-test="v2-closing"]')).toContainText("Start playing");
     await expect(page.locator('[data-test="phone-mock"]')).toHaveCount(2);
+    // The hero phone shows the six showcase teams, and no opponent chip is
+    // cut to an ellipsis: each is a 2-3 letter abbreviation.
+    const board = page.locator('[data-test="phone-pick-board"]');
+    for (const name of ["49ers", "Rams", "Cowboys", "Seahawks", "Vikings", "Saints"]) {
+      await expect(board).toContainText(name);
+    }
+    const chips = await board.locator('[data-test="opponent-abbr"]').allTextContents();
+    expect(chips).toHaveLength(18);
+    for (const chip of chips) expect(chip.trim()).toMatch(/^[A-Z0-9]{2,3}$/);
+    // The board's label, not the rules page's: "1.1x Points".
+    await expect(board.locator('[data-test="multiplier-label"]')).toHaveText(Array(6).fill("Points"));
+    await expect(board).not.toContainText("Turf Score");
 
     // The countdown is live: Alpine owns the numbers, and they are numbers.
     const countdown = page.locator('[data-test="v2-countdown"]');

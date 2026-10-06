@@ -21,7 +21,7 @@
     THE HERO IS DARK IN BOTH THEMES, on purpose: it is the Calm night sky, so
     its colours are fixed rather than theme tokens, and its text is white on
     both. Everything below the hero is on theme tokens. %>
-<% content_for :title, "Turf Monster — Pick 6 NFL Teams, Stack Their Points" %>
+<% content_for :title, "Turf Monster — Pick 6 NFL Teams, Stack Points" %>
 <% content_for :meta_description, "NFL pick'em: choose 6 teams, score every point they put up over three weeks multiplied by their Turf Score, and climb the leaderboard. The #{NextSlateDrop::LABEL} slate drops Tuesday morning." %>
 <% dropped   = NextSlateDrop.dropped? %>
 <% remaining = NextSlateDrop.remaining %>
@@ -124,7 +124,7 @@
       <div class="text-center md:text-left">
         <span class="inline-block px-3 py-1 rounded-full border border-white/25 bg-white/10 text-white text-xs font-bold uppercase tracking-widest">NFL 2026</span>
         <h1 class="mt-5 text-4xl md:text-6xl font-extrabold leading-tight text-white">
-          Pick 6 teams. Stack their points. Get paid.
+          Pick 6 teams. Stack points. Get paid.
         </h1>
         <p class="mt-5 text-lg text-white/80 max-w-xl mx-auto md:mx-0">
           Choose 6 NFL teams. Every point they score over three weeks counts, multiplied by that team&rsquo;s Turf Score &mdash; and underdogs carry the bigger multiplier, so a good longshot beats an obvious favorite.
@@ -146,7 +146,7 @@
           <%= render "pages/phone_pick_board", teams: @teams %>
         <% end %>
         <figcaption class="mt-4 max-w-xs text-center text-xs text-white/70">
-          The pick board: six team cards, each with its Turf Score and its three opponents. Real cards from the Weeks 1&ndash;3 board.
+          The pick board: six team cards, each with its Turf Score and its three opponents. Real Turf Scores and opponents from the Weeks 1&ndash;3 board.
         </figcaption>
       </figure>
     </div>
