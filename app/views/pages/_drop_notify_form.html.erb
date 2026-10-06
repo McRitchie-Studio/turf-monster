@@ -9,11 +9,20 @@
     shows only after a 2xx. `id_prefix` keeps the input ids unique when the
     section and the modal are both in the page; `card: false` drops the card
     chrome where the modal already supplies it, and `test_id` names its
-    data-test hooks (the modal's are drop-modal-*). %>
+    data-test hooks (the modal's are drop-modal-*).
+
+    FOCUS AND ERRORS, for a keyboard or screen-reader visitor. On success the
+    form disappears from under the focus, so focus moves to the success
+    message (tabindex -1, focused on the next tick once x-show has shown it).
+    On error the input carries aria-invalid and names the error line in its
+    aria-describedby; the line itself is the mounted role="alert" region. The
+    watcher lives here, not in the page's factory, so the section and the
+    modal both get it from the one partial. %>
 <div class="relative <%= card ? 'card p-6 md:p-8' : '' %> max-w-2xl mx-auto text-left"
-     x-data="dropNotifyForm('<%= initial %>')" data-test="<%= test_id %>-form">
+     x-data="dropNotifyForm('<%= initial %>')" data-test="<%= test_id %>-form"
+     x-init="$watch('state', function (value) { if (value === 'done') $nextTick(function () { $refs.success.focus(); }); })">
   <div x-show="state === 'done'" <%= 'style="display: none;"'.html_safe unless initial == "done" %>
-       role="status" data-test="<%= test_id %>-success">
+       role="status" tabindex="-1" x-ref="success" data-test="<%= test_id %>-success">
     <p class="text-xl font-bold text-heading">You&rsquo;re on the list.</p>
     <p class="text-secondary text-sm mt-1">We&rsquo;ll send one email when the <%= NextSlateDrop::LABEL %> slate drops.</p>
   </div>
@@ -31,7 +40,10 @@
       <input type="email" id="<%= id_prefix %>_email" name="email" required autocomplete="email"
              placeholder="you@example.com"
              class="input-field flex-1 min-w-0 sm:rounded-r-none focus:ring-2 focus:ring-primary/30"
-             aria-describedby="<%= id_prefix %>_help">
+             <%= 'aria-invalid="true"'.html_safe if initial == "error" %>
+             :aria-invalid="state === 'error' ? 'true' : null"
+             aria-describedby="<%= initial == "error" ? "#{id_prefix}_error #{id_prefix}_help" : "#{id_prefix}_help" %>"
+             :aria-describedby="state === 'error' ? '<%= id_prefix %>_error <%= id_prefix %>_help' : '<%= id_prefix %>_help'">
       <button type="submit" class="btn btn-primary whitespace-nowrap sm:rounded-l-none px-6"
               :disabled="state === 'submitting'"
               x-text="state === 'submitting' ? 'Sending…' : 'Notify me'">Notify me</button>
@@ -53,10 +65,16 @@
         failure into it (error_live_regions_test holds every error line in
         the app to that shape). The no-JS round trip has no Alpine to
         write it, so its copy rides in a noscript beside it. %>
-    <p class="text-sm text-danger-ink mt-2" x-show="error" x-cloak x-text="error" role="alert" aria-live="assertive" aria-atomic="true"></p>
-    <% if initial == "error" %>
-      <noscript><p class="text-sm text-danger-ink mt-2">Enter a valid email address.</p></noscript>
-    <% end %>
+    <%# The id the input's aria-describedby names sits on a wrapper holding
+        only the error line, so its description is exactly that sentence. It
+        is not on the paragraph because error_live_regions_test reads that
+        tag up to its first ">", which ERB inside the tag would end early. %>
+    <div id="<%= id_prefix %>_error">
+      <p class="text-sm text-danger-ink mt-2" x-show="error" x-cloak x-text="error" role="alert" aria-live="assertive" aria-atomic="true"></p>
+      <% if initial == "error" %>
+        <noscript><p class="text-sm text-danger-ink mt-2">Enter a valid email address.</p></noscript>
+      <% end %>
+    </div>
     <p id="<%= id_prefix %>_help" class="text-muted text-xs mt-3">One email when the slate drops. No spam.</p>
   <% end %>
 </div>
