@@ -72,10 +72,13 @@ class LaptopLiveSnapshot
     focus_game = showcase.games.values.flatten.find { |game| game.slug == showcase.focus_slug }
     @simulation = focus_game && LaptopScoreSimulation.new(focus_game)
     @showcase = @simulation ? with_game(showcase, @simulation.opening.game) : showcase
-    @showcase = LaptopShowcaseEntrants.fill(@showcase)
   end
 
+  # The showcase entrants join here, not in #initialize: only the render reads
+  # the board, and a cached page (LaptopSnapshotCache) builds this object for
+  # its #simulation alone.
   def render
+    @showcase = LaptopShowcaseEntrants.fill(@showcase)
     anonymize!
     doc = clean(renderer.render(partial: "pages/laptop_live", locals: { showcase: @showcase }))
     showcase_avatars(doc)
