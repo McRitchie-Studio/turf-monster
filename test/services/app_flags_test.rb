@@ -138,4 +138,35 @@ class AppFlagsTest < ActiveSupport::TestCase
     with_env("1",      var: "ENABLE_WEB3_ONLY_ONBOARDING") { assert AppFlags.web3_only_onboarding? }
     with_env("",       var: "ENABLE_WEB3_ONLY_ONBOARDING") { assert AppFlags.web3_only_onboarding? }
   end
+
+  # [unit] Live production permits test scaffolding only under an override that
+  # names a reason; QA (production plus QA_ENV), development and test always do.
+  def permitted_in(env, qa:, override:)
+    Rails.stub :env, ActiveSupport::EnvironmentInquirer.new(env) do
+      with_env(qa ? "true" : nil, var: "QA_ENV") do
+        with_env(override, var: "TEST_SCAFFOLDING_OVERRIDE") { AppFlags.test_scaffolding_permitted? }
+      end
+    end
+  end
+
+  test "test_scaffolding_permitted? is false on live production without an override" do
+    assert_not permitted_in("production", qa: false, override: nil)
+    assert_not permitted_in("production", qa: false, override: "  ")
+  end
+
+  test "test_scaffolding_permitted? is true on live production under an override" do
+    assert permitted_in("production", qa: false, override: "micro rehearsal")
+  end
+
+  test "test_scaffolding_permitted? is true on QA, development and test" do
+    assert permitted_in("production", qa: true, override: nil)
+    assert permitted_in("development", qa: false, override: nil)
+    assert permitted_in("test", qa: false, override: nil)
+  end
+
+  test "test_scaffolding_override strips and blanks to nil" do
+    with_env(nil, var: "TEST_SCAFFOLDING_OVERRIDE") { assert_nil AppFlags.test_scaffolding_override }
+    with_env(" ", var: "TEST_SCAFFOLDING_OVERRIDE") { assert_nil AppFlags.test_scaffolding_override }
+    with_env(" why ", var: "TEST_SCAFFOLDING_OVERRIDE") { assert_equal "why", AppFlags.test_scaffolding_override }
+  end
 end

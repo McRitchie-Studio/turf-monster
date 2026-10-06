@@ -1,8 +1,9 @@
 require "test_helper"
+require "minitest/mock"
 
-# The guard used to `raise` on a production boot carrying ENABLE_TEST_SCAFFOLDING,
-# which made the $1 micro tier unreachable on production. The operator's call
-# (2026-08-27) is that production must BOOT with the flag on — and still say so.
+# [unit] Live production refuses to boot with ENABLE_TEST_SCAFFOLDING on unless
+# TEST_SCAFFOLDING_OVERRIDE names why; QA (Rails production plus QA_ENV),
+# development and test keep the flag.
 #
 # These tests execute the initializer for real rather than grepping its source:
 # `config.after_initialize` runs its block immediately once the app is already
@@ -25,42 +26,68 @@ class TestScaffoldingGuardTest < ActiveSupport::TestCase
     Rails.logger = original
   end
 
-  def booting_as(env, scaffolding:, &block)
-    Rails.stub :env, ActiveSupport::StringInquirer.new(env) do
-      AppFlags.stub :test_scaffolding?, scaffolding, &block
+  # Boots with the real predicates: Rails.env, QA_ENV, ENABLE_TEST_SCAFFOLDING
+  # and TEST_SCAFFOLDING_OVERRIDE are each set (nil deletes) and restored.
+  def booting_as(env, scaffolding:, qa: false, override: nil, &block)
+    vars = {
+      "ENABLE_TEST_SCAFFOLDING" => (scaffolding ? "true" : nil),
+      "QA_ENV" => (qa ? "true" : nil),
+      "TEST_SCAFFOLDING_OVERRIDE" => override
+    }
+    originals = vars.keys.index_with { |k| ENV[k] }
+    vars.each { |k, v| v.nil? ? ENV.delete(k) : ENV[k] = v }
+    Rails.stub(:env, ActiveSupport::EnvironmentInquirer.new(env), &block)
+  ensure
+    originals.each { |k, v| v.nil? ? ENV.delete(k) : ENV[k] = v }
+  end
+
+  test "a live-production boot with the flag on and no override raises" do
+    error = nil
+    booting_as("production", scaffolding: true) do
+      capturing_logs { error = assert_raises(AppFlags::TestScaffoldingRefused) { load GUARD } }
+    end
+
+    assert_match(/ENABLE_TEST_SCAFFOLDING is set on live production/, error.message)
+    assert_match(/TEST_SCAFFOLDING_OVERRIDE/, error.message)
+  end
+
+  test "a blank override is no override" do
+    booting_as("production", scaffolding: true, override: "   ") do
+      capturing_logs { assert_raises(AppFlags::TestScaffoldingRefused) { load GUARD } }
     end
   end
 
-  test "a production boot with the flag on succeeds instead of raising" do
-    booting_as("production", scaffolding: true) do
+  test "a live-production boot with the flag on and an override boots and logs the reason at error" do
+    logs = booting_as("production", scaffolding: true, override: "micro rehearsal") do
       capturing_logs { assert_nothing_raised { load GUARD } }
     end
-  end
 
-  test "a production boot with the flag on logs the token-price exposure at error" do
-    logs = booting_as("production", scaffolding: true) do
-      capturing_logs { load GUARD }
-    end
-
-    assert_match(/ERROR/, logs)
-    assert_match(/ENABLE_TEST_SCAFFOLDING is enabled in production/, logs)
-    # The warning has to name the thing that actually costs money, not just the
-    # flag: the $5 / 3-token pack prices an entry token at $1.67 against a $19 one.
+    assert_match(/^ERROR /, logs)
+    assert_match(/TEST_SCAFFOLDING_OVERRIDE="micro rehearsal"/, logs)
+    # The warning names what costs money, not just the flag.
     assert_match(/3-token pack/, logs)
-    assert_match(/config:unset ENABLE_TEST_SCAFFOLDING/, logs)
+    assert_match(/config:unset ENABLE_TEST_SCAFFOLDING TEST_SCAFFOLDING_OVERRIDE/, logs)
   end
 
-  test "a production boot with the flag off says nothing" do
-    logs = booting_as("production", scaffolding: false) do
-      capturing_logs { load GUARD }
+  test "a QA boot (production plus QA_ENV) with the flag on boots and says nothing" do
+    logs = booting_as("production", scaffolding: true, qa: true) do
+      capturing_logs { assert_nothing_raised { load GUARD } }
     end
 
     assert_no_match(/ENABLE_TEST_SCAFFOLDING/, logs)
   end
 
-  test "a non-production boot with the flag on says nothing" do
+  test "a live-production boot with the flag off boots and says nothing" do
+    logs = booting_as("production", scaffolding: false) do
+      capturing_logs { assert_nothing_raised { load GUARD } }
+    end
+
+    assert_no_match(/ENABLE_TEST_SCAFFOLDING/, logs)
+  end
+
+  test "a development boot with the flag on boots and says nothing" do
     logs = booting_as("development", scaffolding: true) do
-      capturing_logs { load GUARD }
+      capturing_logs { assert_nothing_raised { load GUARD } }
     end
 
     assert_no_match(/ENABLE_TEST_SCAFFOLDING/, logs)
