@@ -954,8 +954,8 @@ Landing pages are `LandingPage` records (name, headline, subheadline, badge, cta
 1. Hero — brand logo + two-tone "Turf Totals" title (split-color rendering).
 2. Badge — optional `lp-badge` span (violet/20 background).
 3. Contest snapshot card — entry fee / guaranteed prizes / entries count / lock time / CTA → `/contests/:id`.
-4. "How it Works" — 4 numbered steps from `funnel_how_it_works(@contest)` helper, format-specific (Turf Totals vs World Cup Survivor copy).
-5. Footer — context-aware ("See how it works" vs "Help Center").
+4. "How it Works" — 4 numbered steps from `funnel_how_it_works(@contest)` helper, worded for the contest's sport.
+5. Footer — "See how it works", linking the sport's rulebook.
 
 **Background variants**: `background_partial` returns one of three animated partials (gradient / blobs / circles) based on `background_style` enum. Each is pure CSS — no JS.
 

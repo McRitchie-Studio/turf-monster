@@ -479,7 +479,6 @@ written. Each flow's state is what matters.
 | Flow | Location | State |
 |---|---|---|
 | Contest entry — turf totals | `app/views/contests/_turf_totals_board.html.erb` | **migrated** — one `tmWalletOp('contest_entry')` (`/tasks/collapse-inline-entry-call-site`, then `/tasks/route-board-through-runner`) |
-| Contest entry — world cup survivor | `app/views/contests/_world_cup_survivor_board.html.erb` | **migrated** — one `tmWalletOp('contest_entry')` (`/tasks/migrate-remaining-entry-flows`) |
 | Create contest | `app/views/contests/new.html.erb` | **migrated** — one `tmWalletOp('contest_create')` (`/tasks/migrate-remaining-entry-flows`) |
 | Contest generator | `app/views/contests/generator.html.erb` | **migrated** — one `tmWalletOp('contest_bundle')` (`/tasks/migrate-remaining-entry-flows`) |
 | Username rename | `app/views/shared/_alpine_factories.html.erb` | **migrated** — one `walletOps.run('username_rename')` (`/tasks/migrate-account-wallet-flows`); still spells out its own return address and cluster rather than calling `tmWalletOp`, whose card it cannot use. Its handoff watch is the runner's `window.tmWatchHandoff` (`/tasks/frozen-wallet-overlay-traps-user`) |
