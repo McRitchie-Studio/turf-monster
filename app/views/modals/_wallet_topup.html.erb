@@ -4,7 +4,7 @@
   IT IS NO LONGER THE ENTRY BLOCKER'S ANSWER, and this header used to say it was.
   The funds wall now routes to Get USDC (modals/_buy_usdc) via showFundsNeeded,
   because this modal leads with the CDP onramp and that rail has no legal
-  clearance (operator, 2026-09-06). selectionBoard#showWalletTopup is kept but has
+  clearance. selectionBoard#showWalletTopup is kept but has
   no caller; what to do with this modal and the Add Funds hub while the onramp
   stays uncleared is an operator decision about those surfaces, not a modal fix.
   NOTHING OPENS THIS MODAL AT HEAD. Both ways in are closed: showWalletTopup has
@@ -16,7 +16,7 @@
   passes returnModal: 'wallet-topup'. What follows describes what this modal
   renders and how it gates whenever it IS opened.
 
-  COINBASE-FORWARD (operator 2026-06-13): now that a web2/managed USDC entry
+  COINBASE-FORWARD: now that a web2/managed USDC entry
   works (the server signs the on-chain enter_contest with the user's custodial
   key when ENABLE_WEB2_USDC_ENTRY is on), USDC is the cash funding rail again.
   The primary CTA buys USDC with Coinbase (the cdp-ramp buy preflight). There

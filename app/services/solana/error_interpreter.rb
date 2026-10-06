@@ -69,7 +69,7 @@ module Solana
       # whenever the token rails are dark.
       #
       # It is NOT Top Up Wallet (modals/_wallet_topup), which leads with the CDP
-      # onramp and has no legal clearance (operator, 2026-09-06). At head that
+      # onramp and has no legal clearance. That
       # modal has no entrance at all, and BOTH ways in are closed:
       # selectionBoard#showWalletTopup has no caller, and the Add Funds hub's
       # Back link swaps there only when props.returnModal is 'wallet-topup' — a

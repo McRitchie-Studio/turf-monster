@@ -377,7 +377,7 @@ module Entries
         @user.encrypted_web2_solana_private_key.present?
     end
 
-    # TOKEN ONLY BY DEFAULT (Alex, 2026-09-30), decided on a read that cannot
+    # TOKEN ONLY BY DEFAULT, decided on a read that cannot
     # lie. The browser path reads tokens through User#cached_entry_tokens, which
     # turns an unreadable chain into "no tokens" so a navbar never 500s. Here
     # that would be wrong twice: with allow_usdc off it would tell an agent its

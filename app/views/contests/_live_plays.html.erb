@@ -28,16 +28,15 @@
   }
 %>
 <% if plays.any? || game.live? %>
-  <%# COLLAPSED BY DEFAULT (Alex, 2026-10-04): open, the list took more of the
-      page than the game above it. At rest this is one line and the list opens on a
-      click.
+  <%# COLLAPSED BY DEFAULT, so the list never takes more of the page than the
+      game above it. At rest this is one line and the list opens on a click.
 
       `plays` lives on the page wrapper beside `focus` (contests/live.html.erb),
       OUTSIDE this stream target, for the reason `focus` does: a play replaces
       everything in here every twenty seconds, and a toggle stored among it
       would close itself each time. The inline display:none is the first-paint
       state, so the list does not flash open before Alpine boots. %>
-  <%# ONE LINE THAT READS WITH THE RAIL ABOVE IT (Alex, 2026-10-05). The rail's
+  <%# ONE LINE THAT READS WITH THE RAIL ABOVE IT. The rail's
       bottom third lists what just happened in a word — "Interception" — and
       the right third of this bar, directly beneath it and the same width,
       says it properly: who (up to three small portraits), what the play
@@ -45,12 +44,14 @@
       heading: they are detail about the play, not the play. %>
   <% latest = plays.first %>
   <%# BETWEEN A SCORE AND ITS KICKOFF the bar says what everyone is waiting for,
-      not the TV timeout the feed puts in the gap (GamePlay.awaiting_kickoff_after).
-      The kicking team is read off the latest goal, which knows who scored. %>
+      not the TV timeout the feed puts in the gap (GamePlay.awaiting_kickoff_after). %>
   <%
-    awaiting = GamePlay.awaiting_kickoff_after(plays)
+    awaiting = GamePlay.awaiting_kickoff_after(plays, game: game)
     kicker   = if awaiting
-                 scorer = game.goals.max_by { |goal| goal.id.to_i }&.team_slug || awaiting.team_slug
+                 # From the score itself; the latest goal, then the play's own
+                 # team, only when the feed sent no running score.
+                 scorer = GamePlay.scoring_team_slug(awaiting, plays: plays, game: game) ||
+                          game.goals.max_by { |goal| goal.id.to_i }&.team_slug || awaiting.team_slug
                  [game.away_team, game.home_team].compact.find do |team|
                    team.slug == GamePlay.kicking_team_slug(awaiting, scorer_slug: scorer, game: game)
                  end
@@ -114,8 +115,8 @@
               left and ON TOP (the receiver over the passer on a completion).
               A player we hold a portrait for shows it; one we only have a name
               for shows initials; a play that names nobody shows its team. %>
-          <%# OUT OF THE FLOW, floated into the space to the left of the words
-              (Alex, 2026-10-05). The two lines of words are CENTRED in this
+          <%# OUT OF THE FLOW, floated into the space to the left of the
+              words. The two lines of words are CENTRED in this
               third, exactly under the rail's centred column, and centred
               against each other. If the portraits took part in that centring,
               one, two or three of them would push the words a different

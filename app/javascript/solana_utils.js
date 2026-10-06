@@ -245,8 +245,8 @@ export function refreshBalance() {
 // a navbar that confidently showed the old balance for the next 60 seconds.
 //
 // THE RULE THAT SHAPES THIS: never paint a number we have reason to distrust.
-// Between the spend and the settle the pill holds its LOADING state (operator
-// call 2026-09-07). Ten seconds of "loading" is a worse look and a better
+// Between the spend and the settle the pill holds its LOADING state.
+// Ten seconds of "loading" is a worse look and a better
 // answer than ten seconds of a wrong dollar figure.
 //
 // WHY A MARKER AND NOT JUST A TIMER. Some callers navigate — contest creation
@@ -317,7 +317,7 @@ function clearOnchainSettleMarker(id) {
 // Put the balance pill back into the server's cache-cold "loading" shape:
 // hidden, with no dollar figure. Mirrors _navbar.html.erb's `hide_balance`
 // branch, so the client's loading state and the server's are the same state.
-// ONE WRITER OWNS THE PILL WHILE A SETTLE IS PENDING (operator call, 2026-09-07).
+// ONE WRITER OWNS THE PILL WHILE A SETTLE IS PENDING.
 //
 // refreshLevelUpToken() polls refreshSession() at +1000/2500/5000/9000ms after a
 // level-up entry, and refreshSession() paints the balance. Inside a settle window
@@ -356,7 +356,7 @@ function paintBalanceLoading() {
   } catch (_) {}
 }
 
-// RETRY ONCE, THEN RESTORE (operator call, 2026-09-07). A settle read can fail
+// RETRY ONCE, THEN RESTORE. A settle read can fail
 // outright, or be REFUSED: lockedFetch hands a contender Promise.resolve(null)
 // rather than sharing the in-flight promise, and 'session' is contended by the
 // level-up poller and both refresh buttons. So the settle takes its OWN key.
@@ -875,7 +875,7 @@ export function eligibilityBlocker(session, neededCents, opts) {
   if (!session) return null;            // store missing — let server decide
   if (!session.loggedIn) return { reason: 'not_logged_in', mode: 'guest', data: {} };
 
-  // First name — the FIRST validation of the hold (operator call, 2026-08-15),
+  // First name — the FIRST validation of the hold,
   // ahead of age, wallet and funding, so the name is collected before the user
   // is asked for anything heavier. Mirrors the onboarding chain's order, which
   // also opens on this question.
@@ -910,7 +910,7 @@ export function eligibilityBlocker(session, neededCents, opts) {
   if ((neededCents | 0) <= 0) return null;  // free contest
 
   if (session.mode === 'web2') {
-    // Unified web2 funding (operator spec 2026-06-13): ENTRY TOKEN first (incl.
+    // Unified web2 funding: ENTRY TOKEN first (incl.
     // seed-earned free entries — /enter consumes an EntryTokenAccount before any
     // USDC), then USDC when ENABLE_WEB2_USDC_ENTRY is on (server-signs
     // enter_contest). USDT is never offered to web2 (payouts are USDC). Block

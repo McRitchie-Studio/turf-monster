@@ -11,14 +11,14 @@
   true), so the wall read "pick how to pay" over an empty box while the USDC rail
   it never offered was the only funded path on the chain. One answer, both cases.
 
-  BUILT FROM ENGINE BLOCKS, deliberately (operator call, 2026-09-05). The modal
+  BUILT FROM ENGINE BLOCKS, deliberately. The modal
   this one is modelled on, modals/_wallet_setup, hand-rolls its close mark and
   its wallet row even though studio/modals/blocks ships both; the shapes drifted
   because nothing made them share. This composes blocks/_close_x and
   blocks/_rail_row so a change to the house idiom reaches it for free.
 
   ONE ROUTE: BUY USDC INSIDE PHANTOM. The CDP/Coinbase onramp has no legal
-  clearance (operator, 2026-09-06), so this card must not offer it — a revision
+  clearance, so this card must not offer it — a revision
   that led with it has been removed. Signup mints no custodial wallet
   (AppFlags.web3_only_onboarding? defaults ON), so a new account links Phantom
   and funds the entry from there; the managed wallets that predate that flag are
@@ -72,7 +72,7 @@
     form of digital dollars.
   </p>
 
-  <%# THE PHANTOM ROW (operator call, 2026-09-05 — replaced a Coinbase rail_row).
+  <%# THE PHANTOM ROW, not a Coinbase rail_row.
       A player at this wall already has a wallet; buying inside Phantom is one
       screen away for them, where the Coinbase hand-off was three.
 
@@ -94,7 +94,7 @@
 
   <div class="space-y-3">
     <%# THE ONE ROUTE, because it is the only one this app is cleared to offer.
-        The CDP/Coinbase onramp has NO LEGAL CLEARANCE (operator, 2026-09-06),
+        The CDP/Coinbase onramp has NO LEGAL CLEARANCE,
         which is what its numbers were quietly saying all along: 27 attempts in
         prod, 26 expired, 1 success, nothing since 2026-06-29. A revision of this
         card led with that rail; leading a funds wall with an uncleared payment

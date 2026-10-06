@@ -839,8 +839,8 @@ class ContestsController < ApplicationController
       }, status: :unprocessable_entity
     end
 
-    # THE OTHER HALF OF THAT SAME QUESTION, and the half a real player hit
-    # (operator report, QA, 2026-09-07). The guard above turns away a session
+    # THE OTHER HALF OF THAT SAME QUESTION, and the half a real player can
+    # hit. The guard above turns away a session
     # that CAN sign. This one turns away a session that CANNOT — a self-custody
     # account whose current session was established by a WEB2 credential.
     #
@@ -898,7 +898,7 @@ class ContestsController < ApplicationController
     # lock, then confirms; a confirm! failure after a spend is swallowed there
     # and handed to Entries::OnchainReconcileJob (incident 2026-06-08).
     #
-    # Funding priority is the web's (operator spec 2026-06-13): entry token
+    # Funding priority is the web's: entry token
     # first, then USDC behind ENABLE_WEB2_USDC_ENTRY, else refuse. web3
     # (Phantom) sessions never reach here — they were turned away above and
     # fund via prepare_entry / confirm_onchain_entry.
@@ -964,7 +964,7 @@ class ContestsController < ApplicationController
     # Token presence + balances must be authoritative for THIS check, so drop
     # the 60s entry-tokens cache first — a just-consumed token must not read as
     # still-available (#entry_funding_status reads balances fresh off-chain).
-    # CONSCIOUS COUPLING (Avi review 2026-06-13): this also cold-busts the shared
+    # CONSCIOUS COUPLING: this also cold-busts the shared
     # navbar token-badge cache, forcing an extra getProgramAccounts on the next
     # navbar read. Accepted for authoritative freshness — the buy-flow's own
     # polling (waits for the token to confirm before returning to the board)
@@ -973,8 +973,8 @@ class ContestsController < ApplicationController
     # NOT A MONEY QUESTION. An account whose ONLY wallet is self-custody, on a
     # session that never proved it, has no web2 address for #entry_funding_status
     # to price — so it returned [false, nil] WITHOUT EVER READING A BALANCE and
-    # the board opened Get USDC at a player holding $31 (the operator's report,
-    # qa 2026-09-07). Answering `fundable` here is what makes #enter's step-up
+    # the board opened Get USDC at a player holding $31 on QA.
+    # Answering `fundable` here is what makes #enter's step-up
     # refusal REACHABLE: confirmEntry only aborts the hold on a definitive
     # { fundable: false }, so proceeding hands the player to the one gate that
     # knows what to ask for. This does NOT price the web3 wallet — web2 entry
@@ -1990,7 +1990,7 @@ class ContestsController < ApplicationController
     usdc_fundable = web3 || AppFlags.web2_usdc_entry?
 
     # FRESH authoritative balance read — never the 60s cache. FAIL-OPEN ON A READ
-    # FAILURE (Avi review 2026-06-13): read with raise_on_read_error so a
+    # FAILURE: read with raise_on_read_error so a
     # transient getTokenAccountsByOwner flake RAISES rather than masquerading as
     # $0. On a read failure, fail OPEN whenever a balance funding path is even
     # possible — false-blocking a funded user is the regression; the atomic
@@ -2822,7 +2822,7 @@ class ContestsController < ApplicationController
                                         target_type: "Entry")
                                  .where(target_id: @contest.entries.where(user_id: current_user.id).select(:id))
 
-    # Operator call (2026-06-11): recovery is ONLY for a PT that actually
+    # Recovery is ONLY for a PT that actually
     # BROADCAST (carries a tx_signature) — real money may have moved, so the
     # "Checking Your Last Entry" flow must resolve it. A signatureless PT
     # means nothing ever left the building (prepare_entry ran, confirm never
