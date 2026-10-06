@@ -90,7 +90,6 @@ class ContestJsonAdminOnlyTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert_includes response.body, "Contest JSON"
     assert_includes response.body, PRIVATE_NAME
-
   end
 
   # An admin acting as a player gets the player's page, exactly: the same
