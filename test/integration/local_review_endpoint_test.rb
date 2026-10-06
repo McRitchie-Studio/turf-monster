@@ -4,8 +4,8 @@ require "test_helper"
 #
 # The board's WAITING APPROVAL button hands off to this endpoint on whatever
 # local stack hosts the demo — and turf stacks host most of them. What is easy
-# to get wrong here is the STORE/URL pairing: turf runs `magic_link_store =
-# :database` (a Studio::Link row) but `draw_link_routes = false`, keeping its own
+# to get wrong here is the STORE/URL pairing: turf mints a Studio::Link row like
+# every app, but runs `draw_link_routes = false`, keeping its own
 # /magic_link route (its /l namespace is the landing-page one). So the endpoint
 # must hand out /magic_link/<token>, which is what turf's MagicLinksController
 # (Studio::Link.consume!) actually reads. Handing out the engine default would
