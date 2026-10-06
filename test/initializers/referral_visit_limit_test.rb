@@ -4,15 +4,19 @@ require "test_helper"
 # the per-address cap on referral_visits writes. The over-the-limit path through
 # a real request is in test/integration/referral_visit_tracking_test.rb.
 class ReferralVisitLimitTest < ActiveSupport::TestCase
+  include RackAttackClock
+
   def request_from(ip)
     Rack::Attack::Request.new(Rack::MockRequest.env_for("/?reference=tiktok", "REMOTE_ADDR" => ip))
   end
 
-  def with_rack_attack(store = ActiveSupport::Cache::MemoryStore.new)
+  # The clock is frozen for the block so its counts land in one bucket
+  # (test/support/rack_attack_clock.rb).
+  def with_rack_attack(store = ActiveSupport::Cache::MemoryStore.new, &block)
     prior_store = Rack::Attack.cache.store
     Rack::Attack.cache.store = store
     Rack::Attack.enabled = true
-    yield
+    in_one_rack_attack_period(Rack::Attack::REFERRAL_VISIT_PERIOD, &block)
   ensure
     Rack::Attack.enabled = false
     Rack::Attack.cache.store = prior_store
