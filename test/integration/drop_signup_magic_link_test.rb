@@ -49,9 +49,30 @@ class DropSignupMagicLinkTest < ActionDispatch::IntegrationTest
     assert_equal contest_path(contest.slug), URI.parse(response.location).path
   end
 
+  test "the confirmation's link lives 7 days and the announcement's 48 hours, not the sign-in default" do
+    confirmation, = mint_from_email(:confirmation)
+    assert_in_delta 7.days.from_now.to_i, confirmation.expires_at.to_i, 60
+
+    announcement = nil
+    NextContest.stub(:pick, NextContest::Pick.new(contest: nil)) { announcement, = mint_from_email(:announcement) }
+    assert_in_delta 48.hours.from_now.to_i, announcement.expires_at.to_i, 60
+
+    travel(Studio.magic_link_ttl + 1.minute) do
+      assert confirmation.reload.live?, "still live well past the sign-in default"
+      assert announcement.reload.live?
+    end
+    assert_equal 15.minutes, Studio.magic_link_ttl, "the app default is untouched"
+  end
+
+  test "the confirmation link still signs them up on day 6" do
+    link, = mint_from_email
+    travel(6.days) { post link_consume_path(token: link.token) }
+    assert User.exists?(email: "newbie@example.com")
+  end
+
   test "an expired link falls back to sign-in with the address prefilled" do
     link, = mint_from_email
-    travel(Studio.magic_link_ttl + 1.minute) do
+    travel(DropSignupMailer::LINK_TTL[:confirmation] + 1.minute) do
       get link_path(token: link.token)
       location = URI.parse(response.location)
       assert_equal signin_path, location.path

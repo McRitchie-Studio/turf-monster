@@ -168,4 +168,12 @@ class DropSignupMailerTest < ActionMailer::TestCase
     assert_includes html, %(alt="Weeks 7–9 announcement")
     assert_equal [[:announcement, :new_player]], seen
   end
+
+  test "the new-player emails do not state the link's expiry" do
+    %i[confirmation announcement].each do |kind|
+      bodies(DropSignupMailer.public_send(kind, signup("#{kind}-ttl@example.com"))).each do |body|
+        refute_match(/expires in|works once|email filled in/, body, kind.to_s)
+      end
+    end
+  end
 end

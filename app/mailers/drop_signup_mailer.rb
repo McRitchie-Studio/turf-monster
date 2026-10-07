@@ -37,6 +37,12 @@ class DropSignupMailer < ApplicationMailer
   VARIANTS = %i[new_player existing_player].freeze
   PREVIEW_TOKEN = "preview".freeze
 
+  # How long each email's sign-up link lives. Longer than the app's sign-in
+  # default (Studio.magic_link_ttl) because these are read later: the
+  # confirmation can sit in an inbox until the drop, the announcement for a
+  # day or two after it. Passed per mint; the app default is untouched.
+  LINK_TTL = { confirmation: 7.days, announcement: 48.hours }.freeze
+
   # THE IMAGE SEAM. Each email may open with a hero image, drawn by the
   # branded_mailer layout from @banner_url / @banner_alt: an <img> with alt
   # text when a URL is present, nothing at all when it is nil. Nothing supplies
@@ -51,7 +57,7 @@ class DropSignupMailer < ApplicationMailer
 
     if new_player?
       @primary_label = "Finish setting up your account"
-      @primary_url   = magic_link_for(signup, return_to: nil)
+      @primary_url   = magic_link_for(signup, return_to: nil, ttl: LINK_TTL[:confirmation])
       @secondary_label = "Get ready: how to play"
       @secondary_url   = @how_to_play_url
     else
@@ -75,7 +81,7 @@ class DropSignupMailer < ApplicationMailer
 
     if new_player?
       @primary_label = "Create your account and play"
-      @primary_url   = magic_link_for(signup, return_to: play_path)
+      @primary_url   = magic_link_for(signup, return_to: play_path, ttl: LINK_TTL[:announcement])
     else
       @primary_label = "Play Turf Monster"
       reference = { reference: NextSlateDrop::EMAIL_REFERENCE }
@@ -117,10 +123,10 @@ class DropSignupMailer < ApplicationMailer
   # on, sign_up_new sends them to /signin (address prefilled) to tick the box
   # themselves — the same contract EntryGift links keep. `linkable` ties the
   # link to its signup, which is how the expired-link fallback knows to prefill.
-  def magic_link_for(signup, return_to:)
+  def magic_link_for(signup, return_to:, ttl:)
     token = if signup.persisted?
               Studio::Link.create_magic_link(email: signup.email, return_to: return_to,
-                                             age_attested: false, linkable: signup).token
+                                             age_attested: false, linkable: signup, ttl: ttl).token
     else
               PREVIEW_TOKEN
     end

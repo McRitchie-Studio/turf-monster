@@ -3,7 +3,7 @@
 The slate you asked about just opened. Pick your teams: every point they score counts, times their multiplier, and underdogs score big.
 
 <% if @variant == :new_player -%>
-The link below creates your account with <%= @signup.email %> and takes you to the slate. It works once and expires in <%= Studio.magic_link_ttl.in_minutes.round %> minutes; after that it takes you to sign-in with your email filled in.
+The link below creates your account with <%= @signup.email %> and takes you to the slate.
 <% else -%>
 Make your picks before the first game locks.
 <% end -%>

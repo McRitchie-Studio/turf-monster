@@ -116,6 +116,28 @@ class DropSignup < ApplicationRecord
     true
   end
 
+  # The one-time backfill for rows that joined before the confirmation existed
+  # (bin/rails drop_signups:send_missing_confirmations, the deploy's
+  # post_deploy_cmd). Every row goes through deliver_confirmation!, the same
+  # claim the form uses, so a rerun, a concurrent signup or a crash part-way
+  # never mails an address twice. One row failing is logged and skipped; it
+  # stays unclaimed for the next run.
+  def self.send_missing_confirmations!
+    result = { queued: 0, skipped: 0, failed: 0 }
+    where(confirmation_sent_at: nil, unsubscribed_at: nil).find_each do |signup|
+      result[signup.deliver_confirmation! ? :queued : :skipped] += 1
+    rescue StandardError => e
+      result[:failed] += 1
+      Rails.logger.error("[drop-signup] backfill_failed signup=#{signup.id} #{e.class}: #{e.message}")
+      begin
+        ErrorLog.capture!(e)
+      rescue StandardError
+        nil
+      end
+    end
+    result
+  end
+
   # Queue the drop announcement once and record the outbox row it went out as.
   # Same claim as the confirmation, on notified_at.
   def deliver_announcement!

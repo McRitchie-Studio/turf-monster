@@ -99,8 +99,9 @@ when the outbox renders the mail, not when it is queued:
 
 - **New player** (no account holds the address): the CTA is a Studio::Link magic
   link (`/l/<token>?reference=<signup source>`) into the real create-or-login
-  flow, `age_attested: false`, `linkable` = the signup. It expires on the app's
-  `Studio.magic_link_ttl` (15 minutes); an expired one lands on `/signin` with
+  flow, `age_attested: false`, `linkable` = the signup. It expires after
+  `DropSignupMailer::LINK_TTL` (7 days for the confirmation, 48 hours for the
+  announcement; the app's sign-in default is untouched); an expired one lands on `/signin` with
   the address prefilled. The new account's `users.reference` is the signup's
   source.
 - **Existing player**: no sign-up language; "Get ready" to `/turf-monster-v2#how-to-play`

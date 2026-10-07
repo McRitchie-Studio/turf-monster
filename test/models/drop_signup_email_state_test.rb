@@ -56,6 +56,43 @@ class DropSignupEmailStateTest < ActiveSupport::TestCase
     assert_equal 1, EmailDelivery.where(email_key: "DropSignupMailer#announcement", to: row.email).count
   end
 
+  # --- backfill ----------------------------------------------------------------
+
+  test "the backfill confirms every unconfirmed, subscribed row once, and a rerun sends nothing" do
+    owed = [signup("old-1@example.com"), signup("old-2@example.com")]
+    signup("done@example.com", confirmation_sent_at: 1.day.ago)
+    signup("gone@example.com", unsubscribed_at: 1.day.ago)
+
+    assert_equal({ queued: 2, skipped: 0, failed: 0 }, DropSignup.send_missing_confirmations!)
+    assert_equal %w[old-1@example.com old-2@example.com],
+                 EmailDelivery.where(email_key: "DropSignupMailer#confirmation").pluck(:to).sort
+    owed.each { |row| assert row.reload.confirmation_sent_at.present? }
+
+    assert_equal({ queued: 0, skipped: 0, failed: 0 }, DropSignup.send_missing_confirmations!)
+    assert_equal 2, EmailDelivery.where(email_key: "DropSignupMailer#confirmation").count
+  end
+
+  test "the backfill and the form share one claim: a row the form confirmed is never re-sent" do
+    row = signup("racing@example.com")
+    row.deliver_confirmation!
+    assert_equal({ queued: 0, skipped: 0, failed: 0 }, DropSignup.send_missing_confirmations!)
+    assert_equal 1, confirmations_for(row)
+  end
+
+  test "one failing row does not stop the backfill and stays owed" do
+    signup("bad@example.com")
+    signup("good@example.com")
+    real = Studio::Email.method(:deliver)
+    flaky = lambda do |*args, to:, **kw|
+      raise "outbox down" if to == "bad@example.com"
+
+      real.call(*args, to: to, **kw)
+    end
+    result = Studio::Email.stub(:deliver, flaky) { DropSignup.send_missing_confirmations! }
+    assert_equal({ queued: 1, skipped: 0, failed: 1 }, result)
+    assert_nil DropSignup.find_by(email: "bad@example.com").confirmation_sent_at
+  end
+
   # --- announcement claim -----------------------------------------------------
 
   # Two holders of the SAME row, both loaded before either claimed: what a
