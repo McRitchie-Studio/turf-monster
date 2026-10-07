@@ -2395,15 +2395,15 @@ class ContestsController < ApplicationController
       return "We couldn't verify your USDC balance right now — please try again in a moment."
     end
 
-    balance_cents = (balance_info.dig("value", "uiAmount").to_f * 100).round
+    balance_units = balance_info.dig("value", "amount").to_i # raw base units; integers on both sides below
     Rails.logger.info(
       "[ContestsController#insufficient_usdc_error] USDC balance read " \
-      "ata=#{ata_b58} user=#{creator.id} balance_cents=#{balance_cents} prize_cents=#{prize_cents}"
+      "ata=#{ata_b58} user=#{creator.id} balance_units=#{balance_units} prize_cents=#{prize_cents}"
     )
-    return nil if balance_cents >= prize_cents
+    return nil if balance_units >= Solana::Config.cents_to_base_units(prize_cents)
 
     "Insufficient USDC: prize pool needs $#{format('%.2f', prize_cents / 100.0)}, " \
-      "your wallet has $#{format('%.2f', balance_cents / 100.0)}. " \
+      "your wallet has #{helpers.dollars(Solana::Config.base_units_to_dollars(balance_units).floor(2))}. " \
       "Top up or pick a smaller tier."
   end
 

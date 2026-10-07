@@ -301,8 +301,8 @@ class Contest < ApplicationRecord
     entries.where(status: [:active, :complete]).count * entry_fee_cents
   end
 
-  def pool_dollars
-    pool_cents / 100.0
+  def pool_base_units
+    Solana::Config.cents_to_base_units(pool_cents)
   end
 
   # Contest tiers. All at $19 entry fee.
@@ -758,7 +758,7 @@ class Contest < ApplicationRecord
   def onchain_params
     fee_cents  = entry_fee_cents.to_i
     guaranteed = guaranteed_prize_cents
-    payout_amounts = payouts.values.map { |c| Solana::Config.dollars_to_lamports(c / 100.0) }
+    payout_amounts = payouts.values.map { |c| Solana::Config.cents_to_base_units(c) }
 
     # v0.16: per-currency entry-fee schedule. Index = currency_idx into the
     # vault's accepted_currencies registry: slot 0 = USDC, slot 1 = USDT.
@@ -766,7 +766,7 @@ class Contest < ApplicationRecord
     # amount in both slots. The array is IMMUTABLE after create_contest —
     # contests created before slot 1 was populated (2026-06-10) have a zero
     # USDT fee on-chain forever and stay USDC-only (accepts_usdt: false).
-    fee_lamports = Solana::Config.dollars_to_lamports(fee_cents / 100.0)
+    fee_lamports = Solana::Config.cents_to_base_units(fee_cents)
     entry_fee_by_currency = Array.new(16, 0)
     entry_fee_by_currency[0] = fee_lamports # USDC
     entry_fee_by_currency[1] = fee_lamports # USDT
@@ -775,7 +775,7 @@ class Contest < ApplicationRecord
       entry_fee_by_currency: entry_fee_by_currency,
       max_entries:           max_entries || format_config[:max_entries],
       payout_amounts:        payout_amounts,
-      prize_pool:            Solana::Config.dollars_to_lamports(guaranteed / 100.0),
+      prize_pool:            Solana::Config.cents_to_base_units(guaranteed),
       season_id:             season_id || SeasonConfig.current_season_id,
       # Derived lock (v0.17): mirror #locks_at → on-chain lock_timestamp.
       # nil → 0 = no scheduled lock (manual-only).
@@ -795,7 +795,7 @@ class Contest < ApplicationRecord
         wallet: entry.user.solana_address,
         entry_num: entry.entry_number || 0,
         rank: entry.rank || 0,
-        payout: Solana::Config.dollars_to_lamports(entry.payout_cents / 100.0)
+        payout: Solana::Config.cents_to_base_units(entry.payout_cents)
       }
     end.select { |w| w[:wallet].present? }
 

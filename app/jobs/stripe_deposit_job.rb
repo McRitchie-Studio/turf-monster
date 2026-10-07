@@ -44,7 +44,7 @@ class StripeDepositJob < ApplicationJob # parked: FiatRailsParked, docs/FIAT_RAI
     end
 
     vault = Solana::Vault.new
-    amount_lamports = Solana::Config.dollars_to_lamports(amount_cents / 100.0)
+    amount_lamports = Solana::Config.cents_to_base_units(amount_cents)
 
     # Ensure user has both a UserAccount PDA (stats + seeds + username) and
     # a USDC ATA (where the funds will land). Only the claim winner reaches here.

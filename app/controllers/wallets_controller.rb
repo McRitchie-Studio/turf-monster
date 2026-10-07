@@ -19,10 +19,8 @@ class WalletsController < ApplicationController # stripe_deposit parked: FiatRai
   end
 
   def stripe_deposit
-    amount_dollars = params[:amount].to_f
-    return redirect_to wallet_path, alert: "Amount must be between $1 and $500" unless amount_dollars >= 1 && amount_dollars <= 500
-
-    amount_cents = (amount_dollars * 100).to_i
+    amount_cents = Cents.from_dollars(params[:amount])
+    return redirect_to wallet_path, alert: "Amount must be between $1 and $500" unless amount_cents.between?(1_00, 500_00)
 
     rescue_and_log(target: current_user) do
       session = Stripe::Checkout::Session.create(
@@ -61,13 +59,12 @@ class WalletsController < ApplicationController # stripe_deposit parked: FiatRai
     # and couldn't complete a self-custodied withdraw anyway — defense in depth.
     return redirect_to account_path, alert: "Withdrawals are disabled while acting as another user." if impersonating?
 
-    amount_dollars   = params[:amount].to_f
+    amount_cents     = Cents.from_dollars(params[:amount])
+    amount_dollars   = BigDecimal(amount_cents) / 100
     destination_info = params[:destination_info].to_s.strip
     return redirect_to wallet_path, alert: "Invalid amount" if amount_dollars <= 0
     return redirect_to wallet_path, alert: "Tell us where to send your money."  if destination_info.blank?
     return redirect_to wallet_path, alert: "Destination info too long (max 500 chars)." if destination_info.length > 500
-
-    amount_cents = (amount_dollars * 100).to_i
 
     rescue_and_log(target: current_user) do
       raise "No wallet connected" unless current_user.solana_connected?
@@ -86,9 +83,10 @@ class WalletsController < ApplicationController # stripe_deposit parked: FiatRai
       # funds (either bouncing the TX with rent cost, or — for the bot's
       # ATA — draining the bot). The :approve action re-checks too.
       onchain = Solana::Vault.new.sync_balance(current_user.solana_address)
-      available_dollars = onchain&.dig(:balance_dollars).to_f
-      if amount_dollars > available_dollars
-        raise "Withdrawal exceeds on-chain balance ($#{format('%.2f', available_dollars)} available)"
+      # Compared in base units, both sides integers.
+      available = onchain&.dig(:balance).to_i
+      if Solana::Config.cents_to_base_units(amount_cents) > available
+        raise "Withdrawal exceeds on-chain balance (#{helpers.dollars(Solana::Config.base_units_to_dollars(available))} available)"
       end
 
       # Store the operator-facing routing info in metadata. Stage 1
@@ -124,7 +122,7 @@ class WalletsController < ApplicationController # stripe_deposit parked: FiatRai
       raise "No wallet connected" unless current_user.solana_connected?
 
       vault = Solana::Vault.new
-      amount_lamports = Solana::Config.dollars_to_lamports(10.0) # $10 USDC
+      amount_lamports = Solana::Config.cents_to_base_units(10_00) # $10 USDC
       vault.ensure_ata(current_user.solana_address, mint: Solana::Config::USDC_MINT)
       result = vault.fund_user(current_user.solana_address, amount_lamports)
 

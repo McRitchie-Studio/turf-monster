@@ -47,11 +47,12 @@ class TransactionLogsController < ApplicationController
         # OPSEC-031: re-check balance at approve time. The user's USDC ATA
         # may have drained between request submission and approval (e.g.
         # the user spent USDC entering a contest in between).
-        amount_dollars = txn.amount_cents / 100.0
+        # Compared in base units, both sides integers.
+        amount_dollars = BigDecimal(txn.amount_cents) / 100
         onchain = Solana::Vault.new.sync_balance(txn.user.solana_address)
-        available_dollars = onchain&.dig(:balance_dollars).to_f
-        if amount_dollars > available_dollars
-          raise "Withdrawal exceeds current ATA balance ($#{format('%.2f', available_dollars)} available; user may have spent down since request)"
+        available = onchain&.dig(:balance).to_i
+        if Solana::Config.cents_to_base_units(txn.amount_cents) > available
+          raise "Withdrawal exceeds current ATA balance (#{helpers.dollars(Solana::Config.base_units_to_dollars(available))} available; user may have spent down since request)"
         end
 
         # No on-chain TX — operator off-ramps via Kraken/Coinbase + wires

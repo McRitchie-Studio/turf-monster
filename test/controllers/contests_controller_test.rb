@@ -3082,6 +3082,24 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     assert_empty vault.create_contest_calls
   end
 
+  # The funding check compares base units: one unit short of tiny's $45 pool
+  # blocks. Rounding the uiAmount (44.999999 * 100 rounds to 4500) let it
+  # through to a create the program would refuse.
+  test "create blocks a balance one base unit short of the prize pool" do
+    log_in_as(admin_phantom)
+    vault = FakeVault.new(usdc_balance: 44.999999)
+
+    Solana::Vault.stub :new, vault do
+      post contests_path,
+        params: { contest: { name: "Blockhash Cup Short", slate_id: slates(:one).id, contest_type: "tiny" } },
+        as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_match(/Insufficient USDC/i, JSON.parse(response.body)["error"])
+    assert_empty vault.create_contest_calls
+  end
+
   test "create blocks before Phantom signing when the current on-chain season is unavailable" do
     log_in_as(admin_phantom)
     SeasonConfig.set_current!(7)

@@ -89,6 +89,22 @@ class AccountsControllerTest < ActionDispatch::IntegrationTest
     assert payload[:loggedIn]
   end
 
+  # The eligibility hint floors like the server's funding check
+  # (Entries::ManagedEntry.dollars_to_cents): a wallet holding $18.999 cannot
+  # fund a $19.00 fee, so it must not read as 1900 cents.
+  test "client_session_payload floors a sub-cent balance instead of rounding it up" do
+    user = users(:sam)
+    ctl = ApplicationController.new
+    ctl.instance_variable_set(:@wallet_balances, { usdc: 18.999, usdt: 2.01, sol: 0 })
+    ctl.define_singleton_method(:current_user)     { user }
+    ctl.define_singleton_method(:onchain_session?) { true }
+
+    payload = Rails.stub(:cache, ActiveSupport::Cache::MemoryStore.new) { ctl.send(:client_session_payload) }
+
+    assert_equal 1899, payload[:usdcCents]
+    assert_equal 201,  payload[:usdtCents]
+  end
+
   test "session_state emits null usdcCents/usdtCents when preload nil'd (flake signal)" do
     # client_session_payload reads its on-chain fields CACHE-FIRST. With no
     # preloaded @wallet_balances and a cold cache, usdcCents / usdtCents emit

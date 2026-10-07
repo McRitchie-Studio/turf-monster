@@ -59,7 +59,7 @@ class AccountsCashOutButtonTest < ActionDispatch::IntegrationTest
     log_in_as(@managed)
     # Stub the Solana RPC so the page renders without hitting devnet.
     fake_vault = Object.new
-    fake_vault.define_singleton_method(:sync_balance) { |_addr| { balance_dollars: 50.0 } }
+    fake_vault.define_singleton_method(:sync_balance) { |_addr| { balance: 50_000_000, balance_dollars: BigDecimal("50") } }
     Solana::Vault.stub :new, fake_vault do
       get wallet_path
     end

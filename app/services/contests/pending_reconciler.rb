@@ -183,7 +183,7 @@ module Contests
     end
 
     def onchain_prize_pool_dollars(contest)
-      @vault.read_contest(contest.slug)&.dig(:prize_pool_dollars)
+      @vault.read_contest(contest.slug)&.dig(:prize_pool_dollars)&.to_s("F")
     rescue StandardError => e
       Rails.logger.warn("[contest_reconciler][rpc] read_contest failed slug=#{contest.slug} #{e.message}")
       nil

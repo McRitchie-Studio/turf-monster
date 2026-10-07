@@ -104,7 +104,7 @@
                 <% if meta["settlements"] %>
                   <div class="mt-2 text-xs text-muted">
                     <%= meta["settlements"].size %> settlement(s),
-                    total payout: $<%= (meta["settlements"].sum { |s| s["payout"].to_i } / 1_000_000.0).round(2) %>
+                    total payout: <%= dollars(Solana::Config.base_units_to_dollars(meta["settlements"].sum { |s| s["payout"].to_i })) %>
                   </div>
                 <% end %>
                 <% case tx.tx_type %>
