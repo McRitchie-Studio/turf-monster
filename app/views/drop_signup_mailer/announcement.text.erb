@@ -1,0 +1,15 @@
+<%= @label %> is live.
+
+The slate you asked about just opened. Pick your teams: every point they score counts, times their multiplier, and underdogs score big.
+
+<% if @variant == :new_player -%>
+The link below creates your account with <%= @signup.email %> and takes you to the slate.
+<% else -%>
+Make your picks before the first game locks.
+<% end -%>
+
+<%= @primary_label %>: <%= @primary_url %>
+
+---
+You're getting this because <%= @signup.email %> asked to hear when <%= @label %> drops.
+Unsubscribe: <%= @unsubscribe_url %>

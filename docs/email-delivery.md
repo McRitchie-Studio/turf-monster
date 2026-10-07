@@ -86,6 +86,38 @@ bounds at all** — it re-enqueues every unsent row in the table, months-old
 "you won" mail included, and that mail cannot be unsent. Let the sweep drain a
 backlog; reach for `resend_unsent!` only after counting what it would send.
 
+## Slate-drop emails (DropSignupMailer)
+
+The `/turf-monster-v2` notify-me list (`drop_signups`) gets two emails per
+address per drop, each in a new-player and an existing-account variant chosen
+when the outbox renders the mail, not when it is queued:
+
+| Email | Sent when | Guard |
+|-------|-----------|-------|
+| `confirmation` — "You're on the list for Weeks 7–9" | on an accepted `POST /drop-signups` (never the honeypot) | `confirmation_sent_at`, claimed by a conditional UPDATE before the outbox row is written |
+| `announcement` — "Weeks 7–9 is live" | only when an admin presses Send on `/admin/drop_signups/announcement` (type the count; "Send early" before `NextSlateDrop.drops_at`) | `notified_at`, claimed the same way; `announcement_delivery_id` records the outbox row |
+
+- **New player** (no account holds the address): the CTA is a Studio::Link magic
+  link (`/l/<token>?reference=<signup source>`) into the real create-or-login
+  flow, `age_attested: false`, `linkable` = the signup. It expires after
+  `DropSignupMailer::LINK_TTL` (7 days for the confirmation, 48 hours for the
+  announcement; the app's sign-in default is untouched); an expired one lands on `/signin` with
+  the address prefilled. The new account's `users.reference` is the signup's
+  source.
+- **Existing player**: no sign-up language; "Get ready" to `/turf-monster-v2#how-to-play`
+  and "View contests", or "Play Turf Monster" to the next open NFL contest
+  (`NextContest.pick`) with `?reference=email-drop-w7`.
+- **Unsubscribe**: every message carries a signed one-click link
+  (`/drop-signups/unsubscribe/<signed id>`) and `List-Unsubscribe` +
+  `List-Unsubscribe-Post` headers. The GET auto-submits (scanner-safe); the POST
+  sets `unsubscribed_at`, and an unsubscribed row is never claimed again.
+- **Abuse bound**: `drop_signups/ip` (10/h) and `drop_signups/email` (5/h)
+  throttle the form, and the claim caps the confirmation at one per address per
+  drop whatever the IP. Previews: `/rails/mailers/drop_signup_mailer`.
+- **Images**: none today. `DropSignupMailer.hero_image_resolver` (nil) is the seam
+  for the planned email-image system: a callable `(kind, variant, signup)` that
+  returns `{ url:, alt: }`, drawn by the `branded_mailer` banner slot.
+
 ## Cutover Checklist
 
 Use the shared checklist in

@@ -1,0 +1,18 @@
+<%# The email's call to action: a bulletproof button (the Magic Link CTA's
+    shape) and, when the mail has one, a quieter text link under it. Locals:
+    label, url, secondary_label, secondary_url (both optional). %>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto;">
+  <tr>
+    <td align="center" bgcolor="<%= Studio.theme_primary %>" style="border-radius:10px;">
+      <a href="<%= url %>" data-test="drop-email-primary"
+         style="display:inline-block;padding:16px 40px;font-size:17px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:10px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+        <%= label %> &rarr;
+      </a>
+    </td>
+  </tr>
+</table>
+<% if local_assigns[:secondary_url].present? %>
+  <p style="margin:18px 0 0;font-size:15px;line-height:1.5;text-align:center;">
+    <a href="<%= secondary_url %>" data-test="drop-email-secondary" style="color:#3d8b40;font-weight:600;"><%= secondary_label %></a>
+  </p>
+<% end %>

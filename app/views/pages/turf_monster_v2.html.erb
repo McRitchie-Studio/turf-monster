@@ -283,7 +283,8 @@
       the other. Four steps: choose teams, set up the account, points times
       Turf Score, the leaderboard; the copy carries no
       lock timing and no payout timing, for the reasons v1's own comments give. %>
-  <section class="rounded-3xl bg-surface border border-subtle px-6 py-12 md:px-12 md:py-16" data-test="v2-how-to-play">
+  <%# id="how-to-play": the drop emails deep-link here ("Get ready: how to play"). %>
+  <section id="how-to-play" class="scroll-mt-24 rounded-3xl bg-surface border border-subtle px-6 py-12 md:px-12 md:py-16" data-test="v2-how-to-play">
     <div class="grid items-center gap-12 md:grid-cols-2">
       <figure class="order-2 md:order-1 flex flex-col items-center">
         <%= render layout: "pages/phone_frame" do %>

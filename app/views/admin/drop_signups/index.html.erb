@@ -8,10 +8,13 @@
     <div>
       <h1 class="text-heading text-2xl font-bold mb-1">Drop Signups</h1>
       <p class="text-secondary text-sm">
-        Visitors who asked for one email when a slate drops. Newest first<% if @total > Admin::DropSignupsController::PAGE_LIMIT %>, the latest <%= Admin::DropSignupsController::PAGE_LIMIT %> shown<% end %>.
+        Visitors who asked to hear when a slate drops. Each gets one confirmation on signup and one announcement when an admin sends it. Newest first<% if @total > Admin::DropSignupsController::PAGE_LIMIT %>, the latest <%= Admin::DropSignupsController::PAGE_LIMIT %> shown<% end %>.
       </p>
     </div>
-    <%= link_to "Export CSV", admin_drop_signups_path(slate: @slate_key, format: :csv), class: "btn btn-outline btn-sm" %>
+    <div class="flex flex-wrap gap-2">
+      <%= link_to "Send drop announcement", admin_drop_signups_announcement_path, class: "btn btn-primary btn-sm", data: { test: "drop-signups-announce" } %>
+      <%= link_to "Export CSV", admin_drop_signups_path(slate: @slate_key, format: :csv), class: "btn btn-outline btn-sm" %>
+    </div>
   </div>
 
   <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -38,20 +41,24 @@
           <th class="text-left px-4 py-3">Email</th>
           <th class="text-left px-3 py-3">Source</th>
           <th class="text-left px-3 py-3">Account</th>
+          <th class="text-left px-3 py-3">Confirmed</th>
           <th class="text-left px-3 py-3">Notified</th>
+          <th class="text-left px-3 py-3">Unsubscribed</th>
           <th class="text-right px-4 py-3">Signed up</th>
         </tr>
       </thead>
       <tbody>
         <% if @signups.empty? %>
-          <tr><td colspan="5" class="px-4 py-6 text-center text-muted">No signups for this drop yet.</td></tr>
+          <tr><td colspan="7" class="px-4 py-6 text-center text-muted">No signups for this drop yet.</td></tr>
         <% end %>
         <% @signups.each do |s| %>
           <tr class="border-b border-subtle/40 hover:bg-inset transition">
             <td class="px-4 py-3 text-heading font-mono text-xs"><%= s.email %></td>
             <td class="px-3 py-3 text-secondary"><%= s.source || "—" %></td>
             <td class="px-3 py-3 text-secondary"><%= s.user&.display_name || "—" %></td>
+            <td class="px-3 py-3 text-secondary"><%= s.confirmation_sent_at ? l(s.confirmation_sent_at, format: :short) : "—" %></td>
             <td class="px-3 py-3 text-secondary"><%= s.notified_at ? l(s.notified_at, format: :short) : "—" %></td>
+            <td class="px-3 py-3 text-secondary"><%= s.unsubscribed_at ? l(s.unsubscribed_at, format: :short) : "—" %></td>
             <td class="px-4 py-3 text-right text-secondary whitespace-nowrap" title="<%= s.created_at.utc.iso8601 %>"><%= time_ago_in_words(s.created_at) %> ago</td>
           </tr>
         <% end %>

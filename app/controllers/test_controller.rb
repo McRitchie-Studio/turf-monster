@@ -765,6 +765,18 @@ class TestController < ApplicationController
     render json: { ok: true, held: slugs }
   end
 
+  # Put `emails` on the CURRENT drop's notify list for
+  # e2e/admin_drop_announcement.spec.js, which needs owed recipients without
+  # driving the public form (whose state flips at the drop). Rows go through
+  # DropSignup.register, the form's own write path; no confirmation is queued.
+  # Answers the list's announceable count after the write.
+  def seed_drop_signups
+    Array(params[:emails]).first(20).each do |email|
+      DropSignup.register(email: email, slate_key: NextSlateDrop::SLATE_KEY, source: "e2e")
+    end
+    render json: { ok: true, announceable: DropSignup.announceable(NextSlateDrop::SLATE_KEY).count }
+  end
+
   # Puts the /turf-monster-v2 headline experiment in its shipped shape and
   # running (PageExperimentSeeds, reset: true), for e2e/page_experiments.spec.js.
   # Counts are left alone: the spec reads its own deltas.

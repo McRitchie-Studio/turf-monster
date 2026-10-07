@@ -282,6 +282,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_07_000000) do
   end
 
   create_table "drop_signups", force: :cascade do |t|
+    t.bigint "announcement_delivery_id"
+    t.datetime "confirmation_sent_at"
     t.datetime "created_at", null: false
     t.string "email", null: false
     t.string "experiment_slug", limit: 64
@@ -289,10 +291,12 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_07_000000) do
     t.datetime "notified_at"
     t.string "slate_key", null: false
     t.string "source"
+    t.datetime "unsubscribed_at"
     t.datetime "updated_at", null: false
     t.string "user_agent"
     t.bigint "user_id"
     t.string "variant_key", limit: 40
+    t.index ["announcement_delivery_id"], name: "index_drop_signups_on_announcement_delivery_id"
     t.index ["created_at"], name: "index_drop_signups_on_created_at"
     t.index ["experiment_slug", "variant_key"], name: "index_drop_signups_on_experiment_slug_and_variant_key"
     t.index ["slate_key", "email"], name: "index_drop_signups_on_slate_key_and_email", unique: true
@@ -1208,6 +1212,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_07_000000) do
   add_foreign_key "contest_slates", "slates"
   add_foreign_key "contests", "slates"
   add_foreign_key "contests", "users"
+  add_foreign_key "drop_signups", "email_deliveries", column: "announcement_delivery_id", on_delete: :nullify
   add_foreign_key "drop_signups", "users", on_delete: :nullify
   add_foreign_key "email_deliveries", "users"
   add_foreign_key "entries", "contests"
