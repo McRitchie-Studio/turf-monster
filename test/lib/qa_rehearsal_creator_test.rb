@@ -86,8 +86,8 @@ class QaRehearsalCreatorTest < ActiveSupport::TestCase
 
   # THE MECHANISM, demonstrated rather than argued. Build the row as production
   # holds it — the creator on username `alex`, so slug `alex-<id>` — then let the
-  # seed apply the swap, and watch the slug the old lookup used move.
-  test "the swap rewrites the slug the creator used to be found by" do
+  # seed apply the swap, and check the creator is still found by its address.
+  test "the swap leaves the creator found by its address" do
     creator = User.create!(email: Driver::CREATOR_EMAIL, name: "Team McRitchie",
                            username: "alex", role: "admin",
                            web3_solana_address: "8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd")
@@ -99,10 +99,18 @@ class QaRehearsalCreatorTest < ActiveSupport::TestCase
     capture_io { seed_core_users! }
 
     creator.reload
-    refute_equal was, creator.slug, "the slug did not move, so this test no longer covers the defect"
-    assert_equal "mcritchie-#{creator.id}", creator.slug
     assert_equal creator.id, User.find_by(email: Driver::CREATOR_EMAIL).id,
-                 "the address still finds the creator after the rename that broke the slug"
-    assert_nil User.find_by(slug: was), "the slug the driver used to key on now finds nobody"
+                 "the address still finds the creator after the rename"
+    # studio-engine's Sluggable writes the slug once, at create, from the release
+    # that ships rename_slug! (task slugs-set-once-then-cascade); an older engine
+    # moved it on the swap. Both hold until the lock carries that release (task
+    # turf-slug-tests-both-engines). Either way the driver keys on the address.
+    if Sluggable.method_defined?(:rename_slug!)
+      assert_equal was, creator.slug, "the slug is written once, at create"
+    else
+      refute_equal was, creator.slug, "the slug did not move, so this test no longer covers the defect"
+      assert_equal "mcritchie-#{creator.id}", creator.slug
+      assert_nil User.find_by(slug: was), "the slug the driver used to key on now finds nobody"
+    end
   end
 end
