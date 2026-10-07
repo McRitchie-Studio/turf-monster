@@ -35,9 +35,13 @@ class SolanaHealthUnauthorizedRpcTest < ActiveSupport::TestCase
       output = run_health_task(rpc_url: endpoint.url)
     end
 
-    # Step 2 reports the real cause, by class, instead of raising it.
+    # Step 2 reports the real cause, by class, instead of raising it. Up to
+    # solana-studio 0.12.1 the gem raised the raw JSON::ParserError; after its
+    # status-first fix (task rpc-429-plaintext-retry) it raises
+    # Solana::Client::HttpError naming the non-JSON body and the HTTP 401.
+    # Either names the actual failure, so this holds across the lock bump.
     assert_match(/getGenesisHash failed/, output)
-    assert_match(/JSON::ParserError/, output,
+    assert_match(/JSON::ParserError|Solana::Client::HttpError: RPC response is not JSON \(HTTP 401\)/, output,
                  "the operator needs the ACTUAL failure named — a non-JSON body from an " \
                  "unauthorized provider, not a generic 'RPC error'")
 

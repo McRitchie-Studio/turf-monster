@@ -14,6 +14,8 @@ class EntriesWalletBackfillTest < ActiveSupport::TestCase
     @user = User.create!(email: "backfill_#{SecureRandom.hex(4)}@example.com",
                          web2_solana_address: @web2, web3_solana_address: @web3)
     @accounts = {}
+    @reads = Hash.new(0)
+    @pauses = []
   end
 
   test "reads the entering wallet off the ContestEntry account" do
@@ -67,6 +69,67 @@ class EntriesWalletBackfillTest < ActiveSupport::TestCase
     assert_nil entry.reload.wallet_address
   end
 
+  # Helius answers a rate limit with HTTP 429 and a plain-text body. On
+  # solana-studio 0.12 that raises JSON::ParserError; from the gem fix on it
+  # raises RpcError code 429 once the client's own retries run out. Either way
+  # the row is re-read once, after a pause, before it is skipped.
+  test "a 429 then success resolves the row as :chain" do
+    entry = legacy_entry(from: @web2)
+    @accounts[entry.onchain_entry_id] = [ JSON::ParserError.new("unexpected character: 'Too'"), account(@web2, 0) ]
+
+    stats = run_backfill
+
+    assert_equal @web2, entry.reload.wallet_address
+    assert_equal 1, stats[:chain]
+    assert_empty stats[:unreadable]
+    assert_equal 2, @reads[entry.onchain_entry_id]
+    assert_equal [ Entries::WalletBackfill::REREAD_PAUSE ], @pauses
+  end
+
+  test "an RpcError 429 then success resolves the row as :chain" do
+    entry = legacy_entry(from: @web2)
+    @accounts[entry.onchain_entry_id] = [ Solana::Client::RpcError.new("HTTP 429 from RPC: Too many requests", code: 429),
+                                          account(@web2, 0) ]
+
+    stats = run_backfill
+
+    assert_equal @web2, entry.reload.wallet_address
+    assert_equal 1, stats[:chain]
+  end
+
+  test "an answer with no value key then success resolves the row" do
+    entry = legacy_entry(from: @web3)
+    @accounts[entry.onchain_entry_id] = [ :no_value, nil ]
+
+    stats = run_backfill
+
+    assert_equal @web3, entry.reload.wallet_address
+    assert_equal 1, stats[:derived]
+  end
+
+  test "a row unreadable twice is skipped after exactly one re-read" do
+    entry = legacy_entry(from: @web2)
+    rate_limited = Solana::Client::RpcError.new("HTTP 429 from RPC: Too many requests", code: 429)
+    @accounts[entry.onchain_entry_id] = [ rate_limited, rate_limited, account(@web2, 0) ]
+
+    stats = run_backfill
+
+    assert_equal [ entry.id ], stats[:unreadable]
+    assert_nil entry.reload.wallet_address
+    assert_equal 2, @reads[entry.onchain_entry_id]
+    assert_equal 1, @pauses.size
+  end
+
+  test "a readable row is read once and never paused for" do
+    entry = legacy_entry(from: @web2)
+    @accounts[entry.onchain_entry_id] = account(@web2, 0)
+
+    run_backfill
+
+    assert_equal 1, @reads[entry.onchain_entry_id]
+    assert_empty @pauses
+  end
+
   test "a row that already has a wallet is never read" do
     entry = Entry.create!(user: @user, contest: @contest, status: "active", score: 0,
                           **EnteredOnchain.attrs(@contest, @web2))
@@ -97,13 +160,23 @@ class EntriesWalletBackfillTest < ActiveSupport::TestCase
     { "data" => [ Base64.strict_encode64(data), "base64" ] }
   end
 
+  # The fake client answers getAccountInfo only. An Array of answers is served
+  # in order, one per read; an exception in it is raised, :no_value answers
+  # without the "value" key.
   def run_backfill
     accounts = @accounts
+    reads = @reads
+    pauses = @pauses
     client = Object.new
     client.define_singleton_method(:get_account_info) do |pubkey, **_kw|
-      answer = accounts.fetch(pubkey) { raise "unexpected read of #{pubkey}" }
+      planned = accounts.fetch(pubkey) { raise "unexpected read of #{pubkey}" }
+      answer = planned.is_a?(Array) ? planned.fetch(reads[pubkey]) : planned
+      reads[pubkey] += 1
+      raise answer if answer.is_a?(Exception)
+
       answer == :no_value ? {} : { "value" => answer }
     end
-    Entries::WalletBackfill.run(contest: @contest, vault: Solana::Vault.new(client: client))
+    Entries::WalletBackfill.run(contest: @contest, vault: Solana::Vault.new(client: client),
+                                sleeper: ->(seconds) { pauses << seconds })
   end
 end
