@@ -348,19 +348,14 @@ class ContestsEntryStillConfirmingTest < ActionDispatch::IntegrationTest
     assert @entry.reload.abandoned?
   end
 
-  test "an entry abandoned with a signed wire pending keeps its slot" do
-    submitted_ptx(age: 30.seconds)
-
-    @entry.update!(status: :abandoned)
-
-    assert_equal 0, @entry.reload.entry_number
-  end
-
   test "PROBE: a landed wire on a cart abandoned mid-confirm never fails, and the new cart stays refused" do
     ptx = submitted_ptx(age: 30.seconds)
-    # The shape the probe reached through the released slot: no entry_number
-    # to derive the PDA from. Written past the model guard on purpose.
-    @entry.update_columns(status: Entry.statuses[:abandoned], entry_number: nil)
+    # The shape the probe reached: abandoned with the slot released, so no
+    # entry_number to derive the PDA from. clear_picks now refuses this
+    # transition while the wire is pending; the row is built directly to prove
+    # recovery holds even if it arises some other way.
+    @entry.update!(status: :abandoned)
+    assert_nil @entry.reload.entry_number
 
     body = Solana::TxVerifier.stub :verify!, true do
       post_recover(ptx, statuses: { ptx.tx_signature => landed })

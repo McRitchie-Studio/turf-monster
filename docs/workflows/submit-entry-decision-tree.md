@@ -228,7 +228,7 @@ prepare_entry
 |---|---|
 | not an `onchain_session?` → 403 | `#prepare_entry` at `:1003` |
 | full / wrong pick count / started game | `#prepare_entry` at `:1036-1043` |
-| `Entry#assign_onchain_entry_number!` | `#prepare_entry` at `:1052`; definition `app/models/entry.rb:336-351` |
+| `Entry#assign_onchain_entry_number!` | `#prepare_entry` at `:1052`; definition `app/models/entry.rb:327-342` |
 | `Solana::Vault#ensure_user_account` | `#prepare_entry` at `app/controllers/contests_controller.rb:1061` |
 | username codes 6020-6022 → friendly message, in `Solana::ErrorInterpreter.interpret` | `app/services/solana/error_interpreter.rb:184-196` |
 | ATA for the SELECTED currency — `Solana::Vault#ensure_ata` | `#prepare_entry` at `app/controllers/contests_controller.rb:1092` |
@@ -351,7 +351,9 @@ and every such case except #6 self-heals automatically.
   fresh cart cannot wire a second payment while the first confirms. And
   `#clear_picks` itself answers the same 409 while the cart's own signed
   submit is pending, so the paying cart keeps the `entry_number` its PDA is
-  derived from (`Entry#release_slot_if_abandoned` keeps it too).
+  derived from. Should an abandoned strand arise anyway, recovery answers
+  "processing" on the nil slot and `Entries::OnchainReconciler` probes every
+  slot for it.
 - **Safety**: `ContestsController#recover_pending_entry` double-checks ownership —
   initiator address (`app/controllers/contests_controller.rb:1214`) AND
   `entry.user_id` (`:1223`), Lazarus #1; a retry never collides because `assign_onchain_entry_number!`

@@ -245,17 +245,8 @@ class Entry < ApplicationRecord
     return unless status_changed? && abandoned?
     return if entry_number.nil?
     return if onchain_tx_signature.present?
-    # The PDA a signed, unverdicted entry wire pays into is derived from this
-    # number. Releasing it strands that payment unverifiable; keep it until the
-    # wire has a verdict (recovery-never-fails-landed-entries).
-    return if signed_entry_wire_pending?
 
     self.entry_number = nil
-  end
-
-  def signed_entry_wire_pending?
-    persisted? && PendingTransaction.where(target: self, tx_type: "enter_contest", status: "submitted")
-                                    .where.not(tx_signature: [nil, ""]).exists?
   end
 
   def update_slug_with_id

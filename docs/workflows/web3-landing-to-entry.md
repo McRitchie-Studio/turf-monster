@@ -308,10 +308,10 @@ Phantom must be installed in the browser or available via mobile deep link.
        was built — was signed by the user's wallet and wrote the derived PDA
        (`:2737-2742`).
      - `entry.confirm_onchain!(tx_signature:, entry_pda:)` (`:2745`) →
-       `app/models/entry.rb:271-301`. Inside a `user.with_lock` transaction
-       (`:278`) it re-checks `assert_enterable!` (`:279`), refuses an entry with
-       no verified signature (`:289-291`), then `update!(status: :active,
-       onchain_tx_signature:, onchain_entry_id:)` (`:293-297`). The re-check
+       `app/models/entry.rb:262-292`. Inside a `user.with_lock` transaction
+       (`:269`) it re-checks `assert_enterable!` (`:270`), refuses an entry with
+       no verified signature (`:280-282`), then `update!(status: :active,
+       onchain_tx_signature:, onchain_entry_id:)` (`:284-288`). The re-check
        judges its two TIME gates (contest lock, team kickoff) as of the moment
        the pre-flight passed, not now: the money has already moved, so a team
        that kicked off during the broadcast must not strand a paid entry. Crash
