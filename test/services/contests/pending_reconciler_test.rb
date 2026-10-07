@@ -147,19 +147,82 @@ class Contests::PendingReconcilerTest < ActiveSupport::TestCase
     assert_equal 1, stats[:skipped]
   end
 
-  test "an absent PDA on a row carrying a broadcast signature is FLAGGED, never deleted" do
-    contest = pending_contest(slug: "strand-has-sig", signature: "SigThatClaimsItLanded")
+  # ───────────────────────────────────────────────────────────────────────────
+  # PDA ABSENT, SIGNATURE RECORDED — ask the chain about the signature
+  # (contest-create-checks-before-delete). Deleted only on a confirmed miss.
+  # ───────────────────────────────────────────────────────────────────────────
+
+  # A signed row whose last write (the signature stamp) was `stamped_at`.
+  def signed_contest(slug, stamped_at: 30.minutes.ago)
+    pending_contest(slug: slug, signature: "Sig-#{slug}").tap do |c|
+      c.update_columns(updated_at: stamped_at)
+    end
+  end
+
+  def vault_with_status(slug, status)
+    FakeVault.new(account_infos: {}, signature_statuses: { "Sig-#{slug}" => status })
+  end
+
+  test "an absent PDA whose signature is NOT FOUND after the blockhash window is a confirmed miss: deleted" do
+    contest = signed_contest("strand-sig-missing")
 
     stats = with_pda_encoding do
-      Contests::PendingReconciler.run(older_than: 10.minutes, vault: vault_without_pda)
+      Contests::PendingReconciler.run(older_than: 10.minutes, vault: vault_with_status("strand-sig-missing", nil))
     end
 
-    assert Contest.exists?(slug: "strand-has-sig")
+    assert_not Contest.exists?(contest.id), "no PDA and a signature the chain never saw, long past its blockhash"
+    assert_equal 1, stats[:deleted]
+  end
+
+  test "an absent PDA whose signature FAILED on chain is deleted — the create cannot have landed" do
+    contest = signed_contest("strand-sig-failed")
+    status = { "err" => { "InstructionError" => [0, { "Custom" => 1 }] }, "confirmationStatus" => "finalized" }
+
+    stats = with_pda_encoding do
+      Contests::PendingReconciler.run(older_than: 10.minutes, vault: vault_with_status("strand-sig-failed", status))
+    end
+
+    assert_not Contest.exists?(contest.id)
+    assert_equal 1, stats[:deleted]
+  end
+
+  test "a signature NOT FOUND inside its blockhash window is left pending — it may still land" do
+    contest = signed_contest("strand-sig-young", stamped_at: 1.minute.ago)
+
+    stats = with_pda_encoding do
+      Contests::PendingReconciler.run(older_than: 10.minutes, vault: vault_with_status("strand-sig-young", nil))
+    end
+
+    assert_equal "pending", contest.reload.status, "the window is anchored on the stamp, not on created_at"
+    assert_nil contest.onchain_reconcile_flagged_at
+    assert_equal 1, stats[:skipped]
+  end
+
+  test "a signature that LANDED while the PDA reads absent is FLAGGED, never deleted" do
+    contest = signed_contest("strand-sig-landed")
+    status = { "err" => nil, "confirmationStatus" => "finalized" }
+
+    stats = with_pda_encoding do
+      Contests::PendingReconciler.run(older_than: 10.minutes, vault: vault_with_status("strand-sig-landed", status))
+    end
+
+    assert Contest.exists?(contest.id)
     assert_equal 1, stats[:flagged]
-    assert_not_nil contest.reload.onchain_reconcile_flagged_at
     log = ErrorLog.where(target_type: "Contest", target_id: contest.id).last
     assert_not_nil log, "a flagged strand must be findable by the query an operator runs"
-    assert_match(/SigThatClaimsItLanded/, log.message)
+    assert_match(/Sig-strand-sig-landed LANDED/, log.message)
+  end
+
+  test "a signature lookup that FAULTS never deletes — it is not evidence of a miss" do
+    contest = signed_contest("strand-sig-rpc-down")
+    vault = vault_without_pda
+    vault.client.define_singleton_method(:confirm_transaction) { |_sig| raise Solana::Client::RpcError, "HTTP 503" }
+
+    stats = with_pda_encoding { Contests::PendingReconciler.run(older_than: 10.minutes, vault: vault) }
+
+    assert Contest.exists?(contest.id)
+    assert_equal "pending", contest.reload.status
+    assert_equal 1, stats[:skipped]
   end
 
   test "a stored PDA that does not match the slug is FLAGGED, never deleted" do

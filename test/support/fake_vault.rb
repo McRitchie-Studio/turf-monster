@@ -141,9 +141,13 @@ class FakeVault
   # callback is skipped in test env, so tests invoke it directly). Records
   # the kwargs so tests can assert the entry_fee_by_currency schedule that
   # would hit the chain.
-  def create_contest_server_funded(contest_slug:, **kwargs)
+  #
+  # Calls `before_send:` with the signature first, as the real method does
+  # once its simulation passes, so the caller's write-ahead stamp is exercised.
+  def create_contest_server_funded(contest_slug:, before_send: nil, **kwargs)
     @server_funded_calls ||= []
     @server_funded_calls << { contest_slug: contest_slug, **kwargs }
+    before_send&.call("fake-create-#{contest_slug}")
     { tx_signature: "fake-create-#{contest_slug}", contest_pda: "cpda-#{contest_slug}" }
   end
 
