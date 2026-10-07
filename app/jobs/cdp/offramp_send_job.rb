@@ -49,7 +49,7 @@ module Cdp
     # deadline — leave the row in :sending for the phase-2 sweep/operator.
     VERIFY_GRACE = 10.minutes
 
-    USDC_BASE_UNITS_PER_USDC = 1_000_000 # 10**6
+    USDC_BASE_UNITS_PER_USDC = 1_000_000 # one USDC, 6 decimals
 
     def perform(ramp_id:)
       ramp = CdpRampTransaction.find_by(id: ramp_id)
