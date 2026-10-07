@@ -108,8 +108,10 @@ class ClientRoutedThroughConfigTest < ActiveSupport::TestCase
     source = File.read(root.join(FACTORY_LINE))
     constructions = source.scan(/Solana::Client\.new\([^)]*\)/)
 
-    assert_equal ["Solana::Client.new(rpc_url: rpc_url)"], constructions,
-      "Solana::Config must construct the client exactly once, forwarding its own endpoint."
+    # The wait budget rides along (solana-studio >= 0.12.3); the endpoint is
+    # still the factory's own.
+    assert_equal ["Solana::Client.new(rpc_url: rpc_url, wait_budget: wait_budget)"], constructions,
+      "Solana::Config must construct the client exactly once, forwarding its own endpoint and wait budget."
   end
 
   test "Config.client defaults to the configured server endpoint" do
