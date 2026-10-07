@@ -38,13 +38,21 @@
 #     limit destroy a funded contest's only row. Errors skip; the next sweep
 #     asks again.
 #
-#   UNRESOLVABLE → FLAG. Two rows must never be auto-deleted even with an absent
-#     PDA: one whose stored `onchain_contest_id` does not match the PDA derived
-#     from its slug (the identity is broken, so "absent" describes an address we
-#     cannot attribute to this row), and one carrying an `onchain_tx_signature`
-#     (something recorded a landed broadcast; a human reads the chain, not a
-#     sweeper). Flagged rows are stamped `onchain_reconcile_flagged_at`, alert
-#     once, and are then left alone.
+#   PDA ABSENT, SIGNATURE RECORDED → ASK THE CHAIN ABOUT THE SIGNATURE. A row
+#     carrying `onchain_tx_signature` was broadcast (finalize stamps it after
+#     its send; Contest#create_onchain! stamps it just before the server-funded
+#     send). It is deleted only on a CONFIRMED MISS: the signature failed on
+#     chain, or it is still absent from a history-searched getSignatureStatuses
+#     after its blockhash window lapsed (OnchainSendVerdict, the verdict the
+#     treasury and cash-out reconcilers read). A signature that LANDED with no
+#     PDA is flagged; one the chain cannot answer for yet is left for the next
+#     sweep (contest-create-checks-before-delete).
+#
+#   UNRESOLVABLE → FLAG. A row whose stored `onchain_contest_id` does not match
+#     the PDA derived from its slug is never auto-deleted even with an absent
+#     PDA (the identity is broken, so "absent" describes an address we cannot
+#     attribute to this row). Flagged rows are stamped
+#     `onchain_reconcile_flagged_at`, alert once, and are then left alone.
 #
 # GUARDRAIL — READ-ONLY ON CHAIN. This service never signs, never broadcasts,
 # never transfers, and never calls create_contest. It reads account state and
@@ -193,8 +201,18 @@ module Contests
     # should look first.
     def delete_or_flag!(contest, pda_b58)
       if contest.onchain_tx_signature.present?
-        return flag!(contest, "no Contest PDA at #{pda_b58}, but the row carries broadcast signature " \
-                              "#{contest.onchain_tx_signature} — READ the chain before removing anything")
+        case (verdict = signature_verdict(contest))
+        when :failed, :never_landed
+          Rails.logger.info("[contest_reconciler][miss] #{contest.slug} sig=#{contest.onchain_tx_signature} " \
+                            "verdict=#{verdict} — the create did not land")
+        when :landed
+          return flag!(contest, "no Contest PDA at #{pda_b58}, but broadcast signature " \
+                                "#{contest.onchain_tx_signature} LANDED — READ the chain before removing anything")
+        else # :ambiguous / :unknown — still landable, unindexed, or unreadable. Ask again next sweep.
+          Rails.logger.info("[contest_reconciler][skip] #{contest.slug} sig=#{contest.onchain_tx_signature} " \
+                            "verdict=#{verdict}; left pending")
+          return :skipped
+        end
       end
 
       # EVERY table that references contests, not only the two that cascade.
@@ -227,6 +245,37 @@ module Contests
         "no broadcast landed, slug released"
       )
       :deleted
+    end
+
+    # WHAT THE CHAIN SAYS ABOUT THE ROW'S SIGNATURE, through the one verdict
+    # every send-and-reconcile path in this app reads (OnchainSendVerdict):
+    # :landed / :failed / :never_landed / :ambiguous, or :unknown when the
+    # lookup itself faulted (one brief retry first, as #pda_state does).
+    #
+    # The window is anchored on the LATER of created_at and updated_at. Both
+    # writers stamp the signature at or after the moment its blockhash was
+    # fetched — Contest#hold_for_broadcast! just before the server-funded send,
+    # ContestsController#finalize just after the Phantom wire's send — so the
+    # later stamp can only push "lapsed" later, never earlier. Anchoring on
+    # created_at alone could declare a create sent long after the row was
+    # written dead while it is still landable.
+    BroadcastAnchor = Struct.new(:broadcast_at) { include OnchainSendVerdict }
+
+    def signature_verdict(contest)
+      attempts = 0
+      begin
+        attempts += 1
+        status = @vault.client.confirm_transaction(contest.onchain_tx_signature).dig("value", 0)
+      rescue StandardError => e
+        if attempts < 2
+          sleep(0.25)
+          retry
+        end
+        Rails.logger.warn("[contest_reconciler][rpc] getSignatureStatuses failed slug=#{contest.slug} #{e.message}")
+        return :unknown
+      end
+      anchor = [contest.created_at, contest.updated_at].compact.max
+      BroadcastAnchor.new(anchor).send_verdict(status)
     end
 
     # Names what would be destroyed or orphaned, so the alert says which of the
