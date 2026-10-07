@@ -244,11 +244,11 @@ one polling interval. The play sync runs last in a cycle, behind its own rescue,
 so a summary that will not arrive is reported as `plays_fetch_failed` and costs
 the score nothing.
 
-A stored play, or a moved clock, down or timeout count, sends four small updates
-per game to each live contest's board (`Contest::LiveBroadcast.plays_changed`): the
-three thirds of the focus tile's rail and the play feed under the tile. It does not
-replace the focus panel, which hosts the scoring animations and would lose one
-mid-flight if it were redrawn every twenty seconds.
+A moved clock, down or timeout count sends five small updates per game to each
+live contest's board (`Contest::LiveBroadcast.plays_changed`): the three thirds of
+the rail and each team's timeout bar. A stored play adds a sixth, the play-by-play
+panel, which is otherwise left alone so an open list keeps its scroll. None replaces
+the focus panel, which hosts the scoring animations.
 
 **THE FOCUS TILE'S RAIL IS THREE THIRDS AT REST.** Top: the quarter, the clock and
 the down. Middle: who has the ball, and a drawn field with the ball and the line
