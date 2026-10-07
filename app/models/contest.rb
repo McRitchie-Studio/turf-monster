@@ -68,6 +68,18 @@ class Contest < ApplicationRecord
   SLUG_FORMAT = /\A[a-z0-9]+(?:-[a-z0-9]+)*\z/
   validates :slug, presence: true, uniqueness: true, format: { with: SLUG_FORMAT, message: "must be lowercase letters, numbers, and hyphens" }
   validate :slug_within_byte_limit
+  validate :slug_fixed_once_onchain, on: :update
+
+  # A rename (Sluggable#rename_slug!) checks the same shape the validation does.
+  self.slug_format = SLUG_FORMAT
+
+  # The purchase tables name a contest by slug and have no association here, so
+  # a rename carries them through this declaration.
+  has_slug_children "aeropay_purchases" => :contest_slug,
+                    "coinflow_purchases" => :contest_slug,
+                    "paypal_purchases" => :contest_slug
+
+  ONCHAIN_SLUG_REFUSAL = "cannot change once the contest is on chain: its contest, prize pool and entry PDAs are derived from it".freeze
 
   # Backfill a slug from the name on create ONLY when none was set explicitly,
   # so `Contest.create!(name:)` (server-funded fallback, seeds, console, tests)
@@ -1057,17 +1069,38 @@ class Contest < ApplicationRecord
     name.parameterize
   end
 
+  # Every settle, read, lock and reconcile path derives the contest, prize pool
+  # and entry PDAs from sha256(slug), so renaming a contest bound to chain would
+  # aim each later instruction at an empty address and strand the pool. Refused
+  # with Sluggable::SlugRefused, the reason on errors[:slug]. An off-chain
+  # contest renames under its own rules: SLUG_FORMAT and the 64-byte seed cap.
+  def rename_slug!(new_slug)
+    candidate = new_slug.to_s.strip
+    if persisted? && candidate != slug_in_database
+      errors.delete(:slug)
+      if slug_bound_onchain?
+        errors.add(:slug, ONCHAIN_SLUG_REFUSAL)
+        raise Sluggable::SlugRefused, self
+      end
+      if candidate.bytesize > SLUG_MAX_BYTES
+        errors.add(:slug, "is too long (maximum is #{SLUG_MAX_BYTES} bytes)")
+        raise Sluggable::SlugRefused, self
+      end
+    end
+    super
+  end
+
   private
 
 
-  # NEUTRALIZE Sluggable's auto-derive. Sluggable runs `before_save :set_slug`,
-  # which by default does `self.slug = name_slug` on EVERY save — that re-couples
+  # NEUTRALIZE Sluggable's derive. Sluggable runs `before_save :set_slug` on a
+  # new or blank-slug row, and its default does `self.slug = name_slug`, which
+  # would overwrite the explicit slug the UI create path supplies and re-couple
   # slug to name, so a duplicate name re-collides on slug AND on the on-chain PDA
-  # (contest_id = sha256(slug)). Override it to a NO-OP for Contest: the slug is
-  # set explicitly (UI create path) or backfilled once on create (see
-  # #backfill_slug), and is NEVER overwritten from the name afterwards — rename
-  # the contest and the slug + its PDA stay put. The slug column + Sluggable's
-  # `to_param` (slug-based URLs) are preserved; only the auto-overwrite is killed.
+  # (contest_id = sha256(slug)). Contest's slug is set explicitly or backfilled
+  # once on create (see #backfill_slug) and never derived from the name; renaming
+  # the contest's display name leaves the slug and its PDA put. A slug change is
+  # #rename_slug!, which refuses once the contest is on chain.
   def set_slug
     # intentionally no-op — Contest slug is decoupled from name (epic Part A)
   end
@@ -1132,6 +1165,23 @@ class Contest < ApplicationRecord
     if slug.to_s.bytesize > SLUG_MAX_BYTES
       errors.add(:slug, "is too long (maximum is #{SLUG_MAX_BYTES} bytes)")
     end
+  end
+
+  # The direct-write half of the on-chain refusal (#rename_slug! is the other):
+  # a save that moves the slug of a contest bound to chain is invalid.
+  def slug_fixed_once_onchain
+    return unless will_save_change_to_slug? && slug_bound_onchain?
+
+    errors.add(:slug, ONCHAIN_SLUG_REFUSAL)
+  end
+
+  # Bound to chain as soon as either column is written: #finalize stamps the
+  # derived PDA before it broadcasts, and the signature alone still names a
+  # create that may have landed. Read from the database, so an unsaved edit to
+  # these columns cannot open the gate.
+  def slug_bound_onchain?
+    attribute_in_database(:onchain_contest_id).present? ||
+      attribute_in_database(:onchain_tx_signature).present?
   end
 
   public
