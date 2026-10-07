@@ -200,7 +200,7 @@ namespace :solana do
     # boots as Rails production but is a devnet review target — can still mint.
     abort "solana:mint_usdc is devnet-only (see OPSEC-020)" if AppFlags.live_production?
 
-    amount_cents = (BigDecimal(ENV["AMOUNT"] || "100") * 100).floor.to_i
+    amount_cents = Cents.from_dollars(ENV["AMOUNT"] || "100")
     amount_dollars = (BigDecimal(amount_cents) / 100).to_s("F")
     amount_lamports = Solana::Config.cents_to_base_units(amount_cents)
 

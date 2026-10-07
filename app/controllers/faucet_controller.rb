@@ -17,10 +17,7 @@ class FaucetController < ApplicationController
       return render json: { success: false, error: "Please log in to claim test USDC." }, status: :unauthorized
     end
 
-    # Dollars in, whole cents out, through BigDecimal: `2.01.to_f * 100` is
-    # 200.99999999999997, which `to_i` would mint as $2.00.
-    requested = BigDecimal(params[:amount].to_s, exception: false)
-    amount_cents = requested ? (requested * 100).floor.to_i : 0
+    amount_cents = Cents.from_dollars(params[:amount])
     amount_dollars = BigDecimal(amount_cents) / 100
 
     unless amount_cents > 0 && amount_cents <= 500_00

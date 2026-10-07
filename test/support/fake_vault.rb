@@ -648,7 +648,7 @@ class FakeVault
   def sync_balance(wallet)
     @sync_balance_calls << wallet
     seeds = (@sync_balance_seeds || 0).to_i
-    { balance_dollars: 0.0, seeds: seeds, level: User.level_for(seeds) }
+    { balance: 0, balance_dollars: BigDecimal("0"), seeds: seeds, level: User.level_for(seeds) }
   end
 
   def seeds_for_entry(_entry_number)

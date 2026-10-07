@@ -24,7 +24,8 @@ class WalletsWithdrawTest < ActionDispatch::IntegrationTest
     @available_dollars = 50.00
     avail = @available_dollars
     @fake_vault.define_singleton_method(:sync_balance) do |_addr|
-      { balance_dollars: avail }
+      # The shape Solana::Vault#sync_balance returns: base units and dollars.
+      { balance: (avail * 1_000_000).to_i, balance_dollars: BigDecimal(avail.to_s) }
     end
   end
 
@@ -94,6 +95,24 @@ class WalletsWithdrawTest < ActionDispatch::IntegrationTest
     end
     follow_redirect!
     assert_match(/exceeds on-chain balance/i, flash[:alert].to_s)
+  end
+
+  # The cap compares base units to base units: $2.01 against a balance of
+  # exactly 2_010_000 passes, one unit less refuses, and the row records 201
+  # cents (Float parsing would record 200).
+  test "the balance cap is exact to the base unit" do
+    log_in_as(@managed)
+    [ [ 2_010_000, 1 ], [ 2_009_999, 0 ] ].each do |balance, created|
+      vault = Object.new
+      vault.define_singleton_method(:sync_balance) { |_addr| { balance: balance, balance_dollars: BigDecimal(balance) / 1_000_000 } }
+      Solana::Vault.stub :new, vault do
+        assert_difference -> { TransactionLog.where(user: @managed, transaction_type: "withdrawal").count }, created,
+                          "balance #{balance}" do
+          post withdraw_wallet_path, params: { amount: "2.01", destination_info: "Stripe email a@b.com" }
+        end
+      end
+    end
+    assert_equal 2_01, TransactionLog.where(user: @managed, transaction_type: "withdrawal").last.amount_cents
   end
 
   test "self-custodied user is refused" do
