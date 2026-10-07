@@ -107,6 +107,29 @@ class Solana::VaultCreateContestServerFundedTest < ActiveSupport::TestCase
     assert_not client.sent?
   end
 
+  # Contests::PendingReconciler deletes a held row once its signature is unseen
+  # past the blockhash window. That is a proof only for a recent-blockhash
+  # wire: a durable-nonce wire stays landable until the nonce advances. So this
+  # create must never anchor on the nonce, even where one is configured.
+  test "anchors on a recent blockhash even when a durable nonce is configured" do
+    client = StubRpc.new
+    client.define_singleton_method(:get_account_info) { |*| flunk "read the durable nonce account" }
+
+    with_env("SOLANA_DURABLE_NONCE_PUBKEY" => Solana::Keypair.encode_base58("\x05".b * 32)) do
+      create!(vault_with(client))
+    end
+
+    assert_equal %i[simulate send], client.events
+  end
+
+  def with_env(vars)
+    saved = vars.keys.to_h { |k| [k, ENV[k]] }
+    vars.each { |k, v| ENV[k] = v }
+    yield
+  ensure
+    saved.each { |k, v| ENV[k] = v }
+  end
+
   # ── The signature is handed over before the bytes leave ──────────────────
 
   test "before_send receives the wire's own signature, after the simulation and before the send" do

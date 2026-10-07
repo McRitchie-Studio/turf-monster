@@ -259,6 +259,16 @@ module Contests
     # later stamp can only push "lapsed" later, never earlier. Anchoring on
     # created_at alone could declare a create sent long after the row was
     # written dead while it is still landable.
+    #
+    # THE WINDOW EXISTS ONLY FOR A RECENT-BLOCKHASH WIRE. A wire anchored on the
+    # durable nonce (SOLANA_DURABLE_NONCE_PUBKEY) stays landable until the nonce
+    # advances, so "unseen after five minutes" proves nothing about it. Neither
+    # writer above builds one: finalize's Phantom-first wire comes from
+    # #build_partial_unsigned and the server-funded create from #build_tx with
+    # no nonce (pinned in vault_create_contest_server_funded_test.rb). The one
+    # nonce-anchored create builder, #build_create_contest(admin_signs: true),
+    # feeds #confirm_onchain_contest, which stamps a signature only after
+    # verifying it landed — a row whose PDA then reads present.
     BroadcastAnchor = Struct.new(:broadcast_at) { include OnchainSendVerdict }
 
     def signature_verdict(contest)
