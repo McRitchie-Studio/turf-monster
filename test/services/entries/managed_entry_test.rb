@@ -94,6 +94,17 @@ class Entries::ManagedEntryTest < ActiveSupport::TestCase
     assert_equal 100.0, @vault.usdc_balance
   end
 
+  test "the spend runs under the gem's full wait budget, not the request's" do
+    budgets = []
+    @vault.define_singleton_method(:enter_contest_with_token) do |*args, **opts|
+      budgets << Thread.current[Solana::Client::WAIT_BUDGET_KEY]
+      super(*args, **opts)
+    end
+    Solana::Client.with_wait_budget(SolanaWaitBudget::REQUEST) { on_chain(@vault) { service.call(cart) } }
+
+    assert_equal [Solana::Client::DEFAULT_WAIT_BUDGET], budgets
+  end
+
   test "funding: no token and USDC not allowed refuses no_entry_token with funded USDC untouched" do
     @vault = LedgerVault.new(tokens: [], usdc: 100.0)
     managed = service(usdc_allowed: false)
