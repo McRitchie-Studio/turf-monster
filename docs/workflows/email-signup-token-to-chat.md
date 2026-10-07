@@ -34,14 +34,14 @@
 **Trigger:** Anonymous visitor opens `/` (`GET /`)
 **Actors:** User / Rails / email transport / Stripe / Sidekiq / Solana RPC (devnet)
 **Outcome:** New `users` row, server-managed wallet generated, on-chain `UserAccount` PDA created, one Stripe-funded on-chain `EntryTokenAccount` minted and consumed, an `entries` row for the main contest in status `active` with 6 `selections`, and one visible `messages` row broadcast over ActionCable to that contest's chat stream.
-**Preconditions:** at least one contest in status `open`/`settled` exists, or `Contest.featured` returns nil and the landing's preview falls back to the site image (`app/models/contest.rb:211-216`; `locked` is no longer a status — it is a derived time-gate). `PAYMENT_PROVIDER=stripe` plus Stripe keys set (`Rails.application.config.x.stripe_enabled`, checked in `TokensController#stripe_checkout` at `app/controllers/tokens_controller.rb:29-31`). A `SeasonConfig` row with a non-zero `current_season_id`, enforced on the entry path by `ContestsController#ensure_onchain_season_ready!` (`app/controllers/contests_controller.rb:2316-2320`). The chosen contest must be on-chain — the token branch of `Entries::ManagedEntry#fund!` is what consumes the `EntryTokenAccount` (`app/services/entries/managed_entry.rb:170-185`).
+**Preconditions:** at least one contest in status `open`/`settled` exists, or `Contest.featured` returns nil and the landing's preview falls back to the site image (`app/models/contest.rb:223-228`; `locked` is no longer a status — it is a derived time-gate). `PAYMENT_PROVIDER=stripe` plus Stripe keys set (`Rails.application.config.x.stripe_enabled`, checked in `TokensController#stripe_checkout` at `app/controllers/tokens_controller.rb:29-31`). A `SeasonConfig` row with a non-zero `current_season_id`, enforced on the entry path by `ContestsController#ensure_onchain_season_ready!` (`app/controllers/contests_controller.rb:2316-2320`). The chosen contest must be on-chain — the token branch of `Entries::ManagedEntry#fund!` is what consumes the `EntryTokenAccount` (`app/services/entries/managed_entry.rb:170-185`).
 
 ## Sequence
 
 1. **Visitor lands on `/`** — `root "pages#home"` (`config/routes.rb:57`) → `PagesController#home` (`app/controllers/pages_controller.rb:40-53`), which renders the landing page (`pages/turf_monster_v2`, the same page as `/turf-monster-v2`) for a signed-out visitor and redirects a signed-in one, query and flash kept, to the contests lobby at `/contests` → `ContestsController#index` (`app/controllers/contests_controller.rb:53-70`). The retired World Cup paths `/world-cup` and `/world_cup` 301 to `/`.
    - `index` is in the `skip_before_action :require_authentication` list, so logged-out browsing of the lobby works too (`app/controllers/contests_controller.rb:9`).
    - The landing's call to action (`pages/_next_contest_cta`, `NextContest.pick`) links the next contest still open to enter; its "Play now" links go to `/contests`.
-   - The link-preview banner of both `/` and the lobby is the contest `Contest.featured` picks (`app/models/contest.rb:211-216`), whose chain is `SeasonConfig.main_contest_explicit` → most recent `open` non-`coming_soon` → most recent `open`/`settled` non-`coming_soon`. It does NOT call `SeasonConfig.main_contest` (`app/models/season_config.rb:33-37`); that resolver is a separate one used by the share widget and faucet CTA, and it applies a different fallback.
+   - The link-preview banner of both `/` and the lobby is the contest `Contest.featured` picks (`app/models/contest.rb:223-228`), whose chain is `SeasonConfig.main_contest_explicit` → most recent `open` non-`coming_soon` → most recent `open`/`settled` non-`coming_soon`. It does NOT call `SeasonConfig.main_contest` (`app/models/season_config.rb:33-37`); that resolver is a separate one used by the share widget and faucet CTA, and it applies a different fallback.
    - The visitor opens a contest from the landing's call to action, or from the lobby's featured rail or All Contests table, which link `contest_path(contest)`.
 
 2. **Show page renders for a logged-out visitor** — `ContestsController#show` (`app/controllers/contests_controller.rb:681-688`) → `app/views/contests/show.html.erb`. `/contests/:id` is a router: once a game on the slate has started a bare visit 302s to the live board, and the page itself is always at `/contests/:id/contest` (`ContestsController#contest`); both render through `#load_contest_page` (`:2689-2730`).
@@ -89,7 +89,7 @@
    - The browser polls `/tokens/status` from the processing page until the purchase reads `minted`; the endpoint is `TokensController#status` (`app/controllers/tokens_controller.rb:462-504`).
 
 8. **Back to root → the lobby** — the now signed-in user clicks the navbar "Turf Monster" home link → `GET /` → `PagesController#home` redirects them to `/contests`, the lobby.
-   - "Main contest" surfacing is the admin's explicit pick from `/admin/site_config`, stored by `SeasonConfig.set_main_contest!` (`app/models/season_config.rb:45-48`) and read back by `SeasonConfig.main_contest_explicit` (`:41-43`). After that the `Contest.featured` fallback is most-recent `open`, then most-recent `open`/`settled` (`app/models/contest.rb:213-215`). **No** highest-pot ordering.
+   - "Main contest" surfacing is the admin's explicit pick from `/admin/site_config`, stored by `SeasonConfig.set_main_contest!` (`app/models/season_config.rb:45-48`) and read back by `SeasonConfig.main_contest_explicit` (`:41-43`). After that the `Contest.featured` fallback is most-recent `open`, then most-recent `open`/`settled` (`app/models/contest.rb:225-227`). **No** highest-pot ordering.
 
 9. **Build a 6-pick lineup** — each tap on a matchup tile POSTs to `ContestsController#toggle_selection` (`app/controllers/contests_controller.rb:1493-1514`).
    - It rejects the tap unless the contest is `open?` (`:1494-1496`).
@@ -109,7 +109,7 @@
 
 12. **Send a chat message** — the composer in the chat panel POSTs to `contest_messages_path(contest)` (`app/views/contests/_chat_panel.html.erb:38`) from `send()` (`:221-265`) → `MessagesController#create` (`app/controllers/messages_controller.rb:8-33`).
     - The class-body `before_action :set_contest` (`:4`, definition `MessagesController#set_contest` at `:130-133`) and `before_action :require_chat_enabled` (`:5`, definition `MessagesController#require_chat_enabled` at `:135-138`, which reads the `chat_enabled` DB column).
-    - `@contest.chat_participant?(current_user)` at `:9` requires `admin?` or an `active`/`complete` entry (`app/models/contest.rb:1039-1043`) — step 10 satisfies it.
+    - `@contest.chat_participant?(current_user)` at `:9` requires `admin?` or an `active`/`complete` entry (`app/models/contest.rb:1051-1055`) — step 10 satisfies it.
     - Per-user flood guard: at most 5 messages per 15 seconds in `MessagesController#posting_too_fast?` (`app/controllers/messages_controller.rb:142-147`), checked at `:13-15`.
     - The save is wrapped in `rescue_and_log(target: message, parent: @contest)` (`:24-30`).
     - The `after_create_commit :broadcast_new_message` declaration (`app/models/message.rb:61`) runs `Message#broadcast_new_message` (`:87-96`), which calls Turbo's `broadcast_prepend_to([contest, :messages], target: "contest_#{contest_id}_messages", partial: "messages/message")` at `:88-93`.
@@ -147,6 +147,6 @@
 
 - [[referral-google-tokens-to-chat]] — converges on the same code from step 6 onward (`TokensController#stripe_checkout`, the webhook, `ContestsController#enter`, `MessagesController#create`). It differs at the signup spine: Google OAuth through `OmniauthCallbacksController#create`, with the `?reference=` funnel attribution writing `users.reference`.
 - [[web3-landing-to-entry]] — an alternate top-of-funnel where the visitor connects Phantom on a landing page; it converges on `ContestsController#prepare_entry` (`app/controllers/contests_controller.rb:982-1147`) and `#confirm_onchain_entry` (`:1332-1471`) instead of the managed-token branch this flow exercises.
-- [[admin-contest-setup]] — the predecessor flow; it produces the `Contest` and the `SeasonConfig.main_contest_explicit` pointer `Contest.featured` reads first (`app/models/contest.rb:212`).
+- [[admin-contest-setup]] — the predecessor flow; it produces the `Contest` and the `SeasonConfig.main_contest_explicit` pointer `Contest.featured` reads first (`app/models/contest.rb:224`).
 
 <!-- citation-guard: enforced -->
