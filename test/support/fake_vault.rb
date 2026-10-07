@@ -1000,7 +1000,7 @@ class FakeSolanaClient
   def get_token_account_balance(_ata_b58)
     raise StandardError, "simulated RPC failure" if @usdc_balance_raises
     return nil if @usdc_balance.nil?
-    { "value" => { "uiAmount" => @usdc_balance, "amount" => (@usdc_balance * 1_000_000).to_i.to_s } }
+    { "value" => { "uiAmount" => @usdc_balance, "amount" => (BigDecimal(@usdc_balance.to_s) * 1_000_000).to_i.to_s } }
   end
 
   # ContestsController#onchain_create_precheck reads dig("value") to decide

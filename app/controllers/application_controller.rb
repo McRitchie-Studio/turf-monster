@@ -769,7 +769,7 @@ class ApplicationController < ActionController::Base
     return 0 unless current_user            # guest — definitively 0
 
     if @wallet_balances.is_a?(Hash)
-      return ((@wallet_balances[key] || 0).to_f * 100).round
+      return Entries::ManagedEntry.dollars_to_cents(@wallet_balances[key])
     end
 
     # No preloaded balances on this render (the navbar preload no longer
@@ -783,7 +783,7 @@ class ApplicationController < ActionController::Base
       end
     return nil if cached.nil?
 
-    (cached.to_f * 100).round
+    Entries::ManagedEntry.dollars_to_cents(cached)
   end
 
   # Navbar balance — on-chain USDC + USDT COMBINED for connected wallets
