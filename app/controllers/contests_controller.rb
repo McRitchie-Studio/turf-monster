@@ -1002,6 +1002,14 @@ class ContestsController < ApplicationController
     # entry flow.
     return render json: { success: false, error: "Phantom session required" }, status: :forbidden unless onchain_session?
 
+    # A BROADCAST STILL AWAITING ITS VERDICT BLOCKS A SECOND WIRE. A submitted,
+    # signed row for this entry may already have moved the money; building another
+    # transaction here is how one entry gets paid for twice. The player waits for
+    # recover_pending_entry instead, which the client calls with this slug.
+    if (in_flight = entry_broadcast_awaiting_verdict(entry))
+      return render_entry_still_confirming(in_flight, status: :conflict)
+    end
+
     # Currency selection (2026-06-10): "usdc" (default, currency_idx 0) or
     # "usdt" (currency_idx 1). Strict allow-list — anything else is a client
     # bug. USDT only works on contests whose on-chain entry_fee_by_currency
@@ -1270,6 +1278,16 @@ class ContestsController < ApplicationController
     status = vault.client.confirm_transaction(ptx.tx_signature).dig("value", 0)
 
     if status.nil?
+      # UNSEEN IS NOT DEAD, EXCEPT PAST THE BLOCKHASH WINDOW. prepare_entry
+      # refuses while this row stands, so a wire the network dropped must not
+      # hold the player out forever. send_verdict calls it :never_landed only
+      # when a history-searched lookup still has no row this long after
+      # broadcast_at; a row with no anchor (stamped before broadcast_at was)
+      # stays processing for an operator, never failed on a guess.
+      if ptx.send_verdict(status) == :never_landed
+        ptx.update!(status: "failed")
+        return render json: { status: "failed", error: "Your last entry did not go through — try again." }
+      end
       return render json: { status: "processing" }
     end
 
@@ -1340,6 +1358,7 @@ class ContestsController < ApplicationController
 
     Current.outbound_source = entry  # audit-log attribution; see #enter
 
+    ptx = nil # assigned in the block; the rescue below reads it to tell sent from unsent
     rescue_and_log(target: entry, parent: @contest) do
       raise "Wallet not linked" unless current_user.web3_solana_address.present?
       raise "Missing signed transaction" if params[:signed_tx].blank?
@@ -1407,7 +1426,9 @@ class ContestsController < ApplicationController
       tx_signature = vault.cosign_and_broadcast_entry(
         params[:signed_tx],
         expectation: expectation,
-        before_send: ->(signature) { ptx&.update!(tx_signature: signature, status: "submitted") }
+        # broadcast_at is the anchor recover_pending_entry's never-landed verdict
+        # reads (OnchainSendVerdict); it must be written before the send, here.
+        before_send: ->(signature) { ptx&.update!(tx_signature: signature, status: "submitted", broadcast_at: Time.current) }
       )
 
       # OPSEC-010 / Lazarus audit #1: server-derive the entry PDA, cross-check
@@ -1467,7 +1488,18 @@ class ContestsController < ApplicationController
       error: "For your security we couldn't co-sign this transaction — it didn't match the entry we prepared. Please try again."
     }, status: :unprocessable_entity
   rescue StandardError => e
-    render_entry_error(e)
+    # AFTER THE STAMP, A FAILURE IS NOT A REFUSAL. Once before_send has written the
+    # signature the bytes may be on chain, so a 429 on the verify or a lost
+    # confirmation poll is "sent, still confirming", never the interpreter's
+    # "try again". Read from the database, not the in-memory row: a stamp whose
+    # update! raised leaves its attributes set on the object and nothing sent.
+    in_flight = ptx && PendingTransaction.where(id: ptx.id).merge(awaiting_verdict_scope).first
+    if in_flight
+      capture_unlogged(e, target: entry, parent: @contest)
+      render_entry_still_confirming(in_flight, status: :accepted)
+    else
+      render_entry_error(e)
+    end
   end
 
   def clear_picks
@@ -2603,6 +2635,28 @@ class ContestsController < ApplicationController
   # deploy are unaffected.
   def prepared_last_valid_block_height(ptx)
     prepared_metadata(ptx)["last_valid_block_height"].presence&.to_i
+  end
+
+  # A signed, submitted entry transaction: broadcast (or about to be), verdict not
+  # yet in. A confirm that finishes, or recover_pending_entry, moves it on.
+  def awaiting_verdict_scope
+    PendingTransaction.where(tx_type: "enter_contest", status: "submitted").where.not(tx_signature: [nil, ""])
+  end
+
+  def entry_broadcast_awaiting_verdict(entry)
+    awaiting_verdict_scope.where(target: entry).order(created_at: :desc).first
+  end
+
+  # The one answer for "your entry may already be paid for". 202 from confirm
+  # (the send happened), 409 from prepare (a second wire is refused). `code` is
+  # what the board keys off to hand ptx_slug to recover_pending_entry; the copy
+  # never offers a retry, because a retry here is a second payment.
+  ENTRY_STILL_CONFIRMING_MESSAGE = "Your entry was sent and is still confirming on Solana. " \
+                                   "Refresh in a moment to see it.".freeze
+
+  def render_entry_still_confirming(ptx, status:)
+    render json: { success: false, code: "entry_pending", ptx_slug: ptx.slug,
+                   error: ENTRY_STILL_CONFIRMING_MESSAGE }, status: status
   end
 
   def prepared_metadata(ptx)

@@ -1816,8 +1816,13 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
       end
     end
 
-    assert_response :unprocessable_entity
-    assert_match(/Entry PDA mismatch/, JSON.parse(response.body)["error"])
+    # The check runs AFTER the broadcast, so the bytes may be on chain: the player
+    # is told the entry is still confirming (never "try again", which would be a
+    # second payment) and recover_pending_entry re-verifies with the SERVER-derived
+    # PDA. The mismatch itself is recorded for ops and credits nothing here.
+    assert_response :accepted
+    assert_equal "entry_pending", JSON.parse(response.body)["code"]
+    assert_match(/Entry PDA mismatch/, ErrorLog.order(:id).last.message)
     assert entry.reload.cart?
   end
 
@@ -1945,7 +1950,8 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
         as: :json
     end
 
-    assert_response :unprocessable_entity
+    assert_response :accepted # sent, still confirming — never "try again" (turf-phantom-entry-still-confirming)
+    assert_equal "entry_pending", JSON.parse(response.body)["code"]
     assert entry.reload.cart?, "entry must stay in cart when the broadcast fails"
     ptx.reload
     assert_equal "fake-cosign-broadcast-sig", ptx.tx_signature,
@@ -1980,7 +1986,8 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
       end
     end
 
-    assert_response :unprocessable_entity
+    assert_response :accepted # sent, still confirming — recovery credits it
+    assert_equal "entry_pending", JSON.parse(response.body)["code"]
     assert entry.reload.cart?, "entry stays cart until verify succeeds"
     ptx.reload
     # A1: the signature MUST persist despite the verify failure, so recovery credits

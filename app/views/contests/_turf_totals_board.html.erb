@@ -528,9 +528,13 @@ window.selectionBoard = function() {
       }
     },
 
-    async recoverPendingEntry(ptxSlug) {
+    // `copy` lets an in-page caller open the poll with the server's own words —
+    // an entry_pending answer reads "sent, still confirming" rather than the
+    // page-load wording below.
+    async recoverPendingEntry(ptxSlug, copy) {
       var modal = Alpine.store('solanaModal');
-      modal.show('Checking Your Last Entry', 'Looking up your previous on-chain transaction…', { dismissible: false });
+      modal.show((copy && copy.title) || 'Checking Your Last Entry',
+                 (copy && copy.body) || 'Looking up your previous on-chain transaction…', { dismissible: false });
       var maxAttempts = 6;     // ~30s of wall time with the 5s polling cadence
       var attempts = 0;
       while (attempts < maxAttempts) {
@@ -563,7 +567,7 @@ window.selectionBoard = function() {
       }
       // Out of attempts. Leave the PT in submitted; admin can resolve.
       modal.close();
-      try { window.dispatchEvent(new CustomEvent('toast', { detail: { type: 'alert', title: "Couldn't confirm last entry yet", message: "We'll keep watching — reload in a minute to retry.", duration: 6000 } })); } catch (_) {}
+      try { window.dispatchEvent(new CustomEvent('toast', { detail: { type: 'alert', title: "Couldn't confirm last entry yet", message: "It was sent and is still confirming — reload in a minute to check on it.", duration: 6000 } })); } catch (_) {}
     },
 
     toggleSort(mode) {
@@ -798,6 +802,17 @@ window.selectionBoard = function() {
         this.submitting = false;
         this.resetHoldButtons();
         Alpine.store('modals').open('cosign-rejected', {});
+        return true;
+      }
+      // SENT, STILL CONFIRMING (code 'entry_pending'). confirm_onchain_entry
+      // answers it when a failure lands AFTER the broadcast, and prepare_entry
+      // when a sent entry is still unresolved. Either way the money may have
+      // moved, so this never offers a retry: the slug goes to the same recovery
+      // poll a page load runs, which credits the entry or frees the player.
+      if (data.code === 'entry_pending' && data.ptx_slug) {
+        this.submitting = false;
+        this.resetHoldButtons();
+        this.recoverPendingEntry(data.ptx_slug, { title: 'Entry Sent', body: data.error });
         return true;
       }
       if (!data.blocker) return false;
