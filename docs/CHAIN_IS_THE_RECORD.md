@@ -1,8 +1,9 @@
 # The Chain Is The Record
 
-**Status: proposed, awaiting Alex's review.** Nothing on this page is built yet
-unless it says "today". It is the design for epic `platform-audit-refactors`,
-piece 5h, task `chain-is-the-record-design`.
+**Status: proposed; the settlement execution path is decided.** Nothing on this
+page is built yet unless it says "today". It is the design for epic
+`platform-audit-refactors`, piece 5h, task `chain-is-the-record-design`; task
+`settlement-uses-durable-nonce` records the settlement decision.
 
 **The principle.** The database holds pointers; the chain holds money. The UI may
 run ahead of the chain for style, never for truth. A number of dollars that the
@@ -35,7 +36,9 @@ decision log at the end.
    second app ever needs on-chain pointers, it moves to `solana-studio`.
 5. **No refunds on cancel or withdrawal.** An entrant who leaves forfeits the fee.
    The `entry-forfeit` SOP stands.
-6. **Settlement execution policy is open.** Section 5 lays out the options.
+6. **Settlement uses a durable nonce.** Alex cosigns a settle transaction once;
+   the server submits and retries those signed bytes until they land. One
+   prerequisite is open: a cosigner that keeps instruction order (section 5).
 
 ## 2. What exists today
 
@@ -57,8 +60,10 @@ decision log at the end.
   `payout`, `currency_idx`, and 16 reserved bytes. **It records no join order.**
   `Contest.current_entries` counts entries but no entry keeps its position.
 - Entry fees never reach the prize pool: `handle_enter_contest` sends them to the
-  operator-revenue ATA. `cancel_contest` returns the prize pool to the creator.
-  No instruction pays an entrant back, which is why decision 5 is free on chain.
+  operator-revenue ATA. `cancel_contest` returns the prize pool to the creator,
+  and `close_contest`, on a settled or cancelled contest, sweeps any prize-pool
+  residue (an unpaid place on a short fill) to operator revenue. No instruction pays an entrant
+  back, which is why decision 5 is free on chain.
 - `Contest.status` is one of `Open`, `Locked`, `Settled`, `Cancelled`. `Locked`
   is vestigial: no instruction sets it, and a contest's lock is its
   `lock_timestamp`.
@@ -66,8 +71,6 @@ decision log at the end.
   `v0.25.0`; on `origin/main` `DEFAULT_THRESHOLDS` keeps `MINT_ENTRY_TOKEN` at one
   inside a window cap (`DEFAULT_MINT_WINDOW_CAP`, 250 a day) and asks three above
   it. A token pays for an entry through `handle_enter_contest_with_token`.
-  `close_contest` sweeps any prize-pool residue (an unpaid place on a short fill)
-  to operator revenue.
 
 **In Rails (`accepted`).**
 - **Formats fit one settlement** (contest-formats-fit-one-settlement).
@@ -146,11 +149,13 @@ what paid the fee. Nothing ties an entry to a Turf user id on chain.
 3. **Settled means confirmed.** `settled` is set only after the settle transaction
    confirms and a chain read shows `Contest.status == Settled`. Winner emails
    (`Contest#notify_winners!`) follow that read, as they do today.
-4. **Failure leaves the proposal visible.** A rejected, expired or ambiguous
-   broadcast keeps the contest `settlement_pending` with its ranks shown and
-   marked unpaid; the `PendingTransaction` broadcast seam
-   (`claim_for_broadcast!`, `reconcile_broadcast!`) decides whether a rebuild is
-   safe, as it does today.
+4. **Failure leaves the proposal visible.** Until the settle lands, the contest
+   stays `settlement_pending` with its ranks shown and marked unpaid. On a
+   nonce-anchored settle (section 5) the server resends the same signed bytes
+   rather than rebuilding; it asks Alex for a new cosign only when the settle
+   landed and failed or the nonce was consumed. The `PendingTransaction`
+   broadcast seam (`claim_for_broadcast!`, `reconcile_broadcast!`) records each
+   attempt, as it does today.
 5. **A scheduled chain sweep reconciles.** One job reads the chain for every
    `submitted` entry and every `settlement_pending` contest and moves each row to
    what the chain says. It replaces the age-based flip in
@@ -165,75 +170,72 @@ tie cannot pool places on chain. Join order breaks every tie, inside the paid
 ranks as well as at the last one. This changes `Contest::PayoutSplit`, which pools
 and splits today; Alex confirms it in review.
 
-## 5. Settlement execution: the open question
+## 5. Settlement execution: a durable nonce
 
-Today settle needs two of three signers: the server key (Xan, `8K81…`) signs when
-it builds, and Alex's Phantom (`7ZDJ…`) cosigns at `/admin/pending_transactions`.
-The half-signed legacy transaction expires with its blockhash (about 60 to 90
-seconds), and `Admin::PendingTransactionsController#rebuild` mints fresh bytes for
-another try. The third signer is the key `turf-vault/docs/CURRENT_DEPLOYMENT.md`
-names "Mason signer" (`CytJ…`); who holds it is in section 8.
+**Today.** Settle needs two of three signers. `Solana::Vault#build_settle_contest`
+signs first as the server key (Xan, `8K81…`) on a fresh recent blockhash, and
+Alex's Phantom (`7ZDJ…`) cosigns at `/admin/pending_transactions`. The half-signed
+legacy transaction expires with its blockhash (about 60 to 90 seconds), and
+`Admin::PendingTransactionsController#rebuild` mints fresh bytes for another try.
+The third signer is the key `turf-vault/docs/CURRENT_DEPLOYMENT.md` names "Mason
+signer" (`CytJ…`); who holds it is in section 8.
 
-**(a) Durable nonce: Alex cosigns once, the server submits and retries.**
-The settle anchors on a nonce account instead of a blockhash, so Alex's signature
-never expires; the server resubmits until it lands. `solana-studio` has the
-pieces (`Solana::NonceAccount`, `Solana::SystemProgram.advance_nonce_account`).
-- Trust: Alex approves exact bytes; the server can only send those bytes.
-- Blocker: a nonce transaction is recognised only when `advanceNonceAccount` is
-  instruction 0, and Phantom injects Lighthouse instructions ahead of it. The
-  `Solana::Cosign` module header, `Solana::Vault#build_enter_contest` and
-  `docs/SOLANA.md` record this, and no cosign builder uses a nonce. The one route
-  that does is `Solana::Vault#build_create_contest` on its server-signed
-  (`admin_signs`) branch, through `durable_nonce_config`. So (a) needs Alex to
-  cosign with a signer that does not rewrite the transaction (CLI or hardware
-  wallet), plus one nonce account per settlement in flight.
-- A settle that lands and fails on chain still needs a new cosign.
+**The decision (a): Alex cosigns once, the server submits and retries.** The
+settle anchors on a nonce account instead of a recent blockhash: its
+`recentBlockhash` is the nonce account's stored value, and
+`SystemProgram.advanceNonceAccount` is instruction 0. The signed bytes stay valid
+until that nonce advances, so Alex signs once and the server resends the same
+bytes until they land.
+- **Trust.** Alex approves exact bytes. The server can send only those bytes; it
+  cannot change a winner, an amount or an order without a new signature from him.
+- **The pieces that exist.** `solana-studio` has `Solana::NonceAccount` (parse a
+  nonce account, `initialized?`, `nonce`) and `Solana::SystemProgram`
+  (`create_account`, `initialize_nonce_account`, `advance_nonce_account`,
+  `withdraw_nonce_account`, `authorize_nonce_account`). In turf,
+  `Solana::Vault#build_tx` takes `durable_nonce:` and prepends the advance, and
+  `durable_nonce_config` reads one nonce account from
+  `SOLANA_DURABLE_NONCE_PUBKEY` with the server key as its authority.
+  Its one caller is `Solana::Vault#build_create_contest` on its `admin_signs:
+  true` branch, reached from `ContestsController#prepare_onchain_contest`:
+  admin-first plus Phantom cosign, the same shape settle has today. No settle
+  builder passes a nonce.
+- **What does not carry over.** `Solana::Cosign` is built without a nonce, and
+  `Solana::Cosign::Expectation` refuses a nonce advance among the instructions it
+  compares. The settle path builds and verifies its own wire.
+- **A settle that lands and fails on chain** still needs a new cosign: the nonce
+  has advanced (section 8), so the signed bytes are dead.
+- **On `v0.26`** `SETTLE_CONTEST` asks three signatures, so a settle carries the
+  server key, Alex, and a third signer. Each signs the same nonce-anchored bytes
+  once.
 
-**(b) Automatic settlement by two agent-held keys.** The server signs with Xan
-and the `CytJ…` key; no human is in the loop.
-- Trust: a captured pair chooses the entries as well as the order. Before lock it
-  can enter wallets it controls, paying with entry tokens it mints itself (one
-  signer, section 2) or with its own USDC, then rank those entries first. So the
-  rank schedule does not bound the loss to "the right prizes in the wrong order".
-  The bound is the prizes of the places the attacker can fill: an attacker holding
-  `m` entries in a contest takes the top `m` places, which is the whole pool once
-  `m` reaches the paid places (four at most). Across contests the loss is roughly
-  the pool times the share of paid places the attacker can fill, summed over every
-  contest with open seats before its lock.
-- Mitigations, weighed:
-  - *Settle list length = min(schedule, active entries).* Stops a short or padded
-    list; does not stop an attacker's own entries ranking first. A correctness
-    guard, not a bound.
-  - *Entry-token caps.* Lowering the mint cap or raising `MINT_ENTRY_TOKEN` to two
-    raises the cost of free entries but not against a captured pair, and USDC
-    entries remain: four fees buy a whole pool.
-  - *A third key when an unknown wallet ranks in the paid places.* The program
-    cannot tell a known wallet from an unknown one, so this is a Rails policy, and
-    a captured pair skips Rails. It protects against a server bug, not a theft.
-  - *A pool cap on the two-signature settle.* The program asks two signatures when
-    `prize_pool` is at or below a stored cap and three above it, the pattern
-    `MINT_ENTRY_TOKEN_OVER_CAP` already uses. This is the one mitigation the
-    program enforces: the loss is at most the cap per contest the pair can enter.
-- Cost: `v0.26` sets `SETTLE_CONTEST` to three ("anything that moves money needs
-  three"). (b) needs Alex to set the two-signature level, which
-  `set_action_threshold` allows (the floor is one) with three signatures. It
-  narrows a stated design rule for this one action. It also requires the two keys
-  to sit on separate hosts.
+**The open prerequisite: a cosigner that keeps instruction order.** A nonce
+transaction is recognised only when `advanceNonceAccount` is instruction 0, and
+Phantom may insert Lighthouse instructions ahead of whatever was built. When one lands
+ahead of the advance, validators read the nonce value as an unknown blockhash and
+reject the transaction. The repo records this in the `Solana::Cosign` module
+header, the durable-nonce note in `Solana::Vault#build_enter_contest`, and
+`docs/SOLANA.md` (the 2026-06-11 mainnet incident). So (a) needs Alex to cosign
+with a signer that signs the message as built: a CLI keypair or a hardware
+wallet. Choosing that signer, and seating it as a vault signer if it is a new
+key, is Alex's to decide before any settle runs on a nonce. Until then, settle
+runs as today. Whether Phantom also rewrites a transaction that already carries
+the server's signature is not verified (section 8).
 
-**(c) Today's flow, rebuild and recosign on every failure.**
-- Trust: strongest; Alex sees every settlement.
-- Cost: every expiry or RPC fault costs Alex another session, and winners wait on
-  him. Nothing changes on chain.
+**Considered and not chosen.**
+- **(b) Automatic settlement by two agent-held keys.** No human in the loop. A
+  captured pair can enter wallets it controls before lock, paying with entry
+  tokens it mints (one signer, section 2) or its own USDC, then rank those
+  entries first, so the rank schedule does not bound the loss. The exposure is
+  every contest neither full nor locked; on `origin/main` the pair can also push
+  a lock later before it passes (`SET_CONTEST_LOCK_TIME` defaults to 2;
+  `SET_CONTEST_LOCK_TIME_REOPEN`, for a passed lock, to 3). Only a program-enforced pool cap bounds it, and it narrows
+  `v0.26`'s rule that moving money needs three signatures.
+- **(c) Today's flow, rebuild and recosign on every failure.** Strongest trust,
+  but every expiry or RPC fault costs Alex another session and winners wait on
+  him.
 
-**Recommendation: (c) now; after the next upgrade, (b) for contests whose pool is
-at or under a cap Alex sets, and (c) above it.** The rank schedule alone does not
-make two agent keys safe, because a captured pair can enter and rank itself; only
-a pool cap enforced by the program bounds what the pair can take, so (b) runs
-only inside it. The cap is the loss Alex accepts per contest in exchange for not
-cosigning small settlements. (a) stays the path for large contests if a non-Phantom
-cosigner proves workable. Alex decides, and also decides whether a frozen
-account's winning entry is paid (the program pays by rank and cannot see a
-freeze).
+Alex also decides whether a frozen account's winning entry is paid: the program
+pays by rank and cannot see a freeze.
 
 ## 6. Vault program changes for the next upgrade
 
@@ -249,8 +251,6 @@ each re-pins `EXPECTED_IDL_HASH`.
   back to Rails' `entries.id` order.
 - **Vault settles the full schedule:** the ranked list's length must equal
   `min(payout_amounts.len(), active entries)`.
-- **Vault caps the two-signature settle:** a stored pool cap; settling a contest
-  whose `prize_pool` is above it asks three signatures (option (b)).
 - **Vault rank schedule stays fixed at create:** keep `payout_amounts` with no
   writer after `handle_create_contest`, and add a test that proves it.
 
@@ -271,15 +271,42 @@ Each is a future task title.
   an entry-fee refund for a contest cancelled before it locks. Decision 5 needs
   that copy changed; it is Alex's call.
 - **Settle builder sends ranked entries**, after the vault upgrade.
-- **Settlement executor**, per the option Alex picks.
+
+The durable-nonce settlement (section 5) is four more:
+- **Settlement holds its own nonce account**: one nonce account per settlement in
+  flight, created and initialised with the server key as authority, recorded on
+  the settle `PendingTransaction`, and withdrawn once the settlement is final.
+  The single `SOLANA_DURABLE_NONCE_PUBKEY` account stays with contest create.
+- **Settle advances the nonce first**: `build_settle_contest` anchors on that
+  account with `advanceNonceAccount` as instruction 0, and the verify step
+  refuses a returned wire with any instruction ahead of it. The packet check
+  (`assert_settle_fits_one_packet!`) counts the advance.
+- **Settlement retries until it lands**: a loop that resends the same signed
+  bytes and reads the signature's status before every resend; it stops on a
+  landed success, a landed failure, or a consumed nonce, and never rebuilds.
+- **Settlement handles a consumed nonce**: when the nonce account's value no
+  longer matches the signed bytes and the settle signature never landed, another
+  transaction used the nonce; the row goes to "needs a new cosign" and Rails
+  reads the contest from chain before asking for one.
 
 ## 8. Not verified
 
-- That Phantom inserts Lighthouse instructions when signing a vault cosign (as
-  opposed to an entry). This page relies on the repo's own record of it.
-- Who holds the `CytJ…` key and whether an agent can reach it. It may be a
-  human-held Phantom, in which case option (b) has only one agent key and needs a
-  new one seated.
+- That Phantom puts Lighthouse instructions ahead of the advance when it cosigns a
+  vault transaction the server has already signed (the shape of settle and of
+  `build_create_contest`'s nonce branch), as opposed to the entry transaction the
+  2026-06-11 incident was on.
+  This page relies on the repo's own record of the 2026-06-11 incident. If
+  Phantom leaves a pre-signed wire's order intact, the prerequisite in section 5
+  may not apply to it; that needs a devnet test before anyone relies on it.
+- That a CLI or hardware signer leaves instruction order intact. It is the
+  expected behaviour of a signer that signs the message bytes it is given, and it
+  is untested here.
+- Whether `SOLANA_DURABLE_NONCE_PUBKEY` is set in production. A search of
+  `app/views` and `app/javascript` finds no caller of
+  `ContestsController#prepare_onchain_contest`; the route is still drawn.
+- Who holds the `CytJ…` key, and whether it can sign a nonce-anchored settle
+  without reordering it. It matters for the third signature `v0.26` asks of every
+  settle; if it is a Phantom, it meets the same prerequisite as Alex's.
 - That a durable-nonce transaction which fails on chain still advances its nonce
   (Solana runtime behaviour, not tested here).
 - That no deployed contest's on-chain `payout_amounts` differs from its Rails
@@ -296,3 +323,7 @@ Each is a future task title.
   identifiers tying an entry to a wallet. `TransactionLog` stays as a Turf-only
   pointer ledger. No refunds; leaving forfeits the fee. Settlement execution
   policy is open; this page presents the options.
+- 2026-10-06, 21:05 MDT — Alex: settlement uses a durable nonce (option (a)).
+  He cosigns once; the server submits and retries that signed transaction until
+  it lands. (b) and (c) are recorded as considered. The cosigner that keeps
+  instruction order is the open prerequisite.
