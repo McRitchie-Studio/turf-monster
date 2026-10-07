@@ -16,9 +16,9 @@ module Entries
   #
   # An unreadable RPC answer (a rate limit, a timeout, an answer with no value)
   # is re-read once, after REREAD_PAUSE seconds, before the row is skipped
-  # without writing; a re-run picks a skipped row up. On 2026-10-06 Helius
-  # rate-limited 7 of contest 232's reads, and each was skipped on its first
-  # failure. The re-read works with any solana-studio: before the gem read the
+  # without writing; a re-run picks a skipped row up. A provider rate limit
+  # otherwise skips every row it lands on at its first failure. The re-read
+  # works with any solana-studio: before the gem read the
   # HTTP status first, a plain-text 429 arrived here as JSON::ParserError, and
   # after it as RpcError code 429; both are unreadable.
   # Idempotent: a row with a wallet is never read again.
