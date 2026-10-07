@@ -69,105 +69,33 @@
         <% end %>
       </button>
 
+      <%# WHAT JUST HAPPENED, in the right third under the rail: one summary
+          (contests/_live_play_summary), fed either the play itself or — between
+          a score and its kickoff — what everyone is waiting for. %>
       <% if latest && awaiting %>
-        <div class="flex items-center justify-center gap-3 min-w-0 sm:w-1/3 px-4 py-2"
-             style="background: rgba(8, 10, 16, 0.82)"
-             data-test="live-plays-latest" data-play-kind="pending-kickoff" data-play-id="<%= latest.external_id %>"
-             title="<%= latest.text %>">
-          <span class="relative inline-flex items-center max-w-full" data-test="live-plays-group">
-            <span class="absolute top-1/2 -translate-y-1/2 flex items-center" data-test="live-plays-avatars"
-                  style="right: calc(100% + 0.5rem)">
-              <span class="h-7 w-7 rounded-full flex items-center justify-center text-sm"
-                    style="background: <%= normalize_hex(kicker&.card_background) || "#3a3f4b" %>; box-shadow: 0 0 0 2px <%= kicker ? team_card_palette(kicker)[:accent] : "rgba(255,255,255,0.3)" %>">
-                <span aria-hidden="true"><%= kicker&.emoji %></span>
-              </span>
-            </span>
-            <span class="min-w-0 leading-tight text-center" data-test="live-plays-words">
-              <span class="block text-sm font-extrabold text-white truncate" data-test="live-plays-result">Pending Kickoff</span>
-              <% if kicker %>
-                <span class="inline-block max-w-full truncate text-xs font-bold" data-test="live-plays-detail"
-                      style="background: <%= team_two_tone_ink(kicker) %>; -webkit-background-clip: text; background-clip: text; color: transparent"><%= kicker.short_name %> kicks off</span>
-              <% end %>
-            </span>
-          </span>
-        </div>
+        <%= render "contests/live_play_summary",
+                   play_id: latest.external_id, play_kind: "pending-kickoff", title: latest.text,
+                   result: "Pending Kickoff", detail: kicker && "#{kicker.short_name} kicks off", ink_team: kicker,
+                   avatars: [{ team: kicker }] %>
       <% elsif latest %>
         <%
-          side     = [game.away_team, game.home_team].compact.find { |team| team.slug == latest.team_slug }
-          sides    = [game.away_team, game.home_team].compact.index_by(&:slug)
-          names    = latest.players
-          athletes = latest.athletes
+          side  = [game.away_team, game.home_team].compact.find { |team| team.slug == latest.team_slug }
+          sides = [game.away_team, game.home_team].compact.index_by(&:slug)
+          # WHO — up to three, the one that matters most first (the receiver
+          # before the passer). A name we cannot place wears the play's team,
+          # except the one who took the ball away, who plays for the other side.
+          avatars = latest.players.each_with_index.map do |name, index|
+            athlete = latest.athletes[index]
+            taker   = latest.kind == "turnover" && index.zero?
+            { name: name, athlete: athlete,
+              team: sides[athlete&.team_slug] || (taker ? (sides.values - [side]).first : side) || side }
+          end
+          avatars = [{ team: side }] if avatars.empty?
         %>
-        <%# CENTRED, like the rail's own rows directly above it: the rail lists
-            "Interception" centred in its third, and this says the same word
-            centred in the same third, so the two read as one column. %>
-        <%# ITS OWN DARK GROUND, in both themes. The rail above is dark whatever
-            the theme, and the detail line below is drawn in team colours chosen
-            to read on dark; on the light theme's pale card that ink fell to
-            about 2:1. So this third carries the rail's surface down with it,
-            which is also what makes the two read as one column. %>
-        <div class="flex items-center justify-center gap-3 min-w-0 sm:w-1/3 px-4 py-2"
-             style="background: rgba(8, 10, 16, 0.82)"
-             data-test="live-plays-latest" data-play-id="<%= latest.external_id %>" data-play-kind="<%= latest.kind %>"
-             title="<%= latest.text %>">
-          <span class="relative inline-flex items-center max-w-full" data-test="live-plays-group">
-          <%# WHO — up to three, overlapping, the one that matters most on the
-              left and ON TOP (the receiver over the passer on a completion).
-              A player we hold a portrait for shows it; one we only have a name
-              for shows initials; a play that names nobody shows its team. %>
-          <%# OUT OF THE FLOW, floated into the space to the left of the
-              words. The two lines of words are CENTRED in this
-              third, exactly under the rail's centred column, and centred
-              against each other. If the portraits took part in that centring,
-              one, two or three of them would push the words a different
-              distance each time. %>
-          <span class="absolute top-1/2 -translate-y-1/2 flex items-center" data-test="live-plays-avatars"
-                style="right: calc(100% + 0.5rem)">
-            <% if names.empty? %>
-              <span class="h-7 w-7 rounded-full flex items-center justify-center text-sm"
-                    style="background: <%= normalize_hex(side&.card_background) || "#3a3f4b" %>; box-shadow: 0 0 0 2px <%= side ? team_card_palette(side)[:accent] : "rgba(255,255,255,0.3)" %>">
-                <span aria-hidden="true"><%= side&.emoji %></span>
-              </span>
-            <% end %>
-            <% names.each_with_index do |name, index| %>
-              <%
-                athlete  = athletes[index]
-                # A name we cannot place wears the play's team — except the
-                # one who took the ball away, who plays for the other side.
-                taker    = latest.kind == "turnover" && index.zero?
-                club     = sides[athlete&.team_slug] || (taker ? (sides.values - [side]).first : side) || side
-                portrait = athlete&.headshot_url(width: 100)
-                initials = name.scan(/[A-Z]/).first(2).join
-              %>
-              <%# 1.75rem, each tucked more than half under the one before: a
-                  cluster that says "these three", not three portraits in a row. %>
-              <span class="relative h-7 w-7 rounded-full overflow-hidden flex items-center justify-center text-[9px] font-black"
-                    data-test="live-plays-avatar" data-player="<%= name %>"
-                    title="<%= athlete ? athlete.person.full_name : name %>"
-                    style="z-index: <%= 3 - index %>; <%= "margin-left: -0.75rem;" unless index.zero? %> color: <%= team_card_palette(club)[:fg] %>;
-                           background: <%= normalize_hex(club&.card_background) || "#3a3f4b" %>;
-                           box-shadow: 0 0 0 2px <%= club ? team_card_palette(club)[:accent] : "rgba(255,255,255,0.3)" %>, 0 0 0 3px rgba(8, 10, 16, 0.55)">
-                <% if portrait %>
-                  <img src="<%= portrait %>" alt="" class="h-full w-full object-cover object-top">
-                <% else %>
-                  <span aria-hidden="true"><%= initials %></span>
-                <% end %>
-              </span>
-            <% end %>
-          </span>
-
-          <%# WHAT, in the board's bold white; the DETAIL under it in the two
-              colours of the team that ran the play. %>
-          <span class="min-w-0 leading-tight text-center" data-test="live-plays-words">
-            <span class="block text-sm font-extrabold text-white truncate" data-test="live-plays-result"><%= latest.result_label %></span>
-            <% if latest.detail_label %>
-              <span class="inline-block max-w-full truncate text-xs font-bold" data-test="live-plays-detail"
-                    style="background: <%= side ? team_two_tone_ink(side) : "linear-gradient(90deg, #cbd5e1, #94a3b8)" %>;
-                           -webkit-background-clip: text; background-clip: text; color: transparent"><%= latest.detail_label %></span>
-            <% end %>
-          </span>
-          </span>
-        </div>
+        <%= render "contests/live_play_summary",
+                   play_id: latest.external_id, play_kind: latest.kind, title: latest.text,
+                   result: latest.result_label, detail: latest.detail_label, ink_team: side,
+                   avatars: avatars %>
       <% end %>
     </div>
 

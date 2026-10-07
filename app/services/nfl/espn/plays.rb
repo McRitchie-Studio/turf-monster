@@ -28,24 +28,10 @@ module Nfl
         :first_down
       )
 
-      # What a play IS to someone glancing at the feed. The board marks these
-      # differently, so the vocabulary is small and closed; anything ESPN
-      # invents next season falls through to "play" and still renders.
-      #
-      # ORDER MATTERS: "Official Timeout" must reach `break` before the bare
-      # "Timeout" pattern claims it — only a team's own timeout costs it one of
-      # its three, and that is the one a reader is counting.
-      KIND_PATTERNS = [
-        [/official timeout|two-minute warning|end (of )?(period|quarter|half|game|regulation)|coin toss/i, "break"],
-        [/timeout/i,                                    "timeout"],
-        [/touchdown|field goal good|safety|two-point.*(good|success)|extra point good/i, "score"],
-        [/intercept|fumble recovery \(opponent\)|turnover on downs|blocked .*(recover|return)/i, "turnover"],
-        [/penalty/i,                                    "penalty"],
-        [/sack/i,                                       "sack"],
-        [/punt|kickoff|field goal|extra point/i,        "kick"]
-      ].freeze
-
-      KINDS = (KIND_PATTERNS.map(&:last) + ["play"]).uniq.freeze
+      # What a play IS to someone glancing at the feed. The vocabulary lives in
+      # PlayTypes, beside what the play-by-play bar calls the same play, so the
+      # two can never disagree about a type.
+      KINDS = PlayTypes::KINDS
 
       # DID THE SUMMARY CARRY A PLAY LIST AT ALL? Same question, and the same
       # reason, as ScoringPlays.reported?: a degraded 200 with no `drives` key
@@ -157,7 +143,7 @@ module Nfl
       # ends in a touchdown is typed "Passing Touchdown", but a fumble returned
       # for one is typed by the fumble and only `scoringPlay` says it scored.
       def self.kind_for(type, play)
-        named = KIND_PATTERNS.find { |pattern, _| type.match?(pattern) }&.last
+        named = PlayTypes.classify(type)&.kind
         return named if %w[break timeout].include?(named)
         return "score"    if play["scoringPlay"] == true
         return "turnover" if play["isTurnover"] == true

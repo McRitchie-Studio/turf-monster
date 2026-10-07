@@ -11,7 +11,7 @@ class Contest
   # Stream: [contest, :live]. FOUR targets (update = inner HTML so the wrapper
   # div + its id survive every refresh and stay re-updatable):
   #   contest_<id>_leaderboard  (update)  — re-ranked leaderboard
-  #   contest_<id>_games        (update)  — the strip: every game as a chip
+  #   contest_<id>_games        (update)  — the strip: this week's games as chips
   #   contest_<id>_focus        (update)  — the focused game at hero size. Its
   #                                         OWN target because the strip runs
   #                                         across the top while the focus panel
@@ -23,9 +23,9 @@ class Contest
   #                                         chain so a flurry reads in order.
   #                                         See contests/_live_script.
   #
-  # PLUS SIX PER GAME, on the same stream, for the play-by-play — see
-  # #plays_changed. They are not part of the four above: a score sends those,
-  # a play sends these, and neither count changes the other.
+  # PLUS UP TO SIX PER GAME, on the same stream, for the play-by-play — see
+  # #plays_changed: five when only the situation moved, six with a new play.
+  # A score sends the four above, a play these; neither count changes the other.
   #
   # THE COUNT IS LOAD-BEARING and Contest::LiveBroadcastTest asserts it. Each
   # broadcast below is individually rescued, so a partial that raises in

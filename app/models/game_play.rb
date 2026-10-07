@@ -75,36 +75,8 @@ class GamePlay < ApplicationRecord
   # "J.Goff", "A.St. Brown", "T.McMillan": an initial, a dot, a surname.
   PLAYER    = /\b([A-Z])\.\s?((?:St\.\s?)?[A-Z][A-Za-z'\-]+)/
 
-  # ESPN's play type -> the word a fan would use. First match wins, so the
-  # specific cases sit above the general ones they contain.
-  RESULTS = [
-    # The try after a touchdown, made or missed — before "touchdown", which
-    # some feeds repeat in its text.
-    [/extra point|\bpat\b/i,                "Extra Point"],
-    [/two-point|2pt/i,                     "Two-Point Try"],
-    [/touchdown/i,                         "Touchdown"],
-    [/safety/i,                            "Safety"],
-    [/intercept/i,                         "Interception"],
-    [/fumble recovery \(opponent\)/i,      "Fumble Recovered"],
-    [/fumble/i,                            "Fumble"],
-    [/blocked field goal/i,                "Blocked Field Goal"],
-    [/blocked punt/i,                      "Blocked Punt"],
-    [/field goal good/i,                   "Field Goal"],
-    [/field goal/i,                        "Missed Field Goal"],
-    [/incompletion|incomplete/i,           "Incompletion"],
-    [/pass reception|completion/i,         "Completion"],
-    [/sack/i,                              "Sack"],
-    [/rush/i,                              "Rush"],
-    [/punt/i,                              "Punt"],
-    [/kickoff/i,                           "Kickoff"],
-    [/penalty/i,                           "Penalty"],
-    [/official timeout/i,                  "Official Timeout"],
-    [/timeout/i,                           "Timeout"],
-    [/two-minute warning/i,                "Two-Minute Warning"],
-    [/end of half/i,                       "Halftime"],
-    [/end (of )?(period|quarter)/i,        "End of Quarter"],
-    [/end of (game|regulation)/i,          "End of Game"]
-  ].freeze
+  # ESPN's play type -> the word a fan would use: Nfl::Espn::PlayTypes, the
+  # same table the feed marks a play's kind from.
 
   # What happened, in the feed's own words with the scaffolding taken off:
   # no formation, no coverage, no tacklers, and nothing after the play itself.
@@ -120,8 +92,8 @@ class GamePlay < ApplicationRecord
   # is one we have not listed, and the kind's own label is the last resort.
   def result_label
     [play_type, text].each do |source|
-      found = RESULTS.find { |pattern, _| source.to_s.match?(pattern) }
-      return found.last if found
+      found = Nfl::Espn::PlayTypes.classify(source)
+      return found.result if found
     end
 
     label || play_type.presence

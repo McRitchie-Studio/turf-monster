@@ -1,9 +1,9 @@
 <%# THE GAME STRIP — this week's games (Contest::WeekWindow), as a row of buttons.
     Locals: active / upcoming / completed (Game[]) + contest.
 
-    Two jobs, and only two. It shows the whole slate at a glance, and it is how
-    the reader CHOOSES which game the panel below shows. Ordered active →
-    upcoming → completed so whatever is being played now is what you land on.
+    Two jobs, and only two. It shows the week at a glance, and it is how the
+    reader CHOOSES which game the panel below shows. Ordered active → upcoming →
+    finals OLDEST first, so the row wraps from tonight back to Thursday.
 
     Rendered inside #contest_<id>_games, which Contest::LiveBroadcast updates on
     every score, so this is pure content (no outer id). The FOCUS lives in Alpine
