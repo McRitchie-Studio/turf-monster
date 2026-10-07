@@ -28,8 +28,10 @@ class FakeVault
                  account_info_raises: false, signatures: {},
                  send_raises: nil, season: { season_id: 1 }, season_raises: nil, seasons: nil,
                  broadcast_raises: nil, mint_window_remaining: nil,
-                 signature_for_wire_raises: nil)
+                 signature_for_wire_raises: nil, block_height: nil, status_raises: nil)
     @fail_after = fail_after
+    @block_height = block_height             # getBlockHeight answer (nil → the read raises, like an unreachable node)
+    @status_raises = status_raises           # getSignatureStatuses fault (a 429 on recovery's status read)
     @starting_sequence = starting_sequence
     @tokens = tokens
     @signature_statuses = signature_statuses
@@ -121,7 +123,9 @@ class FakeVault
                                      account_infos: @account_infos,
                                      account_info_raises: @account_info_raises,
                                      signatures: @signatures,
-                                     send_raises: @send_raises)
+                                     send_raises: @send_raises,
+                                     block_height: @block_height,
+                                     status_raises: @status_raises)
   end
 
   # Used by ContestsController#create / #rebuild_create_tx. Returns the same
@@ -413,12 +417,20 @@ class FakeVault
 
     signature = (@cosign_broadcast_signature ||= "fake-cosign-broadcast-sig")
     before_send&.call(signature)
+    # Reached only when the stamp held: the real completer sends after
+    # before_send returns, never when it raises.
+    @cosign_broadcast_sends = cosign_broadcast_sends + 1
     raise StandardError, @cosign_broadcast_raises if @cosign_broadcast_raises
 
     signature
   end
 
   attr_writer :cosign_broadcast_signature
+
+  # How many wires got past before_send — the ones the real vault would send.
+  def cosign_broadcast_sends
+    @cosign_broadcast_sends || 0
+  end
 
   def cosign_broadcast_calls
     @cosign_broadcast_calls ||= []
@@ -959,8 +971,13 @@ end
 # returns {"value" => [nil]} per the JSON-RPC spec.
 class FakeSolanaClient
   def initialize(statuses, usdc_balance: nil, usdc_balance_raises: false, account_infos: {},
-                 account_info_raises: false, signatures: {}, send_raises: nil, transactions: {})
+                 account_info_raises: false, signatures: {}, send_raises: nil, transactions: {},
+                 block_height: nil, status_raises: nil)
     @statuses = statuses || {}
+    @block_height = block_height
+    @status_raises = status_raises
+    @block_height_calls = []
+    @status_calls = []
     @usdc_balance = usdc_balance
     @usdc_balance_raises = usdc_balance_raises
     @account_infos = account_infos || {}
@@ -970,8 +987,29 @@ class FakeSolanaClient
     @transactions = transactions || {}  # signature => get_transaction payload
   end
 
+  attr_reader :block_height_calls, :status_calls
+
+  # A status may be a Proc, called once per read with the read's ordinal (1, 2,
+  # ...), so a test can answer differently on recovery's re-read.
   def confirm_transaction(signature)
-    { "value" => [@statuses[signature]] }
+    @status_calls << signature
+    if @status_raises
+      raise @status_raises if @status_raises.is_a?(Exception)
+      raise Solana::Client::HttpError.new(@status_raises.to_s)
+    end
+    status = @statuses[signature]
+    status = status.call(@status_calls.count(signature)) if status.respond_to?(:call)
+    { "value" => [status] }
+  end
+
+  # The cluster's block height, at the commitment asked for. nil (the default)
+  # raises, the way an unreachable node does, so a test that never seeded a
+  # height can never be told the deadline has passed.
+  def get_block_height(commitment: "confirmed")
+    @block_height_calls << commitment
+    raise Solana::Client::RpcError, "simulated getBlockHeight failure" if @block_height.nil?
+
+    @block_height
   end
 
   # Cdp::OfframpSendJob broadcasts the pre-signed wire here AFTER persisting

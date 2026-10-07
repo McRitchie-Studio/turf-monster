@@ -196,22 +196,199 @@ class ContestsEntryStillConfirmingTest < ActionDispatch::IntegrationTest
 
   # --- recover_pending_entry: the pending submit resolves here ---
 
-  def post_recover(ptx, statuses: {})
-    Solana::Vault.stub :new, FakeVault.new(signature_statuses: statuses) do
-      post recover_pending_entry_contest_path(@contest), params: { ptx_slug: ptx.slug }, as: :json
+  DEADLINE = 1_000_000 # the prepared wire's last valid block height
+
+  def post_recover(ptx, statuses: {}, vault: nil, **vault_opts)
+    vault ||= FakeVault.new(signature_statuses: statuses, **vault_opts)
+    Solana::Vault.stub :new, vault do
+      Solana::Keypair.stub :encode_base58, ->(s) { s.to_s } do
+        post recover_pending_entry_contest_path(@contest), params: { ptx_slug: ptx.slug }, as: :json
+      end
     end
     JSON.parse(response.body)
   end
 
-  test "recovery fails a signature still unseen past the blockhash window, freeing the player" do
-    ptx = prepared_ptx(status: "submitted", tx_signature: "sig-dropped-#{SecureRandom.hex(3)}",
-                       broadcast_at: (OnchainSendVerdict::BLOCKHASH_LAPSE + 1.minute).ago)
+  # A signed, submitted row whose wire carries a deadline, broadcast `age` ago.
+  def submitted_ptx(age:, deadline: DEADLINE)
+    meta = { entry_pda: @expected_pda }
+    meta[:last_valid_block_height] = deadline if deadline
+    PendingTransaction.create!(
+      tx_type: "enter_contest", serialized_tx: "stx", status: "submitted",
+      target: @entry, initiator_address: @user.web3_solana_address,
+      tx_signature: "sig-#{SecureRandom.hex(4)}", broadcast_at: age.ago, metadata: meta.to_json
+    )
+  end
 
-    body = post_recover(ptx)
+  def landed
+    { "err" => nil, "confirmationStatus" => "finalized" }
+  end
+
+  def lapsed
+    OnchainSendVerdict::BLOCKHASH_LAPSE + 1.minute
+  end
+
+  def assert_still_processing(body, ptx)
+    assert_equal "processing", body["status"], body.inspect
+    assert_equal "submitted", ptx.reload.status, "the row keeps prepare_entry's 409 standing"
+    assert @entry.reload.cart?
+  end
+
+  test "recovery fails a signature unseen past the window AND past the chain deadline, freeing the player" do
+    ptx = submitted_ptx(age: lapsed)
+
+    vault = FakeVault.new(block_height: DEADLINE + 1)
+    body = post_recover(ptx, vault: vault)
 
     assert_equal "failed", body["status"]
     assert_equal "failed", ptx.reload.status
     assert @entry.reload.cart?
+    assert_equal ["finalized"], vault.client.block_height_calls, "the deadline is judged at finalized height"
+    assert_equal 2, vault.client.status_calls.size, "the status is read again AFTER the height, so nothing landed in between"
+  end
+
+  # --- the double charge: a landed entry must never read failed ---
+
+  test "a 429 on the status read answers processing and keeps the row submitted" do
+    ptx = submitted_ptx(age: 30.seconds)
+
+    body = post_recover(ptx, status_raises: "HTTP 429 Too Many Requests")
+
+    assert_still_processing(body, ptx)
+  end
+
+  test "a 429 on the verify of a LANDED signature answers processing and keeps the row submitted" do
+    ptx = submitted_ptx(age: 30.seconds)
+    error = rpc_429
+
+    body = Solana::TxVerifier.stub :verify!, ->(**) { raise error } do
+      post_recover(ptx, statuses: { ptx.tx_signature => landed })
+    end
+
+    assert_still_processing(body, ptx)
+  end
+
+  test "a lagging node that cannot find a LANDED signature answers processing, not failed" do
+    ptx = submitted_ptx(age: 30.seconds)
+
+    body = Solana::TxVerifier.stub :verify!, ->(**) { raise Solana::TxVerifier::NotFound, "Transaction not found on-chain" } do
+      post_recover(ptx, statuses: { ptx.tx_signature => landed })
+    end
+
+    assert_still_processing(body, ptx)
+  end
+
+  test "CONTROL: a landed signature that verifies as the wrong instruction still fails" do
+    ptx = submitted_ptx(age: 30.seconds)
+
+    body = Solana::TxVerifier.stub :verify!, ->(**) { raise Solana::TxVerifier::VerificationError, "Transaction does not contain a `enter_contest` instruction" } do
+      post_recover(ptx, statuses: { ptx.tx_signature => landed })
+    end
+
+    assert_equal "failed", body["status"]
+    assert_equal "failed", ptx.reload.status
+  end
+
+  test "five minutes elapsed before the chain passes the deadline does not fail the row" do
+    ptx = submitted_ptx(age: lapsed)
+
+    body = post_recover(ptx, block_height: DEADLINE) # AT the deadline the wire can still land
+
+    assert_still_processing(body, ptx)
+  end
+
+  test "a failed block height read past the window answers processing" do
+    ptx = submitted_ptx(age: lapsed)
+
+    body = post_recover(ptx) # no height seeded: the read raises
+
+    assert_still_processing(body, ptx)
+  end
+
+  test "a row with no recorded deadline is never failed on the wall clock alone" do
+    ptx = submitted_ptx(age: 1.day, deadline: nil)
+
+    body = post_recover(ptx, block_height: DEADLINE * 10)
+
+    assert_still_processing(body, ptx)
+  end
+
+  test "a signature that lands between the height read and the re-read is verified, not failed" do
+    ptx = submitted_ptx(age: lapsed)
+    statuses = { ptx.tx_signature => ->(nth) { nth == 1 ? nil : { "err" => nil, "confirmationStatus" => "finalized" } } }
+
+    body = Solana::TxVerifier.stub :verify!, true do
+      post_recover(ptx, statuses: statuses, block_height: DEADLINE + 1)
+    end
+
+    assert_equal "confirmed", body["status"], body.inspect
+    assert_equal "confirmed", ptx.reload.status
+    assert @entry.reload.active?
+  end
+
+  # --- the 409 covers every cart this player builds on this contest ---
+
+  test "a new cart is refused while another entry submit is pending" do
+    ptx = submitted_ptx(age: 30.seconds)
+    # Clear picks abandons the paying cart; the next pick builds a fresh one.
+    @entry.update!(status: :abandoned)
+    new_cart = @contest.entries.create!(user: @user, status: :cart)
+    %i[m1 m2 m3 m4 m5 m6].each { |m| new_cart.selections.create!(slate_matchup: slate_matchups(m)) }
+
+    assert_no_difference "PendingTransaction.count" do
+      Solana::Vault.stub :new, FakeVault.new do
+        post prepare_entry_contest_path(@contest), as: :json
+      end
+    end
+
+    assert_response :conflict
+    body = JSON.parse(response.body)
+    assert_equal "entry_pending", body["code"]
+    assert_equal ptx.slug, body["ptx_slug"], "the board recovers the row that is actually pending"
+    assert_nil body["serialized_tx"]
+  end
+
+  test "CONTROL: another player's pending submit does not refuse this player's cart" do
+    other = users(:alex)
+    other_entry = @contest.entries.create!(user: other, status: :cart)
+    PendingTransaction.create!(tx_type: "enter_contest", serialized_tx: "stx", status: "submitted",
+                               target: other_entry, initiator_address: "OtherWallet#{SecureRandom.hex(3)}",
+                               tx_signature: "sig-other-#{SecureRandom.hex(3)}", broadcast_at: Time.current)
+
+    Solana::Vault.stub :new, FakeVault.new do
+      post prepare_entry_contest_path(@contest), as: :json
+    end
+
+    assert_response :success
+  end
+
+  # --- the stamp is conditional: a second confirm cannot overwrite the first ---
+
+  test "a confirm whose row already carries another signature sends nothing and answers still confirming" do
+    ptx = prepared_ptx(status: "submitted", tx_signature: "sig-first-confirm", broadcast_at: 5.seconds.ago)
+    vault = FakeVault.new
+    vault.cosign_broadcast_signature = "sig-second-confirm"
+
+    Solana::Vault.stub :new, vault do
+      post_confirm
+    end
+
+    assert_equal 0, vault.cosign_broadcast_sends, "the losing confirm never reaches the send"
+    assert_response :accepted
+    assert_equal ptx.slug, JSON.parse(response.body)["ptx_slug"]
+    assert_equal "sig-first-confirm", ptx.reload.tx_signature, "the first stamp stands"
+  end
+
+  test "the stamp still lands on a fresh pending row" do
+    ptx = prepared_ptx
+    vault = FakeVault.new
+    vault.cosign_broadcast_raises = "send failed"
+
+    Solana::Vault.stub :new, vault do
+      post_confirm
+    end
+
+    assert_equal 1, vault.cosign_broadcast_sends
+    assert_equal "fake-cosign-broadcast-sig", ptx.reload.tx_signature
   end
 
   test "recovery keeps an unseen signature processing inside the blockhash window" do
