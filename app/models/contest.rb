@@ -541,12 +541,14 @@ class Contest < ApplicationRecord
       "[Contest.create_onchain!] UNCERTAIN for slug=#{slug} sig=#{@onchain_create_signature}: " \
       "#{error.class}: #{error.message} — row kept pending, reading the chain"
     )
+    # Adopt with the status this create's caller asked for, in the reconciler's
+    # one write: never `open` first and then put back.
     verdict = Contests::PendingReconciler.new(vault: @onchain_create_vault || Solana::Vault.new)
-                                         .reconcile(self, cutoff: Time.current)
+                                         .reconcile(self, cutoff: Time.current,
+                                                          adopt_as: @status_before_broadcast.presence || :open)
     case verdict
     when :promoted
-      Rails.logger.warn("[Contest.create_onchain!] ADOPTED #{slug}: the send errored but the contest is on chain")
-      update_columns(status: @status_before_broadcast) if @status_before_broadcast && @status_before_broadcast != status
+      Rails.logger.warn("[Contest.create_onchain!] ADOPTED #{slug} as #{status}: the send errored but the contest is on chain")
       nil
     when :deleted
       raise "On-chain contest creation failed on chain (row removed after the chain answered): #{error.message}"

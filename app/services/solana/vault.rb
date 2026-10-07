@@ -1278,8 +1278,8 @@ module Solana
     # advance is no longer first and the transaction is rejected. That is the
     # 2026-06-11 finding recorded on `#simulate_and_broadcast`, and it makes
     # the nonce unusable for ANY Phantom-signed flow, not merely undesirable.
-    # No cosign builder passes `durable_nonce:`; the only non-nil call site in
-    # this file is `build_create_contest`'s server-signed branch.
+    # No builder in this file passes `durable_nonce:` any more; the last one,
+    # `build_create_contest`'s admin-signed branch, dropped it (retire-nonce-contest-prepare).
     #
     # The consequence is a ~60-90 second window, which is the right constraint
     # for an eviction: the operator is at the keyboard by definition. The page
@@ -1704,13 +1704,19 @@ module Solana
       wallet_bytes = Keypair.decode_base58(wallet_address)
 
       if admin_signs
+        # Legacy server-first: the admin signs now and the CREATOR's slot is left
+        # for the wallet, so this is a Phantom-signed transaction too. A FRESH
+        # BLOCKHASH, never the durable nonce: Phantom injects Lighthouse guard
+        # instructions ahead of advanceNonceAccount (the mainnet incident noted at
+        # #build_enter_contest), and a nonce wire stays landable until the nonce
+        # advances, so a create signed today could move the creator's prize pool
+        # at any later time. Its one route caller,
+        # ContestsController#prepare_onchain_contest, is retired (retire-nonce-contest-prepare);
+        # pinned by test/integration/contest_create_never_nonce_anchored_test.rb.
         serialized = build_partial_signed(
           accounts: spec[:accounts],
           data: spec[:data],
-          additional_signers: [wallet_bytes],
-          # Contest-create is the flow that died on mainnet BlockhashNotFound
-          # when a flagged Phantom warning ate the ~90s blockhash window.
-          durable_nonce: durable_nonce_config
+          additional_signers: [wallet_bytes]
         )
         return { serialized_tx: serialized, contest_pda: Keypair.encode_base58(spec[:contest_pda]) }
       end
@@ -2302,9 +2308,16 @@ module Solana
       #     `durable_nonce:` — not the six raised cosign paths, not the two
       #     set_contest_*_time builders. They all take the `nil` default and
       #     are anchored on a plain recent blockhash.
-      #   * `durable_nonce_config` has exactly ONE caller: `build_create_contest`
-      #     on its `admin_signs: true` branch, which is SERVER-signed and never
-      #     goes near Phantom.
+      #   * `durable_nonce_config` HAD exactly one caller: `build_create_contest`
+      #     on its `admin_signs: true` branch. CORRECTED AGAIN by this task: this
+      #     line used to call that branch "SERVER-signed and never goes near
+      #     Phantom", which was false. The admin signed it, but the CREATOR's
+      #     slot was left for the wallet, and ContestsController
+      #     #prepare_onchain_contest handed it to Phantom: a Phantom-signed
+      #     create on the production nonce. That route is retired and the
+      #     branch now takes a fresh blockhash, so `durable_nonce_config` has
+      #     NO caller; it stays for the server-signed settlement path that will
+      #     need its own nonce plumbing (settlement-uses-durable-nonce).
       #   * And it could not be otherwise. Reason 1 above is not specific to
       #     entries: ANY Phantom-signed transaction can have Lighthouse guard
       #     instructions injected ahead of the advance, and a nonce transaction
@@ -4196,9 +4209,11 @@ module Solana
       tx
     end
 
-    # Opt-in durable-nonce config — set SOLANA_DURABLE_NONCE_PUBKEY to make
-    # operator flows anchor on it; authority is the admin managed wallet (already
-    # cosigns server-side). Returns nil (= default recent-blockhash) when unset.
+    # Opt-in durable-nonce config — SOLANA_DURABLE_NONCE_PUBKEY names the nonce
+    # account; authority is the admin managed wallet. Returns nil (= default
+    # recent-blockhash) when unset. NO CALLER TODAY: it is kept for a
+    # SERVER-signed flow, the planned durable-nonce settlement. Never pass it to
+    # a builder whose wire a wallet signs (see #build_enter_contest).
     def durable_nonce_config
       pubkey = ENV["SOLANA_DURABLE_NONCE_PUBKEY"].presence or return nil
       { pubkey: pubkey, authority: Keypair.admin.address }
