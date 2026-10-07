@@ -325,6 +325,77 @@ class ContestsEntryStillConfirmingTest < ActionDispatch::IntegrationTest
     assert @entry.reload.active?
   end
 
+  # --- Carl's probe: a cart cleared mid-confirm must not open a second wire ---
+
+  test "clear picks is refused while the cart's signed submit is pending, keeping its slot" do
+    ptx = submitted_ptx(age: 30.seconds)
+
+    post clear_picks_contest_path(@contest), as: :json
+
+    assert_response :conflict
+    body = JSON.parse(response.body)
+    assert_equal "entry_pending", body["code"]
+    assert_equal ptx.slug, body["ptx_slug"]
+    @entry.reload
+    assert @entry.cart?, "the paying cart is not abandoned"
+    assert_equal 0, @entry.entry_number, "the slot the PDA derives from stays put"
+  end
+
+  test "CONTROL: clear picks still abandons a cart with no pending submit" do
+    post clear_picks_contest_path(@contest), as: :json
+
+    assert_response :success
+    assert @entry.reload.abandoned?
+  end
+
+  test "an entry abandoned with a signed wire pending keeps its slot" do
+    submitted_ptx(age: 30.seconds)
+
+    @entry.update!(status: :abandoned)
+
+    assert_equal 0, @entry.reload.entry_number
+  end
+
+  test "PROBE: a landed wire on a cart abandoned mid-confirm never fails, and the new cart stays refused" do
+    ptx = submitted_ptx(age: 30.seconds)
+    # The shape the probe reached through the released slot: no entry_number
+    # to derive the PDA from. Written past the model guard on purpose.
+    @entry.update_columns(status: Entry.statuses[:abandoned], entry_number: nil)
+
+    body = Solana::TxVerifier.stub :verify!, true do
+      post_recover(ptx, statuses: { ptx.tx_signature => landed })
+    end
+
+    assert_equal "processing", body["status"], "the real vault's TypeError on a nil slot is no verdict"
+    assert_equal "submitted", ptx.reload.status
+
+    new_cart = @contest.entries.create!(user: @user, status: :cart)
+    %i[m1 m2 m3 m4 m5 m6].each { |m| new_cart.selections.create!(slate_matchup: slate_matchups(m)) }
+    Solana::Vault.stub :new, FakeVault.new do
+      post prepare_entry_contest_path(@contest), as: :json
+    end
+
+    assert_response :conflict
+    assert_nil JSON.parse(response.body)["serialized_tx"], "no second paying wire"
+  end
+
+  test "the fake vault's PDA derivation raises on a nil slot, as the real one does" do
+    assert_raises(TypeError) { FakeVault.new.entry_pda(@contest.slug, @user.web3_solana_address, nil) }
+  end
+
+  [Socket::ResolutionError.new("getaddrinfo: nodename nor servname provided"),
+   Errno::ECONNREFUSED.new, OpenSSL::SSL::SSLError.new("SSL_connect"), EOFError.new("end of file reached")].each do |fault|
+    test "an unwrapped #{fault.class} during the verify of a landed signature answers processing" do
+      ptx = submitted_ptx(age: 30.seconds)
+
+      body = Solana::TxVerifier.stub :verify!, ->(**) { raise fault } do
+        post_recover(ptx, statuses: { ptx.tx_signature => landed })
+      end
+
+      assert_still_processing(body, ptx)
+    end
+  end
+
   # --- the 409 covers every cart this player builds on this contest ---
 
   test "a new cart is refused while another entry submit is pending" do

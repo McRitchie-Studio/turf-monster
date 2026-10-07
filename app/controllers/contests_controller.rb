@@ -1306,14 +1306,17 @@ class ContestsController < ApplicationController
       }
     rescue StandardError => e
       capture_unlogged(e, target: entry, parent: @contest)
-      # The status said LANDED, so the money moved. A verify that could not
-      # READ the transaction (a 429, a node that has not indexed it yet) is not
-      # a refusal of it: keep the row submitted and let the client poll again.
-      if unreadable_chain_answer?(e)
-        render json: { status: "processing" }
-      else
+      # The status said LANDED, so the money moved. Only the verifier REFUSING
+      # the transaction (wrong instruction, signer or account, or an on-chain
+      # err) may fail the row. Anything else — a 429, a DNS or TLS fault, a
+      # node that has not indexed it, a slot we cannot derive, an entry gate —
+      # is not a verdict on the payment: keep the row submitted, keep the 409
+      # standing, and let the client poll (or an operator) resolve it.
+      if e.is_a?(EntryVerifyRefused)
         fail_recovered_entry_ptx(ptx)
         render json: { status: "failed", error: "Recovery failed: #{e.message}" }
+      else
+        render json: { status: "processing" }
       end
     end
   rescue StandardError => e
@@ -1491,6 +1494,20 @@ class ContestsController < ApplicationController
 
   def clear_picks
     entry = @contest.entries.cart.find_by(user: current_user)
+
+    # A CART WHOSE PAYMENT IS STILL CONFIRMING IS NOT CLEARABLE. Abandoning it
+    # releases its entry_number (Entry#release_slot_if_abandoned), and recovery
+    # then cannot derive the entry PDA to verify the payment that landed — the
+    # row failed, the 409 lifted, and a new cart paid a second time
+    # (recovery-never-fails-landed-entries). The board resolves it through
+    # recover_pending_entry instead, by this slug.
+    if entry && current_user.web3_solana_address.present? &&
+       (in_flight = awaiting_verdict_scope.where(target: entry).order(created_at: :desc).first)
+      return respond_to do |format|
+        format.html { redirect_to contest_path(@contest), alert: ENTRY_STILL_CONFIRMING_MESSAGE }
+        format.json { render_entry_still_confirming(in_flight, status: :conflict) }
+      end
+    end
 
     rescue_and_log(target: entry, parent: @contest) do
       if entry
@@ -2573,8 +2590,14 @@ class ContestsController < ApplicationController
   rescue Solana::TxVerifier::NotFound
     raise # keeps its class: recovery reads it as "ask again", not "failed"
   rescue Solana::TxVerifier::VerificationError => e
-    raise e.message
+    raise EntryVerifyRefused, e.message
   end
+
+  # The verifier READ the transaction and refused it. A RuntimeError, as the
+  # bare `raise e.message` this replaced was, so every caller that rescued that
+  # still does; #recover_pending_entry tells it apart from every fault that is
+  # not a verdict (recovery-never-fails-landed-entries).
+  class EntryVerifyRefused < RuntimeError; end
 
   # Shared on-chain entry confirmation, used by BOTH the live confirm path
   # (#confirm_onchain_entry) and the crash-recovery path (#recover_pending_entry).
@@ -2680,12 +2703,6 @@ class ContestsController < ApplicationController
       .update_all(status: "failed", updated_at: Time.current)
   end
 
-  # A chain read that ERRORED rather than answered: a rate limit, a timeout, or
-  # a node with no record of a signature another node has confirmed. After a
-  # landed status, none of these says the wire failed.
-  def unreadable_chain_answer?(error)
-    error.is_a?(Solana::Client::RpcError) || error.is_a?(Solana::TxVerifier::NotFound)
-  end
 
   # The one answer for "your entry may already be paid for". 202 from confirm
   # (the send happened), 409 from prepare (a second wire is refused). `code` is

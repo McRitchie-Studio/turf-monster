@@ -529,7 +529,13 @@ class FakeVault
   # through Solana::Keypair.encode_base58. For tests, return a tuple whose first
   # element is already a string and stub Solana::Keypair.encode_base58 to
   # identity when calling confirm_onchain_entry.
+  #
+  # The slot number goes through the same u32 pack the real Vault#entry_pda
+  # does, so a nil or non-integer slot raises the same TypeError here as there.
+  # Without it a released slot (nil entry_number) derived "epda-…-" and the
+  # suite missed a double charge (recovery-never-fails-landed-entries).
   def entry_pda(contest_slug, wallet_address, entry_num)
+    [entry_num].pack("V") # u32 LE, as Solana::Vault#entry_pda
     ["epda-#{contest_slug}-#{wallet_address[0, 4]}-#{entry_num}", 255]
   end
 
