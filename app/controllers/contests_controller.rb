@@ -8,7 +8,7 @@ class ContestsController < ApplicationController
 
   skip_before_action :require_authentication, only: [:index, :show, :contest, :my, :leaderboard_poll, :live]
   # Observability for the latency tail (fix-turf-latency-tail): attribute the
-  # DB wall time on the two hot paths — "/" (the lobby, #index) and the contest
+  # DB wall time on the two hot paths — /contests (the lobby, #index) and the contest
   # show page — to connect vs execute. No-op-safe; DB_SPAN_TRACE=0 disables.
   around_action :trace_db_span, only: [:index, :show, :contest]
   before_action :set_contest, only: [:show, :contest, :admin, :edit, :update, :update_banner, :toggle_selection, :enter, :check_funding, :clear_picks, :grade, :fill, :lock, :prepare_lock_time, :confirm_lock_time, :prepare_conclusion_time, :confirm_conclusion_time, :jump, :simulate_game, :simulate_batch, :reset, :close_onchain, :cancel_onchain, :prepare_entry, :discard_prepared_entry, :stamp_entry_signature, :recover_pending_entry, :confirm_onchain_entry, :prepare_onchain_contest, :confirm_onchain_contest, :leaderboard_poll, :live]
@@ -572,7 +572,7 @@ class ContestsController < ApplicationController
       end
 
       @contest.save!
-      redirect_to root_path, notice: "Contest updated."
+      redirect_to contests_path, notice: "Contest updated."
     end
   rescue StandardError => e
     # The refusal above is the whole point of this screen re-rendering, and it
@@ -799,7 +799,7 @@ class ContestsController < ApplicationController
 
     # The cart entry is created by toggle_selection.
     entry = @contest.entries.cart.find_by(user: current_user)
-    return redirect_to root_path, alert: "No cart entry found" unless entry
+    return redirect_to contests_path, alert: "No cart entry found" unless entry
 
     # Attribute any RPC writes spawned by this action to the cart entry —
     # OutboundRequestLogger falls back to Current.outbound_source so future
@@ -1491,13 +1491,13 @@ class ContestsController < ApplicationController
       end
 
       respond_to do |format|
-        format.html { redirect_to root_path, notice: "Picks cleared" }
+        format.html { redirect_to contests_path, notice: "Picks cleared" }
         format.json { render json: { success: true } }
       end
     end
   rescue StandardError => e
     respond_to do |format|
-      format.html { redirect_to root_path, alert: e.message }
+      format.html { redirect_to contests_path, alert: e.message }
       format.json { render json: { success: false, error: e.message }, status: :unprocessable_entity }
     end
   end
@@ -1531,7 +1531,7 @@ class ContestsController < ApplicationController
       redirect_to @contest, notice: "Simulated #{game.home_team.name} vs #{game.away_team.name}: #{game.home_score}-#{game.away_score}"
     end
   rescue StandardError => e
-    redirect_to @contest || root_path, alert: e.message
+    redirect_to @contest || contests_path, alert: e.message
   end
 
   def grade
@@ -1551,7 +1551,7 @@ class ContestsController < ApplicationController
     end
   rescue StandardError => e
     respond_to do |format|
-      format.html { redirect_to @contest || root_path, alert: e.message }
+      format.html { redirect_to @contest || contests_path, alert: e.message }
       format.json { render json: { success: false, error: e.message }, status: :unprocessable_entity }
     end
   end
@@ -1565,7 +1565,7 @@ class ContestsController < ApplicationController
       redirect_to @contest, notice: "Contest filled with #{@contest.entries.where(status: [:active, :complete]).count} entries!"
     end
   rescue StandardError => e
-    redirect_to @contest || root_path, alert: e.message
+    redirect_to @contest || contests_path, alert: e.message
   end
 
   # Set the contest lock time (derived-lock model, v0.17). `in_seconds` defaults
@@ -1602,7 +1602,7 @@ class ContestsController < ApplicationController
       redirect_to @contest, notice: notice
     end
   rescue StandardError => e
-    redirect_to @contest || root_path, alert: e.message
+    redirect_to @contest || contests_path, alert: e.message
   end
 
   # Phantom-prepared lock (web3). set_contest_lock_time is 1-of-3 and the admin's
@@ -1733,16 +1733,16 @@ class ContestsController < ApplicationController
       redirect_to @contest, notice: "Contest jumped! Results simulated and settled."
     end
   rescue StandardError => e
-    redirect_to @contest || root_path, alert: e.message
+    redirect_to @contest || contests_path, alert: e.message
   end
 
   def reset
     rescue_and_log(target: @contest) do
       @contest.reset!
-      redirect_to root_path, notice: "Contest reset!"
+      redirect_to contests_path, notice: "Contest reset!"
     end
   rescue StandardError => e
-    redirect_to root_path, alert: e.message
+    redirect_to contests_path, alert: e.message
   end
 
   def simulate_batch
@@ -1754,7 +1754,7 @@ class ContestsController < ApplicationController
       redirect_to @contest, notice: "Simulated #{simulated} game(s)."
     end
   rescue StandardError => e
-    redirect_to @contest || root_path, alert: e.message
+    redirect_to @contest || contests_path, alert: e.message
   end
 
   # Reclaim on-chain rent (close_contest, 1-of-3 server-signed). The program
@@ -1772,7 +1772,7 @@ class ContestsController < ApplicationController
       redirect_to @contest, notice: "On-chain rent reclaimed (close_contest: #{result[:signature]})."
     end
   rescue StandardError => e
-    redirect_to @contest || root_path, alert: e.message
+    redirect_to @contest || contests_path, alert: e.message
   end
 
   # Cancel an open contest + refund the creator's prize pool (cancel_contest,
@@ -1811,7 +1811,7 @@ class ContestsController < ApplicationController
         notice: "Cancel queued for cosign — refunds #{creator_pubkey[0..7]}… in the Treasury."
     end
   rescue StandardError => e
-    redirect_to @contest || root_path, alert: e.message
+    redirect_to @contest || contests_path, alert: e.message
   end
 
   private
@@ -2033,7 +2033,7 @@ class ContestsController < ApplicationController
       render json: { success: false, error: result[:message], blocker: result[:blocker] },
              status: :unprocessable_entity
     else
-      redirect_to root_path, alert: result[:message]
+      redirect_to contests_path, alert: result[:message]
     end
   end
 
@@ -2687,7 +2687,7 @@ class ContestsController < ApplicationController
     )
 
     respond_to do |format|
-      format.html { redirect_to root_path, alert: "Contest not found" }
+      format.html { redirect_to contests_path, alert: "Contest not found" }
       format.json { render json: { error: "Contest not found" }, status: :not_found }
     end
   end

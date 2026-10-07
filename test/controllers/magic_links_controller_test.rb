@@ -100,7 +100,7 @@ class MagicLinksControllerTest < ActionDispatch::IntegrationTest
   end
 
   # ── consume (POST /magic_link/:token) ────────────────────────────────────
-  # consume redirects to the LANDING page (return_to, else root); the post-auth
+  # consume redirects to the LANDING page (return_to, else the lobby); the post-auth
   # ONBOARDING CHAIN carries the greeting from there (first name -> age ->
   # wallet), armed one-shot on the session.
   #
@@ -119,7 +119,7 @@ class MagicLinksControllerTest < ActionDispatch::IntegrationTest
     assert user.age_attested_at.present?, "new user should carry the legal-age attestation timestamp"
     # No contest return_to → a NEW generic signup lands on the ROOT board
     # (operator call, 2026-08-15; it used to resolve Contest.featured here).
-    assert_redirected_to root_path
+    assert_redirected_to contests_path
     assert_nil flash[:notice], "the greeting is a modal, not a toast"
     assert_nil flash[:auth_toast], "the chain greets; a toast would talk over it"
     assert_nil flash[:magic_link_welcome], "the chain's opening card replaces the flash modal here"
@@ -140,14 +140,14 @@ class MagicLinksControllerTest < ActionDispatch::IntegrationTest
   # page. Both halves are asserted: the redirect, and that FOLLOWING it stays put
   # (a landing that bounces is the whole defect, and the redirect alone can't see
   # it).
-  test "a link that returns to the sign-in page lands on the root, not /account" do
+  test "a link that returns to the sign-in page lands on the lobby, not /account" do
     existing = users(:alex)
     existing.update_columns(first_name: "Mr.", age_attested_at: 30.years.ago,
                             web3_solana_address: "PhantomSigninReturn#{existing.id}")
     token = magic_token(email: existing.email, return_to: "/signin")
     post magic_link_consume_path(token: token)
 
-    assert_redirected_to root_path
+    assert_redirected_to contests_path
     # Root is the contests lobby. What must never happen is landing back on an
     # auth page or on /account — that bounce IS the bug.
     follow_redirect!
@@ -163,7 +163,7 @@ class MagicLinksControllerTest < ActionDispatch::IntegrationTest
       existing.update_columns(first_name: "Jo", age_attested_at: 30.years.ago,
                               web3_solana_address: "PhantomLoop#{existing.id}")
       post magic_link_consume_path(token: magic_token(email: existing.email, return_to: path))
-      assert_redirected_to root_path, "return_to #{path} is a way in, not a landing"
+      assert_redirected_to contests_path, "return_to #{path} is a way in, not a landing"
       reset!
     end
   end
@@ -287,8 +287,8 @@ class MagicLinksControllerTest < ActionDispatch::IntegrationTest
   test "consume sanitizes a protocol-relative return_to (open-redirect guard)" do
     token = magic_token(email: users(:alex).email, return_to: "//evil.com/x")
     post magic_link_consume_path(token: token)
-    # The evil path is dropped to nil → falls back to the safe in-app root.
-    assert_redirected_to root_path
+    # The evil path is dropped to nil → falls back to the safe in-app lobby.
+    assert_redirected_to contests_path
   end
 
   # ── legal-age attestation (underwriting compliance) ───────────────────────

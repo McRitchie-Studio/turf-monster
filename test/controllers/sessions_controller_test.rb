@@ -60,7 +60,7 @@ class SessionsControllerTest < ActionDispatch::IntegrationTest
   # login with no return_to lands on the ROOT, the contests lobby.
   test "login via magic link establishes a session" do
     log_in_as users(:alex)
-    assert_redirected_to root_path
+    assert_redirected_to contests_path
     follow_redirect!
     assert_response :success
     assert_equal users(:alex).id, session[Studio.session_key]

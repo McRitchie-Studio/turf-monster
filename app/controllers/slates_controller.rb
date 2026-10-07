@@ -6,7 +6,7 @@ class SlatesController < ApplicationController
     real_slates = Slate.where.not(name: "Default")
     slate = real_slates.where("starts_at >= ?", Time.current).order(starts_at: :asc).first ||
             real_slates.order(starts_at: :desc, created_at: :desc).first
-    return redirect_to root_path, alert: "No slates found" unless slate
+    return redirect_to contests_path, alert: "No slates found" unless slate
     redirect_to slate_path(slate)
   end
 
@@ -93,7 +93,7 @@ class SlatesController < ApplicationController
       redirect_to slate_path(@slate), notice: "Rankings saved! Multipliers recalculated."
     end
   rescue StandardError => e
-    redirect_to @slate ? slate_path(@slate) : root_path, alert: e.message
+    redirect_to @slate ? slate_path(@slate) : contests_path, alert: e.message
   end
 
   # Manual multiplier override — the one endpoint that writes a price nobody
@@ -129,7 +129,7 @@ class SlatesController < ApplicationController
       end
     end
   rescue StandardError => e
-    redirect_to @slate ? slate_path(@slate) : root_path, alert: e.message
+    redirect_to @slate ? slate_path(@slate) : contests_path, alert: e.message
   end
 
   def update_formula
@@ -141,7 +141,7 @@ class SlatesController < ApplicationController
       end
     end
   rescue StandardError => e
-    redirect_to @slate ? slate_path(@slate) : root_path, alert: e.message
+    redirect_to @slate ? slate_path(@slate) : contests_path, alert: e.message
   end
 
   def admin_formula
@@ -153,7 +153,7 @@ class SlatesController < ApplicationController
 
   def update_admin_formula
     @default_slate = Slate.default_record
-    return redirect_to root_path, alert: "Default slate not found" unless @default_slate
+    return redirect_to contests_path, alert: "Default slate not found" unless @default_slate
 
     rescue_and_log(target: @default_slate) do
       if @default_slate.update(formula_params)
@@ -281,7 +281,7 @@ class SlatesController < ApplicationController
 
   def set_slate
     @slate = Slate.find_by(slug: params[:id])
-    return redirect_to root_path, alert: "Slate not found" unless @slate
+    return redirect_to contests_path, alert: "Slate not found" unless @slate
   end
 
   def formula_params

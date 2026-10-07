@@ -97,8 +97,8 @@ class SolanaSessionsController < ApplicationController
       # this writes — arming first would hand the user an empty chain.
       record_onboarding_state!(user)
       # New signups land on the entry-tokens page (post-signup upsell);
-      # a completed Google link goes to /account; everyone else to the root.
-      redirect = linked ? account_path : (is_new ? tokens_buy_path : "/")
+      # a completed Google link goes to /account; everyone else to the lobby.
+      redirect = linked ? account_path : (is_new ? tokens_buy_path : contests_path)
       render json: { success: true, redirect: redirect, new_user: is_new }
     end
   rescue Solana::AuthVerifier::VerificationError => e

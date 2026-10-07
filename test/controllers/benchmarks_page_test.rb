@@ -308,6 +308,6 @@ class BenchmarksPageTest < ActionDispatch::IntegrationTest
   test "an unknown slate redirects rather than 500ing" do
     get benchmarks_path(slug: "no-such-slate")
 
-    assert_redirected_to root_path
+    assert_redirected_to contests_path
   end
 end

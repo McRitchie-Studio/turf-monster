@@ -14,7 +14,7 @@ class BenchmarksController < ApplicationController
   def index
     @slates = Slate.selector_ordered.select(&:week_range)
     @slate = params[:slug].present? ? Slate.find_by(slug: params[:slug]) : default_slate
-    return redirect_to(root_path, alert: "Slate not found") if @slate.nil?
+    return redirect_to(contests_path, alert: "Slate not found") if @slate.nil?
 
     @team_rows = @slate.team_rows
     # EVERY snapshot behind this slate's weeks, newest first — a span is pulled

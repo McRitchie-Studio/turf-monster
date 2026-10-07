@@ -77,7 +77,7 @@ class TurfMonsterV2PageTest < ActionDispatch::IntegrationTest
       live = page_node.css('[data-test="v2-live"]').first
       refute_match(/display:\s*none/, live["style"].to_s)
       assert_includes live.text, "The Weeks 7-9 slate is live"
-      assert live.css(%(a[href="#{root_path}"])).any?
+      assert live.css(%(a[href="#{contests_path}"])).any?, "Play now goes to the lobby; root is this page"
       refute_includes section_text("v2-hero"), "Get notified", "the hero stops promising a notification once the slate is out"
       assert_includes section_text("v2-hero"), "Play Turf Monster"
     end

@@ -17,7 +17,7 @@ class FreeEntryMailer < ApplicationMailer
   def ready(user, contest = nil)
     @user    = user
     @contest = contest
-    @contest_url = contest ? contest_url(contest.slug) : root_url
+    @contest_url = contest ? contest_url(contest.slug) : contests_url
 
     @banner_url = Studio::EmailCatalog.resolved_url(:free_entry_ready)
     @banner_alt = "Your free entry is ready"

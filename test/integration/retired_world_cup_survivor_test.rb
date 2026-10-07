@@ -5,7 +5,9 @@ require "test_helper"
 #   1. Nothing runs it: FORMATS has no survivor format, Contest's game_type enum
 #      has no survivor value, and no app or lib source names the format, its
 #      models or its grading service.
-#   2. Root is the contests lobby, and the old World Cup paths 301 there.
+#   2. The old World Cup paths 301 to root. Root is the landing page now
+#      (/tasks/turf-root-serves-landing-page), the lobby lives at /contests,
+#      and test/integration/root_landing_page_test.rb holds the rest of that.
 #   3. A contest the retired format wrote stays a readable closed record: its
 #      page, poll and lobby card answer (the agent API's half is in
 #      test/controllers/api/v1/contests_controller_test.rb), nothing 500s, and every
@@ -58,10 +60,10 @@ class RetiredWorldCupSurvivorTest < ActionDispatch::IntegrationTest
     assert_equal Contest::FORMATS.fetch("standard"), contests(:one).format_config
   end
 
-  # --- 2. root is the lobby -------------------------------------------------
+  # --- 2. the old paths 301 to root; the lobby is at /contests ---------------
 
-  test "[integration] root answers the contests lobby" do
-    get root_path
+  test "[integration] the contests lobby answers at /contests" do
+    get contests_path
 
     assert_response :success
     assert_equal "contests", @controller.controller_name
@@ -78,7 +80,7 @@ class RetiredWorldCupSurvivorTest < ActionDispatch::IntegrationTest
   end
 
   test "the lobby hands a saved cart back to the contest page it names" do
-    get root_path
+    get contests_path
 
     script = css_select("script").map(&:text).find { |js| js.include?("pendingContestEntry") }
     assert script, "the lobby must look for a saved cart, because sign-ins with no destination land here"

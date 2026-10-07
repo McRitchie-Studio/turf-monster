@@ -80,7 +80,7 @@
                 title: 'Test USDC Minted',
                 subtitle: 'Minted $' + amount + ' test USDC to your wallet.',
                 ctaLabel: 'Browse Contests',
-                ctaHref: '<%= root_path %>'
+                ctaHref: '<%= contests_path %>'
               });
               onchainSettled();
             } else {
@@ -136,7 +136,7 @@
       <%= link_to "Enter a Contest", contest_path(@contest), class: "btn btn-primary btn-lg" %>
     <% elsif logged_in? %>
       <p class="text-secondary">No open contests right now. Check back soon!</p>
-      <%= link_to "Browse Contests", root_path, class: "btn btn-outline" %>
+      <%= link_to "Browse Contests", contests_path, class: "btn btn-outline" %>
     <% else %>
       <p class="text-secondary">Sign in to start playing.</p>
       <%= link_to "Sign in to Play", signin_path, class: "btn btn-primary btn-lg" %>

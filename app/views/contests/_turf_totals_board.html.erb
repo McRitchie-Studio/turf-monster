@@ -1528,7 +1528,7 @@ window.selectionBoard = function() {
         var geo = await res.json();
         if (geo.blocked) {
           this.setHoldError();
-          this.showRedirectModal('Location Restricted', 'Contest entries are not available in ' + (geo.state || 'your state') + '.', '\uD83D\uDCCD', '/', 5, 'OK');
+          this.showRedirectModal('Location Restricted', 'Contest entries are not available in ' + (geo.state || 'your state') + '.', '\uD83D\uDCCD', '/contests', 5, 'OK');
           return false;
         }
       } catch(e) {
@@ -1814,7 +1814,7 @@ window.selectionBoard = function() {
                 try { if (window.updateNavTokens) window.updateNavTokens(nextBalance); } catch (_) {}
                 Alpine.store('solanaModal').resolveEntry({
                   txSignature: data.tx_signature,
-                  lobbyUrl:    data.redirect || '/',
+                  lobbyUrl:    data.redirect || '/contests',
                   seedsEarned: data.seeds_earned || 0,
                   seedsTotal:  data.seeds_total  || 0,
                   seedsLevel:  data.seeds_level  || 0
@@ -1824,7 +1824,7 @@ window.selectionBoard = function() {
                 var sm = Alpine.store('solanaModal');
                 sm.seedsEarned = data.seeds_earned || 0;
                 sm.seedsTotal  = data.seeds_total  || 0;
-                sm.lobbyUrl    = data.redirect || '/';
+                sm.lobbyUrl    = data.redirect || '/contests';
                 sm.success(data.tx_signature, 'Entry Confirmed');
                 onchainSettled({ navigating: true });
               }
@@ -1840,14 +1840,14 @@ window.selectionBoard = function() {
                 try { if (window.updateNavTokens) window.updateNavTokens(nextBalance2); } catch (_) {}
                 Alpine.store('solanaModal').resolveEntry({
                   txSignature: null,
-                  lobbyUrl:    data.redirect || '/',
+                  lobbyUrl:    data.redirect || '/contests',
                   seedsEarned: data.seeds_earned || 0,
                   seedsTotal:  data.seeds_total  || 0,
                   seedsLevel:  data.seeds_level  || 0
                 });
                 onchainSettled({ navigating: true });
               } else {
-                window.location.href = data.redirect || '/';
+                window.location.href = data.redirect || '/contests';
               }
             }
           } else if (this._handleBlockerResponse(data)) {

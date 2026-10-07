@@ -5,7 +5,7 @@
 > resets at each `##` heading. The number is bookkeeping; the SYMBOL beside it is
 > the claim, and `test/docs/workflow_citation_docs_test.rb` reddens when a
 > citation stops landing inside the definition its prose names.
-> That symbol check reaches **148 of the 177 citations** here. The other **29**
+> That symbol check reaches **149 of the 178 citations** here. The other **29**
 > sit in code with no enclosing definition the guard can derive, and they are not
 > all checked alike. **6 of those 29** are `config/routes.rb` entries, which get a
 > stricter check: each must OPEN on the line that carries its route, not merely
@@ -34,14 +34,15 @@
 **Trigger:** Anonymous visitor opens `/` (`GET /`)
 **Actors:** User / Rails / email transport / Stripe / Sidekiq / Solana RPC (devnet)
 **Outcome:** New `users` row, server-managed wallet generated, on-chain `UserAccount` PDA created, one Stripe-funded on-chain `EntryTokenAccount` minted and consumed, an `entries` row for the main contest in status `active` with 6 `selections`, and one visible `messages` row broadcast over ActionCable to that contest's chat stream.
-**Preconditions:** at least one contest in status `open`/`settled` exists, or `Contest.featured` returns nil and root falls back to `/contests` (`app/models/contest.rb:202-207`; `locked` is no longer a status — it is a derived time-gate). `PAYMENT_PROVIDER=stripe` plus Stripe keys set (`Rails.application.config.x.stripe_enabled`, checked in `TokensController#stripe_checkout` at `app/controllers/tokens_controller.rb:29-31`). A `SeasonConfig` row with a non-zero `current_season_id`, enforced on the entry path by `ContestsController#ensure_onchain_season_ready!` (`app/controllers/contests_controller.rb:2328-2332`). The chosen contest must be on-chain — the token branch of `Entries::ManagedEntry#fund!` is what consumes the `EntryTokenAccount` (`app/services/entries/managed_entry.rb:170-185`).
+**Preconditions:** at least one contest in status `open`/`settled` exists, or `Contest.featured` returns nil and the landing's preview falls back to the site image (`app/models/contest.rb:202-207`; `locked` is no longer a status — it is a derived time-gate). `PAYMENT_PROVIDER=stripe` plus Stripe keys set (`Rails.application.config.x.stripe_enabled`, checked in `TokensController#stripe_checkout` at `app/controllers/tokens_controller.rb:29-31`). A `SeasonConfig` row with a non-zero `current_season_id`, enforced on the entry path by `ContestsController#ensure_onchain_season_ready!` (`app/controllers/contests_controller.rb:2328-2332`). The chosen contest must be on-chain — the token branch of `Entries::ManagedEntry#fund!` is what consumes the `EntryTokenAccount` (`app/services/entries/managed_entry.rb:170-185`).
 
 ## Sequence
 
-1. **Visitor lands on `/`** — `root "contests#index"` (`config/routes.rb:57`) → `ContestsController#index` (`app/controllers/contests_controller.rb:53-70`), the contests lobby. The retired World Cup paths `/world-cup` and `/world_cup` 301 here.
-   - `index` is in the `skip_before_action :require_authentication` list, so logged-out browsing works (`app/controllers/contests_controller.rb:9`).
-   - The lobby's link-preview banner is the contest `Contest.featured` picks (`app/models/contest.rb:202-207`), whose chain is `SeasonConfig.main_contest_explicit` → most recent `open` non-`coming_soon` → most recent `open`/`settled` non-`coming_soon`. It does NOT call `SeasonConfig.main_contest` (`app/models/season_config.rb:33-37`); that resolver is a separate one used by the share widget and faucet CTA, and it applies a different fallback.
-   - The visitor opens a contest from the featured rail or the All Contests table, which links `contest_path(contest)`.
+1. **Visitor lands on `/`** — `root "pages#home"` (`config/routes.rb:57`) → `PagesController#home` (`app/controllers/pages_controller.rb:40-53`), which renders the landing page (`pages/turf_monster_v2`, the same page as `/turf-monster-v2`) for a signed-out visitor and redirects a signed-in one, query and flash kept, to the contests lobby at `/contests` → `ContestsController#index` (`app/controllers/contests_controller.rb:53-70`). The retired World Cup paths `/world-cup` and `/world_cup` 301 to `/`.
+   - `index` is in the `skip_before_action :require_authentication` list, so logged-out browsing of the lobby works too (`app/controllers/contests_controller.rb:9`).
+   - The landing's call to action (`pages/_next_contest_cta`, `NextContest.pick`) links the next contest still open to enter; its "Play now" links go to `/contests`.
+   - The link-preview banner of both `/` and the lobby is the contest `Contest.featured` picks (`app/models/contest.rb:202-207`), whose chain is `SeasonConfig.main_contest_explicit` → most recent `open` non-`coming_soon` → most recent `open`/`settled` non-`coming_soon`. It does NOT call `SeasonConfig.main_contest` (`app/models/season_config.rb:33-37`); that resolver is a separate one used by the share widget and faucet CTA, and it applies a different fallback.
+   - The visitor opens a contest from the landing's call to action, or from the lobby's featured rail or All Contests table, which link `contest_path(contest)`.
 
 2. **Show page renders for a logged-out visitor** — `ContestsController#show` (`app/controllers/contests_controller.rb:698-705`) → `app/views/contests/show.html.erb`. `/contests/:id` is a router: once a game on the slate has started a bare visit 302s to the live board, and the page itself is always at `/contests/:id/contest` (`ContestsController#contest`); both render through `#load_contest_page` (`:2701-2742`).
    - Hero banner + creator avatar + on-chain explorer link — `contests/hero` is rendered at `app/views/contests/show.html.erb:26`; inside the partial the `explorer.solana.com` link is at `app/views/contests/_hero.html.erb:19` and the avatar circle, which renders `creator_name.first.upcase`, at `:29-31`.
@@ -87,7 +88,7 @@
      - The rescue calls `purchase&.mark_failed_unless_minted!` (`:175`, definition `app/models/concerns/mintable_purchase.rb:36-40`, mixed into `StripePurchase` by the `include MintablePurchase` at `app/models/stripe_purchase.rb:7`) and re-raises so Sidekiq retries.
    - The browser polls `/tokens/status` from the processing page until the purchase reads `minted`; the endpoint is `TokensController#status` (`app/controllers/tokens_controller.rb:462-504`).
 
-8. **Back to root → the lobby** — the user clicks the navbar "Turf Monster" home link → `GET /` → step 1 repeats.
+8. **Back to root → the lobby** — the now signed-in user clicks the navbar "Turf Monster" home link → `GET /` → `PagesController#home` redirects them to `/contests`, the lobby.
    - "Main contest" surfacing is the admin's explicit pick from `/admin/site_config`, stored by `SeasonConfig.set_main_contest!` (`app/models/season_config.rb:45-48`) and read back by `SeasonConfig.main_contest_explicit` (`:41-43`). After that the `Contest.featured` fallback is most-recent `open`, then most-recent `open`/`settled` (`app/models/contest.rb:204-206`). **No** highest-pot ordering.
 
 9. **Build a 6-pick lineup** — each tap on a matchup tile POSTs to `ContestsController#toggle_selection` (`app/controllers/contests_controller.rb:1505-1526`).

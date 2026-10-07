@@ -12,7 +12,7 @@ class FrozenAccountBannerTest < ActionDispatch::IntegrationTest
   end
 
   def pages
-    [root_path, contests_path, contest_path(@contest), my_contests_path, account_path, wallet_path]
+    [contests_path, contest_path(@contest), my_contests_path, account_path, wallet_path]
   end
 
   test "every page shows a frozen account the banner, once" do

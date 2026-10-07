@@ -17,11 +17,11 @@ class DbSpanTest < ActionDispatch::IntegrationTest
     Rails.logger = original
   end
 
-  test "root emits a connect/execute [db-span] line without changing the response" do
-    log = capturing_logs { get root_path }
+  test "the lobby emits a connect/execute [db-span] line without changing the response" do
+    log = capturing_logs { get contests_path }
 
     assert_response :success
-    assert_match(%r{\[db-span\] path=/}, log)
+    assert_match(%r{\[db-span\] path=/contests}, log)
     assert_match(/connect=([\d.]+ms|n\/a)/, log)
     assert_match(/execute=[\d.]+ms/, log)
     assert_match(/controller=contests#index/, log)
@@ -36,7 +36,7 @@ class DbSpanTest < ActionDispatch::IntegrationTest
 
   test "DB_SPAN_TRACE=0 disables the span but the page still serves" do
     ENV["DB_SPAN_TRACE"] = "0"
-    log = capturing_logs { get root_path }
+    log = capturing_logs { get contests_path }
 
     assert_response :success
     refute_match(/\[db-span\]/, log)

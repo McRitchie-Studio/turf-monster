@@ -59,11 +59,11 @@ class ContestRouterTest < ActionDispatch::IntegrationTest
                  "a link to the router would bounce straight back here"
   end
 
-  # Root is the contests lobby and routes nowhere, whatever has started.
-  test "root renders the lobby even once a game has started" do
+  # The contests lobby (/contests) routes nowhere, whatever has started.
+  test "the lobby renders even once a game has started" do
     start_a_game!
 
-    get root_path
+    get contests_path
 
     assert_response :success
     assert_equal "index", @controller.action_name
@@ -124,6 +124,6 @@ class ContestRouterTest < ActionDispatch::IntegrationTest
 
     get contest_page_path(@contest)
 
-    assert_redirected_to root_path
+    assert_redirected_to contests_path
   end
 end
