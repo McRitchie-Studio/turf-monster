@@ -2638,7 +2638,7 @@ class ContestsController < ApplicationController
   end
 
   # A signed, submitted entry transaction: broadcast (or about to be), verdict not
-  # yet in. Only recover_pending_entry moves a row out of this state.
+  # yet in. A confirm that finishes, or recover_pending_entry, moves it on.
   def awaiting_verdict_scope
     PendingTransaction.where(tx_type: "enter_contest", status: "submitted").where.not(tx_signature: [nil, ""])
   end

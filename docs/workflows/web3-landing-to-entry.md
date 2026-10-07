@@ -292,7 +292,7 @@ Phantom must be installed in the browser or available via mobile deep link.
        slot, runs a simulation pre-flight, then sends and waits for
        confirmation.
      - Its `before_send:` callback stamps the `PendingTransaction` `submitted`
-       with the signature (`:1429`) BEFORE the bytes leave the server, not
+       with the signature (`:1431`) BEFORE the bytes leave the server, not
        after. That closes a real gap the old after-broadcast stamp left: a
        crash between broadcast and stamp used to leave a PT reading "never
        broadcast" for money that had already moved, so recovery could let the
@@ -393,7 +393,7 @@ Phantom must be installed in the browser or available via mobile deep link.
   `find_pending_recovery_ptx`
   (`app/controllers/contests_controller.rb:2832-2852`) puts the slug into the
   board config, `init()` calls `recoverPendingEntry()`
-  (`app/views/contests/_turf_totals_board.html.erb:531-571`, POST at `:543`),
+  (`app/views/contests/_turf_totals_board.html.erb:534-571`, POST at `:543`),
   and `ContestsController#recover_pending_entry`
   (`app/controllers/contests_controller.rb:1229-1337`) polls the signature once
   (`:1278`): still propagating renders `processing` (`:1280-1292`), an

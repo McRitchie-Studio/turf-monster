@@ -289,7 +289,7 @@ confirm_onchain_entry
 | build the expectation — `Solana::Vault#cosign_expectation` | `#confirm_onchain_entry` at `:1404-1408`; definition `app/services/solana/vault.rb:3523-3566` |
 | C1 cosign guard — `Solana::Cosign::Expectation#verify!` | invoked inside `#cosign_and_broadcast_entry` below; definition `solana-studio lib/solana/cosign/expectation.rb` |
 | cosign + simulate + broadcast — `Solana::Vault#cosign_and_broadcast_entry` | `#confirm_onchain_entry` at `app/controllers/contests_controller.rb:1426-1432`; definition `app/services/solana/vault.rb:3647-3652` |
-| PT stamped with `tx_signature` immediately, BEFORE broadcast (`before_send:`) | `#confirm_onchain_entry` at `app/controllers/contests_controller.rb:1429` |
+| PT stamped with `tx_signature` immediately, BEFORE broadcast (`before_send:`) | `#confirm_onchain_entry` at `app/controllers/contests_controller.rb:1431` |
 | `ContestsController#verify_and_confirm_onchain_entry!` | `#confirm_onchain_entry` at `:1438-1441`; definition `:2673-2690` |
 | PT confirmed | `#confirm_onchain_entry` at `:1443` |
 
@@ -298,7 +298,7 @@ confirm_onchain_entry
 | # | Scenario | Funds state | Breadcrumb | Recovery |
 |---|----------|-------------|------------|----------|
 | 1 | Web3: any failure BEFORE broadcast (guard, simulation, Phantom dismissal) | **Nothing moved** | signatureless pending PT | A signing failure gets an in-place **Try Again** action that expires the unsigned PT and prepares fresh wire bytes. Other stale PTs auto-expire on page load. |
-| 2 | Web3: broadcast OK, verification/DB error after | USDC/USDT **paid**, entry on-chain, app shows `cart` | PT `submitted` + tx_signature | Auto: next contest-page visit triggers the recovery modal → §5.1 promotes to `active` without re-charging |
+| 2 | Web3: broadcast OK, verification/DB error after | USDC/USDT **paid**, entry on-chain, app shows `cart` | PT `submitted` + tx_signature | In-page: `#confirm_onchain_entry` answers 202 with code `entry_pending` ("sent and still confirming", never "try again") and the board starts the §5.1 poll at once; `#prepare_entry` answers 409 `entry_pending` while that PT stands, so no second wire is built. Otherwise the next contest-page visit triggers the recovery modal → §5.1 promotes to `active` without re-charging |
 | 3 | Web3: the process dies between the stamp and the broadcast attempt | Nothing moved, or the PT already names a signature that was never handed to any node | PT `submitted` + `tx_signature`, or none | **Closed** (turf-adopts-cosign-primitives): `before_send:` stamps the signature before the broadcast is attempted, not after one succeeds, so a crash here can no longer strand a paid entry with zero app breadcrumb — the row is either untouched (case 1) or already carries the exact signature to reconcile |
 | 4 | Web2 token: consume OK, `confirm!` transient failure | Token **consumed**, entry on-chain, app `cart` | entry row carries `onchain_tx_signature` (durable capture) | Auto: `Entries::OnchainReconcileJob` enqueued inline; also healed by the no-arg sweep |
 | 5 | Web2 USDC: transfer OK, `confirm!` transient failure | USDC **paid** | same durable capture | Same reconciler |
@@ -324,7 +324,11 @@ and every such case except #6 self-heals automatically.
   confirm PT, done (`:1250`). Signature blank → PT failed, user retries (`:1269-1271`). Signature present → `getSignatureStatuses` poll:
   landed clean → full verify → promote to `active` (no re-charge); on-chain
   err → PT failed, retry is safe (`:1294-1296`); still propagating →
-  "processing", client keeps polling (`:1280-1292`, ~30s budget). A landed
+  "processing", client keeps polling (`:1280-1292`, ~30s budget), unless the
+  signature is still unseen past the blockhash window (`broadcast_at`, stamped
+  by `before_send:`, plus `OnchainSendVerdict::BLOCKHASH_LAPSE`) — then PT
+  failed and the player is free to enter again; a PT with no `broadcast_at`
+  stays "processing" for an operator. A landed
   signature runs the full `verify_and_confirm_onchain_entry!` (`:1312-1314`).
 - **Safety**: `ContestsController#recover_pending_entry` double-checks ownership —
   initiator address (`app/controllers/contests_controller.rb:1233`) AND
