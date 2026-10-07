@@ -89,7 +89,8 @@ class SettleAmountsExactTest < ActiveSupport::TestCase
   def make_entry(contest, score)
     user = User.create!(email: "exact_#{SecureRandom.hex(5)}@example.com",
                         web3_solana_address: Solana::Keypair.from_bytes(SecureRandom.random_bytes(32)).to_base58)
-    Entry.create!(user: user, contest: contest, status: "active", score: score)
+    Entry.create!(user: user, contest: contest, status: "active", score: score,
+                  **EnteredOnchain.attrs(contest, user.web3_solana_address))
   end
 
   def fake_client
