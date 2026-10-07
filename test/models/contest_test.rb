@@ -200,7 +200,8 @@ class ContestGradeTiePayoutsTest < ActiveSupport::TestCase
   def make_active_entry(score:)
     user = User.create!(email: "tied_#{SecureRandom.hex(4)}@example.com",
                         web3_solana_address: Solana::Keypair.from_bytes(SecureRandom.random_bytes(32)).to_base58)
-    Entry.create!(user: user, contest: @contest, status: "active", score: score)
+    Entry.create!(user: user, contest: @contest, status: "active", score: score,
+                  **EnteredOnchain.attrs(@contest, user.web3_solana_address))
   end
 end
 

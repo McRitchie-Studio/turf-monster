@@ -790,14 +790,14 @@ class Contest < ApplicationRecord
   def settle_onchain!
     return unless onchain? && !onchain_settled?
 
-    winners = entries.complete.where("payout_cents > 0").includes(:user).map do |entry|
-      {
-        wallet: entry.user.solana_address,
-        entry_num: entry.entry_number || 0,
-        rank: entry.rank || 0,
-        payout: Solana::Config.cents_to_base_units(entry.payout_cents)
-      }
-    end.select { |w| w[:wallet].present? }
+    # Each paid entry pays the wallet that ENTERED it (Entry#wallet_address), not
+    # entry.user.solana_address: a user holding both wallets entered from one of
+    # them, and the program derives the ContestEntry PDA from that one. A paid
+    # entry with no recorded wallet raises (#payout_settlements, at the foot of
+    # this class), so the whole grade rolls back; none is dropped and swept to
+    # operator revenue. Kept line-for-line: docs/workflows cites this file.
+    winners = payout_settlements
+    # An empty list means no entry earned a payout.
 
     return update!(onchain_settled: true) if winners.empty?
 
@@ -1063,4 +1063,42 @@ class Contest < ApplicationRecord
 
     slate.matchups_by_team.values.map { |team_matchups| team_matchups.first.id }
   end
+
+  # A paid entry the settle cannot pay: it has no recorded entering wallet, or no
+  # entry slot, and the program needs both to derive its ContestEntry PDA.
+  class MissingPayoutWalletError < StandardError; end
+
+  # The settle_contest settlements for this contest's paid entries, one per entry,
+  # each paying Entry#wallet_address: the wallet whose seeds derive the entry's
+  # ContestEntry PDA, recorded when it was entered (Entry#record_entering_wallet)
+  # or backfilled from the chain (Entries::WalletBackfill).
+  #
+  # It refuses rather than drops. The old filter skipped a winner with no address,
+  # the settle paid everyone else, and close_contest later swept the skipped prize
+  # to operator revenue; when every winner was skipped the contest read settled
+  # with no transaction at all. Raising inside #grade!'s lock leaves the contest
+  # ungraded and gradable once the wallet is recorded.
+  def payout_settlements
+    paid = entries.complete.where("payout_cents > 0").order(:id).to_a
+    unpayable = paid.select { |entry| entry.wallet_address.blank? || entry.entry_number.nil? }
+    raise MissingPayoutWalletError, missing_payout_wallet_message(unpayable) if unpayable.any?
+
+    paid.map do |entry|
+      {
+        wallet: entry.wallet_address,
+        entry_num: entry.entry_number,
+        rank: entry.rank || 0,
+        payout: Solana::Config.cents_to_base_units(entry.payout_cents)
+      }
+    end
+  end
+
+  def missing_payout_wallet_message(unpayable)
+    ids = unpayable.map(&:id).join(", ")
+    noun = unpayable.one? ? "paid entry #{ids} has" : "paid entries #{ids} have"
+    "Cannot grade: #{noun} no recorded entering wallet, so the settle cannot pay " \
+      "#{unpayable.one? ? 'it' : 'them'}. Run bin/rails \"entries:backfill_wallet_address[#{slug}]\" " \
+      "and grade again; nothing was graded."
+  end
+  private :missing_payout_wallet_message
 end

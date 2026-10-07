@@ -442,4 +442,43 @@ class Entry < ApplicationRecord
   include FrozenAccount::Validation
   validates_account_not_frozen :user, on: :create
   validates_account_not_frozen :user, on: :update, if: -> { will_save_change_to_status?(to: "active") }
+
+  # THE ENTERING WALLET. Contest#settle_onchain! pays wallet_address, so it must
+  # be the wallet that entered: the program derives the ContestEntry PDA from
+  # [b"entry", sha256(contest slug), wallet, entry_num], and a settle naming any
+  # other wallet fails its PDA check for every winner at once. A user can hold
+  # two wallets (managed web2 and Phantom web3) and enter from either, so
+  # User#solana_address, which prefers web3, is not the answer.
+  #
+  # Every entry path stores the PDA it entered at (Phantom confirm_onchain!, the
+  # managed and API paths through confirm!, enter_onchain!, the reconciler, an API
+  # adoption), so the record is made here, where they all meet: of the user's
+  # wallets, the one whose seeds derive that PDA. That is a proof, not a guess,
+  # and needs no RPC. When neither derives it the column stays nil and grading
+  # refuses (Contest#payout_settlements). Entries::WalletBackfill fills older rows
+  # from the chain.
+  before_save :record_entering_wallet
+
+  # The candidate whose seeds derive `entry_pda` for this contest and slot, or nil.
+  def self.entering_wallet_for(contest_slug:, entry_pda:, entry_number:, candidates:, vault: Solana::Vault.new(client: nil))
+    return nil if contest_slug.blank? || entry_pda.blank? || entry_number.nil?
+
+    Array(candidates).compact_blank.uniq.find do |wallet|
+      Solana::Keypair.encode_base58(vault.entry_pda(contest_slug, wallet, entry_number).first) == entry_pda
+    rescue StandardError # an address that will not decode derives nothing
+      false
+    end
+  end
+
+  private
+
+  def record_entering_wallet
+    return if wallet_address.present? || onchain_entry_id.blank? || entry_number.nil?
+    return unless new_record? || will_save_change_to_onchain_entry_id? || will_save_change_to_entry_number?
+
+    self.wallet_address = self.class.entering_wallet_for(
+      contest_slug: contest&.slug, entry_pda: onchain_entry_id, entry_number: entry_number,
+      candidates: [user&.web2_solana_address, user&.web3_solana_address]
+    )
+  end
 end

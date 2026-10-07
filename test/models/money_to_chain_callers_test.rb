@@ -37,14 +37,16 @@ class MoneyToChainCallersTest < ActiveSupport::TestCase
 
   test "settle_onchain!: each settlement pays payout_cents in exact base units" do
     @contest.update_columns(onchain_contest_id: Solana::Keypair.from_bytes(SecureRandom.random_bytes(32)).to_base58)
-    entry = Entry.create!(user: wallet_user, contest: @contest, status: "complete", score: 1, rank: 2, payout_cents: ODD)
+    user = wallet_user
+    entry = Entry.create!(user: user, contest: @contest, status: "complete", score: 1, rank: 2, payout_cents: ODD,
+                          **EnteredOnchain.attrs(@contest, user.web3_solana_address))
     vault = FakeVault.new
 
     Solana::Vault.stub(:new, vault) { @contest.settle_onchain! }
 
     settlements = vault.settle_calls.sole[:settlements]
     assert_equal [ ODD_UNITS ], settlements.map { |s| s[:payout] }
-    assert_equal entry.entry_number || 0, settlements.sole[:entry_num]
+    assert_equal entry.entry_number, settlements.sole[:entry_num]
   end
 
   test "StripeDepositJob funds the wallet with exact base units" do

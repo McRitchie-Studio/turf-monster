@@ -874,7 +874,7 @@ not one this server produced.
 
 ### Multisig Settlement Flow
 1. `Contest#grade!` scores and pays entries through `Contest::PayoutSplit` (never more paid entries than the contest's payout table has places, at most `Contest::MAX_PAID_RANKS`), then calls `settle_onchain!`, then marks the contest `settled`
-2. `settle_onchain!` calls `Vault#build_settle_contest` → creates a `PendingTransaction` with the partially-signed TX (2-of-3). The builder measures the serialized wire and raises `Vault::SettleTooLargeError` past 1,232 bytes; any raise rolls the whole grade back, so a contest never reads `settled` without a queued settlement
+2. `settle_onchain!` pays each paid entry at `Entry#wallet_address`, the wallet that entered it (the one whose seeds derive its ContestEntry PDA, recorded by `Entry#record_entering_wallet` and backfilled by `bin/rails entries:backfill_wallet_address`), never `User#solana_address`; a paid entry with no recorded wallet raises `Contest::MissingPayoutWalletError` and grading refuses. It calls `Vault#build_settle_contest` → creates a `PendingTransaction` with the partially-signed TX (2-of-3). The builder measures the serialized wire and raises `Vault::SettleTooLargeError` past 1,232 bytes; any raise rolls the whole grade back, so a contest never reads `settled` without a queued settlement
 3. Admin visits `/admin/pending_transactions` (Treasury page)
 4. Clicks "Co-sign" → Phantom signs as the second signer → TX submitted to Solana
 5. On-chain: per-winner SPL transfer `prize_pool` PDA → winner USDC ATA (PDA-signed by `VaultState` seeds); contest status → Settled

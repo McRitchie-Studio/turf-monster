@@ -41,3 +41,27 @@ namespace :entries do
     puts "reconciled=#{stats[:reconciled]} skipped=#{stats[:skipped]} errors=#{stats[:error]}"
   end
 end
+
+# Record the entering wallet on entries written before entries.wallet_address
+# existed. Reads the chain only (getAccountInfo on each stored ContestEntry PDA);
+# sends nothing. Contest#settle_onchain! pays this column and grading refuses a
+# paid entry without it, so run this before grading any contest entered earlier.
+# Idempotent; prints entry ids only.
+#
+#   bin/rails entries:backfill_wallet_address                 # every entry
+#   bin/rails "entries:backfill_wallet_address[<contest-slug>]" # one contest
+namespace :entries do
+  desc "Backfill entries.wallet_address from each entry's on-chain ContestEntry PDA (read-only)"
+  task :backfill_wallet_address, [:contest_slug] => :environment do |_t, args|
+    contest = nil
+    if args[:contest_slug].present?
+      contest = Contest.find_by(slug: args[:contest_slug])
+      abort "No contest with slug #{args[:contest_slug].inspect}" unless contest
+    end
+
+    stats = Entries::WalletBackfill.run(contest: contest)
+    puts "wallet_address backfill: chain=#{stats[:chain]} derived=#{stats[:derived]} " \
+         "unresolved=#{stats[:unresolved].size} #{stats[:unresolved].inspect} " \
+         "unreadable=#{stats[:unreadable].size} #{stats[:unreadable].inspect}"
+  end
+end
