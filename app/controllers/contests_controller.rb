@@ -1045,7 +1045,12 @@ class ContestsController < ApplicationController
       # Ensure user's onchain account exists and is current (auto-migrate if needed).
       # v0.16: username is required at PDA creation (validate_username on chain
       # enforces >= 3 chars). Pass current_user.username through.
-      vault.ensure_user_account(current_user.web3_solana_address, username: current_user.username)
+      #
+      # Its own budget, not just the request's: it is a read plus, for a new
+      # player, a create-and-confirm, all before the wallet prompt can open.
+      Solana::Client.with_wait_budget(SolanaWaitBudget::ENSURE_USER_ACCOUNT) do
+        vault.ensure_user_account(current_user.web3_solana_address, username: current_user.username)
+      end
 
       # FUNDING PRIORITY — entry token first, then the currency transfer. Same
       # order the web2 path has used since the unified-funding spec (see

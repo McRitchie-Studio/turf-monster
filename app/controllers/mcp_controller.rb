@@ -32,6 +32,9 @@
 # hold, then the age gate), answering in the tool's own envelope.
 class McpController < ActionController::API
   include ApiKeyAuthentication
+  # Tools run Api::V1::Operations, the same on-chain work /api/v1 does, so the
+  # same per-call wait budget applies (SolanaWaitBudget::REQUEST).
+  include SolanaWaitBudget
 
   # Far above any real message (a tools/call is a few hundred bytes).
   MAX_BODY_BYTES = 64.kilobytes

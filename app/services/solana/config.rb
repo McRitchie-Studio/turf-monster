@@ -772,8 +772,13 @@ module Solana
     # NOT a memoized singleton: `Solana::Client` holds a parsed URI and a
     # request counter, is used from Sidekiq workers and web threads alike, and
     # is cheap to build. Per-call construction keeps the previous lifetime.
-    def self.client(rpc_url: RPC_URL)
-      Solana::Client.new(rpc_url: rpc_url)
+    #
+    # `wait_budget:` is the most seconds each call may spend waiting between
+    # retries (solana-studio >= 0.12.3). Jobs keep the gem's default; a web
+    # request does not pass one here, because SolanaWaitBudget sets a
+    # thread-local budget that outranks the client's for every call it makes.
+    def self.client(rpc_url: RPC_URL, wait_budget: Solana::Client::DEFAULT_WAIT_BUDGET)
+      Solana::Client.new(rpc_url: rpc_url, wait_budget: wait_budget)
     end
 
     def self.devnet?

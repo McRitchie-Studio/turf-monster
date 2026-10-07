@@ -363,6 +363,19 @@ module Solana
         return ok(message: "Username registry mismatch — the rename could not be completed. Please try again.", log: true)
       end
 
+      # The RPC provider throttling us: an HTTP 429 the gem's retries could not
+      # outlast inside the request's wait budget (SolanaWaitBudget), or a
+      # JSON-RPC rate limit (code 429). Before the request budgets this
+      # surfaced as the raw "HTTP 429 from RPC:" string, or as a Heroku timeout.
+      #
+      # Only the gem's OWN error, matched by class and code or by the message
+      # it starts with. A Cosign::BroadcastFailed that WRAPS a 429 ("send
+      # failed — reconcile before rebuilding: HTTP 429 ...") is a may-have-
+      # landed verdict, not a rate limit, and must not be told "try again".
+      if (err.is_a?(Solana::Client::RpcError) && err.code == 429) || stripped.match?(/\AHTTP 429\b/)
+        return ok(message: "The Solana network is busy right now — please try again in a moment.", toast: true)
+      end
+
       # Network / RPC flakes — transient, user can just retry.
       if stripped.match?(/blockhash not found|block height exceeded|connection refused|timed out|connection reset/i)
         return ok(message: "Network blip — please try again.", toast: true)

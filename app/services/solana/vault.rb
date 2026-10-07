@@ -2023,8 +2023,10 @@ module Solana
     # carries err + logs), `PreflightRejected` (provably un-sent),
     # `BroadcastFailed`/`TransactionFailed` (from the send onward).
     def cosign_and_broadcast_contest_time(signed_wire_base64, expectation:, before_send: nil)
-      cosign_completer.complete(signed_wire_base64, expectation: expectation,
-                                                    before_send: before_send).signature
+      under_cosign_wait_budget do
+        cosign_completer.complete(signed_wire_base64, expectation: expectation,
+                                                      before_send: before_send).signature
+      end
     end
 
     # Set (or clear) a contest's conclusion timestamp, server-signed. ONE
@@ -3482,6 +3484,16 @@ module Solana
     # valid transaction. Every cosigned send below goes through the completer for
     # that reason.
 
+    # The most seconds each RPC call of a cosign submit may spend waiting between
+    # retries (solana-studio's Client wait budget; the default is 15). A cosign
+    # submit is always a person waiting on a signed wire whose blockhash is
+    # already ageing, inside a request Heroku cuts at 30 seconds, so it gives up
+    # early rather than retry past either. Giving up early is safe here: every
+    # error from the send onward is already read as "may have landed" (a
+    # BroadcastFailed, reconciled from the signature stamped before the send),
+    # and a 429 is "not processed", so a stopped retry never hides a double send.
+    COSIGN_WAIT_BUDGET = 5
+
     # The cosign builder: the admin managed wallet pays, the player signs.
     def cosign_builder
       Cosign::Builder.new(client: client, fee_payer: Keypair.admin)
@@ -3633,8 +3645,10 @@ module Solana
     # unchanged — the stamp is a precondition of the broadcast, not a side effect
     # of it.
     def cosign_and_broadcast_entry(signed_wire_base64, expectation:, before_send: nil)
-      cosign_completer.complete(signed_wire_base64, expectation: expectation,
-                                                    before_send: before_send).signature
+      under_cosign_wait_budget do
+        cosign_completer.complete(signed_wire_base64, expectation: expectation,
+                                                      before_send: before_send).signature
+      end
     end
 
     # Broadcast a FULLY-signed multisig wire on the operator's behalf: the admin
@@ -3738,46 +3752,48 @@ module Solana
     # "Blockhash not found" while it is perfectly valid. Adding one here would be
     # cargo cult; adding one there is mandatory.
     def simulate_and_broadcast(signed_wire_base64)
-      simulate_wire!(signed_wire_base64, label: "Pre-flight",
-                                         refusal: Cosign::PreflightRejected,
-                                         unrunnable: Cosign::PreflightRejected)
+      under_cosign_wait_budget do
+        simulate_wire!(signed_wire_base64, label: "Pre-flight",
+                                           refusal: Cosign::PreflightRejected,
+                                           unrunnable: Cosign::PreflightRejected)
 
-      returned =
-        begin
-          client.send_and_confirm(signed_wire_base64)
-        rescue StandardError => e
+        returned =
+          begin
+            client.send_and_confirm(signed_wire_base64)
+          rescue StandardError => e
+            raise Cosign::BroadcastFailed.new(
+              "send failed — reconcile before rebuilding: #{e.message}",
+              signature: (signature_for_wire(signed_wire_base64) rescue nil)
+            )
+          end
+
+        # THE DECODER SELF-CHECK. Callers stamp the signature this class derives
+        # from the wire (`#signature_for_wire`) before the send, and reconcile
+        # against it afterwards, so a wrong derivation would strand every row it
+        # touched while every test still passed. The node computes the same value
+        # from the same bytes; if the two disagree, the bytes we measured are not
+        # the bytes that went out and neither value may be trusted as a record.
+        #
+        # TOLERANT OF A DERIVATION THAT FAILS, STRICT ABOUT ONE THAT DISAGREES.
+        # The send has already happened by this line, so a wire this decoder
+        # cannot read must not be turned into a broadcast failure — there is
+        # simply nothing to compare, and the callers derive the same value BEFORE
+        # they claim, so a genuinely malformed wire is refused up there.
+        expected = begin
+          signature_for_wire(signed_wire_base64)
+        rescue StandardError
+          nil
+        end
+
+        if returned.present? && expected.present? && returned != expected
           raise Cosign::BroadcastFailed.new(
-            "send failed — reconcile before rebuilding: #{e.message}",
-            signature: (signature_for_wire(signed_wire_base64) rescue nil)
+            "the node returned #{returned} for a wire whose own first signature is " \
+            "#{expected} — reconcile both on chain before acting", signature: expected
           )
         end
 
-      # THE DECODER SELF-CHECK. Callers stamp the signature this class derives
-      # from the wire (`#signature_for_wire`) before the send, and reconcile
-      # against it afterwards, so a wrong derivation would strand every row it
-      # touched while every test still passed. The node computes the same value
-      # from the same bytes; if the two disagree, the bytes we measured are not
-      # the bytes that went out and neither value may be trusted as a record.
-      #
-      # TOLERANT OF A DERIVATION THAT FAILS, STRICT ABOUT ONE THAT DISAGREES.
-      # The send has already happened by this line, so a wire this decoder
-      # cannot read must not be turned into a broadcast failure — there is
-      # simply nothing to compare, and the callers derive the same value BEFORE
-      # they claim, so a genuinely malformed wire is refused up there.
-      expected = begin
-        signature_for_wire(signed_wire_base64)
-      rescue StandardError
-        nil
+        returned
       end
-
-      if returned.present? && expected.present? && returned != expected
-        raise Cosign::BroadcastFailed.new(
-          "the node returned #{returned} for a wire whose own first signature is " \
-          "#{expected} — reconcile both on chain before acting", signature: expected
-        )
-      end
-
-      returned
     end
 
     # THE SIGNATURE, FROM THE BYTES, WITHOUT ASKING ANYONE.
@@ -3802,8 +3818,10 @@ module Solana
     # with the same `before_send:` contract: the signature is stamped on the
     # PendingTransaction before the bytes leave.
     def cosign_and_broadcast_create_contest(signed_wire_base64, expectation:, before_send: nil)
-      cosign_completer.complete(signed_wire_base64, expectation: expectation,
-                                                    before_send: before_send).signature
+      under_cosign_wait_budget do
+        cosign_completer.complete(signed_wire_base64, expectation: expectation,
+                                                      before_send: before_send).signature
+      end
     end
 
     # PRE-FLIGHT A COSIGNED WIRE THIS SERVER WILL NOT BROADCAST ITSELF.
@@ -3885,6 +3903,13 @@ module Solana
     end
 
     private
+
+    # Runs a cosign submit's RPC calls under COSIGN_WAIT_BUDGET. Thread-local
+    # (Solana::Client.with_wait_budget), and it restores the caller's budget
+    # when the submit ends.
+    def under_cosign_wait_budget(&block)
+      Solana::Client.with_wait_budget(COSIGN_WAIT_BUDGET, &block)
+    end
 
     # THE ONE SIMULATE-AND-READ-ERR BLOCK (cap-cashout-failed-send-rearms).
     #
