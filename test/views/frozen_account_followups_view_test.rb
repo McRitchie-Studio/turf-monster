@@ -50,5 +50,6 @@ class FrozenAccountFollowupsViewTest < ActionView::TestCase
 
     assert_nil doc.at_css("[data-frozen-reason]")
     assert_match(/open: window\.location\.hash === '#cash-out'/, doc.at_css("#cash-out")["x-data"])
+    assert_includes rendered, "open: window.location.hash === '#cash-out'", "rendered unescaped"
   end
 end

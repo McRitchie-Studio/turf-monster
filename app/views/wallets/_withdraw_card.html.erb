@@ -18,7 +18,7 @@
     transaction-log page once fiat lands.
 %>
 <div id="cash-out" class="card shadow p-6 mb-6"
-     x-data="{ open: <%= account_frozen? ? "false" : "window.location.hash === '#cash-out'" %>, amount: '', destination: '' }"
+     x-data="{ open: <% if account_frozen? %>false<% else %>window.location.hash === '#cash-out'<% end %>, amount: '', destination: '' }"
      x-cloak>
   <div class="flex items-center justify-between">
     <div>
