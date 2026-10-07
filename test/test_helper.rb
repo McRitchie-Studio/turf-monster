@@ -131,6 +131,24 @@ module ActiveSupport
     # Single-process locally (the fork segfaults), parallel in CI — see TestParallelism.
     parallelize(workers: TEST_WORKERS)
 
+    # LOCAL EMAIL CAPTURE IS OFF IN EVERY TEST unless the test turns it on.
+    #
+    # Studio.local_email_capture? reads the explicit Studio.local_email_capture
+    # override first and falls back to the environment only when it is nil:
+    # LOCAL_EMAIL_CAPTURE or AGENT_WORKTREE truthy turns capture on. dotenv-rails
+    # loads the operator's .env into the test env, and that .env sets
+    # LOCAL_EMAIL_CAPTURE=1, so every email test that assumes real delivery
+    # failed in a ship workspace while CI (no .env) stayed green. The
+    # 2026-10-07 production ship aborted on exactly that.
+    #
+    # Pinning the override to false before each test makes the suite match CI
+    # whatever the shell or .env says. It runs before every per-class setup
+    # (parent callbacks fire first), so a capture test opts back in with
+    # `Studio.local_email_capture = true` in its own setup, or stubs the
+    # predicate. Re-asserting it per test also undoes a test that left the
+    # override set.
+    setup { Studio.local_email_capture = false }
+
     # Rewrites a contest row the way the retired World Cup survivor format left
     # one: its game type and format, and no slate unless keep_slate. Raw SQL,
     # because the game_type enum no longer accepts the value. Returns the
