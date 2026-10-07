@@ -1667,10 +1667,10 @@ module Solana
         wins:               wins,
         cashes:             cashes,
         total_won:          total_won,
-        total_won_dollars:  Config.lamports_to_dollars(total_won),
+        total_won_dollars:  Config.base_units_to_dollars(total_won),
         # Back-compat keys (USDC ATA balance — functionally "available balance")
         balance:            ata_balance_lamports,
-        balance_dollars:    Config.lamports_to_dollars(ata_balance_lamports),
+        balance_dollars:    Config.base_units_to_dollars(ata_balance_lamports),
         # Legacy v0.15.1 fields callers may still read — surface zero so
         # nil-safety holds without lying about behavior.
         total_deposited:    0,
@@ -2666,12 +2666,12 @@ module Solana
         creator:               Keypair.encode_base58(creator_bytes),
         season_id:             season_id,
         prize_pool:            prize_pool,
-        prize_pool_dollars:    Config.lamports_to_dollars(prize_pool),
+        prize_pool_dollars:    Config.base_units_to_dollars(prize_pool),
         entry_fee_by_currency: entry_fee_by_currency,
         entry_fees:            entry_fees,
-        entry_fees_dollars:    entry_fees.map { |c| Config.lamports_to_dollars(c) },
+        entry_fees_dollars:    entry_fees.map { |c| Config.base_units_to_dollars(c) },
         total_entry_fees_collected:         total_fees_collected,
-        total_entry_fees_collected_dollars: Config.lamports_to_dollars(total_fees_collected),
+        total_entry_fees_collected_dollars: Config.base_units_to_dollars(total_fees_collected),
         max_entries:           max_entries,
         current_entries:       current_entries,
         status:                status_name,
@@ -2679,14 +2679,14 @@ module Solana
         locks_at:              (lock_ts.zero? ? nil : Time.at(lock_ts).utc),
         conclusion_timestamp:  conclusion_ts,
         concludes_at:          (conclusion_ts.zero? ? nil : Time.at(conclusion_ts).utc),
-        payout_amounts:        payout_amounts.map { |a| Config.lamports_to_dollars(a) },
+        payout_amounts:        payout_amounts.map { |a| Config.base_units_to_dollars(a) },
         # Back-compat keys (v0.15.1 shape). USDC-only world had a single
         # entry_fee scalar — surface slot 0 (USDC) here so existing callers
         # don't need to learn about the array yet.
         entry_fee:             entry_fee_by_currency[0],
-        entry_fee_dollars:     Config.lamports_to_dollars(entry_fee_by_currency[0]),
+        entry_fee_dollars:     Config.base_units_to_dollars(entry_fee_by_currency[0]),
         prizes:                prize_pool,
-        prizes_dollars:        Config.lamports_to_dollars(prize_pool)
+        prizes_dollars:        Config.base_units_to_dollars(prize_pool)
       }
     end
 

@@ -124,7 +124,7 @@ class WalletsController < ApplicationController # stripe_deposit parked: FiatRai
       raise "No wallet connected" unless current_user.solana_connected?
 
       vault = Solana::Vault.new
-      amount_lamports = Solana::Config.dollars_to_lamports(10.0) # $10 USDC
+      amount_lamports = Solana::Config.cents_to_base_units(10_00) # $10 USDC
       vault.ensure_ata(current_user.solana_address, mint: Solana::Config::USDC_MINT)
       result = vault.fund_user(current_user.solana_address, amount_lamports)
 

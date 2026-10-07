@@ -160,7 +160,7 @@ module TurfMonster
           # units on-chain. Comparing the two directly is how a 500-dollar pool
           # turns into a 50-cent mint, so convert once and compare in one unit.
           needed_cents = Contest::FORMATS.fetch(#{CONTEST_TYPE.inspect})[:payouts].values.sum
-          needed = Solana::Config.dollars_to_lamports(needed_cents / 100.0)
+          needed = Solana::Config.cents_to_base_units(needed_cents)
           ata, = Solana::SplToken.find_associated_token_address(admin, Solana::Config::USDC_MINT)
           ata_b58 = Solana::Keypair.encode_base58(ata)
           have = (Solana::Config.client.get_token_account_balance(ata_b58)["value"]["amount"].to_i rescue 0)
@@ -646,7 +646,7 @@ module TurfMonster
           contest = Contest.find_by!(slug: #{slug.inspect})
           winners = contest.entries.complete.where("payout_cents > 0").includes(:user).map do |e|
             { wallet: e.user.solana_address, entry_num: e.entry_number || 0, rank: e.rank || 0,
-              payout: Solana::Config.dollars_to_lamports(e.payout_cents / 100.0) }
+              payout: Solana::Config.cents_to_base_units(e.payout_cents) }
           end.select { |w| w[:wallet].present? }
           built = Solana::Vault.new.build_settle_contest(
             contest.slug, winners, cosigner_pubkey: #{mason.to_base58.inspect}

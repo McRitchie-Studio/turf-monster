@@ -65,7 +65,7 @@ class AdminController < ApplicationController
       admin = Solana::Keypair.admin
 
       vault.ensure_ata(admin.to_base58, mint: Solana::Config::USDC_MINT)
-      amount = Solana::Config.dollars_to_lamports(500)
+      amount = Solana::Config.cents_to_base_units(500_00)
       result = vault.mint_spl(amount, mint: Solana::Config::USDC_MINT)
 
       invalidate_usdc_cache

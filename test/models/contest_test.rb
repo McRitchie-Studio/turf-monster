@@ -527,7 +527,7 @@ class ContestTest < ActiveSupport::TestCase
 
   test "onchain_params funds USDC slot 0 and USDT slot 1 with the same fee, slots 2-15 zero" do
     fees = @contest.onchain_params[:entry_fee_by_currency]
-    expected = Solana::Config.dollars_to_lamports(@contest.entry_fee_cents / 100.0)
+    expected = @contest.entry_fee_cents * 10_000
 
     assert_equal 16, fees.length
     assert expected.positive?, "fixture contest must carry a non-zero fee for this test"
