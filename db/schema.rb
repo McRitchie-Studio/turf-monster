@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_06_230000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_07_000000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -332,6 +332,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_230000) do
     t.string "status", default: "cart", null: false
     t.datetime "updated_at", null: false
     t.bigint "user_id", null: false
+    t.string "wallet_address"
     t.datetime "winner_notified_at"
     t.index ["contest_id", "status"], name: "index_entries_on_contest_id_and_status"
     t.index ["contest_id"], name: "index_entries_on_contest_id"
