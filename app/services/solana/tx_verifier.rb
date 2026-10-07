@@ -27,12 +27,18 @@ module Solana
   class TxVerifier
     class VerificationError < StandardError; end
 
+    # The RPC has no record of the signature. NOT a verdict on the transaction:
+    # a lagging or load-balanced node answers this for a signature another node
+    # has already confirmed, so a caller holding a landed status must read it as
+    # "ask again", never as "it failed" (recovery-never-fails-landed-entries).
+    class NotFound < VerificationError; end
+
     def self.verify!(signature:, instruction_name:, signer_pubkey: nil, writable_pubkey: nil, client: nil)
       raise VerificationError, "Transaction signature required" if signature.blank?
 
       client ||= Solana::Config.client
       tx_info = client.get_transaction(signature)
-      raise VerificationError, "Transaction not found on-chain" unless tx_info
+      raise NotFound, "Transaction not found on-chain" unless tx_info
 
       if (err = tx_info.dig("meta", "err"))
         custom_code = err.dig("InstructionError", 1, "Custom") rescue nil

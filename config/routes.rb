@@ -353,7 +353,6 @@ Rails.application.routes.draw do
       post :check_funding
       post :prepare_entry
       post :discard_prepared_entry
-      post :stamp_entry_signature
       post :recover_pending_entry
       post :confirm_onchain_entry
       post :clear_picks

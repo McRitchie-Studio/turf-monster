@@ -74,7 +74,7 @@ Every link in that chain, with its owner:
 | What | Where |
 |---|---|
 | League scoreboard — `get "live", to: "live#index"` | `config/routes.rb:64` — public, read-only, no sign-in |
-| Focus-game priority list — `resources :weeks` | `config/routes.rb:533-535` — admin only |
+| Focus-game priority list — `resources :weeks` | `config/routes.rb:532-534` — admin only |
 | One cycle, printed as a delta — `Nfl::LiveScores::PollCycle.call` | `bin/nfl-live-poll:110` |
 | Score injectors, non-production only — `dev/live_scores#record` | `config/routes.rb:84-86` |
 | The operator act | `live-score-watch` (mcritchie-studio SOP, Avi) |
@@ -144,7 +144,7 @@ One write, the primitive's own contract:
 
 | Drag | Request | Effect |
 |---|---|---|
-| re-sorts the list | `POST /admin/nfl/weeks/:slot/reorder` — `member { post :reorder }` (`config/routes.rb:534`) | `Admin::Nfl::WeeksController#reorder` (`app/controllers/admin/nfl/weeks_controller.rb:53-67`) makes the list's order `focus_rank` 1..n |
+| re-sorts the list | `POST /admin/nfl/weeks/:slot/reorder` — `member { post :reorder }` (`config/routes.rb:533`) | `Admin::Nfl::WeeksController#reorder` (`app/controllers/admin/nfl/weeks_controller.rb:53-67`) makes the list's order `focus_rank` 1..n |
 
 A payload that is not exactly the week's games — short, long, or naming one twice —
 came from a stale page, and `Admin::Nfl::WeeksController#reorder` refuses it with a 422

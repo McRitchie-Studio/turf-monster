@@ -1996,61 +1996,15 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "submitted", ptx.status
   end
 
-  # --- stamp_entry_signature tests ---
-
-  test "stamp_entry_signature flips a pending PT to submitted with the signature" do
-    @user.update!(web3_solana_address: "WalletStamp#{SecureRandom.hex(4)}")
-    log_in_as @user
-    entry = @contest.entries.create!(user: @user, status: :cart)
-    ptx = PendingTransaction.create!(
-      tx_type: "enter_contest",
-      serialized_tx: "fake-stx",
-      status: "pending",
-      target: entry,
-      initiator_address: @user.web3_solana_address
-    )
-
-    post stamp_entry_signature_contest_path(@contest),
-      params: { ptx_slug: ptx.slug, tx_signature: "sig-abc-123" },
-      as: :json
-
-    assert_response :success
-    assert JSON.parse(response.body)["success"]
-    ptx.reload
-    assert_equal "submitted", ptx.status
-    assert_equal "sig-abc-123", ptx.tx_signature
-  end
-
-  test "stamp_entry_signature refuses a PT belonging to another user" do
-    @user.update!(web3_solana_address: "WalletA#{SecureRandom.hex(4)}")
-    other_user = users(:jordan)
-    other_user.update!(web3_solana_address: "WalletB#{SecureRandom.hex(4)}")
-    log_in_as @user
-    entry = @contest.entries.create!(user: other_user, status: :cart)
-    ptx = PendingTransaction.create!(
-      tx_type: "enter_contest",
-      serialized_tx: "fake-stx",
-      status: "pending",
-      target: entry,
-      initiator_address: other_user.web3_solana_address
-    )
-
-    post stamp_entry_signature_contest_path(@contest),
-      params: { ptx_slug: ptx.slug, tx_signature: "sig-x" },
-      as: :json
-
-    assert_response :forbidden
-    assert_equal "pending", ptx.reload.status
-    assert_nil ptx.tx_signature
-  end
-
-  test "stamp_entry_signature 404s when the PT is missing or already confirmed" do
-    log_in_as @user
-
-    post stamp_entry_signature_contest_path(@contest),
-      params: { ptx_slug: "ptx-nope", tx_signature: "sig" },
-      as: :json
-    assert_response :not_found
+  # --- stamp_entry_signature is retired ---
+  #
+  # It belonged to the browser-broadcast flow; the server has stamped its own
+  # signature in before_send since the Phantom-first flow, and the endpoint let
+  # any caller write an arbitrary signature onto their own row
+  # (recovery-never-fails-landed-entries).
+  test "stamp_entry_signature is no longer routed" do
+    refute Rails.application.routes.url_helpers.respond_to?(:stamp_entry_signature_contest_path)
+    refute ContestsController.action_methods.include?("stamp_entry_signature")
   end
 
   # --- pendingRecoveryPtxSlug exposure on contest show ---

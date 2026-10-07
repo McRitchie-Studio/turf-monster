@@ -43,7 +43,7 @@ Casual-agent index. Open a per-workflow file for the dirty details.
 > them opening on a blank line and dropping two of the three routes its prose named.
 > A route entry is ONE line, so the number must land on it; the one exemption is a
 > citation of a routes COMMENT, which must name the whole comment block rather than
-> part of one. Measured: a one-line insertion now reddens 19 of the 21 routes
+> part of one. Measured: a one-line insertion now reddens 18 of the 20 routes
 > citations, a deletion 17.
 >
 > **Every document under `docs/` now says whether it is guarded** (2026-09-15).
