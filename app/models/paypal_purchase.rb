@@ -82,14 +82,11 @@ class PaypalPurchase < ApplicationRecord
     "paypal_#{SecureRandom.hex(6)}"
   end
 
-  # NEUTRALIZE Sluggable's per-save re-derive (same trap Contest#set_slug
-  # documents): the engine's `before_save :set_slug` reassigns `slug =
-  # name_slug` on EVERY save, and name_slug here is fresh entropy each call —
-  # without this override the slug drifted on the very next update!
-  # (paypal_order's `update!(paypal_order_id:)`), so the invoice_id PayPal
-  # echoes back forever never matched the DB again, killing the webhook's
-  # invoice_id resolution tier and PayPal-invoice ↔ DB reconciliation.
-  # Set once at create, then immutable.
+  # The slug is written once, at create, and never again: name_slug here is
+  # fresh entropy each call, and PayPal echoes the slug back as the invoice_id
+  # that the webhook's resolution and PayPal-invoice to DB reconciliation match
+  # on. Sluggable (studio-engine >= 0.93) derives only on a new or blank-slug
+  # row; this override keeps an explicit slug and fills only a blank one.
   def set_slug
     self.slug = name_slug if slug.blank?
   end

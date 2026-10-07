@@ -119,12 +119,11 @@ class CoinflowPurchase < ApplicationRecord
     "coinflow_#{SecureRandom.hex(6)}"
   end
 
-  # NEUTRALIZE Sluggable's per-save re-derive (same trap PaypalPurchase#set_slug
-  # documents): the engine's `before_save :set_slug` reassigns `slug =
-  # name_slug` on EVERY save, and name_slug here is fresh entropy each call —
-  # without this override the slug (and thus the coinflow_reference the webhook
-  # resolves on) would drift on the very next update. Set once at create, then
-  # immutable.
+  # The slug is written once, at create, and never again: name_slug here is
+  # fresh entropy each call, and the slug is the coinflow_reference the webhook
+  # resolves on. Sluggable (studio-engine >= 0.93) derives only on a new or
+  # blank-slug row; this override keeps an explicit slug and fills only a blank
+  # one.
   def set_slug
     self.slug = name_slug if slug.blank?
   end
