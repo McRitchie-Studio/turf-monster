@@ -7,7 +7,7 @@
 > stops landing inside the definition its prose names. The ASCII trees stay
 > uncited so they remain readable; the table under each one carries the citations
 > for its branches.
-> That symbol check reaches **82 of the 85 citations** here. The other **3** sit in
+> That symbol check reaches **83 of the 86 citations** here. The other **3** sit in
 > code with no enclosing definition the guard can derive: one
 > `lib/tasks/entries.rake` task body, plus **All 2 citations on
 > `app/javascript/solana_utils.js`** — a `.js` file, where the guard reads no
