@@ -6,11 +6,15 @@ class EmailDeliveryTest < ActiveSupport::TestCase
 
   setup do
     @user = users(:alex)
-    Studio.local_email_capture = nil
   end
 
-  teardown do
-    Studio.local_email_capture = nil
+  # Capture is pinned OFF by test_helper's per-test baseline. A reset to nil
+  # here would hand the decision back to LOCAL_EMAIL_CAPTURE / AGENT_WORKTREE,
+  # which is how a ship workspace's .env failed this suite while CI passed.
+  test "the suite baseline keeps capture off whatever the environment says" do
+    with_env("LOCAL_EMAIL_CAPTURE" => "1", "AGENT_WORKTREE" => "1") do
+      assert_not Studio.local_email_capture?
+    end
   end
 
   test "deliver records a durable unsent row and enqueues the send job" do
@@ -62,5 +66,15 @@ class EmailDeliveryTest < ActiveSupport::TestCase
     end
 
     assert_not EmailDelivery.recent.first.sent?
+  end
+
+  private
+
+  def with_env(vars)
+    original = vars.keys.to_h { |k| [k, ENV[k]] }
+    vars.each { |k, v| ENV[k] = v }
+    yield
+  ensure
+    original.each { |k, v| v.nil? ? ENV.delete(k) : ENV[k] = v }
   end
 end

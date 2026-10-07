@@ -6,9 +6,7 @@ module Studio
       Studio.local_email_capture = true
     end
 
-    teardown do
-      Studio.local_email_capture = nil
-    end
+    # No teardown: test_helper pins capture back OFF before every test.
 
     test "shows recent local emails with magic-link proof URLs" do
       token = Studio::Link.create_magic_link(email: users(:alex).email, age_attested: true).token
