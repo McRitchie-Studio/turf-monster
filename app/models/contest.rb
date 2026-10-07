@@ -301,6 +301,10 @@ class Contest < ApplicationRecord
     entries.where(status: [:active, :complete]).count * entry_fee_cents
   end
 
+  def pool_base_units
+    Solana::Config.cents_to_base_units(pool_cents)
+  end
+
   # Contest tiers. All at $19 entry fee.
   # Margin per filled contest = gross revenue (entries × fee) − total payouts.
   #   tiny     :  3 entries → $57   gross / $45   payout / $12 margin (78.9%)

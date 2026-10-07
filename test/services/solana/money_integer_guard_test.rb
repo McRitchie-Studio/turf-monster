@@ -31,7 +31,7 @@ class MoneyIntegerGuardTest < ActiveSupport::TestCase
   # Display-only float money, by file. Every line formats integer cents as text
   # for a person.
   PINNED = {
-    "app/controllers/contests_controller.rb" => 2,               # insufficient-USDC message
+    "app/controllers/contests_controller.rb" => 1,               # insufficient-USDC message
     "app/helpers/contests_helper.rb" => 1,                       # payout badge
     "app/jobs/stripe_deposit_job.rb" => 1,                       # ledger description
     "app/jobs/token_purchase_job.rb" => 1,                       # ledger description
