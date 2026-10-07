@@ -1682,7 +1682,7 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
   test "recover_pending_entry busts the entry-token cache after a token-funded recovery" do
     @user.update!(web3_solana_address: "WalletRTok#{SecureRandom.hex(4)}")
     log_in_as @user
-    entry = @contest.entries.create!(user: @user, status: :cart)
+    entry = @contest.entries.create!(user: @user, status: :cart, entry_number: 0)
     [@m1, @m2, @m3, @m4, @m5, @m6].each { |m| entry.selections.create!(slate_matchup: m) }
     ptx = PendingTransaction.create!(
       tx_type: "enter_contest", serialized_tx: "stx",
@@ -1725,7 +1725,7 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
   test "recover_pending_entry verifies a token consume, never a burn" do
     @user.update!(web3_solana_address: "WalletRIx#{SecureRandom.hex(4)}")
     log_in_as @user
-    entry = @contest.entries.create!(user: @user, status: :cart)
+    entry = @contest.entries.create!(user: @user, status: :cart, entry_number: 0)
     [@m1, @m2, @m3, @m4, @m5, @m6].each { |m| entry.selections.create!(slate_matchup: m) }
     ptx = PendingTransaction.create!(
       tx_type: "enter_contest", serialized_tx: "stx",
@@ -1761,7 +1761,7 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
   test "recover_pending_entry leaves the entry-token cache alone for a USDC recovery" do
     @user.update!(web3_solana_address: "WalletRUsdc#{SecureRandom.hex(4)}")
     log_in_as @user
-    entry = @contest.entries.create!(user: @user, status: :cart)
+    entry = @contest.entries.create!(user: @user, status: :cart, entry_number: 0)
     [@m1, @m2, @m3, @m4, @m5, @m6].each { |m| entry.selections.create!(slate_matchup: m) }
     ptx = PendingTransaction.create!(
       tx_type: "enter_contest", serialized_tx: "stx",
@@ -1996,61 +1996,15 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "submitted", ptx.status
   end
 
-  # --- stamp_entry_signature tests ---
-
-  test "stamp_entry_signature flips a pending PT to submitted with the signature" do
-    @user.update!(web3_solana_address: "WalletStamp#{SecureRandom.hex(4)}")
-    log_in_as @user
-    entry = @contest.entries.create!(user: @user, status: :cart)
-    ptx = PendingTransaction.create!(
-      tx_type: "enter_contest",
-      serialized_tx: "fake-stx",
-      status: "pending",
-      target: entry,
-      initiator_address: @user.web3_solana_address
-    )
-
-    post stamp_entry_signature_contest_path(@contest),
-      params: { ptx_slug: ptx.slug, tx_signature: "sig-abc-123" },
-      as: :json
-
-    assert_response :success
-    assert JSON.parse(response.body)["success"]
-    ptx.reload
-    assert_equal "submitted", ptx.status
-    assert_equal "sig-abc-123", ptx.tx_signature
-  end
-
-  test "stamp_entry_signature refuses a PT belonging to another user" do
-    @user.update!(web3_solana_address: "WalletA#{SecureRandom.hex(4)}")
-    other_user = users(:jordan)
-    other_user.update!(web3_solana_address: "WalletB#{SecureRandom.hex(4)}")
-    log_in_as @user
-    entry = @contest.entries.create!(user: other_user, status: :cart)
-    ptx = PendingTransaction.create!(
-      tx_type: "enter_contest",
-      serialized_tx: "fake-stx",
-      status: "pending",
-      target: entry,
-      initiator_address: other_user.web3_solana_address
-    )
-
-    post stamp_entry_signature_contest_path(@contest),
-      params: { ptx_slug: ptx.slug, tx_signature: "sig-x" },
-      as: :json
-
-    assert_response :forbidden
-    assert_equal "pending", ptx.reload.status
-    assert_nil ptx.tx_signature
-  end
-
-  test "stamp_entry_signature 404s when the PT is missing or already confirmed" do
-    log_in_as @user
-
-    post stamp_entry_signature_contest_path(@contest),
-      params: { ptx_slug: "ptx-nope", tx_signature: "sig" },
-      as: :json
-    assert_response :not_found
+  # --- stamp_entry_signature is retired ---
+  #
+  # It belonged to the browser-broadcast flow; the server has stamped its own
+  # signature in before_send since the Phantom-first flow, and the endpoint let
+  # any caller write an arbitrary signature onto their own row
+  # (recovery-never-fails-landed-entries).
+  test "stamp_entry_signature is no longer routed" do
+    refute Rails.application.routes.url_helpers.respond_to?(:stamp_entry_signature_contest_path)
+    refute ContestsController.action_methods.include?("stamp_entry_signature")
   end
 
   # --- pendingRecoveryPtxSlug exposure on contest show ---
@@ -2218,7 +2172,7 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
   test "recover_pending_entry marks PT failed when there is no tx_signature stamped" do
     @user.update!(web3_solana_address: "WalletR2#{SecureRandom.hex(4)}")
     log_in_as @user
-    entry = @contest.entries.create!(user: @user, status: :cart)
+    entry = @contest.entries.create!(user: @user, status: :cart, entry_number: 0)
     ptx = PendingTransaction.create!(
       tx_type: "enter_contest",
       serialized_tx: "fake-stx",
@@ -2273,7 +2227,7 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
   test "recover_pending_entry promotes entry + marks PT confirmed when RPC reports confirmed" do
     @user.update!(web3_solana_address: "WalletR6#{SecureRandom.hex(4)}")
     log_in_as @user
-    entry = @contest.entries.create!(user: @user, status: :cart)
+    entry = @contest.entries.create!(user: @user, status: :cart, entry_number: 0)
     [@m1, @m2, @m3, @m4, @m5, @m6].each { |m| entry.selections.create!(slate_matchup: m) }
     ptx = PendingTransaction.create!(
       tx_type: "enter_contest", serialized_tx: "stx",
@@ -2306,7 +2260,7 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
   test "recover_pending_entry rejects an unverified signature (forged/unrelated tx) and leaves entry in cart" do
     @user.update!(web3_solana_address: "WalletR9#{SecureRandom.hex(4)}")
     log_in_as @user
-    entry = @contest.entries.create!(user: @user, status: :cart)
+    entry = @contest.entries.create!(user: @user, status: :cart, entry_number: 0)
     [@m1, @m2, @m3, @m4, @m5, @m6].each { |m| entry.selections.create!(slate_matchup: m) }
     # Attacker stamps a real-but-unrelated finalized signature and a forged
     # entry_pda in the PT metadata.
@@ -2343,7 +2297,7 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
   test "recover_pending_entry returns processing when RPC doesn't know the signature" do
     @user.update!(web3_solana_address: "WalletR7#{SecureRandom.hex(4)}")
     log_in_as @user
-    entry = @contest.entries.create!(user: @user, status: :cart)
+    entry = @contest.entries.create!(user: @user, status: :cart, entry_number: 0)
     ptx = PendingTransaction.create!(
       tx_type: "enter_contest", serialized_tx: "stx",
       status: "submitted", tx_signature: "sig-unknown",
@@ -2364,7 +2318,7 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
   test "recover_pending_entry marks PT failed when RPC reports an error" do
     @user.update!(web3_solana_address: "WalletR8#{SecureRandom.hex(4)}")
     log_in_as @user
-    entry = @contest.entries.create!(user: @user, status: :cart)
+    entry = @contest.entries.create!(user: @user, status: :cart, entry_number: 0)
     ptx = PendingTransaction.create!(
       tx_type: "enter_contest", serialized_tx: "stx",
       status: "submitted", tx_signature: "sig-errored",

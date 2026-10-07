@@ -272,7 +272,53 @@ class PendingTransaction < ApplicationRecord
     0
   end
 
+  # ════════════════════════════════════════════════════════════════════════
+  # ENTRY RECOVERY: IS THIS SIGNED ENTRY WIRE PROVABLY DEAD?
+  # ════════════════════════════════════════════════════════════════════════
+  #
+  # ContestsController#recover_pending_entry asks this of a submitted
+  # enter_contest row. Its answer decides whether the row may be failed, and a
+  # failed row lifts prepare_entry's 409 — so a wrong :never_landed is a second
+  # wire and a second payment (recovery-never-fails-landed-entries).
+  #
+  # Answers #send_verdict's four values plus :unreadable:
+  #
+  #   :landed / :failed — what the status row says, as #send_verdict reads it.
+  #   :never_landed — ONLY when all three hold: the wall-clock lapse
+  #                   (#blockhash_lapsed?), the cluster's FINALIZED block
+  #                   height past the wire's own last_valid_block_height, and
+  #                   a status re-read AFTER that height read still empty.
+  #   :ambiguous    — inside either window, or no deadline was recorded.
+  #   :unreadable   — the RPC errored (a 429, a timeout). Never a verdict.
+  #
+  # WHY BOTH CLOCKS. Five minutes of wall clock is a guess about the chain; the
+  # block height past the deadline is the chain saying the wire can no longer
+  # land. A congested or stalled cluster can take longer than five minutes to
+  # get there.
+  #
+  # WHY FINALIZED, AND WHY THE RE-READ. Once the finalized height is past the
+  # deadline, every block that could hold the wire is finalized, so a
+  # history-searched status read made AFTER it must see the wire if it landed.
+  # A status read made BEFORE the height read carries no such guarantee: the
+  # wire could sit in a block that was not yet confirmed when the status was
+  # read. The second read costs one call, and only on the rare dead path.
+  def entry_recovery_verdict(client, last_valid_block_height:, now: Time.current)
+    verdict = send_verdict(read_signature_status(client), now: now)
+    return verdict unless verdict == :never_landed
+    return :ambiguous if last_valid_block_height.blank?
+    return :ambiguous unless client.get_block_height(commitment: "finalized") > last_valid_block_height.to_i
+
+    send_verdict(read_signature_status(client), now: now)
+  rescue Solana::Client::RpcError => e
+    Rails.logger.warn("[entry-recovery] unreadable ptx=#{id} #{e.class}: #{e.message.to_s[0, 140]}")
+    :unreadable
+  end
+
   private
+
+  def read_signature_status(client)
+    client.confirm_transaction(tx_signature).dig("value", 0)
+  end
 
   def update_slug_with_id
     update_column(:slug, "ptx-#{id}")

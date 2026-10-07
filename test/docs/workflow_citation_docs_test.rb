@@ -1373,8 +1373,12 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   # survives is stated in limit 8 above — a probe the prose names that occurs on
   # the neighbouring line too, which is the routes-file form of the weakness the
   # bare-word cap addresses elsewhere.
+  #
+  # 19 → 18 on 2026-10-07 (recovery-never-fails-landed-entries): the retired
+  # `post :stamp_entry_signature` route took its citation with it, one the
+  # insertion shift had caught. The corpus shrank to 20; the rule did not weaken.
   ROUTE_CONTROL_PROBE   = "vault_init#show"
-  MIN_INSERTION_CAUGHT  = 19
+  MIN_INSERTION_CAUGHT  = 18
   MIN_DELETION_CAUGHT   = 17
 
   test "a one-line routes shift is rejected where the literal fallback accepted it" do

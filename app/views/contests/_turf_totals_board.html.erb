@@ -2030,13 +2030,21 @@ window.selectionBoard = function() {
         // being silently swallowed (clear_picks is in the general/ip allowlist).
         // It returns null on 429/401 after showing the modal; nothing else to do
         // here — this is a background cart sync.
-        await window.authedFetch('/contests/' + this.contestId + '/clear_picks', {
+        var resp = await window.authedFetch('/contests/' + this.contestId + '/clear_picks', {
           method: 'POST',
           headers: {
             'X-CSRF-Token': this.csrfToken,
             'Accept': 'application/json'
           }
         });
+        // 409 entry_pending: this cart's payment is still confirming, so the
+        // server kept it. Resolve it the way prepare_entry's 409 does.
+        if (resp && resp.status === 409) {
+          var data = await resp.json();
+          if (data && data.code === 'entry_pending' && data.ptx_slug) {
+            this.recoverPendingEntry(data.ptx_slug, { title: 'Entry Sent', body: data.error });
+          }
+        }
       } catch (err) {
         // network — silent
       }

@@ -11,7 +11,7 @@ class ContestsController < ApplicationController
   # DB wall time on the two hot paths — /contests (the lobby, #index) and the contest
   # show page — to connect vs execute. No-op-safe; DB_SPAN_TRACE=0 disables.
   around_action :trace_db_span, only: [:index, :show, :contest]
-  before_action :set_contest, only: [:show, :contest, :admin, :edit, :update, :update_banner, :toggle_selection, :enter, :check_funding, :clear_picks, :grade, :fill, :lock, :prepare_lock_time, :confirm_lock_time, :prepare_conclusion_time, :confirm_conclusion_time, :jump, :simulate_game, :simulate_batch, :reset, :close_onchain, :cancel_onchain, :prepare_entry, :discard_prepared_entry, :stamp_entry_signature, :recover_pending_entry, :confirm_onchain_entry, :confirm_onchain_contest, :leaderboard_poll, :live]
+  before_action :set_contest, only: [:show, :contest, :admin, :edit, :update, :update_banner, :toggle_selection, :enter, :check_funding, :clear_picks, :grade, :fill, :lock, :prepare_lock_time, :confirm_lock_time, :prepare_conclusion_time, :confirm_conclusion_time, :jump, :simulate_game, :simulate_batch, :reset, :close_onchain, :cancel_onchain, :prepare_entry, :discard_prepared_entry, :recover_pending_entry, :confirm_onchain_entry, :confirm_onchain_contest, :leaderboard_poll, :live]
   before_action :require_admin, only: [:new, :create, :rebuild_create_tx, :finalize, :admin, :edit, :update, :update_banner, :generator, :generate_bundle, :finalize_bundle, :grade, :fill, :lock, :prepare_lock_time, :confirm_lock_time, :prepare_conclusion_time, :confirm_conclusion_time, :jump, :simulate_game, :simulate_batch, :reset, :close_onchain, :cancel_onchain, :confirm_onchain_contest]
   before_action :require_geo_allowed, only: [:toggle_selection, :enter, :prepare_entry]
   # B4 / OPSEC-048: frozen accounts can browse but cannot spend or enter.
@@ -19,7 +19,7 @@ class ContestsController < ApplicationController
   # A retired-format contest is a closed record: it reads, and nothing enters,
   # picks, grades or rehearses on it. Edit, banner and the on-chain close and
   # cancel stay open so an operator can still tidy the record.
-  RETIRED_FORMAT_WRITES = %i[toggle_selection enter check_funding clear_picks grade fill lock prepare_lock_time confirm_lock_time prepare_conclusion_time confirm_conclusion_time jump simulate_game simulate_batch reset prepare_entry discard_prepared_entry stamp_entry_signature recover_pending_entry confirm_onchain_entry confirm_onchain_contest].freeze
+  RETIRED_FORMAT_WRITES = %i[toggle_selection enter check_funding clear_picks grade fill lock prepare_lock_time confirm_lock_time prepare_conclusion_time confirm_conclusion_time jump simulate_game simulate_batch reset prepare_entry discard_prepared_entry recover_pending_entry confirm_onchain_entry confirm_onchain_contest].freeze
   before_action :refuse_retired_format, only: RETIRED_FORMAT_WRITES
   # A contest cancelled on chain still reads open; grading it would pay twice (Contest#grade!).
   before_action :refuse_cancelled_grade, only: %i[grade jump]
@@ -1003,10 +1003,11 @@ class ContestsController < ApplicationController
     return render json: { success: false, error: "Phantom session required" }, status: :forbidden unless onchain_session?
 
     # A BROADCAST STILL AWAITING ITS VERDICT BLOCKS A SECOND WIRE. A submitted,
-    # signed row for this entry may already have moved the money; building another
+    # signed row for any of this player's entries on this contest may already
+    # have moved the money; building another
     # transaction here is how one entry gets paid for twice. The player waits for
     # recover_pending_entry instead, which the client calls with this slug.
-    if (in_flight = entry_broadcast_awaiting_verdict(entry))
+    if (in_flight = player_broadcast_awaiting_verdict(@contest))
       return render_entry_still_confirming(in_flight, status: :conflict)
     end
 
@@ -1196,36 +1197,16 @@ class ContestsController < ApplicationController
     render json: { retired: false, error: e.message }, status: :unprocessable_entity
   end
 
-  # Stamp the on-chain signature onto the PendingTransaction created by
-  # prepare_entry. Called by the client immediately after Phantom's
-  # sendRawTransaction resolves and before connection.confirmTransaction —
-  # so a refresh during the confirmation wait still has a server-side
-  # signature trail. The endpoint is cheap (single UPDATE) and adds one
-  # round-trip to the critical entry path.
-  def stamp_entry_signature
-    return render json: { error: "Missing ptx_slug or tx_signature" }, status: :unprocessable_entity if params[:ptx_slug].blank? || params[:tx_signature].blank?
-    ptx = PendingTransaction.where(status: %w[pending submitted]).find_by(slug: params[:ptx_slug])
-    return render json: { error: "Pending transaction not found" }, status: :not_found unless ptx
-    # Don't allow stamping a PT that belongs to a different user — initiator
-    # is the only authorization signal we have here.
-    return render json: { error: "Not authorized" }, status: :forbidden unless ptx.initiator_address == current_user&.web3_solana_address
-    ptx.update!(tx_signature: params[:tx_signature], status: "submitted")
-    render json: { success: true }
-  rescue StandardError => e
-    capture_unlogged(e, parent: @contest)
-    render json: { success: false, error: e.message }, status: :unprocessable_entity
-  end
-
   # Resolve a PendingTransaction stranded by a mid-flight refresh. The
   # client polls this when the contest page loads with a pending/submitted
   # PT belonging to the current user. Three outcomes:
   #   - confirmed:  signature finalized on-chain → entry promoted to active,
   #                 PT marked confirmed, client redirects to the contest show page
-  #   - processing: signature still unknown / propagating → client re-polls
-  #                 after a short delay (handled by the board JS)
-  #   - failed:     signature errored, never broadcast, or recovery threw
-  #                 → PT marked failed, client closes modal and frees the
-  #                 user to retry the entry flow
+  #   - processing: still propagating, or the chain read errored (a 429, a
+  #                 lagging node) → PT stays submitted, client re-polls
+  #   - failed:     on-chain err, never broadcast, provably dead (wall clock AND
+  #                 block height past the deadline), or a definitive verify
+  #                 refusal → PT failed, the user is free to retry
   def recover_pending_entry
     return render json: { error: "Missing ptx_slug" }, status: :unprocessable_entity if params[:ptx_slug].blank?
     ptx = PendingTransaction.where(status: %w[pending submitted]).find_by(slug: params[:ptx_slug])
@@ -1267,36 +1248,33 @@ class ContestsController < ApplicationController
     # ANYWHERE leaves a STAMPED PT (status "submitted", signature present), which
     # skips this branch and falls through to the RPC poll + verify below.
     if ptx.tx_signature.blank?
-      ptx.update!(status: "failed")
+      fail_recovered_entry_ptx(ptx)
       return render json: { status: "failed", error: "Your last entry did not go through — try again." }
     end
 
-    # Ask the RPC about the signature once. The client owns the polling
-    # cadence; keeping this poll cheap (getSignatureStatuses) avoids tying up
-    # a request thread while the TX propagates.
+    # Ask the chain about the signature. The client owns the polling cadence;
+    # keeping this poll cheap (getSignatureStatuses, plus a block height read
+    # only on the dead path) avoids tying up a request thread while the TX
+    # propagates.
+    #
+    # ONLY A VERDICT MAY FAIL THIS ROW (recovery-never-fails-landed-entries).
+    # Failing it lifts prepare_entry's 409, so failing a wire that landed is how
+    # a player pays twice. A read that errors (a 429, a lagging node) is no
+    # verdict: it answers processing and the row stays submitted. And "never
+    # landed" needs the chain's word as well as the wall clock's — see
+    # PendingTransaction#entry_recovery_verdict.
     vault = Solana::Vault.new
-    status = vault.client.confirm_transaction(ptx.tx_signature).dig("value", 0)
+    verdict = ptx.entry_recovery_verdict(vault.client,
+                                         last_valid_block_height: prepared_last_valid_block_height(ptx))
 
-    if status.nil?
-      # UNSEEN IS NOT DEAD, EXCEPT PAST THE BLOCKHASH WINDOW. prepare_entry
-      # refuses while this row stands, so a wire the network dropped must not
-      # hold the player out forever. send_verdict calls it :never_landed only
-      # when a history-searched lookup still has no row this long after
-      # broadcast_at; a row with no anchor (stamped before broadcast_at was)
-      # stays processing for an operator, never failed on a guess.
-      if ptx.send_verdict(status) == :never_landed
-        ptx.update!(status: "failed")
-        return render json: { status: "failed", error: "Your last entry did not go through — try again." }
-      end
-      return render json: { status: "processing" }
-    end
-
-    if status["err"]
-      ptx.update!(status: "failed")
+    case verdict
+    when :never_landed
+      fail_recovered_entry_ptx(ptx)
+      return render json: { status: "failed", error: "Your last entry did not go through — try again." }
+    when :failed
+      fail_recovered_entry_ptx(ptx)
       return render json: { status: "failed", error: "On-chain transaction failed." }
-    end
-
-    unless %w[confirmed finalized].include?(status["confirmationStatus"])
+    when :ambiguous, :unreadable
       return render json: { status: "processing" }
     end
 
@@ -1328,8 +1306,18 @@ class ContestsController < ApplicationController
       }
     rescue StandardError => e
       capture_unlogged(e, target: entry, parent: @contest)
-      ptx.update!(status: "failed")
-      render json: { status: "failed", error: "Recovery failed: #{e.message}" }
+      # The status said LANDED, so the money moved. Only the verifier REFUSING
+      # the transaction (wrong instruction, signer or account, or an on-chain
+      # err) may fail the row. Anything else — a 429, a DNS or TLS fault, a
+      # node that has not indexed it, a slot we cannot derive, an entry gate —
+      # is not a verdict on the payment: keep the row submitted, keep the 409
+      # standing, and let the client poll (or an operator) resolve it.
+      if e.is_a?(EntryVerifyRefused)
+        fail_recovered_entry_ptx(ptx)
+        render json: { status: "failed", error: "Recovery failed: #{e.message}" }
+      else
+        render json: { status: "processing" }
+      end
     end
   rescue StandardError => e
     capture_unlogged(e, parent: @contest)
@@ -1346,7 +1334,7 @@ class ContestsController < ApplicationController
   # Phantom's Lighthouse heuristics flag the multi-signer ordering ("could be
   # malicious"). Phantom signing the fully-unsigned tx first clears that rule.
   # Broadcast moving server-side means the server now owns + stamps the tx
-  # signature (the client no longer calls stamp_entry_signature before confirm).
+  # signature; the browser-broadcast stamp endpoint is retired.
   def confirm_onchain_entry
     if @contest.cancelled?
       return render json: { success: false, error: "This contest was cancelled." },
@@ -1428,7 +1416,9 @@ class ContestsController < ApplicationController
         expectation: expectation,
         # broadcast_at is the anchor recover_pending_entry's never-landed verdict
         # reads (OnchainSendVerdict); it must be written before the send, here.
-        before_send: ->(signature) { ptx&.update!(tx_signature: signature, status: "submitted", broadcast_at: Time.current) }
+        # The stamp is conditional (#stamp_entry_broadcast!): a second confirm
+        # racing on this row loses here and sends nothing.
+        before_send: ->(signature) { stamp_entry_broadcast!(ptx, signature) if ptx }
       )
 
       # OPSEC-010 / Lazarus audit #1: server-derive the entry PDA, cross-check
@@ -1504,6 +1494,20 @@ class ContestsController < ApplicationController
 
   def clear_picks
     entry = @contest.entries.cart.find_by(user: current_user)
+
+    # A CART WHOSE PAYMENT IS STILL CONFIRMING IS NOT CLEARABLE. Abandoning it
+    # releases its entry_number (Entry#release_slot_if_abandoned), and recovery
+    # then cannot derive the entry PDA to verify the payment that landed — the
+    # row failed, the 409 lifted, and a new cart paid a second time
+    # (recovery-never-fails-landed-entries). The board resolves it through
+    # recover_pending_entry instead, by this slug.
+    if entry && current_user.web3_solana_address.present? &&
+       (in_flight = awaiting_verdict_scope.where(target: entry).order(created_at: :desc).first)
+      return respond_to do |format|
+        format.html { redirect_to contest_path(@contest), alert: ENTRY_STILL_CONFIRMING_MESSAGE }
+        format.json { render_entry_still_confirming(in_flight, status: :conflict) }
+      end
+    end
 
     rescue_and_log(target: entry, parent: @contest) do
       if entry
@@ -2583,9 +2587,17 @@ class ContestsController < ApplicationController
       signer_pubkey: signer,
       writable_pubkey: writable
     )
+  rescue Solana::TxVerifier::NotFound
+    raise # keeps its class: recovery reads it as "ask again", not "failed"
   rescue Solana::TxVerifier::VerificationError => e
-    raise e.message
+    raise EntryVerifyRefused, e.message
   end
+
+  # The verifier READ the transaction and refused it. A RuntimeError, as the
+  # bare `raise e.message` this replaced was, so every caller that rescued that
+  # still does; #recover_pending_entry tells it apart from every fault that is
+  # not a verdict (recovery-never-fails-landed-entries).
+  class EntryVerifyRefused < RuntimeError; end
 
   # Shared on-chain entry confirmation, used by BOTH the live confirm path
   # (#confirm_onchain_entry) and the crash-recovery path (#recover_pending_entry).
@@ -2643,9 +2655,54 @@ class ContestsController < ApplicationController
     PendingTransaction.where(tx_type: "enter_contest", status: "submitted").where.not(tx_signature: [nil, ""])
   end
 
-  def entry_broadcast_awaiting_verdict(entry)
-    awaiting_verdict_scope.where(target: entry).order(created_at: :desc).first
+  # ANY ENTRY OF THIS PLAYER'S ON THIS CONTEST, NOT JUST THE CART IN HAND
+  # (recovery-never-fails-landed-entries). "Clear picks" abandons the paying
+  # cart and the next pick builds a fresh one, so a refusal keyed on the entry
+  # let a new cart wire a second payment while the first was still confirming.
+  # Same population #find_pending_recovery_ptx hands the board, so the slug the
+  # 409 names is one recover_pending_entry will accept from this page.
+  def player_broadcast_awaiting_verdict(contest)
+    return nil if current_user.web3_solana_address.blank? # never match a row with no initiator
+
+    awaiting_verdict_scope
+      .where(initiator_address: current_user.web3_solana_address, target_type: "Entry",
+             target_id: contest.entries.where(user_id: current_user.id).select(:id))
+      .order(created_at: :desc).first
   end
+
+  # THE STAMP IS CONDITIONAL. Two confirms racing on one prepared row (a double
+  # tap, two tabs) used to both `update!` it, and the second signature
+  # overwrote the first — so recovery could judge a wire that never landed
+  # while the one that did went unrecorded. The database decides: the stamp
+  # lands only on a row still open and unsigned (or already carrying this same
+  # signature, a resend of identical bytes). A loser raises inside before_send,
+  # so its wire is never sent, and #confirm_onchain_entry's rescue answers
+  # "still confirming" from the winner's row.
+  def stamp_entry_broadcast!(ptx, signature)
+    now = Time.current
+    # Its own savepoint, as update! had: a unique-index collision on the
+    # signature must not poison an enclosing transaction.
+    stamped = PendingTransaction.transaction(requires_new: true) do
+      PendingTransaction
+        .where(id: ptx.id, status: %w[pending submitted])
+        .where("tx_signature IS NULL OR tx_signature = '' OR tx_signature = ?", signature)
+        .update_all(tx_signature: signature, status: "submitted", broadcast_at: now, updated_at: now)
+    end
+    raise "Entry transaction already stamped by another confirm — nothing sent" unless stamped == 1
+
+    ptx.reload
+  end
+
+  # Fail a recovered row only if it still reads as it did when it was judged:
+  # open, and carrying the signature the verdict was about. A concurrent
+  # confirm that just stamped a blank row, or a recovery that just confirmed
+  # it, wins.
+  def fail_recovered_entry_ptx(ptx)
+    PendingTransaction
+      .where(id: ptx.id, status: %w[pending submitted], tx_signature: ptx.tx_signature.presence || [nil, ""])
+      .update_all(status: "failed", updated_at: Time.current)
+  end
+
 
   # The one answer for "your entry may already be paid for". 202 from confirm
   # (the send happened), 409 from prepare (a second wire is refused). `code` is
