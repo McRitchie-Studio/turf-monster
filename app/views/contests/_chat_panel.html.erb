@@ -486,7 +486,7 @@
     if (!url) return;
     if (window.__chatAccountFrozen) {
       // OPSEC-048: a frozen entrant is not told to join; it is told why.
-      chatToast('<%= FrozenAccount::TOAST_TITLE %>', '<%= FrozenAccount::MESSAGE %>');
+      chatToast(<%= FrozenAccount::TOAST_TITLE.to_json.html_safe %>, <%= FrozenAccount::MESSAGE.to_json.html_safe %>);
       return;
     }
     if (!window.__chatCanReact) {
@@ -503,7 +503,7 @@
       body: JSON.stringify({ emoji: emoji })
     }).then(function(r) { return r.json().catch(function() { return {}; }); })
       .then(function(data) {
-        if (data && data.error) { chatToast(data.code === '<%= FrozenAccount::CODE %>' ? '<%= FrozenAccount::TOAST_TITLE %>' : 'Reaction failed', data.error); return; }
+        if (data && data.error) { chatToast(data.code === <%= FrozenAccount::CODE.to_json.html_safe %> ? <%= FrozenAccount::TOAST_TITLE.to_json.html_safe %> : 'Reaction failed', data.error); return; }
         if (data && typeof data.html === 'string') applyReactionHtml(messageEl, data.html);
       })
       .catch(function() { chatToast('Reaction failed', 'Network error.'); });

@@ -151,7 +151,7 @@ Phantom must be installed in the browser or available via mobile deep link.
      delete-before-verify, host bind, TTL. **No Solana RPC call** during signup
      (OPSEC-044 — see `docs/SIGNUP_FLOWS.md`). Called at `:26-31`.
    - `User.from_solana_wallet(pubkey_b58)` looks up an existing user
-     (`app/models/user.rb:239-241`); if absent, `verify` builds a new `User`
+     (`app/models/user.rb:245-247`); if absent, `verify` builds a new `User`
      with `web3_solana_address` and `reference: cookies[:reference]` — the
      first-touch stamp set in step 1
      (`app/controllers/solana_sessions_controller.rb:38`, `:57-61`).
@@ -159,20 +159,20 @@ Phantom must be installed in the browser or available via mobile deep link.
      apart in `app/models/user.rb`, so both are cited:
      - `before_validation :ensure_username` (`app/models/user.rb:109`) —
        `ensure_username` auto-fills a username via
-       `Studio::UsernameGenerator.generate` (`:760-775`).
+       `Studio::UsernameGenerator.generate` (`:766-781`).
      - `before_create :set_initial_session_token` (`:111`) — writes
-       `users.session_token` for OPSEC-045 cookie binding (`:530-532`).
+       `users.session_token` for OPSEC-045 cookie binding (`:536-538`).
      - `after_create :generate_managed_wallet!` (`:126`) — generates a
-       server-managed ed25519 keypair with `Solana::Keypair.generate` (`:590`,
-       local, no RPC), encrypts the secret key (`:593`), and writes
+       server-managed ed25519 keypair with `Solana::Keypair.generate` (`:596`,
+       local, no RPC), encrypts the secret key (`:599`), and writes
        `web2_solana_address` + `encrypted_web2_solana_private_key`. It bails for
-       admins (`:589`) and, under `AppFlags.web3_only_onboarding?`, for everyone
-       (`:583`). The key material itself is read a layer down, in
+       admins (`:595`) and, under `AppFlags.web3_only_onboarding?`, for everyone
+       (`:589`). The key material itself is read a layer down, in
        `Solana::Keypair.current_encryptor`
        (`app/services/solana/keypair.rb:214-216`).
      - `after_commit :enqueue_onchain_account_setup`
        (`app/models/user.rb:130`) →
-       `CreateOnchainUserAccountJob.perform_later` (`:816-818`). Async — the
+       `CreateOnchainUserAccountJob.perform_later` (`:822-824`). Async — the
        user is logged in before the on-chain PDA finalizes.
    - `cookies.delete(:reference)` consumes the cookie only for a new signup
      (`app/controllers/solana_sessions_controller.rb:67`).

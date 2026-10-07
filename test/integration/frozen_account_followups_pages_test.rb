@@ -65,7 +65,7 @@ class FrozenAccountFollowupsPagesTest < ActionDispatch::IntegrationTest
     get contest_path(@contest)
 
     assert chat_root.key?("data-account-frozen")
-    assert_includes response.body, "chatToast('#{FrozenAccount::TOAST_TITLE}', '#{FrozenAccount::MESSAGE}')"
+    assert_includes response.body, "chatToast(#{FrozenAccount::TOAST_TITLE.to_json}, #{FrozenAccount::MESSAGE.to_json})"
   end
 
   test "control: an entrant in good standing's chat carries no freeze" do
@@ -73,5 +73,25 @@ class FrozenAccountFollowupsPagesTest < ActionDispatch::IntegrationTest
 
     assert_not chat_root.key?("data-account-frozen")
     assert_equal "true", chat_root["data-can-react"]
+  end
+
+  # The freeze copy reaches the inline JS as JSON literals, so an apostrophe or
+  # quote in it can never arrive HTML-escaped (&#39;) inside a toast.
+  test "the freeze copy is written into the board and chat scripts as JSON, never HTML-escaped" do
+    with_copy = "Your account's frozen. Contact \"support\"."
+    original = FrozenAccount::MESSAGE
+    FrozenAccount.send(:remove_const, :MESSAGE)
+    FrozenAccount.const_set(:MESSAGE, with_copy)
+    begin
+      @user.freeze!(reason: "test", source: "console")
+      get contest_path(@contest)
+    ensure
+      FrozenAccount.send(:remove_const, :MESSAGE)
+      FrozenAccount.const_set(:MESSAGE, original)
+    end
+
+    assert_includes response.body, "chatToast(#{FrozenAccount::TOAST_TITLE.to_json}, #{with_copy.to_json})"
+    assert_includes response.body, "code === #{FrozenAccount::CODE.to_json} ?"
+    assert_not_includes response.body, "Your account&#39;s frozen"
   end
 end

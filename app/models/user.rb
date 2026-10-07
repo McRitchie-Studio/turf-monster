@@ -213,11 +213,17 @@ class User < ApplicationRecord
     existing = find_by(email: auth.info.email)
     if existing
       return :requires_verification if existing.email_verified_at.blank?
-      existing.update!(
-        provider: auth.provider,
-        uid: auth.uid,
-        email_verified_at: existing.email_verified_at || Time.current
-      )
+      # OPSEC-048: a frozen account signs in (the freeze holds actions, not
+      # access) but is not Google-linked: linking is an identity write.
+      if existing.frozen?
+        Rails.logger.warn "[opsec-048] google sign-in without link for frozen user_id=#{existing.id}"
+      else
+        existing.update!(
+          provider: auth.provider,
+          uid: auth.uid,
+          email_verified_at: existing.email_verified_at || Time.current
+        )
+      end
       existing.claim_parked_username!
       return existing
     end

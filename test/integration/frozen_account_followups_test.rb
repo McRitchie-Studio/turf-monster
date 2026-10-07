@@ -45,6 +45,36 @@ class FrozenAccountFollowupsTest < ActionDispatch::IntegrationTest
     assert_equal uid, user.reload.uid
   end
 
+  # Signed out, Google sign-in by a matching verified email links the identity
+  # in User.from_omniauth (Carl's probe on bounce 1). A frozen account signs in
+  # but is not linked.
+  def google_sign_in_by_email(user, frozen:)
+    user.update_columns(provider: nil, uid: nil, email_verified_at: 1.day.ago)
+    user.freeze!(reason: "test", source: "console") if frozen
+    uid = "g-email-#{SecureRandom.hex(3)}"
+    mock_google(uid: uid, email: user.email)
+    get "/auth/google_oauth2/callback"
+    uid
+  end
+
+  test "a frozen account signing in with Google by its verified email signs in unlinked" do
+    user = users(:jordan)
+    google_sign_in_by_email(user, frozen: true)
+
+    assert_equal user.id, session[:turf_user_id], "signing in is still allowed"
+    user.reload
+    assert_nil user.provider
+    assert_nil user.uid, "no Google identity is linked to a frozen account"
+  end
+
+  test "control: an account in good standing signing in with Google by email is linked" do
+    user = users(:jordan)
+    uid = google_sign_in_by_email(user, frozen: false)
+
+    assert_equal user.id, session[:turf_user_id]
+    assert_equal ["google_oauth2", uid], [user.reload.provider, user.uid]
+  end
+
   # A wallet account whose Google sign-in was stashed for a wallet login
   # (OmniauthCallbacksController, :requires_verification). Signs the wallet in
   # by hand, as log_in_as_onchain does, but without its address update!: a

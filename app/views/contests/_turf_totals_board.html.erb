@@ -1993,7 +1993,7 @@ window.selectionBoard = function() {
       // red error styling) — same path as the recovery/confirm toasts above,
       // instead of the old bespoke "Entry Failed" popup. A freeze is not a
       // failed entry: the server's account_frozen code gets its own title.
-      var title = code === '<%= FrozenAccount::CODE %>' ? '<%= FrozenAccount::TOAST_TITLE %>' : 'Entry Failed';
+      var title = code === <%= FrozenAccount::CODE.to_json.html_safe %> ? <%= FrozenAccount::TOAST_TITLE.to_json.html_safe %> : 'Entry Failed';
       try {
         window.dispatchEvent(new CustomEvent('toast', { detail: { type: 'alert', title: title, message: message || '', duration: 6000 } }));
       } catch (_) {}
