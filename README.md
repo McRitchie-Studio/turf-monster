@@ -143,6 +143,7 @@ Topic-specific documentation lives in `docs/`:
 | `docs/AUTH.md` | Authentication, account management, SSO |
 | `docs/LOCAL_STACK.md` | Agent-friendly local stack, ports, Sidekiq, Stripe listener |
 | `docs/SOLANA.md` | Solana integration, wallet types, on-chain flows |
+| `docs/CHAIN_IS_THE_RECORD.md` | Proposed: what the vault records, what Rails points at, settlement lifecycle and execution options |
 | `docs/FORMULAS.md` | Scoring formulas, slate system, Chart.js patterns |
 | `docs/SECURITY_REVIEW.md` | Current security/readiness review checklist |
 | `docs/TEST_COVERAGE_STATUS.md` | Current test-coverage orientation and remaining gaps |
