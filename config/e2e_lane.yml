@@ -1259,7 +1259,11 @@
 # The banner paints above the /tiktok funnel background (hit test), a frozen pick tap toasts the
 # freeze rather than Entry Failed, and at 375px the banner is a headline and a contact. Runs in
 # chromium, no skip. Derived with bin/e2e-lane-derive --write.
-total_specs: 411
+# 405 -> 406 (drop-signup-emails, merged over the specs above): one spec in
+# e2e/admin_drop_announcement.spec.js. The admin
+# previews the drop email, types the recipient count back, ticks Send early before the drop,
+# accepts the confirm dialog and reads the result counts. Derived with bin/e2e-lane-derive --write.
+total_specs: 412
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1642,7 +1646,9 @@ allowed_skips: 4
 # total_specs above; chromium, no skip, so excluded holds at 17 and allowed_skips at 4.
 # 381 -> 384 (turf-frozen-account-followups): the three frozen-account specs beside
 # total_specs above; chromium, no skip, so excluded holds at 17 and allowed_skips at 4.
-executed: 390
+# 384 -> 385 (drop-signup-emails): the drop-announcement spec beside total_specs above;
+# chromium, no skip, so excluded holds at 17 and allowed_skips at 4.
+executed: 391
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

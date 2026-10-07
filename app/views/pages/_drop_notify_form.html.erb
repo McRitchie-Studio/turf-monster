@@ -34,7 +34,7 @@
   <div x-show="state === 'done'" <%= 'style="display: none;"'.html_safe unless initial == "done" %>
        role="status" tabindex="-1" x-ref="success" data-test="<%= test_id %>-success">
     <p class="text-xl font-bold text-heading">You&rsquo;re on the list.</p>
-    <p class="text-secondary text-sm mt-1">We&rsquo;ll send one email when the <%= NextSlateDrop::LABEL %> slate drops.</p>
+    <p class="text-secondary text-sm mt-1">We&rsquo;ll send one email when the <%= NextSlateDrop.display_label %> slate drops.</p>
   </div>
 
   <%= form_with url: drop_signups_path, method: :post, local: true,

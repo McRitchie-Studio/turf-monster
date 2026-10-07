@@ -743,11 +743,27 @@ Rails.application.routes.draw do
   get  "turf-monster-v2", to: "pages#turf_monster_v2", as: :turf_monster_v2
   post "drop-signups", to: "drop_signups#create", as: :drop_signups, format: false
 
-  # Slate-drop "notify me" list (/turf-monster-v2). Read-only, newest first;
-  # .csv exports it for the drop email.
+  # Slate-drop "notify me" list (/turf-monster-v2). Newest first; .csv exports
+  # it. The announcement pages preview the drop email, count its recipients and
+  # send it (manual only: nothing schedules it).
   namespace :admin do
+    get  "drop_signups/announcement",         to: "drop_signups#announcement",        as: :drop_signups_announcement
+    post "drop_signups/announcement",         to: "drop_signups#send_announcement"
+    get  "drop_signups/announcement/preview", to: "drop_signups#announcement_preview", as: :drop_signups_announcement_preview
     resources :drop_signups, only: [:index]
   end
+
+  # One-click unsubscribe from the drop emails, by signed token, no login.
+  # GET renders a page that auto-submits (a scanner's prefetch does nothing);
+  # POST unsubscribes, and is also what a mail client's List-Unsubscribe-Post
+  # one-click button sends (RFC 8058).
+  get  "drop-signups/unsubscribe/:token", to: "drop_unsubscribes#show",   as: :drop_unsubscribe,
+       constraints: { token: %r{[^/]+} }, format: false
+  post "drop-signups/unsubscribe/:token", to: "drop_unsubscribes#create", as: :drop_unsubscribe_confirm,
+       constraints: { token: %r{[^/]+} }, format: false
+
+  # Test-only, like the block above; appended here so no cited line moves.
+  post "test/seed_drop_signups", to: "test#seed_drop_signups" unless Rails.env.production?
 
   # Page A/B tests (PageExperiment). The beacon the page's CTAs and first
   # paint send (ExperimentEventsController, CSRF on, throttled in

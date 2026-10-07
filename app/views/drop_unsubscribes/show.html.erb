@@ -1,0 +1,19 @@
+<% content_for(:title, "Unsubscribe — Turf Monster") %>
+<%# GET: the page a person lands on from the email's Unsubscribe link. The form
+    AUTO-SUBMITS on load, so their one click is the whole act; a no-JS scanner
+    that only GETs never runs the script and unsubscribes nobody. The button is
+    the no-JS / slow-network fallback. See DropUnsubscribesController. %>
+<div class="max-w-md mx-auto py-16 px-4 text-center" data-test="drop-unsubscribe">
+  <h1 class="text-heading text-2xl font-bold mb-3">Unsubscribing…</h1>
+  <p class="text-secondary mb-6">Taking <span class="font-mono"><%= @signup.email %></span> off the <%= NextSlateDrop.display_label %> list.</p>
+  <%= button_to "Unsubscribe", drop_unsubscribe_confirm_path(token: @token), method: :post,
+        class: "btn btn-primary", form: { id: "drop-unsubscribe-form", data: { turbo: "false" } } %>
+</div>
+<script>
+  (function () {
+    var form = document.getElementById('drop-unsubscribe-form');
+    if (!form || form.dataset.autoSubmitted) return;
+    form.dataset.autoSubmitted = '1';
+    if (typeof form.requestSubmit === 'function') form.requestSubmit(); else form.submit();
+  })();
+</script>

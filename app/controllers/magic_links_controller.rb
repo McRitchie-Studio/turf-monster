@@ -176,7 +176,7 @@ class MagicLinksController < ApplicationController
     reset_prior_session!
     user = User.new(email: result.email,
                     age_attested_at: (Time.current if age_attestation_required?),
-                    reference: cookies[:reference].presence&.to_s&.first(64),
+                    reference: signup_reference,
                     **experiment_attribution)
     Studio.configure_new_user.call(user)
     rescue_and_log(target: user) do
@@ -350,8 +350,37 @@ class MagicLinksController < ApplicationController
   # link IS the sign-up, and EntryGifts::Claim#ensure_wallet! mints the managed
   # wallet the voucher is stamped at. Measured — test/integration/
   # gift_link_managed_wallet_test.rb pins both halves.
+  #
+  # A DROP-EMAIL LINK ALSO PREFILLS THE ADDRESS. DropSignupMailer mints its
+  # "Finish setting up your account" link with the signup as `linkable`; when
+  # that link has expired (DropSignupMailer::LINK_TTL: 7 days, or 48 hours), the
+  # bounce lands on the normal sign-in card with the address already typed, so
+  # the recipient is one tap from a fresh link. Scoped to those links: the
+  # address is the one the link was mailed to, and only its holder has it.
   def link_login_path
-    signin_path(**managed_wallet_params)
+    signin_path(**managed_wallet_params, **drop_signup_prefill_params)
+  end
+
+  def drop_signup_prefill_params
+    link = drop_signup_link
+    link&.email.present? ? { email: link.email } : {}
+  end
+
+  # The magic link behind this click when DropSignupMailer minted it, else nil.
+  def drop_signup_link
+    return @drop_signup_link if defined?(@drop_signup_link)
+
+    link = params[:token].present? ? ::Studio::Link.magic_links.find_by(token: params[:token]) : nil
+    @drop_signup_link = link&.linkable.is_a?(DropSignup) ? link : nil
+  end
+
+  # users.reference for an account created here: the first-touch cookie
+  # (ApplicationController#capture_reference, which the drop email's
+  # ?reference= seeds on the GET), else — when the cookie never stuck — the
+  # campaign on the drop signup this link was minted for.
+  def signup_reference
+    ref = cookies[:reference].presence || drop_signup_link&.linkable&.source
+    ref.presence&.to_s&.first(64)
   end
 
   # "Home" for a signed-in turf user is the contests lobby (contests#index, at
