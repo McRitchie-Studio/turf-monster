@@ -14,7 +14,13 @@ module Entries
   #   3. Otherwise leave it nil. Grading refuses a paid entry with no wallet
   #      (Contest#payout_settlements), so an unresolved row is loud, not lost.
   #
-  # An unreadable RPC answer skips the row without writing; a re-run picks it up.
+  # An unreadable RPC answer (a rate limit, a timeout, an answer with no value)
+  # is re-read once, after REREAD_PAUSE seconds, before the row is skipped
+  # without writing; a re-run picks a skipped row up. On 2026-10-06 Helius
+  # rate-limited 7 of contest 232's reads, and each was skipped on its first
+  # failure. The re-read works with any solana-studio: before the gem read the
+  # HTTP status first, a plain-text 429 arrived here as JSON::ParserError, and
+  # after it as RpcError code 429; both are unreadable.
   # Idempotent: a row with a wallet is never read again.
   class WalletBackfill
     # turf-vault state.rs ContestEntry, after the 8-byte Anchor discriminator:
@@ -24,21 +30,25 @@ module Entries
     ENTRY_NUM_OFFSET = 72
     MIN_BYTES = ENTRY_NUM_OFFSET + 4
     DISCRIMINATOR = Digest::SHA256.digest("account:ContestEntry")[0, 8].freeze
+    # Seconds to wait before re-reading an unreadable row: room for a rate
+    # limit to clear, on top of the client's own retries.
+    REREAD_PAUSE = 2
 
-    def self.run(contest: nil, vault: Solana::Vault.new)
-      new(contest: contest, vault: vault).run
+    def self.run(contest: nil, vault: Solana::Vault.new, sleeper: ->(seconds) { sleep(seconds) })
+      new(contest: contest, vault: vault, sleeper: sleeper).run
     end
 
-    def initialize(contest:, vault:)
+    def initialize(contest:, vault:, sleeper:)
       @contest = contest
       @vault = vault
+      @sleeper = sleeper
     end
 
     # => { chain: n, derived: n, unresolved: [entry ids], unreadable: [entry ids] }
     def run
       stats = { chain: 0, derived: 0, unresolved: [], unreadable: [] }
       scope.find_each do |entry|
-        outcome, wallet = resolve(entry)
+        outcome, wallet = resolve_with_reread(entry)
         case outcome
         when :chain, :derived
           entry.update_columns(wallet_address: wallet) # a data backfill: no callbacks, no updated_at churn
@@ -55,6 +65,14 @@ module Entries
     def scope
       rows = Entry.where(wallet_address: [nil, ""]).where.not(onchain_entry_id: [nil, ""]).includes(:contest, :user)
       @contest ? rows.where(contest_id: @contest.id) : rows
+    end
+
+    def resolve_with_reread(entry)
+      outcome, wallet = resolve(entry)
+      return [outcome, wallet] unless outcome == :unreadable
+
+      @sleeper.call(REREAD_PAUSE)
+      resolve(entry)
     end
 
     def resolve(entry)
