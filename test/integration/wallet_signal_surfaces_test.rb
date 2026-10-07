@@ -1,4 +1,5 @@
 require "test_helper"
+require "minitest/mock"
 
 # Where the wallet signal actually lands, and what the server binds under it.
 #
@@ -25,6 +26,13 @@ class WalletSignalSurfacesTest < ActionDispatch::IntegrationTest
     "/admin/authorities" => "the eviction console, which reaches the suppression through cosignTransaction"
   }.freeze
 
+  # The fields /admin/vault_state renders; the values are placeholders.
+  VAULT_STATE = {
+    pda: "vault-pda", paused: false, threshold: 2,
+    signers: Array.new(3) { |i| "Signer#{i}XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" },
+    usdc_mint: "11111111111111111111111111111111", usdt_mint: "11111111111111111111111111111111"
+  }.freeze
+
   def signal_nodes(variant: nil)
     selector = "[data-wallet-signal]"
     selector += "[data-wallet-signal-variant=#{variant}]" if variant
@@ -35,7 +43,19 @@ class WalletSignalSurfacesTest < ActionDispatch::IntegrationTest
     test "#{path} carries a page-level wallet signal" do
       log_in_as_onchain(users(:alex))
 
-      get path
+      # HERMETIC FOR /admin/vault_state: its #show reads the vault state on
+      # render, unguarded, and this test asserts markup, not the chain. It used
+      # to reach the real devnet RPC and passed only while the gem's 15s of
+      # retries outlasted a 429; under the request wait budget
+      # (SolanaWaitBudget, 5s) a throttled devnet failed it in CI. The other
+      # two pages read the chain through rescuing helpers already.
+      if path == "/admin/vault_state"
+        vault = FakeVault.new
+        vault.instance_variable_set(:@vault_state, VAULT_STATE)
+        Solana::Vault.stub(:new, vault) { get path }
+      else
+        get path
+      end
       assert_response :success
 
       panels = signal_nodes(variant: "panel")

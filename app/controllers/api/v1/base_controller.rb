@@ -18,6 +18,9 @@ module Api
   module V1
     class BaseController < ActionController::API
       include ApiKeyAuthentication
+      # An API entry runs the same on-chain spend as the web one; its Solana
+      # calls wait no longer than a web request's (SolanaWaitBudget::REQUEST).
+      include SolanaWaitBudget
 
       private
 
