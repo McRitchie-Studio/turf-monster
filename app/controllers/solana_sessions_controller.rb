@@ -207,6 +207,9 @@ class SolanaSessionsController < ApplicationController
     return false unless pending
     return false unless pending["user_id"] == user.id
     return false if pending["at"].to_i < 15.minutes.ago.to_i
+    # OPSEC-048: the wallet sign-in itself goes through for a frozen account;
+    # the Google link it would complete is an identity write, and does not.
+    return false if user.frozen?
 
     user.update!(
       provider: pending["provider"],

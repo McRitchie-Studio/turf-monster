@@ -149,7 +149,8 @@
   seedsPerLevel: User::SEEDS_PER_LEVEL,
   pendingRecoveryPtxSlug: @pending_recovery_ptx&.slug,
   mode: edit_entry ? "edit" : "create",
-  editEntrySlug: edit_entry&.slug
+  editEntrySlug: edit_entry&.slug,
+  frozen: account_frozen? ? { title: FrozenAccount::TOAST_TITLE, message: FrozenAccount::MESSAGE, code: FrozenAccount::CODE } : nil
 }.to_json.html_safe %>
 </script>
 
@@ -181,6 +182,7 @@ window.selectionBoard = function() {
     blurDismissed: false,
     mode: cfg.mode || 'create',
     editEntrySlug: cfg.editEntrySlug || null,
+    frozen: cfg.frozen || null,
     get isEditMode() { return this.mode === 'edit'; },
     shakeKey: 0,
     submitting: false,
@@ -662,6 +664,10 @@ window.selectionBoard = function() {
 
     toggleSelection(matchupId) {
       if (matchupData[matchupId]?.locked) return;
+      // OPSEC-048: cfg.frozen is set only for a frozen account, which can pick
+      // nothing (FrozenAccountGuard refuses the POST). Say why before touching
+      // the cart, rather than a pick that bounces back as "Entry Failed".
+      if (this.frozen) { this.showError(this.frozen.message, this.frozen.code); return; }
 
       var oldSelections = Object.assign({}, this.selections);
       var oldOrder = this.selectionOrder.slice();
@@ -722,7 +728,7 @@ window.selectionBoard = function() {
         if (!result.ok) {
           self.selections = oldSelections;
           self.selectionOrder = oldOrder;
-          self.showError(result.data.error || 'Failed to save selection');
+          self.showError(result.data.error || 'Failed to save selection', result.data.code);
           return;
         }
         // Server is the source of truth. Adopt its authoritative selection set
@@ -1867,7 +1873,7 @@ window.selectionBoard = function() {
               // raw raise text this same card was showing.
               Alpine.store('solanaModal').error(data.error || 'Something went wrong', 'Entry Failed');
             } else {
-              this.showError(data.error || 'Something went wrong');
+              this.showError(data.error || 'Something went wrong', data.code);
             }
             this.resetHoldButtons();
             this.submitting = false;
@@ -1982,12 +1988,14 @@ window.selectionBoard = function() {
       }
     },
 
-    showError(message) {
+    showError(message, code) {
       // Route entry/selection errors through the shared toast manager (alert =
       // red error styling) — same path as the recovery/confirm toasts above,
-      // instead of the old bespoke "Entry Failed" popup.
+      // instead of the old bespoke "Entry Failed" popup. A freeze is not a
+      // failed entry: the server's account_frozen code gets its own title.
+      var title = code === <%= FrozenAccount::CODE.to_json.html_safe %> ? <%= FrozenAccount::TOAST_TITLE.to_json.html_safe %> : 'Entry Failed';
       try {
-        window.dispatchEvent(new CustomEvent('toast', { detail: { type: 'alert', title: 'Entry Failed', message: message || '', duration: 6000 } }));
+        window.dispatchEvent(new CustomEvent('toast', { detail: { type: 'alert', title: title, message: message || '', duration: 6000 } }));
       } catch (_) {}
     },
 
@@ -2048,7 +2056,7 @@ window.selectionBoard = function() {
         if (resp.ok && data.success) {
           window.location.href = data.redirect || ('/contests/' + this.contestId + '/contest');
         } else {
-          this.showError((data && data.error) || 'Failed to update entry.');
+          this.showError((data && data.error) || 'Failed to update entry.', data && data.code);
           this.submitting = false;
         }
       } catch (e) {

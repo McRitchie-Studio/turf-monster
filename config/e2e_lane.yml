@@ -1255,7 +1255,11 @@
 # A frozen player sees the banner painted on four pages and a disabled rename with its reason,
 # and the banner goes the moment the freeze lifts. Runs in chromium, no skip. Derived with
 # bin/e2e-lane-derive --write.
-total_specs: 402
+# 402 -> 405 (turf-frozen-account-followups): three specs in e2e/frozen_account_banner.spec.js.
+# The banner paints above the /tiktok funnel background (hit test), a frozen pick tap toasts the
+# freeze rather than Entry Failed, and at 375px the banner is a headline and a contact. Runs in
+# chromium, no skip. Derived with bin/e2e-lane-derive --write.
+total_specs: 405
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1636,7 +1640,9 @@ allowed_skips: 4
 # no skip, so excluded holds at 17 and allowed_skips at 4.
 # 379 -> 381 (turf-frozen-accounts-block-actions): the two frozen-banner specs beside
 # total_specs above; chromium, no skip, so excluded holds at 17 and allowed_skips at 4.
-executed: 381
+# 381 -> 384 (turf-frozen-account-followups): the three frozen-account specs beside
+# total_specs above; chromium, no skip, so excluded holds at 17 and allowed_skips at 4.
+executed: 384
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

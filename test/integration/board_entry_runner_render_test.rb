@@ -31,7 +31,7 @@ class BoardEntryRunnerRenderTest < ActionDispatch::IntegrationTest
   def rendered_confirm_entry(body)
     start = body.index("async confirmEntry() {")
     assert start, "the rendered board carries no confirmEntry"
-    finish = body.index("showError(message) {", start)
+    finish = body.index("showError(message, code) {", start)
     assert finish, "could not bound the rendered confirmEntry"
     body[start...finish]
   end

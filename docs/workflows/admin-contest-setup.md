@@ -38,7 +38,7 @@
 **Actors:** Admin (Phantom wallet) / Phantom / Rails / Solana RPC / turf-vault Anchor program / Squads (only if the vault has never been initialized on this program).
 **Outcome:** New on-chain `Contest` PDA funded with the prize pool; matching DB `Contest` row promoted to `open`; admin's `Entry` PDA created + DB entry `active`; admin's `UserAccount` PDA seeded.
 **Preconditions:**
-- Admin has `role == "admin"` (`User#admin?` — `app/models/user.rb:266-268`) and a linked Phantom wallet (`web3_solana_address`). Admins are web3-only by policy — `User#generate_managed_wallet!` early-returns for admins (`app/models/user.rb:589`, OPSEC-044).
+- Admin has `role == "admin"` (`User#admin?` — `app/models/user.rb:272-274`) and a linked Phantom wallet (`web3_solana_address`). Admins are web3-only by policy — `User#generate_managed_wallet!` early-returns for admins (`app/models/user.rb:595`, OPSEC-044).
 - `EXPECTED_IDL_HASH` matches the IDL THIS app selects — `config/turf_vault.idl.json` on devnet with the governance switch off, one of four artifacts keyed by `SOLANA_NETWORK` and `SOLANA_VAULT_GOVERNANCE` (`lib/solana/idl_selection.rb`). Verified at boot — `Solana::Config.verify_idl!`, `app/services/solana/config.rb`.
 - An active `SeasonConfig.current_season_id` exists. Without it, `ContestsController#enter` refuses before any consume: `Entries::ManagedEntry#call` raises inside the contest lock (`app/services/entries/managed_entry.rb:88-93`).
 
@@ -53,7 +53,7 @@
    - Message format: `"<host> wants you to sign in with your Solana account:\n<pubkey>\n\n<userIdLine>Sign in to Turf Monster\n\nNonce: <nonce>"`. The opening `<host>` token is the OPSEC-018 host binding the server later asserts. `<userIdLine>` is empty at login (no `current_user` yet) and only present when re-signing inside an authenticated session (OPSEC-005 — see step 4).
 4. **`POST /auth/solana/verify`** — `SolanaSessionsController#verify` (`app/controllers/solana_sessions_controller.rb:25-108`), routed as `solana_sessions#verify` (`config/routes.rb:214`).
    - `verify_solana_signature!` (`app/controllers/solana_sessions_controller.rb:26`) deletes the nonce before verifying (replay protection) and delegates to `Solana::AuthVerifier.verify!` in the solana-studio gem with `expected_host: request.host_with_port`. The method is `Solana::SessionAuth#verify_solana_signature!`, which lives in **studio-engine** (`studio-engine: app/controllers/concerns/solana/session_auth.rb` — it deletes the nonce before verifying and binds the OPSEC-005 `User-ID:` line) and is mixed in via `include Solana::SessionAuth` (`app/controllers/solana_sessions_controller.rb:2`, `app/controllers/accounts_controller.rb:3`, `app/controllers/entries_controller.rb:2`). `ContestsController` no longer includes it: `#enter`'s signature branch was the controller's only caller and it now refuses a web3 session outright.
-   - Looks up the user by wallet with `User.from_solana_wallet(pubkey_b58)` (`app/models/user.rb:239-241`) — a plain `find_by`, no create. `SolanaSessionsController#verify` is what builds the row when the lookup misses (`app/controllers/solana_sessions_controller.rb:57`).
+   - Looks up the user by wallet with `User.from_solana_wallet(pubkey_b58)` (`app/models/user.rb:245-247`) — a plain `find_by`, no create. `SolanaSessionsController#verify` is what builds the row when the lookup misses (`app/controllers/solana_sessions_controller.rb:57`).
    - `set_app_session(user)` at `:67` (`app/controllers/application_controller.rb:36-50`) writes the session-token cookie and explicitly **clears** any stale `session[:onchain]` flag (`session.delete(:onchain)` — `app/controllers/application_controller.rb:44`). `SolanaSessionsController#verify` then re-grants it through `promote_to_onchain_session!` (`app/controllers/solana_sessions_controller.rb:82`), because this auth path is a genuine Phantom signature.
 5. **Admin gate** — every admin route runs the class-body `before_action :require_admin` (`app/controllers/contests_controller.rb:15`). The helper is `Studio::ErrorHandling#require_admin` in `studio-engine` (`studio-engine: app/controllers/concerns/studio/error_handling.rb`), which redirects with "Not authorized" unless `logged_in? && current_user.admin?`.
 
@@ -88,7 +88,7 @@ The contest PDA at `[b"contest", sha256(slug)]`, derived by `Solana::Vault#conte
 
 #### 2d. Per-user UserAccount PDA — fires lazily on first entry
 
-`Solana::Vault#ensure_user_account` (`app/services/solana/vault.rb:1462-1471`) is called inline by every entry path — `ContestsController#prepare_entry` calls it at `app/controllers/contests_controller.rb:1041` (step 4). It checks the PDA size and either no-ops, creates the PDA via `Solana::Vault#create_user_account` (`app/services/solana/vault.rb:1473-1520`), or raises on schema drift. For most admins this is a no-op, because the class-body `after_commit :enqueue_onchain_account_setup, on: :create` (`app/models/user.rb:130`) already ran `User#enqueue_onchain_account_setup` (`:811-813`) at signup, enqueuing `CreateOnchainUserAccountJob` (`app/jobs/create_onchain_user_account_job.rb`; see `docs/AUTH.md`).
+`Solana::Vault#ensure_user_account` (`app/services/solana/vault.rb:1462-1471`) is called inline by every entry path — `ContestsController#prepare_entry` calls it at `app/controllers/contests_controller.rb:1041` (step 4). It checks the PDA size and either no-ops, creates the PDA via `Solana::Vault#create_user_account` (`app/services/solana/vault.rb:1473-1520`), or raises on schema drift. For most admins this is a no-op, because the class-body `after_commit :enqueue_onchain_account_setup, on: :create` (`app/models/user.rb:130`) already ran `User#enqueue_onchain_account_setup` (`:822-824`) at signup, enqueuing `CreateOnchainUserAccountJob` (`app/jobs/create_onchain_user_account_job.rb`; see `docs/AUTH.md`).
 
 ### 3. Admin creates a contest
 
@@ -123,8 +123,8 @@ The contest test actions (Fill, Next Game / Simulate, Next 5 / 20, All / Jump, a
 Two-stage hold-to-confirm followed by the Phantom direct-entry signing flow:
 
 1. **Toggle 6 selections** on the matchup board — `POST /contests/:id/toggle_selection` per click (`ContestsController#toggle_selection` — `app/controllers/contests_controller.rb:1505-1526`). Each call `find_or_create_by!`s the cart entry (`:1513`) and toggles a `Selection` row (`:1516`).
-2. **Hold-to-confirm** triggers `confirmEntry()` in `app/views/contests/_turf_totals_board.html.erb:1566-1983`:
-   - It branches on `useOnchainFlow = sess.isWeb3 && this.contestOnchain` (`:1630`, taken at `:1644`). Admin = web3 = always the on-chain branch.
+2. **Hold-to-confirm** triggers `confirmEntry()` in `app/views/contests/_turf_totals_board.html.erb:1572-1989`:
+   - It branches on `useOnchainFlow = sess.isWeb3 && this.contestOnchain` (`:1636`, taken at `:1650`). Admin = web3 = always the on-chain branch.
    - There is no client-side wrong-wallet throw on this path any more; the binding is server-side (see the failure modes below).
 3. **`POST /contests/:id/prepare_entry`** — `ContestsController#prepare_entry` (`app/controllers/contests_controller.rb:999-1159`):
    - Requires `onchain_session?` (`:1020`) — the admin's Phantom-auth session has it from step 1.
@@ -146,7 +146,7 @@ Two-stage hold-to-confirm followed by the Phantom direct-entry signing flow:
 ## Data touched
 
 - **DB:**
-  - `users` (read — `User.from_solana_wallet` at `app/models/user.rb:239-241`; insert in `SolanaSessionsController#verify` at `app/controllers/solana_sessions_controller.rb:57` on first login for this pubkey)
+  - `users` (read — `User.from_solana_wallet` at `app/models/user.rb:245-247`; insert in `SolanaSessionsController#verify` at `app/controllers/solana_sessions_controller.rb:57` on first login for this pubkey)
   - `season_configs` (read — `SeasonConfig.current_season_id`, `app/models/season_config.rb:21-23`)
   - `slates` (read — the selected slate; on a span, its consecutive weekly siblings, scoped by the `year`/`sport`/`season_type` columns in `ContestsController#resolve_span_slate` → `Nfl::BuildSpanSlate` — `app/controllers/contests_controller.rb:2147`)
   - `slate_matchups` (read — the pickable matchups behind the selections)

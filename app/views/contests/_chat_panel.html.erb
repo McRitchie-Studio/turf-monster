@@ -37,7 +37,7 @@
      @quest-chat-active.window="questChatActive()"
      data-post-url="<%= contest_messages_path(contest) %>"
      data-chat-prompts="<%= chat_prompts.to_json %>"
-     data-can-react="<%= can_post %>">
+     data-can-react="<%= can_post %>"<%= " data-account-frozen" if account_frozen? %>>
   <%= turbo_stream_from contest, :messages %>
 
   <%# Header %>
@@ -174,6 +174,7 @@
         var session = window.Alpine && Alpine.store('session');
         window.__chatMyUserId = (session && session.userId) || null;
         window.__chatCanReact = this.$root.dataset.canReact === 'true';
+        window.__chatAccountFrozen = 'accountFrozen' in this.$root.dataset;
 
         var listEl = this.$refs.messageList;
         if (listEl) {
@@ -483,6 +484,11 @@
     if (!messageEl) return;
     var url = messageEl.dataset.reactUrl;
     if (!url) return;
+    if (window.__chatAccountFrozen) {
+      // OPSEC-048: a frozen entrant is not told to join; it is told why.
+      chatToast(<%= FrozenAccount::TOAST_TITLE.to_json.html_safe %>, <%= FrozenAccount::MESSAGE.to_json.html_safe %>);
+      return;
+    }
     if (!window.__chatCanReact) {
       chatToast('Join to react', 'Enter the contest to react to messages.');
       return;
@@ -497,7 +503,7 @@
       body: JSON.stringify({ emoji: emoji })
     }).then(function(r) { return r.json().catch(function() { return {}; }); })
       .then(function(data) {
-        if (data && data.error) { chatToast('Reaction failed', data.error); return; }
+        if (data && data.error) { chatToast(data.code === <%= FrozenAccount::CODE.to_json.html_safe %> ? <%= FrozenAccount::TOAST_TITLE.to_json.html_safe %> : 'Reaction failed', data.error); return; }
         if (data && typeof data.html === 'string') applyReactionHtml(messageEl, data.html);
       })
       .catch(function() { chatToast('Reaction failed', 'Network error.'); });

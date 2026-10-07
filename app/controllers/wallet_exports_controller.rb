@@ -32,6 +32,11 @@ class WalletExportsController < ApplicationController
   skip_before_action :verify_authenticity_token, only: [:complete]
 
   before_action :verify_export_token, only: [:show, :complete]
+  # OPSEC-048: both actions skip sign-in and are authenticated by the mailed
+  # token, so FrozenAccountGuard (keyed on current_user, and blind to the GET)
+  # never sees the account. A link mailed in the 30 minutes before a freeze
+  # would otherwise still reveal the key. Checked at redemption, every time.
+  before_action :refuse_frozen_export, only: [:show, :complete]
   before_action :harden_secret_response, only: [:show]
 
   def show
@@ -104,6 +109,17 @@ class WalletExportsController < ApplicationController
     @suppress_session_replay = true
     response.headers["Cache-Control"] = "no-store"
     response.headers["Referrer-Policy"] = "no-referrer"
+  end
+
+  def refuse_frozen_export
+    return unless @export_user&.frozen?
+
+    Rails.logger.warn "[wallet-export] refused frozen account user=#{@export_user.id} action=#{action_name}"
+    if action_name == "complete"
+      render json: { success: false, error: FrozenAccount::MESSAGE, code: FrozenAccount::CODE }, status: FrozenAccount::STATUS
+    else
+      render plain: FrozenAccount::MESSAGE, status: FrozenAccount::STATUS
+    end
   end
 
   def verify_export_token

@@ -7,6 +7,10 @@ module Admin
   #   POST   /admin/users/:user_slug/freeze   reason=…   freeze
   #   DELETE /admin/users/:user_slug/freeze   reason=…   unfreeze
   #
+  # Each write runs inside rescue_and_log, so a failed freeze or unfreeze leaves
+  # an ErrorLog row targeting the player. rescue_and_log re-raises by contract;
+  # the action catches that and answers the operator with an alert, not a 500.
+  #
   # Admin accounts cannot be frozen: a frozen admin is refused every write,
   # this unfreeze included, so the hold could lock out the operator who has to
   # lift it.
@@ -18,19 +22,25 @@ module Admin
     def create
       return redirect_back_or_to(admin_users_path, alert: "Admin accounts cannot be frozen.") if @user.admin?
 
-      if @user.freeze!(reason: @reason, by: current_user, source: "admin")
+      froze = rescue_and_log(target: @user) { @user.freeze!(reason: @reason, by: current_user, source: "admin") }
+      if froze
         redirect_back_or_to admin_users_path, notice: "#{@user.display_name} is frozen."
       else
         redirect_back_or_to admin_users_path, alert: "#{@user.display_name} is already frozen."
       end
+    rescue StandardError
+      redirect_back_or_to admin_users_path, alert: "Could not freeze #{@user.display_name}."
     end
 
     def destroy
-      if @user.unfreeze!(reason: @reason, by: current_user, source: "admin")
+      thawed = rescue_and_log(target: @user) { @user.unfreeze!(reason: @reason, by: current_user, source: "admin") }
+      if thawed
         redirect_back_or_to admin_users_path, notice: "#{@user.display_name} is unfrozen."
       else
         redirect_back_or_to admin_users_path, alert: "#{@user.display_name} is not frozen."
       end
+    rescue StandardError
+      redirect_back_or_to admin_users_path, alert: "Could not unfreeze #{@user.display_name}."
     end
 
     private
