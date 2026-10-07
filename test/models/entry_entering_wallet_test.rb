@@ -94,3 +94,45 @@ class EntryEnteringWalletTest < ActiveSupport::TestCase
                   **EnteredOnchain.attrs(@contest, from, entry_number: entry_number))
   end
 end
+
+# [unit] Each entry path records the wallet it entered from, through the gate it
+# really runs: confirm! (the managed, API, gift and reconciler paths) and
+# confirm_onchain! (Phantom).
+class EntryEnteringWalletPathsTest < ActiveSupport::TestCase
+  setup do
+    @contest = contests(:one)
+    @user = users(:sam)
+    @web2 = EnteredOnchain.random_wallet
+    @web3 = EnteredOnchain.random_wallet
+    @user.update_columns(web2_solana_address: @web2, web3_solana_address: @web3)
+    @picks = %i[m1 m2 m3 m4 m5 m6].map { |m| slate_matchups(m) }
+  end
+
+  test "confirm! with the managed wallet's PDA records the managed wallet" do
+    entry = cart_entry
+    pda = EnteredOnchain.attrs(@contest, @web2)[:onchain_entry_id]
+
+    entry.confirm!(tx_signature: "managed-sig-#{SecureRandom.hex(3)}", onchain_entry_id: pda)
+
+    assert entry.reload.active?
+    assert_equal @web2, entry.wallet_address
+  end
+
+  test "confirm_onchain! with the Phantom wallet's PDA records the Phantom wallet" do
+    entry = cart_entry
+    pda = EnteredOnchain.attrs(@contest, @web3)[:onchain_entry_id]
+
+    entry.confirm_onchain!(tx_signature: "phantom-sig-#{SecureRandom.hex(3)}", entry_pda: pda)
+
+    assert entry.reload.active?
+    assert_equal @web3, entry.wallet_address
+  end
+
+  private
+
+  def cart_entry
+    @contest.entries.create!(user: @user, status: :cart, entry_number: 0).tap do |entry|
+      @picks.each { |m| entry.selections.create!(slate_matchup: m) }
+    end
+  end
+end
