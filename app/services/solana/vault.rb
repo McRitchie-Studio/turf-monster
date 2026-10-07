@@ -1279,7 +1279,7 @@ module Solana
     # 2026-06-11 finding recorded on `#simulate_and_broadcast`, and it makes
     # the nonce unusable for ANY Phantom-signed flow, not merely undesirable.
     # No builder in this file passes `durable_nonce:` any more; the last one,
-    # `build_create_contest`'s admin-signed branch, dropped it 2026-10-07.
+    # `build_create_contest`'s admin-signed branch, dropped it (retire-nonce-contest-prepare).
     #
     # The consequence is a ~60-90 second window, which is the right constraint
     # for an eviction: the operator is at the keyboard by definition. The page
@@ -1707,11 +1707,11 @@ module Solana
         # Legacy server-first: the admin signs now and the CREATOR's slot is left
         # for the wallet, so this is a Phantom-signed transaction too. A FRESH
         # BLOCKHASH, never the durable nonce: Phantom injects Lighthouse guard
-        # instructions ahead of advanceNonceAccount (2026-06-11, see
+        # instructions ahead of advanceNonceAccount (the mainnet incident noted at
         # #build_enter_contest), and a nonce wire stays landable until the nonce
         # advances, so a create signed today could move the creator's prize pool
         # at any later time. Its one route caller,
-        # ContestsController#prepare_onchain_contest, was retired 2026-10-07;
+        # ContestsController#prepare_onchain_contest, is retired (retire-nonce-contest-prepare);
         # pinned by test/integration/contest_create_never_nonce_anchored_test.rb.
         serialized = build_partial_signed(
           accounts: spec[:accounts],
@@ -2309,7 +2309,7 @@ module Solana
       #     set_contest_*_time builders. They all take the `nil` default and
       #     are anchored on a plain recent blockhash.
       #   * `durable_nonce_config` HAD exactly one caller: `build_create_contest`
-      #     on its `admin_signs: true` branch. CORRECTED AGAIN 2026-10-07: this
+      #     on its `admin_signs: true` branch. CORRECTED AGAIN by this task: this
       #     line used to call that branch "SERVER-signed and never goes near
       #     Phantom", which was false. The admin signed it, but the CREATOR's
       #     slot was left for the wallet, and ContestsController
@@ -4211,7 +4211,7 @@ module Solana
 
     # Opt-in durable-nonce config — SOLANA_DURABLE_NONCE_PUBKEY names the nonce
     # account; authority is the admin managed wallet. Returns nil (= default
-    # recent-blockhash) when unset. NO CALLER TODAY (2026-10-07): kept for a
+    # recent-blockhash) when unset. NO CALLER TODAY: it is kept for a
     # SERVER-signed flow, the planned durable-nonce settlement. Never pass it to
     # a builder whose wire a wallet signs (see #build_enter_contest).
     def durable_nonce_config

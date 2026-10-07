@@ -275,8 +275,8 @@ module Contests
     # writer above builds one: finalize's Phantom-first wire comes from
     # #build_partial_unsigned and the server-funded create from #build_tx with
     # no nonce (pinned in vault_create_contest_server_funded_test.rb). No
-    # contest-create builder reads the nonce at all since 2026-10-07
-    # (contest_create_never_nonce_anchored_test.rb).
+    # contest-create builder reads the nonce at all (retire-nonce-contest-prepare;
+    # contest_create_never_nonce_anchored_test.rb).
     BroadcastAnchor = Struct.new(:broadcast_at) { include OnchainSendVerdict }
 
     def signature_verdict(contest)

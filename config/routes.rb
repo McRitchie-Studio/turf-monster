@@ -374,7 +374,7 @@ Rails.application.routes.draw do
       # the contest show page (ContestsController#update_banner).
       patch :banner, action: :update_banner
       get :live
-      # `post :prepare_onchain_contest` was retired 2026-10-07 — see
+      # No `post :prepare_onchain_contest` (retire-nonce-contest-prepare) — see
       # ContestsController (retire-nonce-contest-prepare).
       post :confirm_onchain_contest
       # `post :payout_entry` was removed in the 2026-05-23 audit (H2) —

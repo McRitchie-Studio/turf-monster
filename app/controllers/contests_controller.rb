@@ -611,7 +611,7 @@ class ContestsController < ApplicationController
     end
   end
 
-  # `prepare_onchain_contest` was retired 2026-10-07 (retire-nonce-contest-prepare).
+  # No `prepare_onchain_contest` action (retired: retire-nonce-contest-prepare).
   # It built an admin-signed, creator-co-signed create anchored on the production
   # durable nonce, and nothing in the app called it: a nonce-anchored wire stays
   # landable until the nonce advances, so a hand-made POST could mint a create
