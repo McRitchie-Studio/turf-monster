@@ -54,7 +54,7 @@ Rails.application.routes.draw do
   # was not there when the tab opened — without reloading what the user is
   # looking at. See WalletProbeController for the full why.
   get "wallet_probe" => "wallet_probe#show", as: :wallet_probe
-  root "contests#index"
+  root "pages#home" # the landing page (/turf-monster-v2); a signed-in visitor goes on to the lobby, /contests
   get "world-cup", to: redirect("/", status: 301) # the retired World Cup home, both spellings
   get "world_cup", to: redirect("/", status: 301)
 

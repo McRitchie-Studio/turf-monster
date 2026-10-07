@@ -16,10 +16,10 @@
     amount won have no meaning before a contest ends — so it always shows its
     settled rows. See contests/_contest_table's `hide_settled`. %>
 <%# Link preview image: the featured contest's banner (Contest.featured leads
-    with the contest pinned at /admin/dashboard). "/" is this page, so a shared
-    turfmonster.media link unfurls with the pinned contest's banner and
-    re-pinning changes the card with no deploy. nil falls through to the site
-    identity's image, exactly as a contest with no banner does. %>
+    with the contest pinned at /admin/dashboard), so a shared lobby link — and
+    "/", the landing (pages#home), which sets the same image — unfurls with the
+    pinned contest's banner, and re-pinning changes the card with no deploy. nil
+    falls through to the site identity's image, as a bannerless contest does. %>
 <% content_for :og_image, contest_og_image_url(Contest.featured) %>
 <%= render "shared/pending_cart_handoff" %>
 <div x-data="{ showSettled: false }">

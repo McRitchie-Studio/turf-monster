@@ -354,15 +354,15 @@ class MagicLinksController < ApplicationController
     signin_path(**managed_wallet_params)
   end
 
-  # "Home" for turf is the root, the contests lobby (contests#index) — the same place
-  # landing_path_for sends a link with no destination, so both halves of a link
-  # click agree on where "the app" is.
+  # "Home" for a signed-in turf user is the contests lobby (contests#index, at
+  # /contests; "/" is the landing page) — the same place landing_path_for sends
+  # a link with no destination, so both halves of a link click agree on it.
   def link_home_path
-    root_path
+    contests_path
   end
 
   # The concern's default treats a bare "/" as a real destination; turf treats it
-  # as "no destination" and lands on the root instead (landing_path_for, which
+  # as "no destination" and lands on the lobby instead (landing_path_for, which
   # says the same of the auth pages). Overridden rather than reimplemented so the
   # login/home cases keep coming from the hooks above.
   def link_destination(destination, result)
@@ -497,11 +497,11 @@ class MagicLinksController < ApplicationController
   end
 
   # Where a login lands: honor any explicit (already-sanitized) return_to — a
-  # contest, or e.g. /account — and otherwise drop them on the ROOT.
+  # contest, or e.g. /account — and otherwise drop them on the LOBBY.
   # "Otherwise" covers no destination, a bare "/", and the auth pages above,
   # which are never honored literally.
   #
-  # Root is contests#index, the contests lobby: one destination that never
+  # The lobby is contests#index at /contests: one destination that never
   # resolves to nil. A visitor mid-entry who lands there is handed back to the
   # contest their saved cart names (shared/_pending_cart_handoff).
   def landing_path_for(result)
@@ -509,7 +509,7 @@ class MagicLinksController < ApplicationController
     rt = result&.return_to
     return rt if rt.present? && !non_destination?(rt)
 
-    root_path
+    contests_path
   end
 
   # OPSEC-048: FrozenAccountGuard refuses a frozen account every write but this.

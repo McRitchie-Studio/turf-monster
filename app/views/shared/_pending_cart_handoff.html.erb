@@ -7,8 +7,8 @@
 
       * the live board (contest: given), where /contests/:id sends a visitor
         once a game has started; it hands back only a cart for its own contest;
-      * the root lobby (contest: nil), where every sign-in with no destination
-        lands; it hands back a cart for whichever contest it names.
+      * the lobby (contest: nil), /contests, where every sign-in with no
+        destination lands; it hands back a cart for whichever contest it names.
 
     Landing on either would leave them signed in with no entry and nothing
     saying why. Same key and same 30-minute freshness as the board's init, and

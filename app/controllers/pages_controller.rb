@@ -19,6 +19,39 @@ class PagesController < ApplicationController
     @teams = Team.where(slug: TurfMonsterRules.team_slugs).index_by(&:slug)
   end
 
+  # The root, "/". A signed-out visitor gets the landing page, the
+  # turf_monster_v2 explainer below, served at "/" itself so a shared
+  # turfmonster.media link and a spoken one both open on it. A signed-in
+  # visitor already knows what the game is and came to play, so they go on
+  # to the lobby (/contests), the way a fantasy app's home is its lobby once
+  # you are signed in.
+  #
+  # THE REDIRECT CARRIES WHAT ROOT USED TO RECEIVE. Before this, "/" WAS the
+  # lobby, and redirects all over the app still send a signed-in user to
+  # root_path with a flash ("Picks cleared") or a ?reference= tag. The query
+  # rides along, and flash.keep holds the message through this extra hop so
+  # the lobby still shows it. The lobby also renders the cart hand-back
+  # (shared/_pending_cart_handoff), so a sign-in that lands here is still
+  # handed back to the contest its saved cart names.
+  #
+  # The A/B experiment, if any, is the one set on "/" (request.path), apart
+  # from one set on /turf-monster-v2: the two URLs are separate pages to
+  # PageExperiment, and their reports stay apart.
+  def home
+    if logged_in?
+      flash.keep
+      return redirect_to(contests_path(request.query_parameters))
+    end
+
+    # Two things "/" did as the lobby that it keeps doing as the landing
+    # (@root_landing; /turf-monster-v2 does neither): it unfurls with the
+    # featured contest's banner, so re-pinning still changes the card, and a
+    # signed-out visitor holding a saved cart is handed back to its contest.
+    @root_landing = true
+    turf_monster_v2
+    render :turf_monster_v2
+  end
+
   # The explainer that will become /about (top of the funnel): what the game
   # is, the countdown to the next slate drop, a notify-me form, and how to play.
   # Its two phone mockups draw the SAME team cards v1 does (the hero phone with

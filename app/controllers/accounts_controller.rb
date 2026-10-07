@@ -103,7 +103,7 @@ class AccountsController < ApplicationController
       @user.update!(profile_params)
 
       # Usernames are auto-assigned at signup — this form just saves the avatar.
-      target = session.delete(:return_to) || root_path
+      target = session.delete(:return_to) || contests_path
 
       respond_to do |format|
         format.html { redirect_to target, notice: "Profile updated!" }
