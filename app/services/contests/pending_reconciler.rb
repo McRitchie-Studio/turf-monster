@@ -11,7 +11,9 @@
 #
 # THE DECISION, and why it is existence and not a balance:
 #
-#   PDA PRESENT  → PROMOTE to `open`. `create_contest` is ONE instruction and
+#   PDA PRESENT  → PROMOTE (to `open` for a swept strand; an in-process adopt
+#     passes the status its caller asked for, see #reconcile's `adopt_as:`).
+#     `create_contest` is ONE instruction and
 #     Solana applies it atomically: turf-vault's create_contest.rs `init`s the
 #     Contest PDA, `init`s the per-contest prize_pool token account, and CPIs
 #     the creator's USDC transfer into it, all in the same handler. There is no
@@ -108,7 +110,14 @@ module Contests
     # Reconcile one contest. Returns :promoted / :deleted / :flagged / :skipped
     # / :error. Safe to call directly (the age and status gates are re-checked
     # here, not just in the sweep scope).
-    def reconcile(contest, cutoff: RECONCILE_AFTER.ago)
+    #
+    # `adopt_as:` is the status a PRESENT PDA promotes the row to. The sweep
+    # leaves it `open`: a finalize strand was always headed there, and a swept
+    # row no longer knows anything else. Contest#create_onchain_with_rollback!
+    # passes the status ITS caller asked for, so an uncertain server-funded
+    # create is adopted with that status in one write, rather than flashing
+    # `open` (visible to every reader) before being put back.
+    def reconcile(contest, cutoff: RECONCILE_AFTER.ago, adopt_as: :open)
       return :skipped if contest.nil?
 
       contest.reload
@@ -133,7 +142,7 @@ module Contests
 
       case pda_state(derived)
       when :present
-        promote!(contest, derived)
+        promote!(contest, derived, adopt_as)
       when :absent
         delete_or_flag!(contest, derived)
       else # :unknown — an RPC fault. Never read as absence; ask again next sweep.
@@ -180,10 +189,10 @@ module Contests
     # Publish the row. The pool figure is EVIDENCE FOR THE OPERATOR, not a gate
     # — see the header on why a zero pool is legal — so a read that fails must
     # not block the promote.
-    def promote!(contest, pda_b58)
-      contest.update!(status: :open)
+    def promote!(contest, pda_b58, adopt_as)
+      contest.update!(status: adopt_as)
       Rails.logger.info(
-        "[contest_reconciler][promoted] #{contest.slug} pda=#{pda_b58} " \
+        "[contest_reconciler][promoted] #{contest.slug} status=#{contest.status} pda=#{pda_b58} " \
         "prize_pool=#{onchain_prize_pool_dollars(contest) || 'unread'} " \
         "tx=#{contest.onchain_tx_signature.to_s.first(8)}…"
       )
@@ -265,10 +274,9 @@ module Contests
     # advances, so "unseen after five minutes" proves nothing about it. Neither
     # writer above builds one: finalize's Phantom-first wire comes from
     # #build_partial_unsigned and the server-funded create from #build_tx with
-    # no nonce (pinned in vault_create_contest_server_funded_test.rb). The one
-    # nonce-anchored create builder, #build_create_contest(admin_signs: true),
-    # feeds #confirm_onchain_contest, which stamps a signature only after
-    # verifying it landed — a row whose PDA then reads present.
+    # no nonce (pinned in vault_create_contest_server_funded_test.rb). No
+    # contest-create builder reads the nonce at all since 2026-10-07
+    # (contest_create_never_nonce_anchored_test.rb).
     BroadcastAnchor = Struct.new(:broadcast_at) { include OnchainSendVerdict }
 
     def signature_verdict(contest)

@@ -120,7 +120,7 @@ module TurfMonster
       # --- Step 1 --------------------------------------------------------
       # Create the contest, funding its prize pool from the admin wallet.
       #
-      # Uses the server-funded path (Contest#create_onchain! via after_create)
+      # Uses the server-funded path (Contest#create_onchain! via after_create_commit)
       # rather than the Phantom create flow. That is a deliberate narrowing: the
       # browser create path is already exercised in production and by the e2e
       # suite, while the steps this rehearsal exists for — entry, grade, settle,

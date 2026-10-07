@@ -155,6 +155,35 @@ class ContestCreateOnchainRollbackTest < ActiveSupport::TestCase
     assert contest.accepts_usdt?, "the adopted create funded the USDT slot like any server-funded create"
   end
 
+  # retire-nonce-contest-prepare: the adopt writes the REQUESTED status once.
+  # It used to promote to `open` and then put the requested status back, so a
+  # contest its caller asked to keep `pending` was briefly `open` to every reader.
+  test "an adopted create keeps a requested non-open status and is never written open" do
+    contest = Contest.create!(
+      name: "Uncertain Pending", slug: "uncertain-pending", slate: slates(:one), status: :pending,
+      contest_type: "small", entry_fee_cents: 19_00, max_entries: 5
+    )
+    vault = ScriptedVault.new(raises: http_error(502), before_send: true,
+                              account_infos: { "cpda-uncertain-pending" => { "value" => { "data" => ["", "base64"] } } })
+
+    status_writes = []
+    observer = lambda do |*, payload|
+      sql = payload[:sql].to_s
+      next unless sql.start_with?("UPDATE \"contests\"") && sql.include?("\"status\"")
+
+      status_writes << payload[:binds].to_a.map { |b| b.respond_to?(:value) ? b.value : b }
+    end
+    ActiveSupport::Notifications.subscribed(observer, "sql.active_record") do
+      with_vault(vault) { contest.create_onchain_with_rollback! }
+    end
+
+    assert_equal "pending", contest.reload.status, "adopted with the status the caller asked for"
+    assert_equal "cpda-uncertain-pending", contest.onchain_contest_id
+    assert status_writes.any?, "the observer saw the status writes"
+    assert status_writes.none? { |binds| binds.include?("open") },
+           "the row is never written `open` on the way: #{status_writes.inspect}"
+  end
+
   test "an errored send the chain says FAILED is removed — a chain verdict, not the exception" do
     contest = new_contest("uncertain-failed")
     vault = ScriptedVault.new(raises: Solana::Client::RpcError.new("Transaction failed"), before_send: true,

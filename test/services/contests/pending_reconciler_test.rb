@@ -89,6 +89,34 @@ class Contests::PendingReconcilerTest < ActiveSupport::TestCase
       "the pool in ONE atomic instruction, and a zero pool is legal"
   end
 
+  # retire-nonce-contest-prepare: an in-process adopt of an uncertain
+  # server-funded create (Contest#create_onchain_with_rollback!) passes the
+  # status ITS caller asked for. The reconciler used to promote to `open`
+  # regardless, and the model put the requested status back afterwards.
+  test "an adopt keeps the status the caller asked for, not always open" do
+    contest = pending_contest(slug: "strand-adopt-as", signature: "BroadcastSig")
+
+    verdict = with_pda_encoding do
+      Contests::PendingReconciler.new(vault: vault_with_pda("strand-adopt-as"))
+                                 .reconcile(contest, cutoff: Time.current, adopt_as: "pending")
+    end
+
+    assert_equal :promoted, verdict, "the PDA is present, so the create is adopted"
+    assert_equal "pending", contest.reload.status, "adopted with the requested status, not `open`"
+  end
+
+  test "CONTROL — with no requested status an adopt promotes to open" do
+    contest = pending_contest(slug: "strand-adopt-default", signature: "BroadcastSig")
+
+    verdict = with_pda_encoding do
+      Contests::PendingReconciler.new(vault: vault_with_pda("strand-adopt-default"))
+                                 .reconcile(contest, cutoff: Time.current)
+    end
+
+    assert_equal :promoted, verdict
+    assert_equal "open", contest.reload.status
+  end
+
   # ───────────────────────────────────────────────────────────────────────────
   # DELETE — no PDA, no signature: nothing ever happened
   # ───────────────────────────────────────────────────────────────────────────

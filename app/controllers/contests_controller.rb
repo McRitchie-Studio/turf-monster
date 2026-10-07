@@ -11,15 +11,15 @@ class ContestsController < ApplicationController
   # DB wall time on the two hot paths — /contests (the lobby, #index) and the contest
   # show page — to connect vs execute. No-op-safe; DB_SPAN_TRACE=0 disables.
   around_action :trace_db_span, only: [:index, :show, :contest]
-  before_action :set_contest, only: [:show, :contest, :admin, :edit, :update, :update_banner, :toggle_selection, :enter, :check_funding, :clear_picks, :grade, :fill, :lock, :prepare_lock_time, :confirm_lock_time, :prepare_conclusion_time, :confirm_conclusion_time, :jump, :simulate_game, :simulate_batch, :reset, :close_onchain, :cancel_onchain, :prepare_entry, :discard_prepared_entry, :stamp_entry_signature, :recover_pending_entry, :confirm_onchain_entry, :prepare_onchain_contest, :confirm_onchain_contest, :leaderboard_poll, :live]
-  before_action :require_admin, only: [:new, :create, :rebuild_create_tx, :finalize, :admin, :edit, :update, :update_banner, :generator, :generate_bundle, :finalize_bundle, :grade, :fill, :lock, :prepare_lock_time, :confirm_lock_time, :prepare_conclusion_time, :confirm_conclusion_time, :jump, :simulate_game, :simulate_batch, :reset, :close_onchain, :cancel_onchain, :prepare_onchain_contest, :confirm_onchain_contest]
+  before_action :set_contest, only: [:show, :contest, :admin, :edit, :update, :update_banner, :toggle_selection, :enter, :check_funding, :clear_picks, :grade, :fill, :lock, :prepare_lock_time, :confirm_lock_time, :prepare_conclusion_time, :confirm_conclusion_time, :jump, :simulate_game, :simulate_batch, :reset, :close_onchain, :cancel_onchain, :prepare_entry, :discard_prepared_entry, :stamp_entry_signature, :recover_pending_entry, :confirm_onchain_entry, :confirm_onchain_contest, :leaderboard_poll, :live]
+  before_action :require_admin, only: [:new, :create, :rebuild_create_tx, :finalize, :admin, :edit, :update, :update_banner, :generator, :generate_bundle, :finalize_bundle, :grade, :fill, :lock, :prepare_lock_time, :confirm_lock_time, :prepare_conclusion_time, :confirm_conclusion_time, :jump, :simulate_game, :simulate_batch, :reset, :close_onchain, :cancel_onchain, :confirm_onchain_contest]
   before_action :require_geo_allowed, only: [:toggle_selection, :enter, :prepare_entry]
   # B4 / OPSEC-048: frozen accounts can browse but cannot spend or enter.
   before_action :require_unfrozen_account, only: [:enter, :prepare_entry, :confirm_onchain_entry, :toggle_selection]
   # A retired-format contest is a closed record: it reads, and nothing enters,
   # picks, grades or rehearses on it. Edit, banner and the on-chain close and
   # cancel stay open so an operator can still tidy the record.
-  RETIRED_FORMAT_WRITES = %i[toggle_selection enter check_funding clear_picks grade fill lock prepare_lock_time confirm_lock_time prepare_conclusion_time confirm_conclusion_time jump simulate_game simulate_batch reset prepare_entry discard_prepared_entry stamp_entry_signature recover_pending_entry confirm_onchain_entry prepare_onchain_contest confirm_onchain_contest].freeze
+  RETIRED_FORMAT_WRITES = %i[toggle_selection enter check_funding clear_picks grade fill lock prepare_lock_time confirm_lock_time prepare_conclusion_time confirm_conclusion_time jump simulate_game simulate_batch reset prepare_entry discard_prepared_entry stamp_entry_signature recover_pending_entry confirm_onchain_entry confirm_onchain_contest].freeze
   before_action :refuse_retired_format, only: RETIRED_FORMAT_WRITES
   # A contest cancelled on chain still reads open; grading it would pay twice (Contest#grade!).
   before_action :refuse_cancelled_grade, only: %i[grade jump]
@@ -611,30 +611,13 @@ class ContestsController < ApplicationController
     end
   end
 
-  # Build a partially-signed create_contest transaction for Phantom co-signing.
-  # Admin signs (pays rent), returns base64 tx for creator to co-sign client-side.
-  def prepare_onchain_contest
-    rescue_and_log(target: @contest) do
-      raise "Already onchain" if @contest.onchain?
-      raise "Phantom wallet required" unless current_user.phantom_wallet?
-
-      vault = Solana::Vault.new
-      result = vault.build_create_contest(
-        current_user.web3_solana_address,
-        @contest.slug,
-        **@contest.onchain_params
-      )
-
-      render json: {
-        success: true,
-        serialized_tx: result[:serialized_tx],
-        contest_slug: @contest.slug,
-        contest_pda: result[:contest_pda]
-      }
-    end
-  rescue StandardError => e
-    render json: { success: false, error: e.message }, status: :unprocessable_entity
-  end
+  # `prepare_onchain_contest` was retired 2026-10-07 (retire-nonce-contest-prepare).
+  # It built an admin-signed, creator-co-signed create anchored on the production
+  # durable nonce, and nothing in the app called it: a nonce-anchored wire stays
+  # landable until the nonce advances, so a hand-made POST could mint a create
+  # that moved the creator's prize pool at any later time. Contest creates are
+  # built by #create / #rebuild_create_tx / #generate_bundle, all Phantom-first
+  # on a fresh blockhash (admin_signs: false).
 
   # Confirm an onchain contest after the creator has co-signed and submitted the tx.
   def confirm_onchain_contest
@@ -656,8 +639,8 @@ class ContestsController < ApplicationController
       @contest.update!(
         onchain_contest_id: derived_pda_b58,
         onchain_tx_signature: params[:tx_signature],
-        # prepare_onchain_contest built the TX from onchain_params — the USDT
-        # fee (entry_fee_by_currency slot 1) is funded on-chain.
+        # A create built from onchain_params funds the USDT fee
+        # (entry_fee_by_currency slot 1) on-chain.
         accepts_usdt: true
       )
 
