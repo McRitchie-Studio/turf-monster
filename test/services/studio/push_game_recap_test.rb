@@ -8,6 +8,9 @@ class Studio::PushGameRecapTest < ActiveSupport::TestCase
     @game = games(:past_game)
     @game.update!(home_score: 24, away_score: 17, status_detail: "Final",
                   season_year: 2026, season_type: 2, week: 3)
+    # The fixture's slug is not the derived one, and Sluggable writes a slug only
+    # at create, so settle it to what a real game carries.
+    @game.update_column(:slug, @game.name_slug)
   end
 
   # Replaces only `post_json`, recording each call, so everything above the
