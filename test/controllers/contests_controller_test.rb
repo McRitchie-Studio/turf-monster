@@ -2390,13 +2390,13 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
   end
 
-  test "root renders the contests lobby, with or without an open contest" do
-    get root_path
+  test "the contests lobby renders, with or without an open contest" do
+    get contests_path
     assert_response :success
     assert_select "h1", text: "Contests"
 
     Contest.update_all(status: :pending)
-    get root_path
+    get contests_path
     assert_response :success
   end
 
@@ -2446,7 +2446,7 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
 
   test "show redirects for missing contest" do
     get contest_path(id: "nonexistent")
-    assert_redirected_to root_path
+    assert_redirected_to contests_path
   end
 
   # --- generate_bundle (provision setup bundles) ---

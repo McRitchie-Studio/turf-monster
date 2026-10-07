@@ -24,10 +24,10 @@ class AccountsControllerTest < ActionDispatch::IntegrationTest
     assert_select "a[data-testid='buy-entry-token']", text: /Buy Entry Token/
   end
 
-  test "save_profile saves and redirects to root" do
+  test "save_profile saves and redirects to the lobby" do
     log_in_as @alex
     post save_profile_account_path, params: { user: { name: "ignored" } }
-    assert_redirected_to root_path
+    assert_redirected_to contests_path
   end
 
   test "save_profile rejects a non-image avatar" do

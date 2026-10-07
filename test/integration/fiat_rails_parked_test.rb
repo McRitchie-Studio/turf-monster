@@ -131,14 +131,14 @@ class FiatRailsParkedTest < ActionDispatch::IntegrationTest
     log_in_as users(:jordan)
 
     with_fiat_rails(false) do
-      get root_path
+      get contests_path
       assert_response :success
       assert_no_match(%r{/wallet/stripe_deposit}, response.body)
     end
 
     # Control: the card form renders in the layout with the flag on.
     with_fiat_rails(true) do
-      get root_path
+      get contests_path
       assert_match(%r{/wallet/stripe_deposit}, response.body)
     end
   end

@@ -101,10 +101,11 @@ class OgMetaTest < ActionDispatch::IntegrationTest
            "an unbannered contest must keep the existing fallback, got #{og_image_content}"
   end
 
-  # --- the root url (the contests lobby) ---
+  # --- the root url (the landing page, which keeps the lobby's card) ---
 
   test "the root url unfurls with the pinned contest's banner" do
-    # "/" is the contests lobby, and its og:image is Contest.featured's banner,
+    # "/" is the landing page now, and it keeps the og:image it had as the
+    # lobby (PagesController#home): Contest.featured's banner,
     # which leads with the contest an admin pinned at /admin/dashboard. So the
     # pinned contest's banner IS the card for a bare turfmonster.media link, and
     # re-pinning changes it with no deploy.
