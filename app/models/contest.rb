@@ -105,11 +105,14 @@ class Contest < ApplicationRecord
   #
   # FALLBACK PATH — server-funded (Rails console / operator scripts):
   #   `Contest.create!(...)` without `skip_onchain_callback = true` fires
-  #   the after_create callback below, which calls `create_onchain!` →
+  #   the after_create_commit callback below, which calls `create_onchain!` →
   #   Solana::Vault#create_contest_server_funded. Admin signs as both
-  #   payer + creator and funds the prize pool from custodial USDC. If the
-  #   on-chain leg fails, the DB row is destroyed and the exception
-  #   re-raised — so `create!` is atomic across DB + chain.
+  #   payer + creator and funds the prize pool from custodial USDC. The row
+  #   is committed BEFORE anything is sent, then written ahead as `pending`
+  #   with its PDA and signature just before the bytes leave. A failure that
+  #   provably sent nothing destroys the row and re-raises; a failure that
+  #   may have landed KEEPS the row and reconciles it from the chain — see
+  #   #create_onchain_with_rollback!.
   #
   # Opt-out via `skip_onchain_callback = true`:
   #   - The Phantom-funded UI flow sets this on save (Contest is already on-chain).
@@ -123,8 +126,14 @@ class Contest < ApplicationRecord
   # `create_onchain!`'s own `return if onchain?`), which is three more than the
   # one a reader should have to find. Pinned by
   # test/controllers/contests_finalize_write_ordering_test.rb.
+  #
+  # AFTER COMMIT, NOT AFTER CREATE. An after_create callback runs inside the
+  # INSERT's transaction, so the only way it could report a failure was to
+  # raise, and raising rolled the INSERT back: a send that had already landed
+  # took its Rails row down with it. Running after commit is what lets a
+  # may-have-landed failure raise AND leave the row behind for reconciliation.
   attr_accessor :skip_onchain_callback
-  after_create :create_onchain_with_rollback!, unless: :skip_onchain_callback_active?
+  after_create_commit :create_onchain_with_rollback!, unless: :skip_onchain_callback_active?
 
 
   # OPSEC-023: bind each contest to the active season at creation. turf-vault
@@ -421,17 +430,27 @@ class Contest < ApplicationRecord
   private :default_payout_table_cents
 
   # On-chain Contest PDA creation, server-funded (admin pays prize pool).
-  # Invoked automatically by the after_create callback. Idempotent — re-running
-  # on an already-onchain Contest is a no-op. Raises on RPC / TX failure;
-  # caller (the after_create) destroys the DB row on failure so create! is atomic.
+  # Invoked automatically by the after_create_commit callback. Idempotent —
+  # re-running on an already-onchain Contest is a no-op. Raises on RPC / TX
+  # failure; #create_onchain_with_rollback! decides what that failure means for
+  # the row.
   #
-  # Manual invocation (e.g. re-trying after a transient RPC failure):
+  # WRITE-AHEAD. Just before the bytes leave, `before_send` stamps the row
+  # `pending` with the derived PDA and the transaction's signature (#hold_for_broadcast!),
+  # so even a process that dies mid-send leaves a row the chain can be asked
+  # about — Contests::PendingReconciler sweeps it like a stranded #finalize.
+  # Success restores the status the caller asked for.
+  #
+  # Manual invocation (e.g. re-trying after a refused pre-flight):
   #   Contest.find_by(slug: "...").create_onchain!
+  # A row held after an uncertain send already carries its PDA, so this is a
+  # no-op on it: never re-send a create the chain has not answered for.
   def create_onchain!
     return if onchain?
     return if entry_fee_cents.nil? || max_entries.nil?
 
-    vault = Solana::Vault.new
+    @onchain_create_signature = nil
+    @onchain_create_vault = vault = Solana::Vault.new
     result = vault.create_contest_server_funded(
       contest_slug:          slug,
       entry_fee_by_currency: onchain_params[:entry_fee_by_currency],
@@ -439,7 +458,8 @@ class Contest < ApplicationRecord
       payout_amounts:        onchain_params[:payout_amounts],
       prize_pool:            onchain_params[:prize_pool],
       season_id:             season_id || SeasonConfig.current_season_id,
-      lock_timestamp:        onchain_params[:lock_timestamp]
+      lock_timestamp:        onchain_params[:lock_timestamp],
+      before_send:           ->(signature) { hold_for_broadcast!(vault, signature) }
     )
     update!(
       onchain_contest_id:   result[:contest_pda],
@@ -447,7 +467,8 @@ class Contest < ApplicationRecord
       # onchain_params funded entry_fee_by_currency slot 1 (USDT) above, so
       # this contest can take currency_idx 1 entries. See the accepts_usdt
       # migration note — pre-2026-06-10 contests stay false.
-      accepts_usdt:         true
+      accepts_usdt:         true,
+      status:               @status_before_broadcast || status
     )
     result
   end
@@ -456,16 +477,87 @@ class Contest < ApplicationRecord
     skip_onchain_callback || onchain? || Rails.env.test?
   end
 
-  # after_create callback: ensures on-chain Contest PDA exists for every new
-  # Contest. If on-chain creation fails, destroys the DB row so callers see
-  # a clean "contest not created" outcome instead of a half-created state.
+  # Raised when a server-funded create MAY have landed and the chain has not
+  # yet said whether it did. The row is kept `pending`; do not create it again.
+  class OnchainCreateUncertain < StandardError; end
+
+  # after_create_commit callback: ensures an on-chain Contest PDA exists for
+  # every new Contest. What a failure does to the row depends on ONE fact:
+  # could the transaction be on the chain?
+  #
+  #   REFUSED BEFORE SEND — a build error, a refused or unrunnable simulation
+  #     (Cosign::PreflightRejected), anything before `before_send` fired.
+  #     Nothing left this server, so the row is destroyed and the error
+  #     re-raised: callers still see a clean "contest not created".
+  #
+  #   SENT, OUTCOME UNKNOWN — anything after the signature was written down: a
+  #     timeout, a 5xx or 429 after the send (Solana::Client::RpcError, or the
+  #     HttpError subclass solana-studio's status-first retry raises), a lost
+  #     confirmation. Destroying the row here is how a funded on-chain contest
+  #     ends up with no Rails row pointing at it. So the row is KEPT `pending`
+  #     and asked about at once through Contests::PendingReconciler, the same
+  #     reader the sweep uses: the PDA present ADOPTS it (create! returns
+  #     normally), an on-chain err deletes it, and anything else leaves it held
+  #     and raises OnchainCreateUncertain. The sweep deletes a held row only
+  #     after a confirmed miss: no PDA, and the signature still absent from a
+  #     history-searched lookup once its blockhash window has lapsed.
+  #
+  # The split is read from whether `before_send` ran, not from the exception's
+  # class, so a transport error type this code has never seen still lands on
+  # the safe side. Cosign's "may have landed, check first" rule
+  # (Solana::Vault#simulate_and_broadcast) is the same split.
   def create_onchain_with_rollback!
     create_onchain!
-  rescue => e
-    Rails.logger.error("[Contest.create_onchain!] FAILED for slug=#{slug}: #{e.class}: #{e.message}")
-    destroy
-    raise "On-chain contest creation failed (DB row rolled back): #{e.message}"
+  rescue StandardError => e
+    if @onchain_create_signature.present? && !e.is_a?(Solana::Cosign::PreflightRejected)
+      reconcile_uncertain_create!(e)
+    else
+      Rails.logger.error("[Contest.create_onchain!] FAILED before send for slug=#{slug}: #{e.class}: #{e.message}")
+      destroy
+      raise "On-chain contest creation failed (DB row rolled back): #{e.message}"
+    end
   end
+
+  # The write-ahead stamp `before_send` runs. update_columns, not update!: the
+  # row is already committed (after_create_commit), and this must be one plain
+  # UPDATE with no callback that could itself touch the chain. `updated_at` is
+  # set on purpose — Contests::PendingReconciler anchors the blockhash window on
+  # it, and it has to mean "just before the send".
+  def hold_for_broadcast!(vault, signature)
+    @status_before_broadcast = status
+    update_columns(
+      status:               "pending",
+      onchain_contest_id:   Solana::Keypair.encode_base58(vault.contest_pda(slug).first),
+      onchain_tx_signature: signature,
+      accepts_usdt:         true,
+      updated_at:           Time.current
+    )
+    @onchain_create_signature = signature
+  end
+  private :hold_for_broadcast!
+
+  def reconcile_uncertain_create!(error)
+    Rails.logger.error(
+      "[Contest.create_onchain!] UNCERTAIN for slug=#{slug} sig=#{@onchain_create_signature}: " \
+      "#{error.class}: #{error.message} — row kept pending, reading the chain"
+    )
+    verdict = Contests::PendingReconciler.new(vault: @onchain_create_vault || Solana::Vault.new)
+                                         .reconcile(self, cutoff: Time.current)
+    case verdict
+    when :promoted
+      Rails.logger.warn("[Contest.create_onchain!] ADOPTED #{slug}: the send errored but the contest is on chain")
+      update_columns(status: @status_before_broadcast) if @status_before_broadcast && @status_before_broadcast != status
+      nil
+    when :deleted
+      raise "On-chain contest creation failed on chain (row removed after the chain answered): #{error.message}"
+    else
+      raise OnchainCreateUncertain,
+            "On-chain contest creation for #{slug} may have landed (sig=#{@onchain_create_signature}). " \
+            "The row is kept pending; PendingContestReconcilerJob adopts it if the contest is on chain, " \
+            "or removes it once the signature is confirmed missing. Do not create it again. Cause: #{error.message}"
+    end
+  end
+  private :reconcile_uncertain_create!
 
   # A contest cancelled on chain keeps `status: "open"` (#cancelled?), so the
   # settled? check alone lets it through. Grading it would record payouts and

@@ -238,8 +238,13 @@ class Solana::VaultSimulateCallersTest < ActiveSupport::TestCase
     found.uniq
   end
 
-  test "exactly two methods call #simulate_wire!, and both are pinned above" do
-    assert_equal %w[simulate_and_broadcast preflight_cosigned_wire!].sort,
+  # create_contest_server_funded joined as the third caller in
+  # contest-create-checks-before-delete: it now simulates before it sends, so a
+  # refusal is provably un-sent. Its row (settings, PreflightRejected for both a
+  # refusal and an unrunnable simulation, "create_contest pre-flight" prefix)
+  # is pinned in test/services/solana/vault_create_contest_server_funded_test.rb.
+  test "exactly three methods call #simulate_wire!, and each is pinned" do
+    assert_equal %w[simulate_and_broadcast preflight_cosigned_wire! create_contest_server_funded].sort,
                  methods_calling_simulate_wire.sort,
                  "a new caller of the one simulate-and-read-err block needs a row in this file"
   end

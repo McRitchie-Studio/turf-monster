@@ -1774,9 +1774,33 @@ module Solana
     # Server-funded create_contest — admin signs both payer and creator slots.
     # Used by operator scripts / Rails console. Funds prize pool from admin
     # USDC ATA → prize_pool PDA.
+    #
+    # TWO KINDS OF FAILURE, AND THE CALLER MUST BE ABLE TO TELL THEM APART
+    # (contest-create-checks-before-delete). Contest#create_onchain_with_rollback!
+    # deletes its row on one and must keep it on the other, because this
+    # transaction moves the prize pool: a deleted row over a landed create is a
+    # funded on-chain contest that nothing in Rails points at.
+    #
+    #   * PROVABLY UN-SENT — anything raised while building, deriving the
+    #     signature, or simulating. The simulation refusing (or not running) is
+    #     `Cosign::PreflightRejected`, the same type #simulate_and_broadcast
+    #     raises. `before_send` has not been called.
+    #   * MAY HAVE LANDED — anything raised from `client.send_transaction`
+    #     onward: a timeout, a 5xx or 429 that outlived the gem's retries
+    #     (`Solana::Client::RpcError`, or its `HttpError` subclass from
+    #     solana-studio's status-first retry), a lost confirmation, or an
+    #     on-chain err. All of it is re-raised as `Cosign::BroadcastFailed`
+    #     carrying `#signature`, so the caller can ask the chain instead of
+    #     guessing from the exception. The gem RETRIES a send whose answer was
+    #     lost, so even a coded JSON-RPC error here may follow an attempt that
+    #     already forwarded the wire — see the note on PreflightRejected below.
+    #
+    # `before_send:` is called with the signature (derived from the signed
+    # bytes, no RPC) after the simulation passes and before the bytes leave, so
+    # the caller can write it down first. If it raises, nothing is sent.
     def create_contest_server_funded(contest_slug:, entry_fee_by_currency:,
                                      max_entries:, payout_amounts:, prize_pool:,
-                                     season_id: nil, lock_timestamp: 0)
+                                     season_id: nil, lock_timestamp: 0, before_send: nil)
       admin = Keypair.admin
       contest_id = Digest::SHA256.digest(contest_slug)
       contest_pda_addr, _ = contest_pda(contest_slug)
@@ -1820,17 +1844,33 @@ module Solana
       )
 
       serialized = tx.serialize_base64
-      tx_sig = client.send_transaction(serialized)
+      tx_sig = signature_for_wire(serialized)
 
-      deadline = Time.now + 30
-      loop do
-        sleep 1
-        status = client.confirm_transaction(tx_sig).dig("value", 0)
-        if status
-          raise "create_contest TX failed: #{status["err"]}" if status["err"]
-          break if %w[confirmed finalized].include?(status["confirmationStatus"])
+      # Provably un-sent up to and including this answer.
+      simulate_wire!(serialized, label: "create_contest pre-flight",
+                                 refusal: Cosign::PreflightRejected,
+                                 unrunnable: Cosign::PreflightRejected)
+      before_send&.call(tx_sig)
+
+      # From here on the wire may be on the chain, whatever the error says.
+      begin
+        client.send_transaction(serialized)
+
+        deadline = Time.now + 30
+        loop do
+          sleep 1
+          status = client.confirm_transaction(tx_sig).dig("value", 0)
+          if status
+            raise "create_contest TX failed: #{status["err"]}" if status["err"]
+            break if %w[confirmed finalized].include?(status["confirmationStatus"])
+          end
+          raise "create_contest TX confirmation timeout (sig=#{tx_sig})" if Time.now > deadline
         end
-        raise "create_contest TX confirmation timeout (sig=#{tx_sig})" if Time.now > deadline
+      rescue StandardError => e
+        raise Cosign::BroadcastFailed.new(
+          "create_contest send may have landed — reconcile sig=#{tx_sig} before acting: #{e.class}: #{e.message}",
+          signature: tx_sig
+        )
       end
 
       { tx_signature: tx_sig, contest_pda: Keypair.encode_base58(contest_pda_addr) }

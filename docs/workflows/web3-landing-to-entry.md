@@ -254,7 +254,7 @@ Phantom must be installed in the browser or available via mobile deep link.
        `build_enter_contest_with_token` (`:1084-1090`); otherwise the currency
        is resolved USDC-or-USDT (`:1022-1038`) and it builds
        `vault.build_enter_contest` (`:1101-1107`,
-       `app/services/solana/vault.rb:2210`). Either way the transaction comes
+       `app/services/solana/vault.rb:2250`). Either way the transaction comes
        back FULLY UNSIGNED.
      - Persists a `PendingTransaction` with `tx_type: "enter_contest"`,
        `status: "pending"`, `target: entry` and a metadata blob naming the entry
@@ -282,12 +282,12 @@ Phantom must be installed in the browser or available via mobile deep link.
      (`Solana::Cosign::Completer#complete`).
      - Re-runs `entry.assert_enterable!` BEFORE anything irreversible (`:1368`).
      - `Solana::Vault#cosign_expectation` (`:1397-1401`,
-       `app/services/solana/vault.rb:3458-3479`) rebuilds the expectation from
+       `app/services/solana/vault.rb:3498-3519`) rebuilds the expectation from
        the wire the server stored on the `PendingTransaction`, for this entry
        and wallet, and `Solana::Cosign::Expectation` judges the returned bytes
        against it before anything is signed.
      - `Solana::Vault#cosign_and_broadcast_entry` (definition
-       `app/services/solana/vault.rb:3582-3585`, called at
+       `app/services/solana/vault.rb:3622-3625`, called at
        `app/controllers/contests_controller.rb:1419-1423`) fills the admin
        slot, runs a simulation pre-flight, then sends and waits for
        confirmation.
