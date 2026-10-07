@@ -74,7 +74,7 @@ Every link in that chain, with its owner:
 | What | Where |
 |---|---|
 | League scoreboard — `get "live", to: "live#index"` | `config/routes.rb:64` — public, read-only, no sign-in |
-| Focus-game priority list — `resources :weeks` | `config/routes.rb:532-534` — admin only |
+| Focus-game priority list — `resources :weeks` | `config/routes.rb:533-535` — admin only |
 | One cycle, printed as a delta — `Nfl::LiveScores::PollCycle.call` | `bin/nfl-live-poll:110` |
 | Score injectors, non-production only — `dev/live_scores#record` | `config/routes.rb:84-86` |
 | The operator act | `live-score-watch` (mcritchie-studio SOP, Avi) |
@@ -144,7 +144,7 @@ One write, the primitive's own contract:
 
 | Drag | Request | Effect |
 |---|---|---|
-| re-sorts the list | `POST /admin/nfl/weeks/:slot/reorder` — `member { post :reorder }` (`config/routes.rb:533`) | `Admin::Nfl::WeeksController#reorder` (`app/controllers/admin/nfl/weeks_controller.rb:53-67`) makes the list's order `focus_rank` 1..n |
+| re-sorts the list | `POST /admin/nfl/weeks/:slot/reorder` — `member { post :reorder }` (`config/routes.rb:534`) | `Admin::Nfl::WeeksController#reorder` (`app/controllers/admin/nfl/weeks_controller.rb:53-67`) makes the list's order `focus_rank` 1..n |
 
 A payload that is not exactly the week's games — short, long, or naming one twice —
 came from a stale page, and `Admin::Nfl::WeeksController#reorder` refuses it with a 422
@@ -351,7 +351,7 @@ These are guards with reproductions behind them, not defensive padding.
   new or withdrawn play re-sums the game and rewrites every `SlateMatchup#goals` it
   feeds. Under a contest whose ranks and payouts are final that leaves a
   leaderboard disagreeing with the money paid out, and `Contest#grade!`
-  (`app/models/contest.rb:568-609`) raises rather than regrade it.
+  (`app/models/contest.rb:570-611`) raises rather than regrade it.
   `Nfl::LiveScores::PollCycle#settled_verdicts`
   (`app/services/nfl/live_scores/poll_cycle.rb:175-200`) answers before any write,
   and `Nfl::LiveScores::PollCycle#slate_ids_for` (`:209-217`) asks from the union of
@@ -378,7 +378,7 @@ These are guards with reproductions behind them, not defensive padding.
 
   It reads `Contest#status`, never `onchain_settled`: `grade!` queues the
   settle transaction through `Contest#settle_onchain!` and then writes `settled`
-  (`app/models/contest.rb:883-885`), so a graded, paid-out contest routinely reads
+  (`app/models/contest.rb:885-887`), so a graded, paid-out contest routinely reads
   `onchain_settled` false.
 - **It will not un-complete a finished game.** A stale scoreboard row would
   otherwise re-open a settled game and re-fire the FINAL broadcast.
