@@ -232,7 +232,7 @@ prepare_entry
 | `Solana::Vault#ensure_user_account` | `#prepare_entry` at `app/controllers/contests_controller.rb:1065` |
 | username codes 6020-6022 → friendly message, in `Solana::ErrorInterpreter.interpret` | `app/services/solana/error_interpreter.rb:184-196` |
 | ATA for the SELECTED currency — `Solana::Vault#ensure_ata` | `#prepare_entry` at `app/controllers/contests_controller.rb:1095` |
-| unsigned tx on a FRESH blockhash — `Solana::Vault#build_enter_contest` sets no durable nonce | `app/services/solana/vault.rb:2210-2298` |
+| unsigned tx on a FRESH blockhash — `Solana::Vault#build_enter_contest` sets no durable nonce | `app/services/solana/vault.rb:2250-2338` |
 | `PendingTransaction` created, no signature | `#prepare_entry` at `app/controllers/contests_controller.rb:1116-1136` |
 
 ### 3b. Phantom signs (client)
@@ -286,9 +286,9 @@ confirm_onchain_entry
 | Branch | Where — each row names its owner; `ContestsController#confirm_onchain_entry` is `app/controllers/contests_controller.rb:1344-1483` |
 |---|---|
 | `assert_enterable!` PRE-FLIGHT | `#confirm_onchain_entry` at `:1368` |
-| build the expectation — `Solana::Vault#cosign_expectation` | `#confirm_onchain_entry` at `:1397-1401`; definition `app/services/solana/vault.rb:3458-3501` |
+| build the expectation — `Solana::Vault#cosign_expectation` | `#confirm_onchain_entry` at `:1397-1401`; definition `app/services/solana/vault.rb:3498-3541` |
 | C1 cosign guard — `Solana::Cosign::Expectation#verify!` | invoked inside `#cosign_and_broadcast_entry` below; definition `solana-studio lib/solana/cosign/expectation.rb` |
-| cosign + simulate + broadcast — `Solana::Vault#cosign_and_broadcast_entry` | `#confirm_onchain_entry` at `app/controllers/contests_controller.rb:1419-1423`; definition `app/services/solana/vault.rb:3582-3585` |
+| cosign + simulate + broadcast — `Solana::Vault#cosign_and_broadcast_entry` | `#confirm_onchain_entry` at `app/controllers/contests_controller.rb:1419-1423`; definition `app/services/solana/vault.rb:3622-3625` |
 | PT stamped with `tx_signature` immediately, BEFORE broadcast (`before_send:`) | `#confirm_onchain_entry` at `app/controllers/contests_controller.rb:1422` |
 | `ContestsController#verify_and_confirm_onchain_entry!` | `#confirm_onchain_entry` at `:1429-1432`; definition `:2631-2648` |
 | PT confirmed | `#confirm_onchain_entry` at `:1434` |
@@ -408,6 +408,6 @@ three:
    entrants. Entries use a fresh blockhash (re-prepared seconds before
    signing); the durable nonce is for slow operator cosigns only.
    `Solana::Vault#build_enter_contest` pins `dn = nil` with that reasoning
-   (`app/services/solana/vault.rb:2255-2291`). PR #136.
+   (`app/services/solana/vault.rb:2295-2331`). PR #136.
 
 <!-- citation-guard: enforced -->

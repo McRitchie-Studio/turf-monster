@@ -351,7 +351,7 @@ These are guards with reproductions behind them, not defensive padding.
   new or withdrawn play re-sums the game and rewrites every `SlateMatchup#goals` it
   feeds. Under a contest whose ranks and payouts are final that leaves a
   leaderboard disagreeing with the money paid out, and `Contest#grade!`
-  (`app/models/contest.rb:476-517`) raises rather than regrade it.
+  (`app/models/contest.rb:568-609`) raises rather than regrade it.
   `Nfl::LiveScores::PollCycle#settled_verdicts`
   (`app/services/nfl/live_scores/poll_cycle.rb:175-200`) answers before any write,
   and `Nfl::LiveScores::PollCycle#slate_ids_for` (`:209-217`) asks from the union of
@@ -378,7 +378,7 @@ These are guards with reproductions behind them, not defensive padding.
 
   It reads `Contest#status`, never `onchain_settled`: `grade!` queues the
   settle transaction through `Contest#settle_onchain!` and then writes `settled`
-  (`app/models/contest.rb:791-793`), so a graded, paid-out contest routinely reads
+  (`app/models/contest.rb:883-885`), so a graded, paid-out contest routinely reads
   `onchain_settled` false.
 - **It will not un-complete a finished game.** A stale scoreboard row would
   otherwise re-open a settled game and re-fire the FINAL broadcast.
