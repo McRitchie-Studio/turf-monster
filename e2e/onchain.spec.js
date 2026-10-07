@@ -225,8 +225,11 @@ test.fixme("admin creates onchain contest", async ({ page }) => {
   // Click "Create Contest" (inside x-if="hasWallet" — mock makes it visible)
   await page.getByRole("button", { name: "Create Contest" }).click();
 
-  // The inline JS orchestrates: DB create → prepare (mocked) → sign → RPC (mocked)
-  // → confirm_onchain_contest (real server) → success modal → countdown redirect
+  // The inline JS orchestrates: POST /contests (unsigned create tx) → sign →
+  // POST /contests/finalize (real server) → success modal → countdown redirect.
+  // (This comment used to name prepare_onchain_contest + confirm_onchain_contest,
+  // which the page has not called since the two-step create; prepare was retired
+  // 2026-10-07.)
 
   // Success modal shows countdown then redirects to the new contest page
   await expect(page.locator("body")).toContainText("Redirecting in", {

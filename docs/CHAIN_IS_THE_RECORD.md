@@ -195,9 +195,11 @@ bytes until they land.
   `Solana::Vault#build_tx` takes `durable_nonce:` and prepends the advance, and
   `durable_nonce_config` reads one nonce account from
   `SOLANA_DURABLE_NONCE_PUBKEY` with the server key as its authority.
-  Its one caller is `Solana::Vault#build_create_contest` on its `admin_signs:
-  true` branch, reached from `ContestsController#prepare_onchain_contest`:
-  admin-first plus Phantom cosign, the same shape settle has today. No settle
+  It has no caller since 2026-10-07. Its last one was
+  `Solana::Vault#build_create_contest` on its `admin_signs: true` branch,
+  reached from `ContestsController#prepare_onchain_contest`: admin-first plus
+  Phantom cosign, the same shape settle has today. That route is retired and the
+  branch takes a fresh blockhash (retire-nonce-contest-prepare). No settle
   builder passes a nonce.
 - **What does not carry over.** `Solana::Cosign` is built without a nonce, and
   `Solana::Cosign::Expectation` refuses a nonce advance among the instructions it
@@ -293,7 +295,7 @@ The durable-nonce settlement (section 5) is four more:
 
 - That Phantom puts Lighthouse instructions ahead of the advance when it cosigns a
   vault transaction the server has already signed (the shape of settle and of
-  `build_create_contest`'s nonce branch), as opposed to the entry transaction the
+  `build_create_contest`'s retired nonce branch), as opposed to the entry transaction the
   2026-06-11 incident was on.
   This page relies on the repo's own record of the 2026-06-11 incident. If
   Phantom leaves a pre-signed wire's order intact, the prerequisite in section 5
@@ -301,9 +303,9 @@ The durable-nonce settlement (section 5) is four more:
 - That a CLI or hardware signer leaves instruction order intact. It is the
   expected behaviour of a signer that signs the message bytes it is given, and it
   is untested here.
-- Whether `SOLANA_DURABLE_NONCE_PUBKEY` is set in production. A search of
-  `app/views` and `app/javascript` finds no caller of
-  `ContestsController#prepare_onchain_contest`; the route is still drawn.
+- Whether `SOLANA_DURABLE_NONCE_PUBKEY` is set in production. Nothing reads it
+  since `ContestsController#prepare_onchain_contest` and its route were retired
+  (2026-10-07).
 - Who holds the `CytJ…` key, and whether it can sign a nonce-anchored settle
   without reordering it. It matters for the third signature `v0.26` asks of every
   settle; if it is a Phantom, it meets the same prerequisite as Alex's.

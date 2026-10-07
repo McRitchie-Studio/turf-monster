@@ -138,9 +138,9 @@ class ContestsUsdtBalanceCacheTest < ActionDispatch::IntegrationTest
   # the entire balance. Same corrupted total, opposite currency.
   test "confirm_onchain_contest drops BOTH balance keys once the create tx is verified" do
     Rails.stub(:cache, ActiveSupport::Cache::MemoryStore.new) do
-      # The creator of an on-chain contest always holds Phantom —
-      # #prepare_onchain_contest raises "Phantom wallet required" without it, and
-      # it is the creator's USDC ATA the create tx debits. The fixture admin has
+      # The creator of an on-chain contest always holds Phantom (every create
+      # builder refuses a wallet-less creator), and it is the creator's USDC ATA
+      # the create tx debits. The fixture admin has
       # no wallet, and a wallet-less user takes #display_balance's DEFINITIVE
       # zero branch, where the cache is never consulted and this test could
       # prove nothing. (Base58 excludes 0/O/I/l.)

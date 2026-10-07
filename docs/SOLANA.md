@@ -262,9 +262,11 @@ says the same thing.
 So these six stay on a fresh recent blockhash, minted at click time, and the
 collection window is the ordinary ~60-90s. **No extra nonce accounts are needed
 — and the single production nonce must NOT be extended to these paths.** It
-serves exactly one caller today (`build_create_contest` on its `admin_signs:
-true`, server-signed branch); pointing Phantom flows at it would add contention
-to a resource that cannot help them anyway.
+serves no caller today: its last one, `build_create_contest`'s `admin_signs:
+true` branch, left the creator's slot for Phantom and was moved to a fresh
+blockhash when `prepare_onchain_contest` was retired (2026-10-07). It is kept for
+the server-signed settlement path; pointing Phantom flows at it would add
+contention to a resource that cannot help them anyway.
 
 > A note for whoever reads this next: the comment in `#build_enter_contest` used
 > to end "the durable nonce remains for OPERATOR flows … where a slow human
@@ -763,8 +765,7 @@ only recognised when `advanceNonceAccount` is instruction 0, and Phantom injects
 its own Lighthouse guard instructions ahead of whatever was built. That makes the
 nonce unusable for ANY Phantom-signed flow rather than merely undesirable (the
 2026-06-11 finding recorded on `Vault#simulate_and_broadcast`). No cosign builder
-passes `durable_nonce:`; the only non-nil call site in `vault.rb` is
-`build_create_contest`'s server-signed branch.
+passes `durable_nonce:`, and since 2026-10-07 no builder in `vault.rb` does.
 
 **A WALLET THAT SIGNS CANNOT BE EVICTED BY THE TRANSACTION IT SIGNS.** Continuity
 requires `threshold` of the keys that authorized a rotation to survive it, and at
@@ -934,7 +935,7 @@ Until the sweep runs, a retry of the same slug is refused by the DB guard rather
 
 ### Legacy server-only fallback
 
-`Contest#create_onchain!` (via `after_create`) is preserved for Rails console / scripts / tests (`Rails.env.test?` auto-skips). The old `POST /contests/:id/prepare_onchain_contest` + `confirm_onchain_contest` endpoints still exist for backward compat and are referenced by `e2e/onchain.spec.js` — the production UI no longer uses them.
+`Contest#create_onchain!` (via `after_create_commit`) is preserved for Rails console / scripts / tests (`Rails.env.test?` auto-skips). An uncertain send whose contest is on chain is adopted with the status the caller asked for (`Contests::PendingReconciler#reconcile(adopt_as:)`). The old `POST /contests/:id/prepare_onchain_contest` was retired on 2026-10-07: it built a Phantom-co-signed create on the production durable nonce, and nothing called it. `confirm_onchain_contest` remains drawn; the production UI does not use it.
 
 ## Onchain Entry — three payment rails, one confirm gate
 

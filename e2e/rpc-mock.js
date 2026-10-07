@@ -4,7 +4,6 @@
  * Intercepts:
  *   - POST /contests/:id/prepare_entry         (needs Solana::Vault / devnet)
  *   - POST /contests/:id/confirm_onchain_entry  (needs entry_id from mocked prepare)
- *   - POST /contests/:id/prepare_onchain_contest (needs Solana::Vault / devnet)
  *   - Solana JSON-RPC (https://api.devnet.solana.com)
  *
  * Also patches solanaWeb3.Connection prototype so sendRawTransaction and
@@ -101,23 +100,6 @@ async function setupOnchainMocks(page) {
         seeds_earned: 65,
         seeds_total: 65,
         seeds_level: 1,
-      }),
-    });
-  });
-
-  // prepare_onchain_contest — server builds partial-signed tx (needs devnet)
-  await page.route("**/contests/*/prepare_onchain_contest", async (route) => {
-    const mockTx = await getMockTx();
-    const url = route.request().url();
-    const contestSlug = url.match(/contests\/([^/]+)/)?.[1];
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        success: true,
-        serialized_tx: mockTx,
-        contest_slug: contestSlug,
-        contest_pda: "MockContestPDA11111111111111111111111111111",
       }),
     });
   });
