@@ -69,9 +69,8 @@ class Admin::LandingPagesControllerTest < ActionDispatch::IntegrationTest
     assert_select "a[href=?]", admin_landing_pages_path # admin shortlist → manager
   end
 
-  test "the contest dropdown includes survivor contests" do
-    Contest.create!(name: "Dropdown Survivor", game_type: "world_cup_survivor",
-                    contest_type: "survivor_wc_free", status: "open")
+  test "the contest dropdown includes retired-format contests" do
+    write_retired_format!(Contest.create!(name: "Dropdown Survivor", slate: slates(:one), status: "open"))
     log_in_as(@admin)
     get new_admin_landing_page_path
     assert_response :success

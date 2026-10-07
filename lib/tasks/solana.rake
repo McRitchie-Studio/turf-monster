@@ -121,13 +121,13 @@ namespace :solana do
 
     if result
       puts "On-chain state for #{address}:"
-      puts "  USDC ATA balance: $#{result[:balance_dollars]}"
+      puts "  USDC ATA balance: $#{result[:balance_dollars].to_s("F")}"
       puts "  Username:         #{result[:username]}"
       puts "  Seeds:            #{result[:seeds]}"
       puts "  Entries:          #{result[:entries]}"
       puts "  Wins:             #{result[:wins]}"
       puts "  Cashes:           #{result[:cashes]}"
-      puts "  Total won:        $#{result[:total_won_dollars]}"
+      puts "  Total won:        $#{result[:total_won_dollars].to_s("F")}"
     else
       puts "No UserAccount found for #{address}"
     end
@@ -200,8 +200,9 @@ namespace :solana do
     # boots as Rails production but is a devnet review target — can still mint.
     abort "solana:mint_usdc is devnet-only (see OPSEC-020)" if AppFlags.live_production?
 
-    amount_dollars = (ENV["AMOUNT"] || "100").to_f
-    amount_lamports = Solana::Config.dollars_to_lamports(amount_dollars)
+    amount_cents = Cents.from_dollars(ENV["AMOUNT"] || "100")
+    amount_dollars = (BigDecimal(amount_cents) / 100).to_s("F")
+    amount_lamports = Solana::Config.cents_to_base_units(amount_cents)
 
     vault = Solana::Vault.new
     admin = Solana::Keypair.admin

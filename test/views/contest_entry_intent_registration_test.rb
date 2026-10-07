@@ -242,8 +242,8 @@ class ContestEntryIntentRegistrationTest < ActiveSupport::TestCase
     # WHAT IT PINS NOW. The guard used to be `if (isRedirect) { … return; }`
     # keyed on the board's own fork. The board has no fork any more, so it reads
     # what the runner hands back instead: runRedirect resolves
-    # `{ suspended: true }` once it has navigated, and the survivor board already
-    # guards on exactly that. Pinned as the FIRST statement after the call, not
+    # `{ suspended: true }` once it has navigated, and the board guards on
+    # exactly that. Pinned as the FIRST statement after the call, not
     # merely present somewhere later — anything between the two would run on the
     # redirect transport too. The behaviour is driven in
     # test/lib/board_entry_call_site_js_test.rb.

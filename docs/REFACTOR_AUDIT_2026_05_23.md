@@ -30,7 +30,7 @@ One new launch blocker surfaced during this audit. Everything else is architectu
 | User is 310 lines (Critical) | **CONFIRMED** | `wc -l user.rb` = 310 |
 | ContestsController is ~889 lines | **CONFIRMED** | `wc -l contests_controller.rb` = 874 (close enough) |
 | Username missing unique DB index | **CONFIRMED** | `grep schema.rb` for `index ["username"]` returns nothing |
-| `Game#score_affected_contests!` synchronous fanout | **CONFIRMED** | `game.rb:28,32` — called from `after_update`-style hook, sync |
+| `Game#score_affected_contests!` synchronous fanout | **CONFIRMED** | `game.rb:27,31` — called from `after_update`-style hook, sync |
 | Entry score stored as Float (line 79 schema) | **CONFIRMED** | `t.float "score"` in schema |
 | Selection uniqueness has DB index | **REVISED — agent was wrong** | `schema.rb:273` has `unique: true` on `(entry_id, slate_matchup_id)` — selection is safe |
 | Contest grade has lock contention | **CONFIRMED** but lower severity | Lock + DB writes are fast; the real risk is RPC calls inside the lock |
@@ -89,7 +89,7 @@ Migration ~10 lines. The `LOWER()` expression index matches Rails' `case_sensiti
 
 ### H2 — Entry sybil check + entry_number assignment racy
 
-**Files:** `app/models/entry.rb:53-79,103-130`, controllers also assign `entry_number` (`contests_controller.rb:325-326,345-346,434-435`)
+**Files:** `app/models/entry.rb:52-78,102-129`, controllers also assign `entry_number` (`contests_controller.rb:330-331,350-351,439-440`)
 
 Three call sites recompute `next entry number = entries.where(user, contest).count + 1`. Under concurrent submissions, two POSTs both read count=0, both insert with `entry_number=1`. Anchor's on-chain init constraint catches one of them, but the DB ends up with a duplicate or an orphaned cart entry.
 
@@ -102,7 +102,7 @@ Three call sites recompute `next entry number = entries.where(user, contest).cou
 
 ### H3 — `Game#score_affected_contests!` does synchronous fanout
 
-**File:** `app/models/game.rb:28-36`
+**File:** `app/models/game.rb:27-35`
 
 When a game's score updates, the callback runs `score_affected_contests!` synchronously: query slate_ids, then score every entry in every affected contest. Real-world worst case at scale: 1 game update → 5 slates → 100 contests/slate → 1000 entries/contest = **500k entry recomputes** inside one HTTP request or admin action. Heroku 30s timeout = guaranteed failure.
 
@@ -112,7 +112,7 @@ When a game's score updates, the callback runs `score_affected_contests!` synchr
 
 ### H4 — `ContestsController#enter` is 137 lines with 3 interleaved payment paths
 
-**File:** `app/controllers/contests_controller.rb:268-401`
+**File:** `app/controllers/contests_controller.rb:273-406`
 
 Branches across web2-token, web2-onchain, and web3-phantom payment paths in one mega-action. Three duplicate copies of "next entry number" logic. Vault RPC calls inline. Heavy JSON response building that re-hits the vault for seeds data with silent rescues.
 
@@ -141,8 +141,8 @@ Score = `selections.sum { |s| s.points }` where `points = goals (int) * turf_sco
 |---|---|---|---|
 | M1 | `User#generate_managed_wallet!` runs synchronously in `after_create` | `user.rb:23` | Blocks signup HTTP request on keypair gen + AES encrypt. Move to `UserOnboardingJob` (after NB1). |
 | M2 | `Contest#active_entry_count` queries inside view loops | `contest.rb:418-419` + `contests/index` partials | N+1 on the contest grid. Add `counter_cache: :active_entries_count` on `Entry.belongs_to :contest`. |
-| M3 | No pagination on `contests#my`, `#generator`, `#index` | `contests_controller.rb:10,16,42` | Acceptable today (<100 contests). Add kaminari or hand-roll a `limit(50) + cursor`. |
-| M4 | Token consume race not under user lock | `contests_controller.rb:318-355` | Same fix as Stage 1 LW5 — wrap in `current_user.with_lock`. (This is the same finding from two angles.) |
+| M3 | No pagination on `contests#my`, `#generator`, `#index` | `contests_controller.rb:10,16,47` | Acceptable today (<100 contests). Add kaminari or hand-roll a `limit(50) + cursor`. |
+| M4 | Token consume race not under user lock | `contests_controller.rb:323-360` | Same fix as Stage 1 LW5 — wrap in `current_user.with_lock`. (This is the same finding from two angles.) |
 | M5 | Composite index `(contest_id, status, user_id)` missing on entries | `db/schema.rb` entries | Existing `(contest_id, status)` falls back to filesort for the user-specific lookups in `Entry#confirm!`. |
 | M6 | All Sidekiq jobs on `default` queue | `app/jobs/*` + `Procfile` | After NB1 ships, split into `critical` / `default` / `maintenance` so the sweeper can't delay TokenPurchaseJob. `worker: bundle exec sidekiq -q critical,10 -q default,5 -q maintenance,1` |
 | M7 | `ApplicationJob` retries 3x with polynomial backoff | `application_job.rb:2` | Solana RPC flakes 1–3% of the time. 3 attempts = ~10s window. Critical jobs (TokenPurchaseJob) should be `attempts: 25` and have an `on_discard` handler that writes to ErrorLog. |

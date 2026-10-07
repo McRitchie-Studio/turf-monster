@@ -6,10 +6,16 @@
 #   "stripe" — dormant Stripe card checkout fallback; must be explicit
 #   "paypal" — PayPal / Venmo buttons (Orders v2)
 #   "none"   — no fiat onramp (default when unset; token purchases hidden)
+#
+# The provider reads "none" whenever the fiat rails are parked
+# (AppFlags.fiat_rails? off), whatever PAYMENT_PROVIDER says, so every
+# stripe? / paypal? / paypal_checkout? caller is gated by the one flag.
 module Payments
   PROVIDERS = %w[stripe paypal none].freeze
 
   def self.provider
+    return "none" unless AppFlags.fiat_rails?
+
     configured = Rails.application.config.x.payment_provider
     configured.presence || "none"
   end

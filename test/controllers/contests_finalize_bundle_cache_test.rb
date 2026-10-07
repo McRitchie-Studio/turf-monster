@@ -34,14 +34,15 @@ require "test_helper"
 #
 # Raised by review on PR #592 (acceptance 2). Task: finalize-busts-balance-cache.
 class ContestsFinalizeBundleCacheTest < ActionDispatch::IntegrationTest
-  # The "survivor" bundle carries `slate_name: nil`, so it needs no slate
-  # fixture — the bundle token, not the slate, is what this file is about.
-  BUNDLE_KEY = "survivor"
+  # The bundle's slate is seeded in setup — the bundle token, not the slate,
+  # is what this file is about.
+  BUNDLE_KEY = "world_cup"
 
   setup do
     # #generate_bundle refuses to build an on-chain contest without an active
     # season, and #finalize_bundle re-checks it via ensure_onchain_season_ready!.
     SeasonConfig.set_current!(1)
+    seed_bundle_slate!(BUNDLE_KEY)
   end
 
   def operator

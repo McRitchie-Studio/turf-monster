@@ -2,6 +2,9 @@
 # version except new signups land on the entry-tokens page (the post-signup
 # upsell) instead of the app root.
 class RegistrationsController < ApplicationController
+  # OPSEC-048: FrozenAccountGuard refuses a frozen account every write but this.
+  allow_frozen_account_writes only: :create, reason: "signing in is a read: the freeze holds actions, not access"
+
   skip_before_action :require_authentication
   # Already authenticated? The signup form is a dead end — send them to their
   # account. Guards only the GET form render (:new), never the POST create.
@@ -15,6 +18,8 @@ class RegistrationsController < ApplicationController
     @user = User.new(user_params)
     # First-touch funnel attribution from the cookie, as the other signup paths do.
     @user.reference = cookies[:reference].to_s.first(64) if @user.reference.blank? && cookies[:reference].present?
+    # And the page experiment variant the visitor was shown (PageExperimentTracking).
+    @user.assign_attributes(experiment_attribution) if @user.experiment_slug.blank?
     # Underwriting compliance: account creation requires the legal-age
     # attestation, same as every other signup flow (magic link / Google /
     # wallet). This POST has no live UI (GET /signup redirects to /signin),

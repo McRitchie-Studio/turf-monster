@@ -1218,7 +1218,7 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
   end
 
   # THE SIGN CARD NAMES A CURRENCY AND ONLY THE SERVER KNOWS WHICH ONE. A board
-  # that offers no picker (the world-cup survivor board) posts no currency, so
+  # that offers no currency picker posts no currency, so
   # the "usdc" default is applied HERE and the client cannot name it. Before the
   # echo, that board rendered "Approve the  transfer in your wallet..." with the
   # token missing. This is the server half of that fix; the copy half is pinned
@@ -1234,7 +1234,7 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
 
     vault = FakeVault.new(tokens: [])
     Solana::Vault.stub :new, vault do
-      # NO currency param — exactly what the survivor board sends.
+      # NO currency param — exactly what a picker-less board sends.
       post prepare_entry_contest_path(@contest), as: :json
     end
 
@@ -2390,15 +2390,14 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
   end
 
-  test "world_cup redirects to contest show" do
+  test "root renders the contests lobby, with or without an open contest" do
     get root_path
-    assert_redirected_to contest_path(@contest)
-  end
+    assert_response :success
+    assert_select "h1", text: "Contests"
 
-  test "world_cup redirects to index when no contests" do
     Contest.update_all(status: :pending)
     get root_path
-    assert_redirected_to contests_path
+    assert_response :success
   end
 
   # --- show tests (formerly lobby; merged 2026-05-17) ---
@@ -2465,7 +2464,7 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
   test "generate_bundle requires a Phantom wallet" do
     log_in_as(users(:alex))
     assert_no_difference ["Contest.count", "LandingPage.count"] do
-      post generate_bundle_contests_path(key: "survivor")
+      post generate_bundle_contests_path(key: "world_cup")
     end
     assert_response :unprocessable_entity
     assert_match(/phantom/i, response.parsed_body["error"].to_s)
@@ -2473,16 +2472,16 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
 
   test "generate_bundle is admin-only" do
     log_in_as(@user) # users(:sam) — not an admin
-    post generate_bundle_contests_path(key: "survivor")
+    post generate_bundle_contests_path(key: "world_cup")
     assert_response :redirect
-    assert_not LandingPage.exists?(slug: "survivor")
+    assert_not LandingPage.exists?(slug: "world-cup")
   end
 
   test "finalize_bundle is admin-only" do
     log_in_as(@user) # not an admin
     post finalize_bundle_contests_path
     assert_response :redirect
-    assert_not LandingPage.exists?(slug: "survivor")
+    assert_not LandingPage.exists?(slug: "world-cup")
   end
 
   test "finalize_bundle rejects a tampered or expired token" do
@@ -2954,14 +2953,13 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
   # The nav BUTTON stays conditional even though the URL does not — pointing at a
   # live board for a contest with nothing happening is the clutter the gate was
   # protecting against, and that half is worth keeping.
-  test "live still refuses a survivor contest, which has no turf-totals board" do
-    survivor = Contest.create!(name: "Survivor Gate #{SecureRandom.hex(2)}",
-                               game_type: :world_cup_survivor, contest_type: "survivor_wc_free",
-                               status: "open", starts_at: 1.hour.ago, rank: 8000 + rand(900))
+  test "live still refuses a retired-format contest, which has no turf-totals board" do
+    retired = write_retired_format!(Contest.create!(name: "Retired Gate #{SecureRandom.hex(2)}", slate: @contest.slate,
+                                                    status: "open", starts_at: 1.hour.ago, rank: 8000 + rand(900)))
 
-    get live_contest_path(survivor)
+    get live_contest_path(retired)
 
-    assert_redirected_to contest_path(survivor)
+    assert_redirected_to contest_path(retired)
   end
 
   # --- Phantom-driven contest creation: precheck hardening + fresh unsigned rebuild ---
@@ -3081,6 +3079,24 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     assert_response :unprocessable_entity
     json = JSON.parse(response.body)
     assert_match(/Insufficient USDC/i, json["error"])
+    assert_empty vault.create_contest_calls
+  end
+
+  # The funding check compares base units: one unit short of tiny's $45 pool
+  # blocks. Rounding the uiAmount (44.999999 * 100 rounds to 4500) let it
+  # through to a create the program would refuse.
+  test "create blocks a balance one base unit short of the prize pool" do
+    log_in_as(admin_phantom)
+    vault = FakeVault.new(usdc_balance: 44.999999)
+
+    Solana::Vault.stub :new, vault do
+      post contests_path,
+        params: { contest: { name: "Blockhash Cup Short", slate_id: slates(:one).id, contest_type: "tiny" } },
+        as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_match(/Insufficient USDC/i, JSON.parse(response.body)["error"])
     assert_empty vault.create_contest_calls
   end
 
@@ -3218,14 +3234,15 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
 
   # Bundle provisioning (generate_bundle → finalize_bundle) keys the on-chain
   # contest_id/PDA off the bundle spec's EXPLICIT slug, not a name-derived one.
-  # The "survivor" bundle has slug "world-cup-survivor-free-roll" but a name of
-  # "World Cup Survivor Free Roll" — proving the PDA derives from the slug
+  # The "world_cup" bundle has slug "world-cup-1000-turf-total-contest" but a name of
+  # "World Cup $1000 Turf Total Contest" — proving the PDA derives from the slug
   # (FakeVault returns cpda-<slug>), the round-trip persists, and finalize stores
   # that slug-derived PDA as onchain_contest_id.
   test "generate_bundle/finalize_bundle derive the PDA from the bundle's explicit slug" do
     log_in_as(admin_phantom)
-    bundle_slug = ContestBundle::ALL["survivor"][:contest][:slug]
-    assert_equal "world-cup-survivor-free-roll", bundle_slug
+    seed_bundle_slate!("world_cup")
+    bundle_slug = ContestBundle::ALL["world_cup"][:contest][:slug]
+    assert_equal "world-cup-1000-turf-total-contest", bundle_slug
 
     # Step 1: generate_bundle builds the UNSIGNED create TX — the admin slot is
     # left empty for the server to cosign at finalize. The contest_pda +
@@ -3233,7 +3250,7 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     # (FakeVault: cpda-<slug> / FAKE_TX_create_<slug>).
     gen = nil
     Solana::Vault.stub :new, FakeVault.new(usdc_balance: 100_000.0) do
-      post generate_bundle_contests_path(key: "survivor")
+      post generate_bundle_contests_path(key: "world_cup")
       gen = JSON.parse(response.body)
     end
     assert_response :success
@@ -3270,9 +3287,9 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
 
     contest = Contest.find_by!(slug: bundle_slug)
     assert_equal bundle_slug, contest.slug
-    assert_equal "World Cup Survivor Free Roll", contest.name # slug != parameterized name path; explicit
+    assert_equal "World Cup $1000 Turf Total Contest", contest.name # slug != parameterized name path; explicit
     assert_equal "cpda-#{bundle_slug}", contest.onchain_contest_id
-    assert LandingPage.exists?(slug: "survivor")
+    assert LandingPage.exists?(slug: "world-cup")
   end
 
   test "rebuild_create_tx re-issues a fresh unsigned TX from the create params_token" do

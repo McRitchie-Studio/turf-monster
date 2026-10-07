@@ -29,6 +29,13 @@ module Solana
     # winners (spec §3.12, §10.1, §11 Q7).
     SETTLE_COMPUTE_UNIT_LIMIT = 400_000
 
+    # Solana's PACKET_DATA_SIZE: the most bytes one wire transaction may carry.
+    PACKET_DATA_SIZE = 1_232
+
+    # A settle_contest transaction that does not fit one packet. Raised by the
+    # settle builders before anything is queued or sent.
+    class SettleTooLargeError < StandardError; end
+
     # Single source of truth for the admin vault-state cache key. Read
     # cache-first on the navbar preload path (ApplicationController) and
     # fetch-with-race_condition_ttl in .cached_vault_state, so read-key and
@@ -1660,10 +1667,10 @@ module Solana
         wins:               wins,
         cashes:             cashes,
         total_won:          total_won,
-        total_won_dollars:  Config.lamports_to_dollars(total_won),
+        total_won_dollars:  Config.base_units_to_dollars(total_won),
         # Back-compat keys (USDC ATA balance — functionally "available balance")
         balance:            ata_balance_lamports,
-        balance_dollars:    Config.lamports_to_dollars(ata_balance_lamports),
+        balance_dollars:    Config.base_units_to_dollars(ata_balance_lamports),
         # Legacy v0.15.1 fields callers may still read — surface zero so
         # nil-safety holds without lying about behavior.
         total_deposited:    0,
@@ -2444,7 +2451,9 @@ module Solana
         data: data
       )
 
-      signature = client.send_and_confirm(tx.serialize_base64)
+      wire = tx.serialize_base64
+      assert_settle_fits_one_packet!(wire, settlements.length)
+      signature = client.send_and_confirm(wire)
       { signature: signature }
     end
 
@@ -2489,7 +2498,20 @@ module Solana
       serialized = tx.serialize_partial_base64(
         additional_signers: [cosigner_bytes, *extras.map { |m| m[:pubkey] }]
       )
+      assert_settle_fits_one_packet!(serialized, settlements.length)
       { serialized_tx: serialized, contest_slug: contest_slug }
+    end
+
+    # The serialized size of a built settle transaction, against the packet
+    # limit. Contest formats pay at most Contest::MAX_PAID_RANKS entries, which
+    # fits by construction; this names the failure if a table ever does not.
+    def assert_settle_fits_one_packet!(wire_base64, winner_count)
+      size = Base64.decode64(wire_base64).bytesize
+      return size if size <= PACKET_DATA_SIZE
+
+      raise SettleTooLargeError,
+            "settle_contest for #{winner_count} paid entries serializes to #{size} bytes; " \
+            "one transaction holds #{PACKET_DATA_SIZE}"
     end
 
     # --- Close ---
@@ -2644,12 +2666,12 @@ module Solana
         creator:               Keypair.encode_base58(creator_bytes),
         season_id:             season_id,
         prize_pool:            prize_pool,
-        prize_pool_dollars:    Config.lamports_to_dollars(prize_pool),
+        prize_pool_dollars:    Config.base_units_to_dollars(prize_pool),
         entry_fee_by_currency: entry_fee_by_currency,
         entry_fees:            entry_fees,
-        entry_fees_dollars:    entry_fees.map { |c| Config.lamports_to_dollars(c) },
+        entry_fees_dollars:    entry_fees.map { |c| Config.base_units_to_dollars(c) },
         total_entry_fees_collected:         total_fees_collected,
-        total_entry_fees_collected_dollars: Config.lamports_to_dollars(total_fees_collected),
+        total_entry_fees_collected_dollars: Config.base_units_to_dollars(total_fees_collected),
         max_entries:           max_entries,
         current_entries:       current_entries,
         status:                status_name,
@@ -2657,14 +2679,14 @@ module Solana
         locks_at:              (lock_ts.zero? ? nil : Time.at(lock_ts).utc),
         conclusion_timestamp:  conclusion_ts,
         concludes_at:          (conclusion_ts.zero? ? nil : Time.at(conclusion_ts).utc),
-        payout_amounts:        payout_amounts.map { |a| Config.lamports_to_dollars(a) },
+        payout_amounts:        payout_amounts.map { |a| Config.base_units_to_dollars(a) },
         # Back-compat keys (v0.15.1 shape). USDC-only world had a single
         # entry_fee scalar — surface slot 0 (USDC) here so existing callers
         # don't need to learn about the array yet.
         entry_fee:             entry_fee_by_currency[0],
-        entry_fee_dollars:     Config.lamports_to_dollars(entry_fee_by_currency[0]),
+        entry_fee_dollars:     Config.base_units_to_dollars(entry_fee_by_currency[0]),
         prizes:                prize_pool,
-        prizes_dollars:        Config.lamports_to_dollars(prize_pool)
+        prizes_dollars:        Config.base_units_to_dollars(prize_pool)
       }
     end
 
@@ -3776,6 +3798,37 @@ module Solana
       simulate_wire!(signed_wire_base64, label: "Pre-flight", refusal: PreflightRejected,
                                          unrunnable: PreflightUnavailable, require_verdict: true)
       true
+    end
+
+    # Raised when the RPC answers getAccountInfo without a `value` key. Only an
+    # explicit `"value": null` means the account does not exist; a reply with
+    # no `value` at all (a proxy, a truncated body, an error shape) says nothing
+    # about the pool and must not read as "closed".
+    class PrizePoolUnreadable < StandardError; end
+
+    # LIVE token balance of a contest's prize-pool PDA (base units), read-only.
+    # nil when the account does not exist (closed by close_contest, or never
+    # created): the RPC answers `"value": null`. Raises on an RPC failure or a
+    # reply that carries no `value` key, so a caller can never mistake an
+    # unreadable pool for a closed or empty one.
+    #
+    # This is NOT the Contest account's `prize_pool` field: that u64 records what
+    # create_contest funded and is never decremented, so a cancelled contest still
+    # reports it (mainnet contest 34 reads prize_pool 500_000_000 with an empty
+    # pool account). Only the SPL token account says whether the money left.
+    # SPL token account layout: mint [0,32), owner [32,64), amount u64 LE [64,72).
+    def read_prize_pool_balance(contest_slug, commitment: "confirmed")
+      pda, _ = prize_pool_pda(contest_slug)
+      info = client.get_account_info(Keypair.encode_base58(pda), commitment: commitment)
+      unless info.is_a?(Hash) && info.key?("value")
+        raise PrizePoolUnreadable, "getAccountInfo for the #{contest_slug} prize pool answered without a value key: #{info.inspect[0, 200]}"
+      end
+      return nil if info["value"].nil?
+
+      data = Base64.decode64(info["value"]["data"][0])
+      raise "prize pool account for #{contest_slug} is #{data.bytesize} bytes, not an SPL token account" if data.bytesize < 72
+
+      data.byteslice(64, 8).unpack1("Q<")
     end
 
     private

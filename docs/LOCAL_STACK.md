@@ -24,11 +24,13 @@ bin/tm up
 - One-shot Tailwind build.
 - Readiness polling before reporting the URL.
 
-Stripe checkout is retired by default. The local Stripe listener is dormant
-unless a task explicitly revives the legacy card checkout rail:
+Stripe checkout is retired by default, and every fiat rail is parked behind
+`ENABLE_FIAT_RAILS` ([`FIAT_RAILS.md`](FIAT_RAILS.md)). The local Stripe
+listener is dormant unless a task explicitly revives the legacy card checkout
+rail:
 
 ```bash
-PAYMENT_PROVIDER=stripe bin/tm up --stripe
+ENABLE_FIAT_RAILS=true PAYMENT_PROVIDER=stripe bin/tm up --stripe
 ```
 
 That listener forwards to `localhost:3100/webhooks/stripe` and verifies the
@@ -142,7 +144,7 @@ test title (same title-tag convention as `@devnet`):
   - `npm run test:smoke` (= `npx playwright test --grep @smoke`)
   - `npm run test:smoke:parallel` (= `bin/e2e-parallel -- --grep @smoke`)
 - **Comprehensive lane** — everything else (on-chain, quests, referrals, geo,
-  survivor, the login-driven gear-sidebar back-nav loop, etc.). Run it at **PR
+  the login-driven gear-sidebar back-nav loop, etc.). Run it at **PR
   review and after a release is cut**:
   - `npm run test:comprehensive` (= `npx playwright test --grep-invert @smoke`)
   - `npm test` / `npm run test:parallel` still run the FULL suite (both lanes).

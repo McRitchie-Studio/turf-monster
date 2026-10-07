@@ -57,7 +57,8 @@ class SolanaSessionsController < ApplicationController
     user ||= User.new(
       web3_solana_address: pubkey_b58,
       age_attested_at: (Time.current if age_attestation_required?),
-      reference: cookies[:reference].presence&.first(64) # first-touch funnel attribution
+      reference: cookies[:reference].presence&.first(64), # first-touch funnel attribution
+      **experiment_attribution # the page experiment variant it was shown
     )
 
     rescue_and_log(target: user) do
@@ -206,6 +207,9 @@ class SolanaSessionsController < ApplicationController
     return false unless pending
     return false unless pending["user_id"] == user.id
     return false if pending["at"].to_i < 15.minutes.ago.to_i
+    # OPSEC-048: the wallet sign-in itself goes through for a frozen account;
+    # the Google link it would complete is an identity write, and does not.
+    return false if user.frozen?
 
     user.update!(
       provider: pending["provider"],
@@ -217,4 +221,8 @@ class SolanaSessionsController < ApplicationController
   rescue ActiveRecord::RecordNotUnique
     false
   end
+
+  # OPSEC-048: FrozenAccountGuard refuses a frozen account every write but this.
+  # At the foot of the class so docs/workflows' line citations above hold.
+  allow_frozen_account_writes only: :report_failure, reason: "client wallet-failure telemetry; writes a log line, acts for no one"
 end

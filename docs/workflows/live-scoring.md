@@ -61,10 +61,10 @@ Every link in that chain, with its owner:
 | `Nfl::LiveScores::PollCycle#call` — one cycle | `app/services/nfl/live_scores/poll_cycle.rb:85-106` |
 | `Nfl::LiveScores::PollCycle#process` — one game per scoreboard row | `:281-352` |
 | `Nfl::LiveScores::PollCycle#sync_scoring_plays` — reconciles the play list | `:462-515` |
-| `Game#update_scores_from_goals!` — sums points | `app/models/game.rb:68-73` |
-| `Game#update_slate_matchups!` — sets `SlateMatchup#goals` | `:76-86` |
-| `Game#score_affected_contests!` — re-scores open contests | `:96-108` |
-| `Entry#score!` | `app/models/entry.rb:232-235` |
+| `Game#update_scores_from_goals!` — sums points | `app/models/game.rb:67-72` |
+| `Game#update_slate_matchups!` — sets `SlateMatchup#goals` | `:75-85` |
+| `Game#score_affected_contests!` — re-scores open contests | `:95-107` |
+| `Entry#score!` | `app/models/entry.rb:231-234` |
 | `Selection#compute_points!` | `app/models/selection.rb:23-44` |
 | `Contest::LiveBroadcast.goal_scored` — the per-contest live page | `app/models/contest/live_broadcast.rb:38-48` |
 | `Nfl::LiveBroadcast.scoring_event` — the league board at `/live` | `app/services/nfl/live_broadcast.rb:29-46` |
@@ -73,10 +73,10 @@ Every link in that chain, with its owner:
 
 | What | Where |
 |---|---|
-| League scoreboard — `get "live", to: "live#index"` | `config/routes.rb:62` — public, read-only, no sign-in |
+| League scoreboard — `get "live", to: "live#index"` | `config/routes.rb:64` — public, read-only, no sign-in |
 | Focus-game priority list — `resources :weeks` | `config/routes.rb:532-534` — admin only |
 | One cycle, printed as a delta — `Nfl::LiveScores::PollCycle.call` | `bin/nfl-live-poll:110` |
-| Score injectors, non-production only — `dev/live_scores#record` | `config/routes.rb:82-84` |
+| Score injectors, non-production only — `dev/live_scores#record` | `config/routes.rb:84-86` |
 | The operator act | `live-score-watch` (mcritchie-studio SOP, Avi) |
 
 ## The focus game
@@ -116,10 +116,10 @@ holds the board overnight (rung 3) and Monday night football takes it at 8:15
 Monday morning, twelve hours before its kickoff (rung 2).
 
 **The order is a tiebreak, never an override.** The `focus_rank` column on `games`
-(`db/schema.rb:406`) is a position in ONE list covering the whole week — unique per
+(`db/schema.rb:434`) is a position in ONE list covering the whole week — unique per
 season slot (year + season type + week) through the partial index
-`index_games_on_focus_rank_per_slot` (`db/schema.rb:426`), and validated as a positive
-integer on `Game` (`app/models/game.rb:47`). `Live::FocusGame.best_ranked` reads it
+`index_games_on_focus_rank_per_slot` (`db/schema.rb:454`), and validated as a positive
+integer on `Game` (`app/models/game.rb:46`). `Live::FocusGame.best_ranked` reads it
 (`app/services/live/focus_game.rb:112`) only WITHIN the set a rung has already made
 eligible, which is what stops the marquee game of the week from sitting on the board
 while sixteen others are being played.
@@ -179,7 +179,7 @@ and a bad minute must not end a watch.
 
 **It is idempotent.** Every scoring event is keyed on ESPN's own play id
 (`external_id`) under the unique partial index
-`index_goals_on_external_id_when_present` (`db/schema.rb:447`), and
+`index_goals_on_external_id_when_present` (`db/schema.rb:475`), and
 `Nfl::LiveScores::PollCycle#sync_scoring_plays` indexes what it already holds by that
 id before writing (`app/services/nfl/live_scores/poll_cycle.rb:480-481`) — so a second
 identical cycle writes nothing and an interrupted one resumes by being run again.
@@ -351,7 +351,7 @@ These are guards with reproductions behind them, not defensive padding.
   new or withdrawn play re-sums the game and rewrites every `SlateMatchup#goals` it
   feeds. Under a contest whose ranks and payouts are final that leaves a
   leaderboard disagreeing with the money paid out, and `Contest#grade!`
-  (`app/models/contest.rb:404-467`) raises rather than regrade it.
+  (`app/models/contest.rb:476-517`) raises rather than regrade it.
   `Nfl::LiveScores::PollCycle#settled_verdicts`
   (`app/services/nfl/live_scores/poll_cycle.rb:175-200`) answers before any write,
   and `Nfl::LiveScores::PollCycle#slate_ids_for` (`:209-217`) asks from the union of
@@ -369,22 +369,22 @@ These are guards with reproductions behind them, not defensive padding.
   rows and one row cannot be both frozen and current — refusing would leave the live
   paid contest scoring short forever, which is strictly the larger harm. What the
   settled tier's money stands on does not move either way:
-  `Game#score_affected_contests!` (`app/models/game.rb:96-108`) scopes to
+  `Game#score_affected_contests!` (`app/models/game.rb:95-107`) scopes to
   `status: [:open]`, so its stored score — written by `Entry#score!`
-  (`app/models/entry.rb:232-235`) — and its `Selection#points` are never recomputed.
+  (`app/models/entry.rb:231-234`) — and its `Selection#points` are never recomputed.
   `Nfl::LiveScores::PollCycle#coscored`
   (`app/services/nfl/live_scores/poll_cycle.rb:224-232`) reports that case, so the
   trade is visible in the watch log rather than silent.
 
-  It reads `Contest#status`, never `onchain_settled`: `grade!` writes
-  `settled` and only then attempts `Contest#settle_onchain!`
-  (`app/models/contest.rb:736-738`), so a graded, paid-out contest routinely reads
+  It reads `Contest#status`, never `onchain_settled`: `grade!` queues the
+  settle transaction through `Contest#settle_onchain!` and then writes `settled`
+  (`app/models/contest.rb:791-793`), so a graded, paid-out contest routinely reads
   `onchain_settled` false.
 - **It will not un-complete a finished game.** A stale scoreboard row would
   otherwise re-open a settled game and re-fire the FINAL broadcast.
 - **It will not store an id-less play.** `play["id"].to_s` yields `""`, which the
   unique index `index_goals_on_external_id_when_present` covers with its
-  `WHERE external_id IS NOT NULL` predicate (`db/schema.rb:447`) — so a second id-less
+  `WHERE external_id IS NOT NULL` predicate (`db/schema.rb:475`) — so a second id-less
   play anywhere in the league would collide across games.
 
 ## The studio recap push

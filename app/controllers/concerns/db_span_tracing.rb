@@ -1,7 +1,6 @@
 # DbSpanTracing — attribute request DB wall time to CONNECT vs EXECUTE.
 #
-# Why: mainnet "/" (ContestsController#world_cup) is a 302 redirect that runs a
-# handful of trivial queries, yet the Heroku router sees a p99 of ~10s while p50
+# Why: a hot path such as mainnet "/" runs a handful of trivial queries, yet the Heroku router sees a p99 of ~10s while p50
 # is ~60ms. The Rails log for the slow ones reads
 #   "Completed 302 Found in 4287ms (ActiveRecord: 4241.4ms (4 queries, 1 cached))"
 # so ~99% of the wall time is *inside ActiveRecord* across four queries that

@@ -234,7 +234,7 @@ module ContestsHelper
   CHAT_PROMPT_NAME_BUDGET = 10
 
   # Where the personal line goes when no team can be resolved (a contest with no
-  # slate — World Cup Survivor — or a slate with no priced matchups). Keeps the
+  # slate, such as a retired format, or a slate with no priced matchups). Keeps the
   # deck three lines long and still ends on an invitation to type.
   CHAT_PROMPT_NO_TEAM = "Who's everyone riding?".freeze
 

@@ -20,9 +20,19 @@
 
     THE HERO IS DARK IN BOTH THEMES, on purpose: it is the Calm night sky, so
     its colours are fixed rather than theme tokens, and its text is white on
-    both. Everything below the hero is on theme tokens. %>
-<% content_for :title, "Turf Monster — Pick 6 NFL Teams, Stack Points" %>
-<% content_for :meta_description, "NFL pick'em: choose 6 teams, every point they score over the three-week slate counts, times their Turf Score. Underdogs carry the bigger multiplier. The #{NextSlateDrop::LABEL} slate drops Tuesday morning." %>
+    both. Everything below the hero is on theme tokens.
+
+    A/B VARIANTS (PageExperiment, /admin/experiments). The copy below is the
+    page's own, the control's. When an experiment runs here, @page_variant is
+    the visitor's variant, and each of its fields that is not blank replaces
+    one of these: the headline lines, the two subheads, the title and the meta
+    description. Nothing else on the page changes. The root carries
+    data-experiment / data-variant, which the tests and the CTA beacon read. %>
+<% variant = @page_variant %>
+<% assignment = page_experiment_assignment %>
+<% headline_lines = variant&.headline_lines.presence || ["Pick 6 teams.", "Stack points.", "Get paid."] %>
+<% content_for :title, variant&.meta_title.presence || "Turf Monster — Pick 6 NFL Teams, Stack Points" %>
+<% content_for :meta_description, variant&.meta_description.presence || "NFL pick'em: choose 6 teams, every point they score over the three-week slate counts, times their Turf Score. Underdogs carry the bigger multiplier. The #{NextSlateDrop::LABEL} slate drops Tuesday morning." %>
 <%# NO TURBO SNAPSHOT WHILE THE LAPTOP PLAYS: a cached copy keeps the laptop's
     data-wired and its goal feed's data-observed, so on Back both scripts would
     exit at once and leave a frozen frame (banner up). No guest state lives only
@@ -30,7 +40,8 @@
 <% turbo_exempts_page_from_cache if @laptop_sim %>
 <%# THE PHONE SUBHEAD, in one place to edit. Shown below md, where the hero stacks; the long subhead below is
     unchanged from md up. About three lines at 375 and 390. %>
-<% mobile_subhead = "Every point your teams score counts, times their multiplier. Underdogs score big." %>
+<% mobile_subhead = variant&.subhead_mobile.presence || "Every point your teams score counts, times their multiplier. Underdogs score big." %>
+<% desktop_subhead = variant&.subhead_desktop.presence || "Choose 6 NFL teams. Every point they score over the three-week slate counts, times their Turf Score. Underdogs carry the bigger multiplier, so a smart longshot beats the favorite." %>
 <% dropped   = NextSlateDrop.dropped? %>
 <% remaining = NextSlateDrop.remaining %>
 <% top_score = TurfMonsterRules.turf_score_for_rank(1) %>
@@ -111,7 +122,13 @@
 <%# data-test hook: the tests scope their copy assertions to THIS subtree. The
     layout ships site-wide meta that still advertises the World Cup season, so a
     page-wide response.body scan would read the chrome, not the page. %>
-<div class="py-4 md:py-8 space-y-16 md:space-y-24" data-test="turf-monster-v2">
+<%# data-experiment-beacon is the beacon's URL; only a counted visitor (no
+    bot) gets it, so a bot's page sends nothing (page_experiments.js). %>
+<%= tag.div class: "py-4 md:py-8 space-y-16 md:space-y-24",
+      data: { test: "turf-monster-v2",
+              experiment: assignment&.experiment&.slug,
+              variant: assignment&.key,
+              experiment_beacon: (experiment_events_path if assignment&.counted?) }.compact do %>
 
   <!-- ========== 1. HERO ========== -->
   <%# Two layered backgrounds: a field of small radial-gradient "stars" over
@@ -138,18 +155,19 @@
       <div class="text-center md:text-left">
         <%# ONE SENTENCE PER LINE at every width: three block spans, each kept
             whole (whitespace-nowrap), at a size whose longest line, "Stack
-            points.", still fits the hero at 375px. %>
-        <h1 class="text-[2rem] sm:text-5xl md:text-6xl font-extrabold leading-tight text-white">
-          <span class="block whitespace-nowrap">Pick 6 teams.</span>
-          <span class="block whitespace-nowrap">Stack points.</span>
-          <span class="block whitespace-nowrap">Get paid.</span>
+            points.", still fits the hero at 375px. A variant's headline lines
+            are held to the same width (check it at 375 before it runs). %>
+        <h1 class="text-[2rem] sm:text-5xl md:text-6xl font-extrabold leading-tight text-white" data-test="v2-headline">
+          <% headline_lines.each do |line| %>
+            <span class="block whitespace-nowrap"><%= line %></span>
+          <% end %>
         </h1>
         <%# Two spans, one shown per width, by CSS alone: the hidden one is
             display:none, so a screen reader hears exactly one. The phone
             copy lives in mobile_subhead at the top of this view. %>
         <p class="mt-5 text-lg text-white/80 max-w-xl mx-auto md:mx-0" data-test="v2-subhead">
           <span class="md:hidden" data-test="v2-subhead-mobile"><%= mobile_subhead %></span>
-          <span class="hidden md:inline" data-test="v2-subhead-desktop">Choose 6 NFL teams. Every point they score over the three-week slate counts, times their Turf Score. Underdogs carry the bigger multiplier, so a smart longshot beats the favorite.</span>
+          <span class="hidden md:inline" data-test="v2-subhead-desktop"><%= desktop_subhead %></span>
         </p>
         <div class="mt-8 flex justify-center md:justify-start">
           <%= render "pages/next_contest_cta", pick: @next_contest, test_id: "v2-hero-cta" %>
@@ -188,7 +206,7 @@
               <div class="w-[369px] pt-3 text-right">
                 <%= link_to live_contest_path(@live_showcase.contest),
                       class: "inline-flex items-center gap-1.5 text-xs font-semibold text-white/80 hover:text-white underline-offset-2 hover:underline",
-                      data: { test: "v2-watch-live" } do %>
+                      data: { test: "v2-watch-live", cta: "watch_live" } do %>
                   <% if @live_showcase.live? %>
                     <span class="h-2 w-2 rounded-full bg-red-500 motion-safe:animate-pulse" aria-hidden="true"></span>
                     Watch updates live
@@ -359,4 +377,4 @@
     </p>
   </section>
 
-</div>
+<% end %>

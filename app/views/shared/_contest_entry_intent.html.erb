@@ -2,7 +2,7 @@
     That is deliberate and it is the fix for the blocker below.
 
     WHY NOT IN THE BOARD PARTIAL, where this started. The board renders only on
-    contests/show and contests/world_cup. A wallet returns to
+    contests/show. A wallet returns to
     /auth/phantom/callback, which renders studio-engine's view — this app ships no
     local override — so the handler map on that document was EMPTY while the
     registry itself was present. walletOps.resume() consumes the journal at take()
@@ -181,12 +181,12 @@ window.tmPrepareContestEntry = async function (ctx) {
     if (window.Alpine && Alpine.store('solanaModal')) {
       // THE SERVER'S ANSWER OUTRANKS THE CALL SITE, and the empty string is not
       // a currency. prepare_entry echoes the currency it actually priced, so a
-      // board with no picker (the world-cup survivor board) names the right
+      // board with no currency picker names the right
       // token without repeating the server's "usdc" default in a view. ctx stays
       // as the fallback for a caller that chose one, and the generic sentence
       // catches the case where NEITHER answers — because the old expression
       // rendered "Approve the  transfer in your wallet...", token missing and
-      // double-spaced, on every non-token-funded survivor entry.
+      // double-spaced, on every non-token-funded entry from such a board.
       var currencyName = String(data.currency || ctx.currency || '').toUpperCase();
       Alpine.store('solanaModal').show('Sign Transaction', data.token_funded
         ? 'Approve your free entry in your wallet...'
@@ -277,10 +277,10 @@ window.tmCompleteContestEntry = async function (ctx, result, state) {
     // this to a string and every one of those panels collapses into raw text —
     // the same regression the prepare half was fixed for in PR 632.
     //
-    // AND `code` SEPARATELY, because one board reads it without reading the rest.
+    // AND `code` SEPARATELY, because a caller can read it without reading the rest.
     // 'tx_rejected' — the server refusing to cosign a transaction that did not
-    // match the prepared entry — has a reassuring modal of its own, and the
-    // survivor board branches on exactly that string. This is the only place it
+    // match the prepared entry — has a reassuring modal of its own, and a
+    // caller branches on exactly that string. This is the only place it
     // exists: on the redirect transport the caller's catch runs on a document
     // that never saw this response.
     var confirmError = new Error(data.error || 'Failed to confirm entry');

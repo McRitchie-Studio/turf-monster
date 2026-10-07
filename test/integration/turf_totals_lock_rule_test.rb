@@ -450,7 +450,7 @@ class TurfTotalsLockRuleTest < ActionDispatch::IntegrationTest
   #
   # Set the stated start time later than a game on the slate and the contest is
   # OPEN and UNLOCKED while that game is underway. The contest-wide gate has
-  # not fired; the per-game gate has (entry.rb:44 in toggle_selection!, :95 in
+  # not fired; the per-game gate has (entry.rb:43 in toggle_selection!, :94 in
   # update_picks!, :142 in assert_enterable!). One pick is frozen and its
   # neighbour is not, which is exactly what the carve-out exists to say.
   #

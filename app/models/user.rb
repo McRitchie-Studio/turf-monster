@@ -213,11 +213,17 @@ class User < ApplicationRecord
     existing = find_by(email: auth.info.email)
     if existing
       return :requires_verification if existing.email_verified_at.blank?
-      existing.update!(
-        provider: auth.provider,
-        uid: auth.uid,
-        email_verified_at: existing.email_verified_at || Time.current
-      )
+      # OPSEC-048: a frozen account signs in (the freeze holds actions, not
+      # access) but is not Google-linked: linking is an identity write.
+      if existing.frozen?
+        Rails.logger.warn "[opsec-048] google sign-in without link for frozen user_id=#{existing.id}"
+      else
+        existing.update!(
+          provider: auth.provider,
+          uid: auth.uid,
+          email_verified_at: existing.email_verified_at || Time.current
+        )
+      end
       existing.claim_parked_username!
       return existing
     end
@@ -498,23 +504,23 @@ class User < ApplicationRecord
     managed_wallet? && !self_custodied? && !phantom_wallet?
   end
 
-  # B4 / OPSEC-048: account freeze for chargeback / dispute / refund. While
-  # frozen, the user can't enter contests, buy tokens, or withdraw. Existing
-  # on-chain tokens stay where they are (irreversible) but become unspendable
-  # via this app. Unfreezing for v1 = rails console: `user.unfreeze!`.
+  # B4 / OPSEC-048: the account freeze, an app-level hold. A frozen account
+  # reads but cannot write (FrozenAccountGuard, FrozenAccount::Validation); its
+  # tokens on chain stay where they are. Every freeze and unfreeze goes through
+  # #freeze! / #unfreeze!, which write the AccountFreezeEvent audit row.
   def frozen?
     frozen_at.present?
   end
 
   def freeze_for_payment_risk!(reason:)
-    return if frozen?
-    update_columns(frozen_at: Time.current, frozen_reason: reason.to_s.first(255))
-    Rails.logger.error "[opsec-048] user.frozen user_id=#{id} reason=#{reason}"
+    # A Stripe or PayPal dispute or refund webhook. Idempotent and audited, as
+    # every freeze is; #freeze! (at the foot of this class) logs the line.
+    freeze!(reason: reason, source: "payment_risk")
   end
 
-  def unfreeze!
-    update_columns(frozen_at: nil, frozen_reason: nil)
-    Rails.logger.info "[opsec-048] user.unfrozen user_id=#{id}"
+  def unfreeze!(reason: "unfrozen from the console", by: nil, source: "console")
+    return false unless frozen?
+    record_freeze_change!(action: "unfreeze", reason: reason, by: by, source: source)
   end
 
   # OPSEC-045: rotate the session-binding token. Call after any action
@@ -797,6 +803,11 @@ class User < ApplicationRecord
       changed = true
     end
 
+    # A freeze holds the username where it is (frozen_identity_change?). Every
+    # sign-in path calls this, so renaming a frozen account back to its parked
+    # username would raise RecordInvalid and lock it out of signing in.
+    return changed if frozen?
+
     parked_username = identity[:username].presence
     return changed if parked_username.blank?
     return changed if username.present? && username.casecmp?(parked_username)
@@ -860,5 +871,55 @@ class User < ApplicationRecord
     return if slug == expected
 
     update_column(:slug, expected)
+  end
+  # ── OPSEC-048: the account freeze ──────────────────────────────────────────
+  # At the foot of the class so docs/workflows' line citations above hold.
+  public
+
+  include FrozenAccount::Validation
+
+  # The audit trail (AccountFreezeEvent): the holds on this account, and the
+  # ones this account placed as an admin.
+  has_many :account_freeze_events, dependent: :delete_all
+  has_many :account_freezes_placed, class_name: "AccountFreezeEvent", foreign_key: :admin_id,
+                                    inverse_of: :admin, dependent: :nullify
+
+  # A frozen account cannot rename itself or link or unlink a wallet.
+  validates_account_not_frozen :itself, on: :update, if: :frozen_identity_change?
+
+  # Freeze, with a reason, and record who did it: an operator on /admin/users
+  # (`by:` the admin), a payment webhook (#freeze_for_payment_risk!), or the
+  # console. Idempotent: a second freeze keeps the first frozen_at and reason
+  # and writes no row. Returns true when this call froze the account.
+  def freeze!(reason:, by: nil, source: "admin")
+    return false if frozen?
+
+    record_freeze_change!(action: "freeze", reason: reason, by: by, source: source)
+  end
+
+  private
+
+  # The one writer of the hold: the column and its audit row in one
+  # transaction, so neither lands without the other. update_columns skips
+  # validations, so the identity guard below never blocks the freeze itself.
+  def record_freeze_change!(action:, reason:, by:, source:)
+    reason = reason.to_s.strip.first(255)
+    raise ArgumentError, "an account #{action} needs a reason" if reason.empty?
+
+    frozen_at_value = action == "freeze" ? Time.current : nil
+    transaction do
+      update_columns(frozen_at: frozen_at_value, frozen_reason: frozen_at_value && reason)
+      AccountFreezeEvent.create!(user: self, admin: by, action: action, source: source, reason: reason)
+    end
+    Rails.logger.error "[opsec-048] user.#{action} user_id=#{id} source=#{source} admin_id=#{by&.id} reason=#{reason}"
+    true
+  end
+
+  # The identity fields a frozen account may not change on its own: its
+  # username (the on-chain UserAccount's name) and either wallet address.
+  def frozen_identity_change?
+    frozen? && !will_save_change_to_frozen_at? &&
+      (will_save_change_to_username? || will_save_change_to_web2_solana_address? ||
+       will_save_change_to_web3_solana_address?)
   end
 end

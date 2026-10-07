@@ -12,7 +12,9 @@ const { test, expect } = require("@playwright/test");
 // or not the button is revealed, and the pick sequence is the known-flaky part of
 // this suite (see the .fixme notes in onchain.spec.js).
 
-const CONTEST_PATH = "/contests/nfl-2026-weeks-1-3";
+// The e2e fixture contest (e2e/seed.rb). The seed deletes every other contest,
+// so a slug it does not build is "Contest not found" and a redirect to root.
+const CONTEST_PATH = "/contests/world-cup-2026";
 
 async function idleLabels(page) {
   return page.$$eval(".hold-btn .hold-text li:nth-child(1)", (els) =>

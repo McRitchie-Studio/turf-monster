@@ -29,7 +29,7 @@ class BoardEntryCallSiteJsTest < ActiveSupport::TestCase
     src = File.read(BOARD)
     start = src.index("    async confirmEntry() {")
     assert start, "could not find confirmEntry in the board"
-    finish = src.index("\n    },\n\n    showError(message) {", start)
+    finish = src.index("\n    },\n\n    showError(message, code) {", start)
     assert finish, "could not bound confirmEntry — the method after it moved"
     src[start...(finish + "\n    }".length)]
   end

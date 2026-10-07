@@ -13,7 +13,6 @@ class Entry < ApplicationRecord
   belongs_to :user
   belongs_to :contest
   has_many :selections, dependent: :destroy
-  has_many :survivor_picks, dependent: :destroy
 
   enum :status, { cart: "cart", active: "active", complete: "complete", abandoned: "abandoned" }
 
@@ -74,7 +73,7 @@ class Entry < ApplicationRecord
   # for lock state — mirrors the existing confirm! behavior where only the
   # picks being committed are validated.
   def update_picks!(matchup_ids)
-    raise Refusal.new(:unsupported_contest, "Editing is not supported for this contest type") if survivor?
+    raise Refusal.new(:unsupported_contest, "Editing is not supported for this contest type") if contest.retired_format?
     raise Refusal.new(:contest_not_open, "Contest is not open") unless contest.open?
     # v0.17: derived lock — block edits once the contest lock time has passed
     # (status stays `open`, so `open?` alone no longer closes this window).
@@ -382,35 +381,6 @@ class Entry < ApplicationRecord
     onchain_entry_id.present?
   end
 
-  # --- Survivor ---
-
-  def survivor?
-    contest.world_cup_survivor?
-  end
-
-  def eliminated?
-    eliminated_round.present?
-  end
-
-  def alive?
-    survivor? && !eliminated?
-  end
-
-  # Rounds successfully survived — every round before elimination, or every
-  # surviving pick so far for an entry still alive.
-  def rounds_survived
-    eliminated_round ? eliminated_round - 1 : survivor_picks.survived.count
-  end
-
-  def pick_for(survivor_round)
-    survivor_picks.find_by(survivor_round: survivor_round)
-  end
-
-  # Team slugs already used — no team may be picked twice across the tournament.
-  def used_team_slugs
-    survivor_picks.pluck(:team_slug)
-  end
-
   def to_param
     slug
   end
@@ -465,5 +435,50 @@ class Entry < ApplicationRecord
   # (the wallet path), which must refuse before it builds a transaction.
   def assert_selections_pickable!
     assert_pickable!(*selections.includes(:slate_matchup).map(&:slate_matchup))
+  end
+
+  # At the foot of the class so docs/workflows' line citations above hold.
+  # OPSEC-048: a frozen account can neither start an entry nor make one live.
+  include FrozenAccount::Validation
+  validates_account_not_frozen :user, on: :create
+  validates_account_not_frozen :user, on: :update, if: -> { will_save_change_to_status?(to: "active") }
+
+  # THE ENTERING WALLET. Contest#settle_onchain! pays wallet_address, so it must
+  # be the wallet that entered: the program derives the ContestEntry PDA from
+  # [b"entry", sha256(contest slug), wallet, entry_num], and a settle naming any
+  # other wallet fails its PDA check for every winner at once. A user can hold
+  # two wallets (managed web2 and Phantom web3) and enter from either, so
+  # User#solana_address, which prefers web3, is not the answer.
+  #
+  # Every entry path stores the PDA it entered at (Phantom confirm_onchain!, the
+  # managed and API paths through confirm!, enter_onchain!, the reconciler, an API
+  # adoption), so the record is made here, where they all meet: of the user's
+  # wallets, the one whose seeds derive that PDA. That is a proof, not a guess,
+  # and needs no RPC. When neither derives it the column stays nil and grading
+  # refuses (Contest#payout_settlements). Entries::WalletBackfill fills older rows
+  # from the chain.
+  before_save :record_entering_wallet
+
+  # The candidate whose seeds derive `entry_pda` for this contest and slot, or nil.
+  def self.entering_wallet_for(contest_slug:, entry_pda:, entry_number:, candidates:, vault: Solana::Vault.new(client: nil))
+    return nil if contest_slug.blank? || entry_pda.blank? || entry_number.nil?
+
+    Array(candidates).compact_blank.uniq.find do |wallet|
+      Solana::Keypair.encode_base58(vault.entry_pda(contest_slug, wallet, entry_number).first) == entry_pda
+    rescue StandardError # an address that will not decode derives nothing
+      false
+    end
+  end
+
+  private
+
+  def record_entering_wallet
+    return if wallet_address.present? || onchain_entry_id.blank? || entry_number.nil?
+    return unless new_record? || will_save_change_to_onchain_entry_id? || will_save_change_to_entry_number?
+
+    self.wallet_address = self.class.entering_wallet_for(
+      contest_slug: contest&.slug, entry_pda: onchain_entry_id, entry_number: entry_number,
+      candidates: [user&.web2_solana_address, user&.web3_solana_address]
+    )
   end
 end

@@ -177,7 +177,7 @@ class ContestCreateRedirectRoundTripTest < ActiveSupport::TestCase
 
   test "a bundle provision survives the same two page deaths" do
     r = run_round_trip(intent: "contest_bundle",
-                       ctx: { key: "survivor", csrfToken: "CSRF",
+                       ctx: { key: "world_cup", csrfToken: "CSRF",
                               generatePath: "/generate_bundle", finalizePath: "/finalize_bundle" })
     refute r["error"], "round trip errored: #{r['error']}"
 
@@ -186,7 +186,7 @@ class ContestCreateRedirectRoundTripTest < ActiveSupport::TestCase
     assert r["done"]
 
     generate, finalize = r["posted"]
-    assert_equal({ "key" => "survivor" }, generate["body"])
+    assert_equal({ "key" => "world_cup" }, generate["body"])
     assert_equal "AQID", finalize.dig("body", "signed_tx"),
                  "the SERVER broadcasts now — what crosses is the signed wire, not a tx_signature"
     assert_nil finalize.dig("body", "tx_signature")

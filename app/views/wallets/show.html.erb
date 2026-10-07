@@ -34,7 +34,7 @@
         <svg class="w-4 h-4 text-primary flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
         <span class="text-secondary">Vault balance:</span>
         <span class="text-primary font-mono font-bold"><%= dollars(@onchain_balance[:balance_dollars]) %></span>
-        <span class="text-muted text-xs">(deposited: <%= dollars(Solana::Config.lamports_to_dollars(@onchain_balance[:total_deposited])) %>, won: <%= dollars(Solana::Config.lamports_to_dollars(@onchain_balance[:total_won])) %>)</span>
+        <span class="text-muted text-xs">(deposited: <%= dollars(Solana::Config.base_units_to_dollars(@onchain_balance[:total_deposited].to_i)) %>, won: <%= dollars(Solana::Config.base_units_to_dollars(@onchain_balance[:total_won].to_i)) %>)</span>
       </div>
     <% end %>
   </div>

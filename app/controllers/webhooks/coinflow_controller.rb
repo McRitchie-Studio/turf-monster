@@ -7,7 +7,7 @@ module Webhooks
   # Coinflow authenticates with a SHARED SECRET (Authorization header ==
   # COINFLOW_WEBHOOK_VALIDATION_KEY), NOT an HMAC signature. Exactly-once minting
   # is arbitrated by CoinflowPurchase#begin_fulfillment! via Coinflow::Fulfillment.
-  class CoinflowController < ApplicationController
+  class CoinflowController < ApplicationController # parked: FiatRailsParked, docs/FIAT_RAILS.md
     # Raised only to be captured — a settlement that moved money but minted
     # nothing. Never propagated: Coinflow does not retry, so raising for real
     # would only 500 the ack without recovering anything.

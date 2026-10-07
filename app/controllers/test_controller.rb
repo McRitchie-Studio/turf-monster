@@ -114,14 +114,11 @@ class TestController < ApplicationController
       Rails.logger.warn "[reseed] api key cleanup failed: #{e.class}: #{e.message[0,160]}"
     end
 
-    # Wipe core users' entries too — survivor.spec.js's "logged-in user
-    # can enter and make a round-1 pick" logs in as mason (core, id=3)
-    # and POSTs /contests/world-cup-survivor/enter. A prior run's entry
-    # rejects the new POST as a duplicate. Same shape as the non-core
-    # cleanup but for entries the user-cascade can't reach.
-    # FK order: survivor_picks → entries → selections.
+    # Wipe core users' entries too — a spec that logs in as a core user and
+    # enters a contest would otherwise meet a prior run's entry and be refused
+    # as a duplicate. Same shape as the non-core cleanup but for entries the
+    # user-cascade can't reach. FK order: selections → entries.
     begin
-      survivor_pick_count = SurvivorPick.delete_all
       selection_count     = Selection.delete_all
       entry_count         = Entry.delete_all
       cleared << "core_entries(#{entry_count})" if entry_count > 0
@@ -780,6 +777,14 @@ class TestController < ApplicationController
     render json: { ok: true, announceable: DropSignup.announceable(NextSlateDrop::SLATE_KEY).count }
   end
 
+  # Puts the /turf-monster-v2 headline experiment in its shipped shape and
+  # running (PageExperimentSeeds, reset: true), for e2e/page_experiments.spec.js.
+  # Counts are left alone: the spec reads its own deltas.
+  def seed_page_experiment
+    experiment = PageExperimentSeeds.turf_monster_v2!(reset: true)
+    render json: { ok: true, slug: experiment.slug, variants: experiment.variants.map(&:key) }
+  end
+
   private
 
   def require_dev_walkthrough
@@ -824,5 +829,24 @@ class TestController < ApplicationController
         consumed: false, consumed_at: nil, burned: false, created_at: 1_700_000_000 + i }
     end
     Rails.cache.write(Solana::Vault.entry_tokens_cache_key(address), tokens, expires_in: 30.minutes)
+  end
+
+  # OPSEC-048 e2e fixture (e2e/frozen_account_banner.spec.js): freeze or
+  # unfreeze the signed-in account through User#freeze! / #unfreeze!, so the
+  # audit row is written exactly as an operator's would be. Exempt from the
+  # freeze gate, or a frozen spec user could never be thawed.
+  public
+
+  allow_frozen_account_writes only: :set_frozen, reason: "e2e fixture that lifts the freeze; never routed in production"
+
+  def set_frozen
+    return render json: { error: "not logged in" }, status: :unauthorized unless current_user
+
+    if params[:frozen].to_s == "false"
+      current_user.unfreeze!(reason: "e2e fixture", source: "console")
+    else
+      current_user.freeze!(reason: "e2e fixture", source: "console")
+    end
+    render json: { ok: true, slug: current_user.slug, frozen: current_user.reload.frozen? }
   end
 end

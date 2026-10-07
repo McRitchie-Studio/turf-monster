@@ -11,8 +11,8 @@ module Api
           facts = ContestFacts.for([contest])
           reference = ContestSerializer.reference(contest, facts: facts)
 
-          unless contest.turf_totals?
-            return ok(contest: reference, supported: false, note: ContestSerializer::SURVIVOR_NOTE,
+          if contest.retired_format?
+            return ok(contest: reference, supported: false, note: ContestSerializer::RETIRED_FORMAT_NOTE,
                       entries: [], pagination: pagination_json(0))
           end
 

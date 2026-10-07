@@ -48,6 +48,14 @@ class OmniauthCallbacksController < ApplicationController
 
     # Linking from /account while logged in
     if logged_in?
+      # OPSEC-048: linking Google is an identity write, and the freeze refuses
+      # those. The callback arrives as a GET, which FrozenAccountGuard (every
+      # non-GET) never sees, so the refusal is made here. Signing in with
+      # Google (the branch below) stays open: the freeze holds actions, not access.
+      if current_user.frozen?
+        return finish_oauth(account_path, success: false, alert: FrozenAccount::MESSAGE)
+      end
+
       existing = User.find_by(provider: auth.provider, uid: auth.uid)
       if existing && existing.id != current_user.id
         # OPSEC-005: don't silently merge. The previous behavior here was
@@ -137,6 +145,10 @@ class OmniauthCallbacksController < ApplicationController
       if new_signup && result.is_a?(User) && result.reference.blank? && cookies[:reference].present?
         result.update_column(:reference, cookies[:reference].to_s.first(64))
         cookies.delete(:reference)
+      end
+      # And the page experiment variant the visitor was shown (PageExperimentTracking).
+      if new_signup && result.is_a?(User) && result.experiment_slug.blank? && (variant = experiment_attribution).present?
+        result.update_columns(variant)
       end
 
       # Stamp the legal-age attestation on the freshly-created account

@@ -648,7 +648,7 @@ class FakeVault
   def sync_balance(wallet)
     @sync_balance_calls << wallet
     seeds = (@sync_balance_seeds || 0).to_i
-    { balance_dollars: 0.0, seeds: seeds, level: User.level_for(seeds) }
+    { balance: 0, balance_dollars: BigDecimal("0"), seeds: seeds, level: User.level_for(seeds) }
   end
 
   def seeds_for_entry(_entry_number)
@@ -1000,7 +1000,7 @@ class FakeSolanaClient
   def get_token_account_balance(_ata_b58)
     raise StandardError, "simulated RPC failure" if @usdc_balance_raises
     return nil if @usdc_balance.nil?
-    { "value" => { "uiAmount" => @usdc_balance, "amount" => (@usdc_balance * 1_000_000).to_i.to_s } }
+    { "value" => { "uiAmount" => @usdc_balance, "amount" => (BigDecimal(@usdc_balance.to_s) * 1_000_000).to_i.to_s } }
   end
 
   # ContestsController#onchain_create_precheck reads dig("value") to decide

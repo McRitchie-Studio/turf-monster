@@ -1,0 +1,6 @@
+<% content_for(:title, "Edit Experiment — Admin") %>
+
+<div class="max-w-3xl mx-auto py-8 px-4 space-y-6">
+  <h1 class="text-heading text-2xl font-bold">Edit <%= @experiment.name %></h1>
+  <%= render "admin/experiments/form", experiment: @experiment %>
+</div>

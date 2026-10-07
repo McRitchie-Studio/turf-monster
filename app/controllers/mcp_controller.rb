@@ -37,7 +37,8 @@ class McpController < ActionController::API
   MAX_BODY_BYTES = 64.kilobytes
   UNPARSEABLE = Object.new.freeze
 
-  allow_frozen_account_writes only: :rpc
+  allow_frozen_account_writes only: :rpc,
+                              reason: "one POST carries every tool; each writing tool asks write_refusal itself"
   skip_before_action :authenticate_api_key!, only: :method_not_allowed
   prepend_before_action :refuse_foreign_origin
   before_action :no_store

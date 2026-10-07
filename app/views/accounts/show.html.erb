@@ -98,8 +98,8 @@
 
       <div class="text-xl font-bold text-heading mb-3"><%= current_user.display_name %></div>
 
-      <button type="button" @click="$store.modals.open('username')" class="btn btn-outline btn-sm">
-        Change username
+      <button type="button" <%= tag.attributes(account_frozen? ? { disabled: true, "data-frozen-cta": true, title: FrozenAccount::CTA_REASON } : { "@click": "$store.modals.open('username')" }) %> class="btn btn-outline btn-sm disabled:opacity-60 disabled:cursor-not-allowed">
+        <%= account_frozen? ? "Username locked: #{FrozenAccount::CTA_REASON.downcase}" : "Change username" %>
       </button>
     </div>
 

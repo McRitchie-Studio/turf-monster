@@ -31,6 +31,8 @@ module EntryGifts
     ADMIN_REASON     = "admin accounts hold no custodial keys (OPSEC-044), so this gift " \
                        "cannot be minted to a managed wallet — link a wallet and re-mint".freeze
 
+    FROZEN_REASON    = "account is frozen".freeze
+
     def self.call(gift, user) = new(gift, user).call
 
     def initialize(gift, user)
@@ -41,6 +43,9 @@ module EntryGifts
     def call
       return result(false, "no gift on this link") if @gift.blank?
       return result(false, "no user to claim for")  if @user.blank?
+      # OPSEC-048: a frozen account claims nothing. The gift stays unclaimed,
+      # so an operator can resend it once the hold is lifted.
+      return result(false, FROZEN_REASON)           if @user.frozen?
       return result(false, "already claimed")       if @gift.claimed?
 
       wallet_created = false

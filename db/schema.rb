@@ -10,9 +10,20 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_06_170000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_07_000000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
+
+  create_table "account_freeze_events", force: :cascade do |t|
+    t.string "action", null: false
+    t.bigint "admin_id"
+    t.datetime "created_at", null: false
+    t.string "reason", null: false
+    t.string "source", null: false
+    t.bigint "user_id", null: false
+    t.index ["admin_id"], name: "index_account_freeze_events_on_admin_id"
+    t.index ["user_id", "created_at"], name: "index_account_freeze_events_on_user_id_and_created_at"
+  end
 
   create_table "active_storage_attachments", force: :cascade do |t|
     t.bigint "blob_id", null: false
@@ -251,6 +262,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_170000) do
     t.datetime "onchain_reconcile_flagged_at"
     t.boolean "onchain_settled", default: false, null: false
     t.string "onchain_tx_signature"
+    t.bigint "payout_table_cents", array: true
     t.integer "rank"
     t.integer "season_id"
     t.bigint "slate_id"
@@ -274,6 +286,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_170000) do
     t.datetime "confirmation_sent_at"
     t.datetime "created_at", null: false
     t.string "email", null: false
+    t.string "experiment_slug", limit: 64
     t.string "ip"
     t.datetime "notified_at"
     t.string "slate_key", null: false
@@ -282,8 +295,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_170000) do
     t.datetime "updated_at", null: false
     t.string "user_agent"
     t.bigint "user_id"
+    t.string "variant_key", limit: 40
     t.index ["announcement_delivery_id"], name: "index_drop_signups_on_announcement_delivery_id"
     t.index ["created_at"], name: "index_drop_signups_on_created_at"
+    t.index ["experiment_slug", "variant_key"], name: "index_drop_signups_on_experiment_slug_and_variant_key"
     t.index ["slate_key", "email"], name: "index_drop_signups_on_slate_key_and_email", unique: true
     t.index ["user_id"], name: "index_drop_signups_on_user_id"
   end
@@ -321,6 +336,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_170000) do
     t.string "status", default: "cart", null: false
     t.datetime "updated_at", null: false
     t.bigint "user_id", null: false
+    t.string "wallet_address"
     t.datetime "winner_notified_at"
     t.index ["contest_id", "status"], name: "index_entries_on_contest_id_and_status"
     t.index ["contest_id"], name: "index_entries_on_contest_id"
@@ -371,6 +387,18 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_170000) do
     t.index ["created_at"], name: "index_error_logs_on_created_at"
     t.index ["parent_type", "parent_id"], name: "index_error_logs_on_parent_type_and_parent_id"
     t.index ["target_type", "target_id"], name: "index_error_logs_on_target_type_and_target_id"
+  end
+
+  create_table "experiment_events", force: :cascade do |t|
+    t.string "event", limit: 40, null: false
+    t.string "experiment_slug", limit: 64, null: false
+    t.datetime "first_seen_at", null: false
+    t.date "occurred_on", null: false
+    t.string "reference", limit: 64
+    t.string "variant_key", limit: 40, null: false
+    t.string "visitor_id", limit: 36, null: false
+    t.index ["experiment_slug", "variant_key", "event", "visitor_id", "occurred_on"], name: "index_experiment_events_dedupe", unique: true
+    t.index ["occurred_on", "experiment_slug"], name: "index_experiment_events_on_occurred_on_and_experiment_slug"
   end
 
   create_table "game_plays", force: :cascade do |t|
@@ -595,6 +623,33 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_170000) do
     t.index ["service", "created_at"], name: "index_outbound_requests_on_service_and_created_at"
     t.index ["source_type", "source_id"], name: "index_outbound_requests_on_source_type_and_source_id"
     t.index ["user_id"], name: "index_outbound_requests_on_user_id", where: "(user_id IS NOT NULL)"
+  end
+
+  create_table "page_experiments", force: :cascade do |t|
+    t.boolean "active", default: true, null: false
+    t.datetime "created_at", null: false
+    t.string "name", null: false
+    t.string "page_path", null: false
+    t.string "slug", null: false
+    t.datetime "updated_at", null: false
+    t.index ["page_path"], name: "index_page_experiments_one_active_per_page", unique: true, where: "active"
+    t.index ["slug"], name: "index_page_experiments_on_slug", unique: true
+  end
+
+  create_table "page_variants", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.string "experiment_slug", null: false
+    t.text "headline"
+    t.string "key", limit: 40, null: false
+    t.string "label"
+    t.text "meta_description"
+    t.string "meta_title"
+    t.integer "position", default: 0, null: false
+    t.text "subhead_desktop"
+    t.text "subhead_mobile"
+    t.datetime "updated_at", null: false
+    t.integer "weight", default: 1, null: false
+    t.index ["experiment_slug", "key"], name: "index_page_variants_on_experiment_slug_and_key", unique: true
   end
 
   create_table "paypal_purchases", force: :cascade do |t|
@@ -1086,6 +1141,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_170000) do
     t.text "encrypted_web2_solana_private_key"
     t.integer "entry_tokens_granted_level", default: 1, null: false
     t.datetime "entry_tokens_swept_at", default: "1970-01-01 00:00:00", null: false
+    t.string "experiment_slug", limit: 64
     t.datetime "export_initiated_at"
     t.datetime "first_chat_message_at"
     t.string "first_name"
@@ -1115,6 +1171,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_170000) do
     t.datetime "updated_at", null: false
     t.string "username"
     t.datetime "username_changed_at"
+    t.string "variant_key", limit: 40
     t.string "web2_solana_address"
     t.datetime "web3_authenticated_at"
     t.string "web3_solana_address"
@@ -1123,6 +1180,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_170000) do
     t.index ["contest_entered"], name: "index_users_on_contest_entered_true", where: "(contest_entered = true)"
     t.index ["email"], name: "index_users_on_email", unique: true, where: "(email IS NOT NULL)"
     t.index ["entry_tokens_swept_at", "id"], name: "index_users_on_pending_level_up_grants", where: "(level > entry_tokens_granted_level)"
+    t.index ["experiment_slug", "variant_key"], name: "index_users_on_experiment_slug_and_variant_key", where: "(experiment_slug IS NOT NULL)"
     t.index ["frozen_at"], name: "index_users_on_frozen_at", where: "(frozen_at IS NOT NULL)"
     t.index ["invited_by_id"], name: "index_users_on_invited_by_id"
     t.index ["ips"], name: "index_users_on_ips", using: :gin
@@ -1139,6 +1197,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_170000) do
     t.index ["web3_solana_address"], name: "index_users_on_web3_solana_address", unique: true, where: "(web3_solana_address IS NOT NULL)"
   end
 
+  add_foreign_key "account_freeze_events", "users"
+  add_foreign_key "account_freeze_events", "users", column: "admin_id"
   add_foreign_key "active_storage_attachments", "active_storage_blobs", column: "blob_id"
   add_foreign_key "active_storage_variant_records", "active_storage_blobs", column: "blob_id"
   add_foreign_key "aeropay_purchases", "users"

@@ -101,8 +101,8 @@ class ContestEntryIntentJsTest < ActiveSupport::TestCase
         // blockerData rides the Error so the board's catch can route a failed
         // prepare to the right panel — carry it out of node too, or the test
         // below can only see the flattened string this change exists to avoid.
-        // `code` rides beside blockerData and for the same reason: the survivor
-        // board routes a 'tx_rejected' refusal to its own reassuring modal
+        // `code` rides beside blockerData and for the same reason: a caller can
+        // route a 'tx_rejected' refusal to its own reassuring modal
         // WITHOUT reading the rest of the payload, and on the redirect transport
         // its catch runs on a document that never saw the response. Carry it out
         // of node too, or the test below can only see the flattened string.
@@ -455,11 +455,11 @@ class ContestEntryIntentJsTest < ActiveSupport::TestCase
   end
 
   # THE CALL SITE THAT NAMES NO CURRENCY. Every test above hands prepare a ctx
-  # carrying one, which is exactly why nobody saw this: the world-cup survivor
-  # board passes only { contestId, csrfToken }, so `ctx.currency` was undefined
-  # and the old expression rendered "Approve the  transfer in your wallet..." —
-  # token missing, double-spaced — on EVERY non-token-funded survivor entry, on
-  # desktop as well as mobile. A copy assertion that always supplies the value it
+  # carrying one; a board with no currency picker passes only
+  # { contestId, csrfToken }, so `ctx.currency` is undefined, and an expression
+  # that read it alone renders "Approve the  transfer in your wallet..." —
+  # token missing, double-spaced — on every non-token-funded entry, on desktop
+  # as well as mobile. A copy assertion that always supplies the value it
   # is asserting on cannot fail; these two supply nothing.
 
   test "a board that passes no currency still names the one the server priced" do
@@ -477,7 +477,7 @@ class ContestEntryIntentJsTest < ActiveSupport::TestCase
 
     assert out["ok"], out["message"]
     assert_equal [["Sign Transaction", "Approve the USDC transfer in your wallet..."]], out["value"],
-                 "the survivor board sends no currency, so the copy has to come from the " \
+                 "a picker-less board sends no currency, so the copy has to come from the " \
                  "currency prepare_entry echoes back — the server is the only party that " \
                  "knows which token it priced"
   end

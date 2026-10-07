@@ -5,14 +5,10 @@ module LandingPagesHelper
   # The sport this funnel is selling, or nil when there is nothing to read it
   # from.
   #
-  # TWO INDEPENDENT AXES, and conflating them is the whole history of this file:
+  # The game is always Turf Totals; the SPORT, `contest.slate.sport` ("nfl" or
+  # "fifa"), picks the WORDS inside its steps.
   #
-  #   FORMAT  `contest.game_type` — a two-value enum (contest.rb): turf_totals or
-  #           world_cup_survivor. It picks WHICH STEPS the funnel shows.
-  #   SPORT   `contest.slate.sport` — "nfl" or "fifa". It picks the WORDS inside
-  #           the Turf Totals steps.
-  #
-  # The format says nothing about the sport: Turf Totals ran on the World Cup in
+  # The game says nothing about the sport: Turf Totals ran on the World Cup in
   # season 1 and runs on the NFL now. So hardcoding EITHER sport in the Turf
   # Totals branch is right for one audience and wrong for the other. This file
   # has been wrong in both directions — World Cup hardcoded (shipped), then NFL
@@ -37,65 +33,57 @@ module LandingPagesHelper
     FUNNEL_SPORT_LABELS[funnel_sport(contest)]
   end
 
-  # Funnel "how it works" steps: the format picks the steps, the sport picks the
-  # words. This page is public and unauthenticated (landing_pages_controller.rb
-  # skips require_authentication), so keep calendar dates and rehearsal
-  # vocabulary out of the copy — both rot in front of real visitors.
+  # Funnel "how it works" steps: the sport picks the words. This page is public
+  # and unauthenticated (landing_pages_controller.rb skips
+  # require_authentication), so keep calendar dates and rehearsal vocabulary out
+  # of the copy — both rot in front of real visitors.
   def funnel_how_it_works(contest)
-    if contest&.world_cup_survivor?
-      [
-        ["Enter the contest", "One entry per player — claim your spot before the tournament locks."],
-        ["Pick a team each round", "Back a different team every round. No team can be used twice."],
-        ["Win or draw to survive", "A loss eliminates you. The last player standing takes the prize."]
-      ]
-    else
-      required_picks = contest&.picks_required || Contest::TURF_TOTALS_DEFAULT_PICKS_REQUIRED
-      # "World Cup team matchups" / "NFL team matchups" / "team matchups" when
-      # there is no sport to name. The sportless form is still a true sentence,
-      # which is the point: it names no sport rather than guessing one.
-      subject = [funnel_sport_label(contest), "team matchups"].compact.join(" ")
-      [
-        ["Pick #{required_picks} teams", "Choose #{required_picks} #{subject} for your entry."],
-        ["Create Account", "Sign up with email or Google — it only takes a few seconds."],
-        ["Submit Entry", "Confirm your #{required_picks} picks and submit your entry."],
-        # THE LOCK MOMENT IS THE CONTEST'S START TIME, NOT A KICKOFF.
-        # Contest#locks_at is `starts_at || slate.first_game_starts_at ||
-        # slate.starts_at` (contest.rb:686-693): an explicit starts_at WINS, it
-        # is admin-permitted on create AND edit, and nothing validates it
-        # against the slate's first kickoff. So the two moments are equal in TWO
-        # cases, not one: when an admin leaves starts_at blank and the
-        # derivation falls through to that kickoff, and when an admin SETS
-        # starts_at to exactly that kickoff — legal, unvalidated, and what the
-        # World Cup rulebook's worked example depicts (a lock and a first
-        # kickoff both 3pm). Any OTHER explicit starts_at splits them, which is
-        # the case this sentence exists to survive; turf_totals_lock_rule_test.rb
-        # measures all three against Contest.
-        #
-        # This step said "when the first game kicks off" until 2026-09-08, and
-        # on production that day three of seven contests had locked EARLIER than
-        # their first kickoff — one by 8.6 days. On a pre-payment page, that
-        # overstates how long a visitor may ENTER: they wait for kickoff and
-        # find the door shut.
-        #
-        # "its start time" is the value the card above this list already prints
-        # (Contest#lock_time_display -> starts_in_at -> the same attribute
-        # locks_at reads), so the sentence points at a time on the same screen
-        # and stays true however that time was set.
-        #
-        # BOTH DOORS SHUT AT ONCE, for both sports: every write path refuses
-        # after locks_at — Entry#toggle_selection! (entry.rb:47), #update_picks!
-        # (entry.rb:81) and #assert_enterable! (entry.rb:146) each raise
-        # "Contest has locked — entries closed". Not just picks whose own game
-        # has kicked off: the per-game SlateMatchup#locked? check is a SEPARATE,
-        # additional guard, and is NOT what this sentence rests on — an earlier
-        # version of this comment cited that guard, and a method that does not
-        # exist, for a conclusion that was nonetheless right.
-        # turf_totals_lock_rule_test.rb pins every entry.rb line cited here to a
-        # contest-wide lock guard, and measures the entry door against a contest
-        # that locks before any game kicks off.
-        ["Contest Locks", "The contest locks at its start time. No entries or changes after that."]
-      ]
-    end
+    required_picks = contest&.picks_required || Contest::TURF_TOTALS_DEFAULT_PICKS_REQUIRED
+    # "World Cup team matchups" / "NFL team matchups" / "team matchups" when
+    # there is no sport to name. The sportless form is still a true sentence,
+    # which is the point: it names no sport rather than guessing one.
+    subject = [funnel_sport_label(contest), "team matchups"].compact.join(" ")
+    [
+      ["Pick #{required_picks} teams", "Choose #{required_picks} #{subject} for your entry."],
+      ["Create Account", "Sign up with email or Google — it only takes a few seconds."],
+      ["Submit Entry", "Confirm your #{required_picks} picks and submit your entry."],
+      # THE LOCK MOMENT IS THE CONTEST'S START TIME, NOT A KICKOFF.
+      # Contest#locks_at is `starts_at || slate.first_game_starts_at ||
+      # slate.starts_at` (contest.rb:686-693): an explicit starts_at WINS, it
+      # is admin-permitted on create AND edit, and nothing validates it
+      # against the slate's first kickoff. So the two moments are equal in TWO
+      # cases, not one: when an admin leaves starts_at blank and the
+      # derivation falls through to that kickoff, and when an admin SETS
+      # starts_at to exactly that kickoff — legal, unvalidated, and what the
+      # World Cup rulebook's worked example depicts (a lock and a first
+      # kickoff both 3pm). Any OTHER explicit starts_at splits them, which is
+      # the case this sentence exists to survive; turf_totals_lock_rule_test.rb
+      # measures all three against Contest.
+      #
+      # This step said "when the first game kicks off" until 2026-09-08, and
+      # on production that day three of seven contests had locked EARLIER than
+      # their first kickoff — one by 8.6 days. On a pre-payment page, that
+      # overstates how long a visitor may ENTER: they wait for kickoff and
+      # find the door shut.
+      #
+      # "its start time" is the value the card above this list already prints
+      # (Contest#lock_time_display -> starts_in_at -> the same attribute
+      # locks_at reads), so the sentence points at a time on the same screen
+      # and stays true however that time was set.
+      #
+      # BOTH DOORS SHUT AT ONCE, for both sports: every write path refuses
+      # after locks_at — Entry#toggle_selection! (entry.rb:46), #update_picks!
+      # (entry.rb:80) and #assert_enterable! (entry.rb:145) each raise
+      # "Contest has locked — entries closed". Not just picks whose own game
+      # has kicked off: the per-game SlateMatchup#locked? check is a SEPARATE,
+      # additional guard, and is NOT what this sentence rests on — an earlier
+      # version of this comment cited that guard, and a method that does not
+      # exist, for a conclusion that was nonetheless right.
+      # turf_totals_lock_rule_test.rb pins every entry.rb line cited here to a
+      # contest-wide lock guard, and measures the entry door against a contest
+      # that locks before any game kicks off.
+      ["Contest Locks", "The contest locks at its start time. No entries or changes after that."]
+    ]
   end
 
   # The rulebook this funnel should open. Two versioned rules pages, ONE PER
@@ -119,16 +107,12 @@ module LandingPagesHelper
   # account, then submit" on this page walked a prospect to a checkout asking
   # for money the page had just said they would not need.
   #
-  # The format and sport rules are the same as #funnel_how_it_works: a survivor
-  # contest picks a team per round; Turf Totals picks N derived matchups.
+  # The sport rule is the same as #funnel_how_it_works: Turf Totals picks N
+  # derived matchups.
   def funnel_claim_steps(contest)
-    pick_step = if contest&.world_cup_survivor?
-                  ["Make your pick", "Back a team each round once your entry arrives."]
-    else
-                  required_picks = contest&.picks_required || Contest::TURF_TOTALS_DEFAULT_PICKS_REQUIRED
-                  subject = [funnel_sport_label(contest), "team matchups"].compact.join(" ")
-                  ["Pick #{required_picks} teams", "Choose #{required_picks} #{subject} for your free entry."]
-    end
+    required_picks = contest&.picks_required || Contest::TURF_TOTALS_DEFAULT_PICKS_REQUIRED
+    subject = [funnel_sport_label(contest), "team matchups"].compact.join(" ")
+    pick_step = ["Pick #{required_picks} teams", "Choose #{required_picks} #{subject} for your free entry."]
 
     [
       ["Create your account", "Sign up with email or Google. It takes a few seconds."],

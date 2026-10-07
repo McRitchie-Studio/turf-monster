@@ -45,15 +45,13 @@ class LandingPagesControllerTest < ActionDispatch::IntegrationTest
     assert_redirected_to root_path
   end
 
-  test "a survivor contest funnel shows survivor copy and a free entry" do
-    survivor = Contest.create!(name: "WC Survivor Test", game_type: "world_cup_survivor",
-                               contest_type: "survivor_wc_free", status: "open")
-    lp = LandingPage.create!(name: "Survivor Funnel", headline: "Last One Standing",
-                             contest: survivor, active: true)
+  test "a funnel for a retired-format contest still renders, with a free entry" do
+    retired = write_retired_format!(Contest.create!(name: "WC Retired Test", slate: slates(:one),
+                                                    entry_fee_cents: 0, status: "open"))
+    lp = LandingPage.create!(name: "Retired Funnel", headline: "Last One Standing",
+                             contest: retired, active: true)
     get landing_page_path(lp)
     assert_response :success
-    assert_select "p", text: "Win or draw to survive"       # survivor how-it-works step
-    assert_select "p", text: "Pick 6 teams", count: 0 # not the Turf Totals copy
     assert_select "p", text: "Free"                         # $0 entry renders as Free
   end
 
@@ -95,7 +93,7 @@ class LandingPagesControllerTest < ActionDispatch::IntegrationTest
   # --- Funnel copy regression: the steps and the rulebook link follow the
   # contest's SPORT, and neither sport is hardcoded. ---
   #
-  # `Contest#game_type` is a FORMAT enum (turf_totals / world_cup_survivor), NOT
+  # `Contest#game_type` is the GAME (turf_totals), NOT
   # a sport. The SPORT lives on the SLATE — Turf Totals ran on the World Cup in
   # season 1 and runs on the NFL now — so a funnel that hardcodes either sport is
   # right for one audience and wrong for the other. This file has certified both
@@ -214,19 +212,5 @@ class LandingPagesControllerTest < ActionDispatch::IntegrationTest
     # The sportless fallback is the sitewide canonical Rules target, so the
     # preview agrees with the navbar and footer rendered around it.
     assert_select "[data-test='funnel-footer'] a[href=?]", turf_monster_v1_path
-  end
-
-  test "survivor funnel keeps its own copy and gains no NFL wording" do
-    survivor = Contest.create!(name: "WC Survivor Copy", game_type: "world_cup_survivor",
-                               contest_type: "survivor_wc_free", status: "open")
-    lp = LandingPage.create!(name: "Survivor Copy Funnel", headline: "Last One Standing",
-                             contest: survivor, active: true)
-
-    get landing_page_path(lp)
-    assert_response :success
-
-    steps = funnel_steps_text
-    assert_match(/survive/i, steps, "survivor funnel must keep its survivor copy")
-    assert_no_match(NFL_WORDING, steps, "NFL copy leaked into the survivor branch")
   end
 end

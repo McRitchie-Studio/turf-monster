@@ -45,7 +45,7 @@ Separate project at `/Users/alex/projects/turf-vault/`. Current deployment ident
 - `VaultState` PDA `[b"vault"]` is a **zero-copy singleton** (~1515 bytes) holding the signer set, threshold, `paused` flag, the pinned `payout_mint` (USDC), the pinned `treasury_authority` (Squads vault PDA), and the 16-slot `accepted_currencies` registry. It holds **no pooled token balance**. Rails decodes it via hardcoded byte offsets in `vault.rb#read_vault_state`.
 - IDL: committed at `config/turf_vault.idl.json` for devnet and `config/turf_vault.mainnet.idl.json` for mainnet, SHA256-pinned via `EXPECTED_IDL_HASH` (`Solana::Config.verify_idl!`). Current source-tree hashes: devnet `f11446facec1043cb15b169929aaff3da9e955e05f3c462e86c7b584706246e9`; mainnet `b9b522635894a42f5434f1faa1cd126d146f3042ae2c233acd1dd76a300f7152`. Live Heroku truth is the configured `EXPECTED_IDL_HASH` allow-list; a committed IDL can be staged before a mainnet upgrade is accepted.
 - USDC Mint (devnet test): `222Dcu2RgAXE3T8A4mGSG3kQyXaNjqePx7vva1RdWBN9` — registry **slot 0** (= `payout_mint`, the immutable settlement currency).
-- USDT Mint (devnet test): `9mxkN8KaVA8FFgDE2LEsn2UbYLPG8Xg9bf4V9MYYi8Ne` — registry **slot 1**. (Mainnet builds pin Circle USDC `EPjFWdd5…Dt1v` + Tether USDT `Es9vMFr…wNYB`.) All amounts are `u64` at 6 decimals (1 USDC = 1_000_000).
+- USDT Mint (devnet test): `9mxkN8KaVA8FFgDE2LEsn2UbYLPG8Xg9bf4V9MYYi8Ne` — registry **slot 1**. (Mainnet builds pin Circle USDC `EPjFWdd5…Dt1v` + Tether USDT `Es9vMFr…wNYB`.) All amounts are `u64` at 6 decimals (1 USDC = 1_000_000). Money units: Rails holds integer cents; the chain holds integer base units; one cent is 10_000 base units (`Solana::Config::BASE_UNITS_PER_CENT`). Every amount that goes to the chain, or is compared with it, is converted by `Solana::Config.cents_to_base_units`, which takes only an Integer. Display reads base units back with `Solana::Config.base_units_to_dollars`, an exact BigDecimal. A dollar amount a person types becomes cents through `Cents.from_dollars` (BigDecimal, floored). No Float touches a chain amount: `cents / 100.0 * 10**6` truncated one unit short for about one cent value in fifty (201 cents gave 2_009_999). `test/services/solana/money_integer_guard_test.rb` fails on new float money math outside the pinned display lines.
 
 ### Instructions (22)
 
@@ -873,13 +873,13 @@ not one this server produced.
 
 
 ### Multisig Settlement Flow
-1. `Contest#grade!` scores entries and calls `settle_onchain!`
-2. `settle_onchain!` calls `Vault#build_settle_contest` → creates a `PendingTransaction` with the partially-signed TX (2-of-3)
+1. `Contest#grade!` scores and pays entries through `Contest::PayoutSplit` (never more paid entries than the contest's payout table has places, at most `Contest::MAX_PAID_RANKS`), then calls `settle_onchain!`, then marks the contest `settled`
+2. `settle_onchain!` pays each paid entry at `Entry#wallet_address`, the wallet that entered it (the one whose seeds derive its ContestEntry PDA, recorded by `Entry#record_entering_wallet` and backfilled by `bin/rails entries:backfill_wallet_address`), never `User#solana_address`; a paid entry with no recorded wallet raises `Contest::MissingPayoutWalletError` and grading refuses. It calls `Vault#build_settle_contest` → creates a `PendingTransaction` with the partially-signed TX (2-of-3). The builder measures the serialized wire and raises `Vault::SettleTooLargeError` past 1,232 bytes; any raise rolls the whole grade back, so a contest never reads `settled` without a queued settlement
 3. Admin visits `/admin/pending_transactions` (Treasury page)
 4. Clicks "Co-sign" → Phantom signs as the second signer → TX submitted to Solana
 5. On-chain: per-winner SPL transfer `prize_pool` PDA → winner USDC ATA (PDA-signed by `VaultState` seeds); contest status → Settled
 
-> ⚠️ `grade!` marks the DB `settled` (writes `payout_cents` + TransactionLog credits) even if the on-chain settle PT is never cosigned — the sweeper deliberately skips treasury PTs, so no alert fires on an un-cosigned settle. Cosign promptly or winners stay unpaid on-chain.
+> ⚠️ `grade!` marks the DB `settled` (writes `payout_cents` + TransactionLog credits) once the settle PT is queued, even if it is never cosigned — the sweeper deliberately skips treasury PTs, so no alert fires on an un-cosigned settle. Cosign promptly or winners stay unpaid on-chain.
 
 ## Navbar Balance
 

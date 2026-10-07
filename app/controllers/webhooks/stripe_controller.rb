@@ -1,5 +1,5 @@
 module Webhooks
-  class StripeController < ApplicationController
+  class StripeController < ApplicationController # parked: FiatRailsParked, docs/FIAT_RAILS.md
     skip_before_action :verify_authenticity_token
     skip_before_action :require_authentication
     skip_before_action :detect_geo_state

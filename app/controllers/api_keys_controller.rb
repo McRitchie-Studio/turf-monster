@@ -14,6 +14,11 @@
 # the verdict on the key (ApiKey#eligibility). Not offering the form is a
 # courtesy; the check in #create is the boundary.
 class ApiKeysController < ApplicationController
+  # OPSEC-048: FrozenAccountGuard refuses a frozen account every write but these.
+  allow_frozen_account_writes only: :destroy, reason: "revoking a key removes access; it grants nothing"
+  allow_frozen_account_writes only: :create,
+                              reason: "asks api_key_mint_blocker first, which refuses :frozen inside the keys card's own frame"
+
   GENERIC_FAILURE = "We couldn't create that key. Please try again.".freeze
   REVOKE_MISSING  = "That key is no longer on your account. Nothing was changed.".freeze
   REVOKE_FAILURE  = "We couldn't revoke that key. Please try again.".freeze

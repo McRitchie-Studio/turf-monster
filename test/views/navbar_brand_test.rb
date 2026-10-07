@@ -5,7 +5,7 @@ require "test_helper"
 # TWO THINGS THIS DEFENDS, and neither is visual.
 #
 # 1. THE RENAME IS BRAND-ONLY. "Turf Totals" names two different things in this
-#    app: the product, and one of the two GAME MODES (turf_totals vs survivor).
+#    app: the product, and the GAME MODE (game_type turf_totals).
 #    A blanket rename reads as a tidy-up and quietly renames the mode — so pin
 #    that the wordmark moved and the mode's own rules page did not.
 # 2. THE MOVED LINKS ARE STILL REACHABLE. NFL Totals and Reserves left the bar
@@ -160,18 +160,17 @@ class NavbarBrandTest < ActionView::TestCase
     public/*.webmanifest
   ].freeze
 
-  # Files whose "Turf Totals" is the GAME MODE (turf_totals vs survivor), not the
+  # Files whose "Turf Totals" is the GAME MODE (game_type turf_totals), not the
   # brand. Every entry needs a reason, because an allowlist is how a real miss
   # gets waved through.
   GAME_MODE_FILES = {
     "app/views/pages/turf_totals_v1.html.erb" => "the mode's own versioned rules page",
-    "app/views/pages/terms.html.erb"          => "scopes the editing rule to the mode; Survivor is excluded in the same sentence",
-    "app/helpers/landing_pages_helper.rb"     => "comments the else-branch that reads TURF_TOTALS_DEFAULT_PICKS_REQUIRED",
+    "app/views/pages/terms.html.erb"          => "scopes the editing rule to the mode",
+    "app/helpers/landing_pages_helper.rb"     => "comments naming the mode the funnel sells",
     "app/views/contests/show.html.erb"        => "section comments naming the mode's board",
-    "app/views/contests/_world_cup_survivor_board.html.erb" => "a comment contrasting this board with the turf_totals flow",
-    "app/views/agents/guide_source.text.erb"  => "the agent guide names the mode an agent can play (game_type turf_totals) against Survivor, which it cannot",
+    "app/views/agents/guide_source.text.erb"  => "the agent guide names the mode an agent can play (game_type turf_totals)",
     "app/views/agents/guide.html.erb"         => "the guide page's meta description names the same mode's rules",
-    "app/views/pages/responsible_gaming.html.erb" => "scopes the six-picks claim to the mode; picks_required is 0 for Survivor (contest.rb:204)"
+    "app/views/pages/responsible_gaming.html.erb" => "scopes the six-picks claim to the mode; picks_required is 0 for a retired format (Contest#picks_required)"
   }.freeze
 
   test "no shipping surface still carries the retired brand" do

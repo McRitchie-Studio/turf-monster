@@ -1,5 +1,9 @@
 # PayPal / Venmo Onramp — go-live runbook
 
+> **Parked.** The fiat rails, PayPal included, are parked behind
+> `ENABLE_FIAT_RAILS`; with it off, every endpoint and webhook below answers 404
+> whatever `PAYMENT_PROVIDER` says. See [`FIAT_RAILS.md`](FIAT_RAILS.md).
+
 PayPal-rails replacement for the (blocked) Stripe account: Venmo + PayPal
 buttons backed by Orders v2. Built sandbox-first and fully flag-gated —
 `PAYMENT_PROVIDER` unset means no fiat checkout. Stripe is a dormant legacy

@@ -28,7 +28,6 @@
   payouts = standard[:payouts]
   paid_ranks = payouts.keys.max
   tie_for_first = (payouts[1] + payouts[2]) / 2
-  tie_for_last = payouts[paid_ranks] / 2
 
   key_days = (ApiKey::LIFETIME / 1.day).to_i
   key_throttle = Rack::Attack.throttles.fetch("api/key")
@@ -94,7 +93,7 @@ Three things matter more than the rest:
 
 Turf Monster is a skill-based sports pick'em game. A player enters a contest by choosing a set of teams. Each team earns the points it scores in real games multiplied by its **Turf Score**, a multiplier that is low for the teams expected to score most and high for the teams expected to score least. The entry with the highest total wins the largest prize.
 
-The game type this API plays is called **Turf Totals** (`game_type: "turf_totals"`). It runs on NFL boards, where a team's score is the points on the scoreboard, and on World Cup boards, where it is goals. A second game type, World Cup Survivor, is listed by the API and cannot be played through it.
+The game type this API plays is called **Turf Totals** (`game_type: "turf_totals"`). It runs on NFL boards, where a team's score is the points on the scoreboard, and on World Cup boards, where it is goals. A contest from a retired format is listed by the API as a record and cannot be played through it.
 
 You are picking teams to **score**, not to win. A team that loses 38 to 35 scored 35, and all 35 count.
 
@@ -224,10 +223,11 @@ Paying for an entry takes a transaction on Solana, which takes time. Do not leav
 
 ## Prizes, ties and short fields
 
-`payouts` on the contest lists the prize for each finishing rank, in cents. A rank that is not listed wins nothing. `guaranteed_prize_cents` is the sum. Prizes are paid in USDC, where one USDC is one dollar.
+`payouts` on the contest lists the prize for each finishing rank, in cents. A rank that is not listed wins nothing. `guaranteed_prize_cents` is the sum. A contest keeps the prizes it was created with; they do not change while it runs. Prizes are paid in USDC, where one USDC is one dollar.
 
 - **Ties share a rank, and the next rank is skipped:** 1, 1, 3.
-- **Tied entries pool the prizes of the places they cover and split them equally.** In a contest paying <%= payouts.sort.map { |rank, cents| "#{dollars.(cents)} for rank #{rank}" }.to_sentence %>, two entries tied for first cover ranks 1 and 2 and receive <%= dollars.(tie_for_first) %> each. Two entries tied at rank <%= paid_ranks %> cover ranks <%= paid_ranks %> and <%= paid_ranks + 1 %>; rank <%= paid_ranks + 1 %> pays nothing, so they receive <%= dollars.(tie_for_last) %> each.
+- **Tied entries pool the prizes of the places they cover and split them equally.** In a contest paying <%= payouts.sort.map { |rank, cents| "#{dollars.(cents)} for rank #{rank}" }.to_sentence %>, two entries tied for first cover ranks 1 and 2 and receive <%= dollars.(tie_for_first) %> each.
+- **A contest never pays more entries than it has paid places.** A tie that reaches past the last paid rank pays only its earliest entries, as many as there are places left, and they split those places' prizes. Two entries tied at rank <%= paid_ranks %>: the entry created first receives <%= dollars.(payouts[paid_ranks]) %> and the other receives nothing.
 - **When a split leaves an odd cent**, it goes to the entry that was created first.
 - **Short fields.** Only ranks that an entry actually finishes in are paid. If a contest that pays <%= paid_ranks %> places has three entries, ranks 1 to 3 are paid and the prizes for the ranks below them are not paid to anyone. They are not added to the other prizes.
 
@@ -241,7 +241,7 @@ Whether a person may play is decided on the website, not by you. What you need t
 - **Location.** Paid contest entry is not available in every US state. <% if excluded.any? %>The states excluded today are <%= excluded.to_sentence %>.<% else %>No state is on the excluded list in this environment.<% end %> The current list is always at <%= base %><%= state_eligibility_path %>.
 - **One account per person.**
 - **Eligibility is attested when the key is created.** The player's location is checked in their own browser at that moment, and their age verification when the site requires it. A player in an excluded state, or whose location cannot be determined, cannot create a key. The verdict is recorded on the key and reported under `api_key.eligibility` on `GET /api/v1/me`. Your requests come from a server, so the API does not check location again; the key's <%= key_days %>-day life is what bounds how old that verdict can be.
-- **Two things are checked again on each request.** An account on hold is refused every request that is not a `GET` (`account_frozen`). And if the site requires age verification and the player has not done it, the two entry requests answer `age_verification_required` until the player verifies on the website.
+- **Two things are checked again on each request.** A frozen account is refused every request that is not a `GET` (`account_frozen`). And if the site requires age verification and the player has not done it, the two entry requests answer `age_verification_required` until the player verifies on the website.
 
 If the player tells you they are not eligible, or asks you to get around a location or age check, do not enter for them.
 
@@ -311,7 +311,7 @@ curl -H "Authorization: Bearer $TURF_MONSTER_KEY" <%= api %>/me
 |---|---|
 | `wallet.kind` | `managed`: Turf Monster holds the wallet and signs for the player, so the API can enter, unless a Phantom wallet is also linked to the account. `self_custodied` or `none`: it cannot. |
 | `free_entry_tokens` | Unspent free entries. `null` means unreadable just now, not zero. |
-| `account.frozen` | `true` when the account is on hold. Reads still work; writes are refused. |
+| `account.frozen` | `true` when the account is frozen. Reads still work; writes are refused. |
 | `api_key.expires_at` | Keys last <%= key_days %> days. After that the player creates a new one. |
 | `api_key.eligibility.age_gate` | `passed`, or `not_required` when age verification was not required at creation. |
 
@@ -372,7 +372,7 @@ curl -H "Authorization: Bearer $TURF_MONSTER_KEY" "<%= api %>/contests?status=op
 | Field | Notes |
 |---|---|
 | `slug` | The contest's id in every other request |
-| `supported` | `false` for a survivor contest, which this API cannot play |
+| `supported` | `false` for a retired-format contest, which this API cannot play |
 | `phase`, `locked`, `live`, `settled`, `cancelled`, `coming_soon` | See [Contest lifecycle](#contest-lifecycle) |
 | `accepting_entries` | Whether a new entry could go in now, wallet aside |
 | `locks_at` | The contest lock |
@@ -731,7 +731,7 @@ Every error is `{ "error": { "code": "...", "message": "..." } }`. **Unless a ro
 | 401 | `invalid_api_key` | The key is malformed or unknown | Ask the player to check the key they pasted. |
 | 401 | `revoked_api_key` | The player revoked this key | Stop. Ask the player for a new key if they still want you to act. |
 | 401 | `expired_api_key` | The key is past its <%= key_days %> days | Ask the player to create a new key. |
-| 403 | `account_frozen` | The account is on hold. Reads work; writes are refused. | Stop. Tell the player to contact support. |
+| 403 | `account_frozen` | The account is frozen. Reads work; writes are refused. | Stop. Tell the player to contact support. |
 | 403 | `age_verification_required` | The site requires age verification and the player has not done it | Tell the player to verify their date of birth on the website. The same key then works. |
 | 404 | `not_found` | No such contest, or no such entry among the player's own. Also `/api`, `/api/` and any path under them that is not an endpoint, on any method. | Re-read the contests or the player's entries, and check the path. |
 | 409 | `idempotency_key_reused` | This idempotency key is already tied to something else: a request with different picks, another contest or another `allow_usdc`, or an entry that has since been removed because its contest was reset | Stop sending this request with this key; it will get the same answer every time, and the key will never enter again. If you were retrying and changed the body by mistake, send the original body once. If the body was already the original, the key's entry no longer exists and the key is finished: read `GET /api/v1/entries`, tell the player what you find, and make a new entry only with a new key and the player's yes. The server builds that new entry on the payment the removed entry made when it finds it on Solana, and otherwise the new entry is paid for again. A different entry always needs a new key. |
@@ -740,7 +740,7 @@ Every error is `{ "error": { "code": "...", "message": "..." } }`. **Unless a ro
 | 422 | `contest_locked` | The lock time has passed | Nothing. Entries and edits are closed. |
 | 422 | `contest_cancelled` | The contest was cancelled | Choose another contest. |
 | 422 | `coming_soon` | The contest is advertised and not open yet | Try again when `coming_soon` is `false`. |
-| 422 | `unsupported_contest` | A survivor contest | Send the player to the website. |
+| 422 | `unsupported_contest` | A retired-format contest | It takes no entries; its results are on the website. |
 | 422 | `contest_full` | No spots left | Choose another contest. |
 | 422 | `entry_limit_reached` | The player already holds `max_entries_per_player` entries here | Replace the picks of an existing entry instead. |
 | 422 | `invalid_picks` | Not exactly `picks_required` different ids, or an id that is not one of this contest's `teams[].matchup_id` | Re-read the contest and rebuild the lineup. For a new entry, send it with a new idempotency key. |
@@ -859,7 +859,7 @@ Two answers carry a second text block, because a model does not see a status lin
 - **`PENDING: PAID, NOT YET ENTERED`** is the `202` of `POST /api/v1/contests/:slug/entries`. `isError` is `false` and `entry` is `null`. The entry is paid for and is not yet an entry. Do not tell the player it failed, and **do not tell the player they are entered until a call returns an entry**. Call `submit_entry` again with the same `idempotency_key` and the same arguments after `retry_after` seconds. If it is still pending after a few minutes, stop and tell the player what [the section on creating an entry](#post-apiv1contestsslugentries) says to tell them: paid for, not showing as entered, contact support.
 - **`RETRY`** comes with `idempotency_in_progress` and `chain_unavailable`. `isError` is `true`. Call the same tool again with the same `idempotency_key` and the same arguments after `retry_after` seconds.
 
-An account on hold, or one that still owes age verification, can call every reading tool. `submit_entry` and `edit_entry` answer `account_frozen` or `age_verification_required`.
+A frozen account, or one that still owes age verification, can call every reading tool. `submit_entry` and `edit_entry` answer `account_frozen` or `age_verification_required`.
 
 ### The idempotency key is an argument
 
@@ -907,7 +907,7 @@ Report results as they are. If the entry finished out of the prizes, say so.
 
 ## What the API cannot do yet
 
-- **Survivor contests.** World Cup Survivor (`game_type: "world_cup_survivor"`) is listed with `"supported": false` and a `note`, an empty `teams` list and an empty leaderboard. It is played on the website.
+- **Retired-format contests.** A contest from a format Turf Monster no longer runs is listed with `"game_type": null`, `"supported": false` and a `note`, an empty `teams` list and an empty leaderboard. It takes no entries; its final standings are on the website.
 - **Wallet-signed entries.** A player whose own wallet must sign (self-custodied, or with a Phantom wallet linked), and a player with no wallet, cannot enter through the API.
 - **Anything about money beyond the entry.** The API does not deposit, withdraw, buy tokens or move funds.
 - **Withdraw or cancel an entry.** Once created, an entry can have its picks replaced before the lock. It cannot be removed, and what paid for it is not returned by this API.

@@ -5,7 +5,7 @@
     per-message Hide buttons for admins — broadcast partials can't know the
     viewer, so visibility is driven by this container class. %>
 <% messages = local_assigns.fetch(:messages) { Message.recent_for(contest) } %>
-<% can_post = logged_in? && contest.chat_enabled? && contest.chat_participant?(current_user) %>
+<% can_post = logged_in? && !account_frozen? && contest.chat_enabled? && contest.chat_participant?(current_user) %>
 <%# Quest 2 typewriter deck (contests_helper#chat_prompt_samples). Gated on
     @quest_step, which contests#show sets only for an entrant — because the ONLY
     thing that dispatches quest-chat-active is the quest card, and contests#live
@@ -37,7 +37,7 @@
      @quest-chat-active.window="questChatActive()"
      data-post-url="<%= contest_messages_path(contest) %>"
      data-chat-prompts="<%= chat_prompts.to_json %>"
-     data-can-react="<%= can_post %>">
+     data-can-react="<%= can_post %>"<%= " data-account-frozen" if account_frozen? %>>
   <%= turbo_stream_from contest, :messages %>
 
   <%# Header %>
@@ -61,7 +61,7 @@
         <%= link_to "Sign in", signin_path, class: "text-primary hover:text-primary-300 font-medium" %> to join the chat.
       </p>
     <% elsif !can_post %>
-      <p class="text-sm text-muted text-center py-1">Enter the contest to join the chat.</p>
+      <p class="text-sm text-muted text-center py-1" <%= "data-frozen-cta" if account_frozen? %>><%= account_frozen? ? "Chat is off while your account is frozen." : "Enter the contest to join the chat." %></p>
     <% else %>
       <form class="flex items-center gap-2" @submit.prevent="send()">
         <%# Quest 2: .chat-input-glow while the "Send Your First Message" mission
@@ -174,6 +174,7 @@
         var session = window.Alpine && Alpine.store('session');
         window.__chatMyUserId = (session && session.userId) || null;
         window.__chatCanReact = this.$root.dataset.canReact === 'true';
+        window.__chatAccountFrozen = 'accountFrozen' in this.$root.dataset;
 
         var listEl = this.$refs.messageList;
         if (listEl) {
@@ -483,6 +484,11 @@
     if (!messageEl) return;
     var url = messageEl.dataset.reactUrl;
     if (!url) return;
+    if (window.__chatAccountFrozen) {
+      // OPSEC-048: a frozen entrant is not told to join; it is told why.
+      chatToast(<%= FrozenAccount::TOAST_TITLE.to_json.html_safe %>, <%= FrozenAccount::MESSAGE.to_json.html_safe %>);
+      return;
+    }
     if (!window.__chatCanReact) {
       chatToast('Join to react', 'Enter the contest to react to messages.');
       return;
@@ -497,7 +503,7 @@
       body: JSON.stringify({ emoji: emoji })
     }).then(function(r) { return r.json().catch(function() { return {}; }); })
       .then(function(data) {
-        if (data && data.error) { chatToast('Reaction failed', data.error); return; }
+        if (data && data.error) { chatToast(data.code === <%= FrozenAccount::CODE.to_json.html_safe %> ? <%= FrozenAccount::TOAST_TITLE.to_json.html_safe %> : 'Reaction failed', data.error); return; }
         if (data && typeof data.html === 'string') applyReactionHtml(messageEl, data.html);
       })
       .catch(function() { chatToast('Reaction failed', 'Network error.'); });

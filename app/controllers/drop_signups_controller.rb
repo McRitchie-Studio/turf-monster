@@ -21,6 +21,10 @@
 # and signed up later is still credited. Counting visits is not this
 # controller's job.
 #
+# VARIANT is the page experiment the visitor was in (experiment_slug +
+# variant_key, from the sticky exp_<slug> cookie; PageExperimentTracking
+# #experiment_attribution), read the same way and for the same reason.
+#
 # THE CONFIRMATION EMAIL. Every accepted submit asks the row to queue its
 # confirmation (DropSignup#deliver_confirmation!), and the row's atomic claim on
 # confirmation_sent_at makes every ask after the first a no-op: a duplicate
@@ -48,7 +52,8 @@ class DropSignupsController < ApplicationController
         source: attribution_param || params[:source].presence || cookies[:reference],
         ip: request.remote_ip,
         user_agent: request.user_agent,
-        user: current_user
+        user: current_user,
+        **experiment_attribution
       )
     end
 

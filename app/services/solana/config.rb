@@ -613,7 +613,11 @@ module Solana
       "https://app.squads.so/squads/#{squads_vault_pda(network)}/home"
     end
 
+    # USDC and USDT both carry 6 decimals; a cent carries 2. One cent is
+    # therefore exactly 10_000 base units, and money moves between the two
+    # with integer arithmetic only (#cents_to_base_units).
     DECIMALS = 6
+    BASE_UNITS_PER_CENT = 10**(DECIMALS - 2)
 
     # IDL hash pinning (audit Tier 3 #22). Catches drift between the Rails
     # app's expected program shape and what's actually deployed on-chain.
@@ -780,12 +784,24 @@ module Solana
       NETWORK == "mainnet-beta"
     end
 
-    def self.dollars_to_lamports(dollars)
-      (dollars * 10**DECIMALS).to_i
+    # Integer cents to USDC base units: the one path money takes to the chain.
+    # Integer in, integer out. A Float, BigDecimal, Rational or String raises:
+    # `cents / 100.0 * 10**6` truncates one unit short for about one cent value
+    # in fifty (201 cents gives 2_009_999), so a dollar amount never reaches
+    # this method. Convert to cents first, where the caller owns the rounding.
+    def self.cents_to_base_units(cents)
+      raise ArgumentError, "cents must be an Integer, got #{cents.inspect}" unless cents.is_a?(Integer)
+
+      cents * BASE_UNITS_PER_CENT
     end
 
-    def self.lamports_to_dollars(lamports)
-      lamports.to_f / 10**DECIMALS
+    # USDC base units to dollars, for display. A BigDecimal, so the value is
+    # exact: format it with `dollars` or `to_s("F")`, never interpolate it bare
+    # (BigDecimal#to_s prints "0.201e1").
+    def self.base_units_to_dollars(base_units)
+      raise ArgumentError, "base units must be an Integer, got #{base_units.inspect}" unless base_units.is_a?(Integer)
+
+      BigDecimal(base_units) / 10**DECIMALS
     end
 
     # SHA256 hex digest of the committed IDL file. Returns nil if the file

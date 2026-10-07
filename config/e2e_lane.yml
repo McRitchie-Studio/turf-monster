@@ -1247,10 +1247,23 @@
 # /turf-monster-v2?r=<reference>, and both admin pages read back ONE click — the visitor
 # cookie riding a real 302 is what only a browser proves. Runs in chromium, no skip.
 # Merged with origin/accepted at 4a94081c, which took 398 -> 399 in parallel.
-# 400 -> 401 (drop-signup-emails, merged over short-campaign-links): one spec in e2e/admin_drop_announcement.spec.js. The admin
+# 400 -> 399 (remove-world-cup-survivor): e2e/survivor.spec.js and its two specs left with
+# the retired format, and e2e/game_started_lock.spec.js gained one case: a saved cart
+# returning through the root lobby is handed back to its contest page. Derived with
+# bin/e2e-lane-derive --write.
+# 400 -> 402 (turf-frozen-accounts-block-actions): two specs in e2e/frozen_account_banner.spec.js.
+# A frozen player sees the banner painted on four pages and a disabled rename with its reason,
+# and the banner goes the moment the freeze lifts. Runs in chromium, no skip. Derived with
+# bin/e2e-lane-derive --write.
+# 402 -> 405 (turf-frozen-account-followups): three specs in e2e/frozen_account_banner.spec.js.
+# The banner paints above the /tiktok funnel background (hit test), a frozen pick tap toasts the
+# freeze rather than Entry Failed, and at 375px the banner is a headline and a contact. Runs in
+# chromium, no skip. Derived with bin/e2e-lane-derive --write.
+# 405 -> 406 (drop-signup-emails, merged over the specs above): one spec in
+# e2e/admin_drop_announcement.spec.js. The admin
 # previews the drop email, types the recipient count back, ticks Send early before the drop,
 # accepts the confirm dialog and reads the result counts. Derived with bin/e2e-lane-derive --write.
-total_specs: 401
+total_specs: 406
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1627,9 +1640,15 @@ allowed_skips: 4
 # 377 -> 378 (pending-kickoff-review-followups): the live-scoreboard spec beside total_specs above.
 # 378 -> 379 (short-campaign-links): the short-link spec beside total_specs above; chromium,
 # no skip, so excluded holds at 17 and allowed_skips at 4.
-# 379 -> 380 (drop-signup-emails): the drop-announcement spec beside total_specs above;
+# 379 -> 378 (remove-world-cup-survivor): the net one spec beside total_specs above; chromium,
+# no skip, so excluded holds at 17 and allowed_skips at 4.
+# 379 -> 381 (turf-frozen-accounts-block-actions): the two frozen-banner specs beside
+# total_specs above; chromium, no skip, so excluded holds at 17 and allowed_skips at 4.
+# 381 -> 384 (turf-frozen-account-followups): the three frozen-account specs beside
+# total_specs above; chromium, no skip, so excluded holds at 17 and allowed_skips at 4.
+# 384 -> 385 (drop-signup-emails): the drop-announcement spec beside total_specs above;
 # chromium, no skip, so excluded holds at 17 and allowed_skips at 4.
-executed: 380
+executed: 385
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

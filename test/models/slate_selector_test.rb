@@ -8,7 +8,6 @@ class SlateSelectorTest < ActiveSupport::TestCase
     # contests (and transitively by entries/selections) — clear dependents first
     # or the delete trips a foreign key.
     Selection.delete_all
-    SurvivorPick.delete_all
     Message.delete_all
     Entry.delete_all
     Contest.delete_all

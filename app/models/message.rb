@@ -120,4 +120,9 @@ class Message < ApplicationRecord
   rescue => e
     ErrorLog.capture!(e)
   end
+
+  # At the foot of the class so docs/workflows' line citations above hold.
+  # OPSEC-048: a frozen account cannot post in a contest chat.
+  include FrozenAccount::Validation
+  validates_account_not_frozen :user, on: :create
 end

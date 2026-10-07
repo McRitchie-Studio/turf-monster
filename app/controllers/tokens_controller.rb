@@ -1,4 +1,4 @@
-class TokensController < ApplicationController
+class TokensController < ApplicationController # fiat actions parked: FiatRailsParked, docs/FIAT_RAILS.md
   before_action :require_login
   before_action :require_dev_mint_allowed, only: [:dev_mint]
   # B4 / OPSEC-048: frozen accounts can't buy tokens.

@@ -40,6 +40,7 @@
   <%= form_with url: drop_signups_path, method: :post, local: true,
         data: { turbo: false },
         html: { "x-show": "state !== 'done'", "@submit.prevent": "submit($event)", novalidate: true,
+                "data-cta-submit": "notify",
                 style: (initial == "done" ? "display: none;" : nil) } do %>
     <label for="<%= id_prefix %>_email" class="<%= visible_label ? 'block text-sm font-semibold text-heading mb-2' : 'sr-only' %>">Notify me when <%= NextSlateDrop::LABEL %> drops</label>
     <%# ONE JOINED ROW from sm up: the input fills the space up to the button,

@@ -68,7 +68,7 @@ module Solana
       slot0_fee        = onchain[:entry_fee_by_currency].is_a?(Array) ? onchain[:entry_fee_by_currency][0].to_i : 0
 
       db_entries = contest.entries.where(status: [:active, :complete]).count
-      db_pool    = Solana::Config.dollars_to_lamports(contest.pool_dollars)
+      db_pool    = contest.pool_base_units
 
       if current_entries.to_i != db_entries
         @discrepancies << {

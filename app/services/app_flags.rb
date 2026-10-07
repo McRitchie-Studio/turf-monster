@@ -54,7 +54,7 @@ module AppFlags
   # ENABLE_COINFLOW is the kill-switch. Additive — stacks ALONGSIDE the
   # Coinbase / PayPal / Stripe rails, not a mutually-exclusive provider.
   def self.coinflow?
-    ENV["ENABLE_COINFLOW"].to_s.strip.downcase == "true"
+    fiat_rails? && ENV["ENABLE_COINFLOW"].to_s.strip.downcase == "true"
   end
 
   # True when the Aeropay bank-payment entry-token rail is enabled — the "Buy 1
@@ -67,7 +67,7 @@ module AppFlags
   # PayPal / Stripe rails as Turf's INDEPENDENT hedge rail, not a
   # mutually-exclusive provider.
   def self.aeropay?
-    ENV["ENABLE_AEROPAY"].to_s.strip.downcase == "true"
+    fiat_rails? && ENV["ENABLE_AEROPAY"].to_s.strip.downcase == "true"
   end
 
   # True for stable QA apps that run Rails in production mode but must still
@@ -159,5 +159,27 @@ module AppFlags
   # signup, never the rails that serve the wallets already out there.
   def self.web3_only_onboarding?
     ENV.fetch("ENABLE_WEB3_ONLY_ONBOARDING", "true").to_s.strip.downcase != "false"
+  end
+
+  # Raised at boot when live production carries ENABLE_FIAT_RAILS with no
+  # FIAT_RAILS_OVERRIDE (config/initializers/fiat_rails_guard.rb).
+  class FiatRailsRefused < StandardError; end
+
+  # True when the fiat payment rails (Stripe, PayPal/Venmo, Coinflow, Aeropay)
+  # are switched on. The rails are PARKED: the code stays, and this one flag
+  # gates every route, webhook, job and view entry point listed in
+  # FiatRailsParked (docs/FIAT_RAILS.md). Off by default everywhere; the test
+  # suite and the e2e stack turn it on so the parked code keeps its coverage.
+  # The per-provider switches (coinflow?, aeropay?, Payments.provider) answer
+  # only when this is on.
+  def self.fiat_rails?
+    ENV["ENABLE_FIAT_RAILS"].to_s.strip.downcase == "true"
+  end
+
+  # The reason an operator gives for running the fiat rails on live production
+  # (FIAT_RAILS_OVERRIDE), or nil when none is given. A blank value is no
+  # override.
+  def self.fiat_rails_override
+    ENV["FIAT_RAILS_OVERRIDE"].to_s.strip.presence
   end
 end

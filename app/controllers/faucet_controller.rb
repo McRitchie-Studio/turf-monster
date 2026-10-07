@@ -17,8 +17,8 @@ class FaucetController < ApplicationController
       return render json: { success: false, error: "Please log in to claim test USDC." }, status: :unauthorized
     end
 
-    amount_dollars = params[:amount].to_f
-    amount_cents = (amount_dollars * 100).to_i
+    amount_cents = Cents.from_dollars(params[:amount])
+    amount_dollars = BigDecimal(amount_cents) / 100
 
     unless amount_cents > 0 && amount_cents <= 500_00
       return render json: { success: false, error: "Amount must be between $1 and $500." }, status: :unprocessable_entity
@@ -37,7 +37,7 @@ class FaucetController < ApplicationController
       wallet = current_user.solana_address
 
       vault.ensure_ata(wallet, mint: Solana::Config::USDC_MINT)
-      amount_lamports = Solana::Config.dollars_to_lamports(amount_dollars)
+      amount_lamports = Solana::Config.cents_to_base_units(amount_cents)
       result = vault.mint_spl(amount_lamports, mint: Solana::Config::USDC_MINT, to: wallet)
 
       invalidate_usdc_cache
@@ -49,7 +49,7 @@ class FaucetController < ApplicationController
         description: "Devnet faucet $#{'%.2f' % amount_dollars}",
         onchain_tx: result[:signature]
       )
-      render json: { success: true, tx: result[:signature], amount: amount_dollars }
+      render json: { success: true, tx: result[:signature], amount: amount_dollars.to_s("F") }
     end
   rescue StandardError => e
     render json: { success: false, error: e.message }, status: :unprocessable_entity

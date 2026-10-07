@@ -44,6 +44,25 @@ class FaucetControllerTest < ActionDispatch::IntegrationTest
     assert_equal false, json["success"]
   end
 
+  # 2.01 is a value Float parsing and the float base-unit formula both cut
+  # short ($2.00, then 2_009_999): the mint and the log carry it exactly.
+  test "claim of $2.01 mints exactly 2_010_000 base units and logs 201 cents" do
+    log_in_as(@user)
+
+    mock_vault = Minitest::Mock.new
+    mock_vault.expect :ensure_ata, { ata: "fake_ata", created: false, signature: nil }, [String], mint: String
+    mock_vault.expect :mint_spl, { signature: "fake_tx_exact" }, [2_010_000], mint: String, to: String
+
+    Solana::Vault.stub :new, mock_vault do
+      post faucet_path, params: { amount: "2.01" }, as: :json
+    end
+
+    assert_response :success
+    assert_equal "2.01", JSON.parse(response.body)["amount"]
+    assert_equal 2_01, TransactionLog.find_by(onchain_tx: "fake_tx_exact").amount_cents
+    mock_vault.verify
+  end
+
   test "claim mints USDC and creates transaction log" do
     log_in_as(@user)
 

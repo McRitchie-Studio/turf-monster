@@ -110,4 +110,9 @@ class Selection < ApplicationRecord
                      .exists?
     errors.add(:base, "#{slate_matchup.team&.name || slate_matchup.team_slug} is already picked in this entry") if taken
   end
+
+  # At the foot of the class so docs/workflows' line citations above hold.
+  # OPSEC-048: no new pick on a frozen account's entry (edit_entry, the cart).
+  include FrozenAccount::Validation
+  validates_account_not_frozen -> { entry&.user }, on: :create
 end

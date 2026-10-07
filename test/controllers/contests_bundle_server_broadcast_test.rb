@@ -18,7 +18,7 @@ require "test_helper"
 # fact — a wire that was not this bundle's create_contest had already moved
 # money by the time anyone looked.
 class ContestsBundleServerBroadcastTest < ActionDispatch::IntegrationTest
-  BUNDLE_KEY = "survivor"
+  BUNDLE_KEY = "world_cup"
 
   # Records the ORDER of the two vault calls, because "both happened" is not the
   # invariant — "the check happened FIRST" is. A safety check that runs after the
@@ -40,7 +40,10 @@ class ContestsBundleServerBroadcastTest < ActionDispatch::IntegrationTest
     end
   end
 
-  setup { SeasonConfig.set_current!(1) }
+  setup do
+    SeasonConfig.set_current!(1)
+    seed_bundle_slate!(BUNDLE_KEY)
+  end
 
   def operator
     @operator ||= User.create!(
@@ -116,7 +119,7 @@ class ContestsBundleServerBroadcastTest < ActionDispatch::IntegrationTest
                  "a refused wire must cost nothing — this is the guard the bundle path never had"
     assert_match(/did not match this bundle/i, response.parsed_body["error"],
                  "and the operator is told what to do about it, not shown a parser message")
-    assert_nil Contest.find_by(slug: "world-cup-survivor-free-roll"),
+    assert_nil Contest.find_by(slug: "world-cup-1000-turf-total-contest"),
                "no row may exist for a provision that never funded"
   end
 
@@ -147,7 +150,7 @@ class ContestsBundleServerBroadcastTest < ActionDispatch::IntegrationTest
     run_finalize_bundle(generate_json, vault: vault, body: { tx_signature: "CLIENT_CLAIMED_SIG" })
 
     assert_response :success
-    contest = Contest.find_by!(slug: "world-cup-survivor-free-roll")
+    contest = Contest.find_by!(slug: "world-cup-1000-turf-total-contest")
     assert_equal "REAL_BROADCAST_SIG", contest.onchain_tx_signature,
                  "the row must carry the signature the chain actually got, never one the client asserted"
   end

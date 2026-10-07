@@ -78,7 +78,7 @@
     <div>
       <label class="text-muted text-[10px] uppercase tracking-wide block mb-1">CTA Contest</label>
       <%= f.select :contest_id,
-            options_for_select(@contests.map { |c| ["#{c.name} · #{c.game_type.titleize} · #{c.status}", c.id] }, @landing_page.contest_id),
+            options_for_select(@contests.map { |c| ["#{c.name} · #{c.retired_format? ? "Retired format" : c.game_type.titleize} · #{c.status}", c.id] }, @landing_page.contest_id),
             { include_blank: "— No contest yet —" },
             class: field_class, style: field_style %>
       <p class="text-muted text-xs mt-1">The CTA button sends visitors to this contest's lobby.</p>

@@ -6,7 +6,7 @@ module Webhooks
   # PayPal/Venmo but onApprove never reached /tokens/paypal_capture, so we
   # capture server-side. Exactly-once minting is arbitrated by
   # PaypalPurchase#begin_fulfillment! via Paypal::Fulfillment.
-  class PaypalController < ApplicationController
+  class PaypalController < ApplicationController # parked: FiatRailsParked, docs/FIAT_RAILS.md
     skip_before_action :verify_authenticity_token
     skip_before_action :require_authentication
     skip_before_action :detect_geo_state

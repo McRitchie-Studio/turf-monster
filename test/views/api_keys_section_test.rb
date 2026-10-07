@@ -176,7 +176,7 @@ class ApiKeysSectionTest < ActionView::TestCase
   # --- blockers ----------------------------------------------------------------
 
   test "each blocker replaces the form with its own explanation" do
-    { impersonating: /acting as another user/, frozen: /on hold/,
+    { impersonating: /acting as another user/, frozen: /is frozen/,
       geo: /aren't available where you are/, age: /Verify your age/ }.each do |reason, copy|
       doc = render_section(blocked_reason: reason)
 
