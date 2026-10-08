@@ -2,7 +2,7 @@ class ProofOfReservesController < ApplicationController
   skip_before_action :require_authentication
 
   def show
-    @contests = Contest.where(status: [:open, :settled])
+    @contests = Contest.listed
                        .where.not(onchain_contest_id: nil)
                        .order(created_at: :desc)
 

@@ -46,7 +46,7 @@ module Api
         # is ordered by the stored rank instead, which is the same order unless a
         # score was touched after grading; the stored rank is the one that paid.
         def leaderboard_order(contest, provisional_ranks)
-          return provisional_ranks.keys unless contest.settled?
+          return provisional_ranks.keys unless contest.graded?
 
           contest.entries.confirmed.order(Arel.sql("rank ASC NULLS LAST"), score: :desc, id: :asc).pluck(:id)
         end

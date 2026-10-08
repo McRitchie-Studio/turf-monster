@@ -91,7 +91,7 @@ module Api
         def serialize_entries(entries)
           contests = entries.map(&:contest).uniq
           facts = ContestFacts.for(contests)
-          ranks = Ranking.for_contests(contests.reject(&:settled?).map(&:id))
+          ranks = Ranking.for_contests(contests.reject(&:graded?).map(&:id))
           boards = contests.to_h { |contest| [contest.id, Board.new(contest, contest_locked: facts.locked?(contest))] }
           web_rules = WebRules.new(user)
 

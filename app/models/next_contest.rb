@@ -71,7 +71,7 @@ module NextContest
   end
 
   def self.live_showcase(now: Time.current)
-    nfl = Contest.where(status: [:open, :settled], coming_soon: false)
+    nfl = Contest.listed.where(coming_soon: false)
                  .joins(:slate).where(slates: { sport: "nfl" })
                  .includes(:slate).to_a
                  .reject(&:cancelled?).select(&:turf_totals?)

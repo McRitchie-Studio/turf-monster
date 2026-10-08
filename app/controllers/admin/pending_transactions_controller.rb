@@ -191,7 +191,7 @@ module Admin
         # and never reaches the chain in that case.
         begin
           vault.simulate_and_broadcast(signed_tx)
-        rescue Solana::Cosign::PreflightRejected
+        rescue Solana::Cosign::PreflightRejected => e
           # PROVABLY UN-SENT — the simulation refused it, or could not be run at
           # all, so `client.send_transaction` was never called. This is the ONLY
           # exception that rewinds the row, and the rewind names the signature
@@ -208,6 +208,7 @@ module Admin
           # Solana::Vault#simulate_and_broadcast. Such a row keeps its claim and
           # its signature, and #reconcile asks the chain instead of guessing.
           @tx.rewind_broadcast!(signature)
+          @tx.note_settlement_failure!(PendingTransaction.settle_refused_message(e.message))
           raise
         end
 
@@ -446,21 +447,22 @@ module Admin
         )
       end
 
+      # THE CONTEST IS SETTLED BEFORE THE ROW IS CLOSED. The settle has provably
+      # landed, so the contest leaves settlement_pending here, through its one
+      # door (Contest::Settlement#mark_settled!: payout pointers, then settled,
+      # then the winners are told, never at grade time). If the row's own write
+      # below then fails, the row is still `submitted` with its signature and
+      # Contests::SettlementSweepJob closes it; the reverse order would leave a
+      # closed row beside an unpaid-looking contest.
+      @tx.settlement_contest&.mark_settled!(signature)
+
       @tx.update!(status: "confirmed", cosigner_address: cosigner,
                   cosigner_addresses: [cosigner, *Array(extras)], tx_signature: signature)
 
-      # settle/cancel both target a Contest; the currency/sweep types have no
-      # Contest target and need no DB state change (the source of truth is the
+      # cancel targets a Contest; the currency/sweep types have no Contest
+      # target and need no DB state change (the source of truth is the
       # on-chain VaultState / ATAs).
       case @tx.tx_type
-      when "settle_contest"
-        if @tx.target.is_a?(Contest)
-          @tx.target.update!(onchain_settled: true)
-          # The payout has now provably landed on-chain — only here do we tell
-          # winners they won (never at grade time). Idempotent + skips
-          # wallet-only winners; enqueues a background job per emailable winner.
-          @tx.target.notify_winners!
-        end
       when "cancel_contest"
         @tx.target.update!(onchain_cancelled: true) if @tx.target.is_a?(Contest)
       end
