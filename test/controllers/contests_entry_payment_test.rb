@@ -418,4 +418,19 @@ class ContestsEntryPaymentTest < ActionDispatch::IntegrationTest
     funding
     assert_equal true, body["fundable"], "and so is one with a payment in flight"
   end
+
+  test "a payment unresolved far past any wire's life stops the poll and names the support contact" do
+    @vault.fail_next_enter = :unlanded
+    hold
+    @entry.update_columns(payment_last_valid_block_height: nil, payment_submitted_at: 20.minutes.ago) # a row no clock releases
+
+    poll
+    assert_equal ["held", "pending_long", false], body.values_at("status", "code", "retry")
+    assert_match(/much longer than usual.*not be charged twice.*contact support@turfmonster.media/m, body["error"])
+
+    hold
+    assert_response :conflict
+    assert_equal "entry_held", body["code"]
+    assert_equal "submitted", @entry.reload.payment_state, "CONTROL: still not released by a clock"
+  end
 end

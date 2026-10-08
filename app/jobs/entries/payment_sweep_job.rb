@@ -7,6 +7,12 @@ module Entries
   #
   # `landed` rows are not swept: they are paid entries an app gate refused, and
   # they wait for a person (Entry::Payment).
+  #
+  # ROWS NO CLOCK WILL EVER RELEASE ARE NAMED, EVERY RUN. A signed row with no
+  # recorded block height or no stamp time (backfilled or adopted from before
+  # this machine) is still settled if its payment turns up, but it can only be
+  # released by a person. The log line carries their count and their slugs
+  # (`never_by_clock=`), so they are never invisible.
   class PaymentSweepJob < ApplicationJob
     queue_as :default
     self.rpc_long_budget = :reconcile_sweep
@@ -25,7 +31,9 @@ module Entries
         stats[:error] += 1
         ErrorLog.capture!(e)
       end
-      Rails.logger.info("[entry-payment][sweep] healed=#{healed} #{stats.to_h}")
+      waiting = Entry.payment_never_released_by_clock.order(:id).limit(BATCH).pluck(:slug)
+      stats[:never_by_clock] = waiting.size if waiting.any?
+      Rails.logger.info("[entry-payment][sweep] healed=#{healed} #{stats.to_h} never_by_clock=#{waiting.size} slugs=#{waiting.join(',')}")
       stats
     end
 
@@ -33,8 +41,8 @@ module Entries
 
     def stale
       Entry.where(payment_state: "submitted", status: "cart")
-           .where(payment_submitted_at: ..SETTLE_AFTER.ago)
-           .order(:payment_submitted_at).limit(BATCH)
+           .where("payment_submitted_at IS NULL OR payment_submitted_at <= ?", SETTLE_AFTER.ago)
+           .order(Arel.sql("payment_submitted_at NULLS FIRST")).limit(BATCH)
     end
   end
 end

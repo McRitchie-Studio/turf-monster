@@ -38,6 +38,9 @@ module Entries
       pin_moved: [Entry::Payment::MESSAGES.fetch(:pin_moved), true],
       # Sent, outcome not known yet, or known and held.
       pending: [Entry::Payment::IN_FLIGHT_MESSAGES.fetch("submitted"), false],
+      pending_long: ["Your entry was sent and is still confirming on Solana, and it is taking much longer than " \
+                     "usual. You will not be charged twice. If it is not resolved within a day, contact " \
+                     "#{Entry::Payment::SUPPORT_EMAIL}.", false],
       landed: [Entry::Payment::IN_FLIGHT_MESSAGES.fetch("landed"), false],
       # A retry found the first payment.
       first_payment_landed: ["Your first payment went through, so you were not charged again. You're in!", false]

@@ -117,6 +117,13 @@ class Entry
       validate :payment_in_flight_row_is_kept, if: -> { will_save_change_to_status?(to: "abandoned") }
       before_save :confirm_payment_with_status
       before_destroy :keep_row_while_payment_in_flight, prepend: true
+
+      # Signed and submitted, with no recorded block height or no stamp time:
+      # #payment_release_allowed? never releases these by a clock.
+      scope :payment_never_released_by_clock, lambda {
+        where(payment_state: "submitted", status: "cart").where.not(payment_signature: nil)
+          .where("payment_last_valid_block_height IS NULL OR payment_submitted_at IS NULL")
+      }
     end
 
     class_methods do
@@ -323,6 +330,15 @@ class Entry
       return false if payment_rail == "phantom" && (payment_submitted_at.nil? || payment_submitted_at > now - WALLET_WIRE_FLOOR)
 
       finalized_block_height.to_i > payment_last_valid_block_height
+    end
+
+    # Unresolved for longer than any wire lives (or with no stamp time at
+    # all): the player is given the support contact instead of "we are
+    # checking it now".
+    LONG_PENDING_AFTER = 15.minutes
+
+    def payment_long_pending?(now: Time.current)
+      payment_state == "submitted" && (payment_submitted_at.nil? || payment_submitted_at <= now - LONG_PENDING_AFTER)
     end
 
     # A draft cart whose wallet and slot are fixed: its ticket address is known.

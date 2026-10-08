@@ -1558,8 +1558,8 @@ class ContestsController < ApplicationController
       render json: { status: "confirmed", redirect: contest_path(@contest), tx_signature: entry.onchain_tx_signature,
                      message: "You're in! Good luck." }
     elsif entry.payment_in_flight?
-      landed = entry.payment_state == "landed"
-      render json: { status: landed ? "held" : "pending", **Entries::PaymentCopy.payload(landed ? :landed : :pending) }
+      copy = unresolved_payment_copy(entry)
+      render json: { status: copy[:code] == "pending" ? "pending" : "held", **copy } # held: the card stops polling and says where to go
     else
       render json: { status: "retry", **Entries::PaymentCopy.payload(entry.payment_refusal_code.presence || :failed) }
     end
@@ -2827,12 +2827,22 @@ class ContestsController < ApplicationController
   # 202 from the request that sent it, 409 from one refused because of it.
   # `entry` is what the page hands #entry_payment_status.
   def render_entry_payment_pending(entry, status:)
-    landed = entry.payment_state == "landed"
-    copy = Entries::PaymentCopy.payload(landed ? :landed : :pending)
+    copy = unresolved_payment_copy(entry)
     return redirect_to(contest_path(@contest), alert: copy[:error]) unless request.format.json?
 
-    render json: { success: false, **copy, code: landed ? "entry_held" : "entry_pending", entry: entry.slug },
+    render json: { success: false, **copy, code: copy[:code] == "pending" ? "entry_pending" : "entry_held", entry: entry.slug },
            status: status
+  end
+
+  # The sentence for a row still in flight: paid and held; still confirming;
+  # or still confirming for longer than any wire lives, which names the
+  # support contact instead of promising a check that is not converging.
+  def unresolved_payment_copy(entry)
+    code = if entry.payment_state == "landed" then :landed
+           elsif entry.payment_long_pending? then :pending_long
+           else :pending
+           end
+    Entries::PaymentCopy.payload(code)
   end
 
   # The sentence for a failure that charged nothing, when the failure is the

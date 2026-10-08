@@ -356,7 +356,7 @@ confirm_onchain_entry
 | C1 cosign guard — `Solana::Cosign::Expectation#verify!` | invoked inside `#cosign_and_broadcast_entry` below; definition `solana-studio lib/solana/cosign/expectation.rb` |
 | cosign + simulate + broadcast — `Solana::Vault#cosign_and_broadcast_entry` | `#confirm_onchain_entry` at `app/controllers/contests_controller.rb:1399-1407`; definition `app/services/solana/vault.rb:3647-3652` |
 | PT stamped with `tx_signature` immediately, BEFORE broadcast (`before_send:`) | `#confirm_onchain_entry` at `app/controllers/contests_controller.rb:1406` |
-| `ContestsController#verify_and_confirm_onchain_entry!` | `#confirm_onchain_entry` at `:1413-1416`; definition `:2862-2879` |
+| `ContestsController#verify_and_confirm_onchain_entry!` | `#confirm_onchain_entry` at `:1413-1416`; definition `:2872-2889` |
 | PT confirmed | `#confirm_onchain_entry` at `:1418` |
 
 ## 4. Can funds be taken without an entry? (the full inventory)
@@ -382,8 +382,8 @@ and every such case except #6 self-heals automatically.
 - **Trigger**: automatic, on contest-page load, ONLY when the viewer has a
   pending/submitted PT **with a tx_signature** (= broadcast actually happened;
   money may have moved) — `ContestsController#find_pending_recovery_ptx`
-  (`app/controllers/contests_controller.rb:3021-3041`) returns only a signed one
-  (`:3040`). Signatureless PTs trigger nothing — stale ones
+  (`app/controllers/contests_controller.rb:3031-3051`) returns only a signed one
+  (`:3050`). Signatureless PTs trigger nothing — stale ones
   (>10 min, never racing a mid-confirm tab) are silently expired.
 - **Logic**, in `ContestsController#recover_pending_entry`
   (`app/controllers/contests_controller.rb:1239-1310`): entry already active →
@@ -453,7 +453,7 @@ and every such case except #6 self-heals automatically.
 ### 5.3 Page-load stale-PT expiry (web3 hygiene)
 Signatureless pending PTs older than 10 minutes are flipped to `expired`
 during contest-page load, inside `ContestsController#find_pending_recovery_ptx`
-(`app/controllers/contests_controller.rb:3036-3038`). Pure cleanup; never touches
+(`app/controllers/contests_controller.rb:3046-3048`). Pure cleanup; never touches
 a PT with a signature.
 
 ### 5.4 Operator surfaces (manual)

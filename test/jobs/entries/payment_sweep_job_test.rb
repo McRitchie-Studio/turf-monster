@@ -68,4 +68,36 @@ class Entries::PaymentSweepJobTest < ActiveJob::TestCase
     assert_empty @vault.enter_calls
     assert_empty @vault.client.sent_transactions
   end
+
+  test "rows no clock will release are still settled, and are named in the log by count and slug every run" do
+    undated = stamped(users(:sam), ago: 2.days)
+    undated.update_columns(payment_last_valid_block_height: nil)
+    unstamped = stamped(users(:jordan), ago: 2.days)
+    unstamped.update_columns(payment_submitted_at: nil, payment_rail: "phantom")
+    @vault.block_height = 99_999
+
+    log = StringIO.new
+    previous = Rails.logger
+    Rails.logger = ActiveSupport::Logger.new(log)
+    stats = begin
+      sweep
+    ensure
+      Rails.logger = previous
+    end
+
+    assert_equal({ pending: 2, never_by_clock: 2 }, stats.to_h, "both were LOOKED at (a landed one would confirm); neither is released")
+    assert_equal %w[submitted submitted], [undated, unstamped].map { |row| row.reload.payment_state }
+    line = log.string.lines.grep(/\[entry-payment\]\[sweep\]/).last
+    assert_includes line, "never_by_clock=2"
+    assert_includes line, undated.slug
+    assert_includes line, unstamped.slug
+    assert undated.payment_long_pending?
+    assert_match(/much longer than usual.*contact support@turfmonster.media/m, Entries::PaymentCopy.message(:pending_long))
+  end
+
+  test "CONTROL: a dated row inside its window is not on the never-by-clock list" do
+    stamped(users(:sam), ago: 5.minutes)
+    assert_empty Entry.payment_never_released_by_clock
+    refute sweep.key?(:never_by_clock)
+  end
 end
