@@ -15,6 +15,8 @@ class Admin::PendingTransactionsControllerTest < ActionDispatch::IntegrationTest
   end
 
   def ptx(tx_type, metadata, target: nil)
+    # A settle row exists only for a graded contest (Contest#grade! queues it).
+    target.update_columns(status: "settlement_pending") if tx_type == "settle_contest" && target
     PendingTransaction.create!(
       tx_type: tx_type,
       serialized_tx: "OLD_TX",
@@ -253,7 +255,7 @@ class Admin::PendingTransactionsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "confirmed", tx.reload.status
   end
 
-  test "confirm still flips onchain_settled for settle_contest" do
+  test "confirm of a verified settle_contest marks the contest settled" do
     log_in_as(@admin)
     tx = ptx("settle_contest", { settlements: [] }, target: @contest)
     cosigner = Solana::Config::MULTISIG_SIGNERS.first
@@ -267,7 +269,10 @@ class Admin::PendingTransactionsControllerTest < ActionDispatch::IntegrationTest
       end
     end
 
-    assert @contest.reload.onchain_settled?
+    @contest.reload
+    assert @contest.onchain_settled?
+    assert_equal "settled", @contest.status, "the confirmed settle is what settles the contest"
+    assert_equal "confirmed", tx.reload.status
   end
 
   test "confirm of settle_contest enqueues winner notifications" do

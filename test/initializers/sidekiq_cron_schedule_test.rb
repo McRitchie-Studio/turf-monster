@@ -118,4 +118,15 @@ class SidekiqCronScheduleTest < ActiveSupport::TestCase
     refute schedule.key?("pending_transaction_sweeper")
     refute Object.const_defined?(:PendingTransactionSweeperJob)
   end
+
+  # The settlement half of the chain sweep. Without `active_job: true` the tick
+  # raises at enqueue and no pending settlement is ever read from the chain.
+  test "the contest settlement sweep is scheduled as an ActiveJob" do
+    entry = YAML.load_file(Rails.root.join("config/schedule.yml")).fetch("contest_settlement_sweep")
+
+    assert_equal "Contests::SettlementSweepJob", entry["class"]
+    assert_equal true, entry["active_job"]
+    assert_operator Contests::SettlementSweepJob, :<, ApplicationJob
+    assert_equal :reconcile_sweep, Contests::SettlementSweepJob.rpc_long_budget
+  end
 end

@@ -24,7 +24,8 @@ module Contests
   # A transaction that landed but is NOT this contest's settle is left
   # `submitted` with the reason on the contest (:unverified). It is never
   # rewound, because it is on chain, and never settled, because it paid
-  # something else; a person looks.
+  # something else; a person looks. The same holds for a verified settle whose
+  # contest is not graded here (:ungraded).
   class SettlementReconciler
     Result = Struct.new(:status, :contest, :detail, keyword_init: true)
 
@@ -61,6 +62,11 @@ module Contests
       result(:pending, "landed; the transaction is not readable yet")
     rescue Solana::TxVerifier::VerificationError => e
       unverified(e)
+    rescue Contest::Settlement::NotConfirmed => e
+      # A verified settle for a contest this app does not hold as graded. The
+      # row stays `submitted` and is named by the sweep; a person looks.
+      Rails.logger.warn("[settlement] #{@tx.slug} landed for an ungraded contest: #{e.message}")
+      result(:ungraded, e.message)
     rescue Solana::Client::RpcError, *NETWORK_FAULTS => e
       # A read that errors is never a verdict.
       Rails.logger.warn("[settlement] unreadable #{@tx.slug} #{e.class}: #{e.message.to_s[0, 140]}")

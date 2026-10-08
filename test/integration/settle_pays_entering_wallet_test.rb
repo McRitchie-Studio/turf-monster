@@ -92,8 +92,8 @@ class SettlePaysEnteringWalletTest < ActionDispatch::IntegrationTest
   test "control: the same contest with every wallet recorded grades through the same action" do
     grade
 
-    assert_equal "Contest graded and settled!", flash[:notice]
-    assert_equal "settled", @contest.reload.status
+    assert_match "Its settlement is pending", flash[:notice]
+    assert_equal "settlement_pending", @contest.reload.status
     assert_equal 1, PendingTransaction.where(target: @contest, tx_type: "settle_contest").count
   end
 
