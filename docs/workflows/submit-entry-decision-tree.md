@@ -92,6 +92,25 @@ blockhash (`Solana::Vault#cosign_expectation` does not pin it). An error's TEXT
 never releases a signed row: on the managed rail it is kept as the reason
 (`Entry::Payment#note_payment_failure!`) and the chain decides.
 
+**Three things outside that table, each one rule in one place:**
+
+- A recorded signature whose status is SUCCESS on chain is never released,
+  whatever the verifier or the pinned address says: every recorded signature is
+  a wire the server stamped, so a success is a payment. The row is `landed`
+  (`Entries::PaymentSettlement#activate`).
+- The pin is wallet AND slot together, and it does not move under a wire that
+  can still pay. `Entry::Payment#pin_payment_slot!` refuses the second rail
+  while a prepared wire for the cart can still be signed and sent, and moves a
+  pin only when the one verdict finds no ticket at it (absent at `finalized`
+  and not visible at `confirmed`). A Phantom wire is refused at its send
+  (`Entry::Payment#begin_phantom_charge!`) when the cart is no longer pinned to
+  the wallet and ticket the wire pays.
+- Every attempt owns its row by `payment_attempt_token`, written by
+  `Entry::Payment#begin_charge!`. The signature, the "nothing was sent"
+  release, a move to `draft` or `landed` and the failure hint are each ONE
+  UPDATE whose WHERE names the state and the token the writer holds, so an
+  attempt that stalled cannot touch the row of the retry that replaced it.
+
 **A retry reads the pinned ticket first.** A draft cart whose slot is pinned is
 asked whether its ticket exists before the managed rail's funding checks
 (`Entries::ManagedEntry#first_payment_landed?`), before `prepare_entry` builds
@@ -127,10 +146,10 @@ Hold to Confirm
 
 | Branch | Where |
 |---|---|
-| guest → auth modal — `confirmEntry()` | `app/views/contests/_turf_totals_board.html.erb:1656-1661` |
+| guest → auth modal — `confirmEntry()` | `app/views/contests/_turf_totals_board.html.erb:1716-1721` |
 | client preflight — the `eligibilityBlocker` export | `app/javascript/solana_utils.js:874`, mirrored onto `window` at `:962` |
-| the blocker, re-checked inside `confirmEntry()` at submit time | `app/views/contests/_turf_totals_board.html.erb:1666-1670` |
-| route by session — `useOnchainFlow = sess.isWeb3 && this.contestOnchain` in `confirmEntry()` | `:1712`, branch taken at `:1726` |
+| the blocker, re-checked inside `confirmEntry()` at submit time | `app/views/contests/_turf_totals_board.html.erb:1726-1730` |
+| route by session — `useOnchainFlow = sess.isWeb3 && this.contestOnchain` in `confirmEntry()` | `:1772`, branch taken at `:1786` |
 
 Currency pick (web3): USDC-first, USDT only when the contest's `accepts_usdt`
 is true (contests created before 2026-06-11 are USDC-only forever — their
@@ -382,8 +401,8 @@ and every such case except #6 self-heals automatically.
 - **Trigger**: automatic, on contest-page load, ONLY when the viewer has a
   pending/submitted PT **with a tx_signature** (= broadcast actually happened;
   money may have moved) — `ContestsController#find_pending_recovery_ptx`
-  (`app/controllers/contests_controller.rb:3031-3051`) returns only a signed one
-  (`:3050`). Signatureless PTs trigger nothing — stale ones
+  (`app/controllers/contests_controller.rb:3042-3062`) returns only a signed one
+  (`:3061`). Signatureless PTs trigger nothing — stale ones
   (>10 min, never racing a mid-confirm tab) are silently expired.
 - **Logic**, in `ContestsController#recover_pending_entry`
   (`app/controllers/contests_controller.rb:1239-1310`): entry already active →
@@ -453,7 +472,7 @@ and every such case except #6 self-heals automatically.
 ### 5.3 Page-load stale-PT expiry (web3 hygiene)
 Signatureless pending PTs older than 10 minutes are flipped to `expired`
 during contest-page load, inside `ContestsController#find_pending_recovery_ptx`
-(`app/controllers/contests_controller.rb:3046-3048`). Pure cleanup; never touches
+(`app/controllers/contests_controller.rb:3057-3059`). Pure cleanup; never touches
 a PT with a signature.
 
 ### 5.4 Operator surfaces (manual)

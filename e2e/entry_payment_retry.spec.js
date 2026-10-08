@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { loginViaPhantom } = require("./helpers");
+const { loginViaPhantom, reseed } = require("./helpers");
 const { setupPhantomMock } = require("./phantom-mock");
 
 // THE RETRY FLOW, AS THE PLAYER SEES IT (task entry-payment-state-machine).
@@ -18,6 +18,10 @@ const { setupPhantomMock } = require("./phantom-mock");
 const CONTEST_PATH = "/contests/world-cup-2026";
 const PENDING = "Your entry was sent and is still confirming on Solana. We are checking it now. You will not be charged twice.";
 const NEVER_LANDED = "Your last attempt never reached Solana, so you were not charged. Your picks are saved. Try again.";
+
+// The lane shares one database: clear throttles and cached session state
+// before each login, as every spec that signs in does.
+test.beforeEach(async ({ request }) => await reseed(request));
 
 const json = (status, body) => ({ status, contentType: "application/json", body: JSON.stringify(body) });
 
@@ -54,7 +58,9 @@ async function holdOneToken(page) {
 const card = (page) =>
   page.evaluate(() => {
     const live = Alpine.store("modals").stack.filter((m) => m.id === "onchain-tx" && !m._closing).pop();
-    return live ? { state: live.props.state, title: live.props.title, message: live.props.message, error: live.props.errorMessage } : null;
+    if (!live) return null;
+    const p = live.props;
+    return { state: p.state, title: p.title, message: p.message, error: p.errorMessage, successTitle: p.successTitle, successSubtitle: p.successSubtitle, ctaHref: p.ctaHref };
   });
 
 test("hold, pending, not charged, hold again: one entry, and every step says what happened", async ({ page }) => {
@@ -134,3 +140,105 @@ test("a payment that outlasts the poll ends in a sentence, not a spinner", async
   const end = await card(page);
   expect(end.error).toMatch(/Your entry is safe and you will not be charged twice/);
 });
+
+// --- what the board does with the other answers (review round 2) ---------------------
+
+async function signedInBoard(page) {
+  await setupPhantomMock(page);
+  await loginViaPhantom(page);
+  await page.goto(CONTEST_PATH);
+  return board(page);
+}
+
+const stack = (page) => page.evaluate(() => Alpine.store("modals").stack.filter((m) => !m._closing).map((m) => m.id));
+
+test("a 429 on the poll backs off and keeps going: no second modal, and the card is not stranded", async ({ page }) => {
+  const b = await signedInBoard(page);
+  let polls = 0;
+  await page.route("**/contests/*/entry_payment_status", (route) => {
+    polls += 1;
+    if (polls <= 2) return route.fulfill({ status: 429, headers: { "Retry-After": "1" }, contentType: "text/plain", body: "Retry later" });
+    return route.fulfill(json(200, { status: "confirmed", redirect: "/contests", tx_signature: "SIG_AFTER_429", message: "You're in! Good luck." }));
+  });
+
+  await b.evaluate((c) => { c.pollEntryPayment("testy-cart-1", { code: "entry_pending", error: "still confirming" }); });
+  await expect.poll(() => polls, { timeout: 15000 }).toBeGreaterThanOrEqual(2);
+  expect(await stack(page), "the rate-limit modal was not opened over the card").toEqual(["onchain-tx"]);
+  expect((await card(page)).state).toBe("processing");
+
+  await expect.poll(() => card(page), { timeout: 15000 }).toMatchObject({ state: "success", successTitle: "You're In", ctaHref: "/contests" });
+  expect(polls).toBe(3);
+});
+
+test("the confirmed card's lobby button has its address, and dismissing it leaves for the contest", async ({ page }) => {
+  const b = await signedInBoard(page);
+  await b.evaluate((c) => c._handleBlockerResponse({ success: false, code: "entry_confirmed", error: "Your first payment went through, so you were not charged again. You're in!", redirect: "/contests", tx_signature: "SIG_FIRST" }));
+
+  await expect.poll(() => card(page)).toMatchObject({ state: "success", successTitle: "You're In", ctaHref: "/contests" });
+  await expect(page.getByText("Your first payment went through, so you were not charged again. You're in!")).toBeVisible();
+  await expect(page.getByRole("link", { name: /Contest Lobby/ })).toHaveAttribute("href", "/contests");
+
+  await page.evaluate(() => Alpine.store("modals").close()); // Dismiss, as the engine's card does it
+  await page.waitForURL("**/contests");
+});
+
+test("a pick tap answered 'already paid' or 'held' paints a card with the sentence, never an Entry Failed toast", async ({ page }) => {
+  const b = await signedInBoard(page);
+  const toasts = [];
+  await page.exposeFunction("recordToast", (detail) => toasts.push(detail));
+  await page.evaluate(() => window.addEventListener("toast", (e) => window.recordToast(e.detail)));
+  const HELD = "Your payment for this contest arrived, but we could not finish the entry. You will not be charged again, and we are sorting it out. If it is not resolved within a day, contact support@turfmonster.media.";
+  let answer = json(409, { success: false, code: "entry_held", error: HELD, retry: false, entry: "testy-cart-1" });
+  await page.route("**/contests/*/toggle_selection", (route) => route.fulfill(answer));
+  const firstPick = await page.evaluate(() => {
+    const tile = Array.from(document.querySelectorAll("button")).find((el) => /toggleSelection\('\d+'\)/.test(el.getAttribute("@click") || ""));
+    return tile.getAttribute("@click").match(/toggleSelection\('(\d+)'\)/)[1];
+  });
+
+  await b.evaluate((c, id) => c.toggleSelection(id), firstPick);
+  await expect.poll(() => card(page)).toMatchObject({ state: "error", title: "Entry On Hold", error: HELD });
+  await expect(page.getByText(HELD)).toBeVisible();
+  expect(await b.evaluate((c) => Object.keys(c.selections).length), "the optimistic pick was put back").toBe(0);
+
+  await page.evaluate(() => Alpine.store("modals").close());
+  answer = json(409, { success: false, code: "entry_confirmed", error: "Your first payment went through, so you were not charged again. You're in!", redirect: "/contests", tx_signature: "SIG_FIRST" });
+  await b.evaluate((c, id) => c.toggleSelection(id), firstPick);
+  await expect.poll(() => card(page)).toMatchObject({ state: "success", successTitle: "You're In" });
+  expect(toasts.filter((t) => t.title === "Entry Failed"), "no failure toast over a success").toEqual([]);
+});
+
+test("a clear the server refuses puts the picks back on screen", async ({ page }) => {
+  const b = await signedInBoard(page);
+  await page.route("**/contests/*/clear_picks", (route) =>
+    route.fulfill(json(503, { success: false, code: "check_failed", retry: true, error: "We could not check your last payment just now, so nothing was changed and nothing was charged. Try again in a moment." }))
+  );
+  await b.evaluate((c) => { c.selections = { "101": true, "102": true }; c.selectionOrder = ["101", "102"]; });
+
+  await b.evaluate((c) => c.clearSelections());
+
+  expect(await b.evaluate((c) => [Object.keys(c.selections).sort(), c.selectionOrder])).toEqual([["101", "102"], ["101", "102"]]);
+});
+
+test("a /enter answer that is not JSON (the router's cut) says still confirming, not a wallet error", async ({ page }) => {
+  await setupPhantomMock(page);
+  await loginViaPhantom(page);
+  for (const [path, form] of [["/onboarding/first_name", { first_name: "Testy" }], ["/age/verify", { date_of_birth: "1985-04-02" }]]) {
+    const res = await page.request.post(path, { form });
+    if (!res.ok()) throw new Error(`${path} failed: ${res.status()}`);
+  }
+  await page.goto(CONTEST_PATH);
+  await holdOneToken(page);
+  await page.route("**/contests/*/check_funding", (route) => route.fulfill(json(200, { fundable: true, reason: null, method: "token" })));
+  await page.route("**/contests/*/enter", (route) =>
+    route.fulfill({ status: 503, contentType: "text/html", body: "<html><body><h1>Application Error</h1></body></html>" })
+  );
+
+  const b = await board(page);
+  await b.evaluate((c) => c.confirmEntry());
+
+  await expect.poll(() => card(page)).toMatchObject({ state: "error", title: "Still Confirming" });
+  const shown = await card(page);
+  expect(shown.error).toMatch(/may still be confirming, and you will not be charged twice/);
+  expect(shown.error).not.toMatch(/wallet/i);
+});
+

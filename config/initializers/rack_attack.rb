@@ -296,8 +296,11 @@ class Rack::Attack
   end
 
   ### Throttle: the entry payment poll. The board asks every 3 seconds while a
-  # payment is unresolved (20 a minute), and each call reads the chain twice.
-  throttle("entry_payment_status/ip", limit: 40, period: 1.minute) do |req|
+  # payment is unresolved (20 a minute per tab), and each call reads the chain
+  # a few times. Signed-in only, and it answers only for the player's own
+  # entry, so the limit is a flood backstop sized for several tabs behind one
+  # address, not a meter: the board backs off on a 429 and keeps polling.
+  throttle("entry_payment_status/ip", limit: 120, period: 1.minute) do |req|
     req.ip if req.post? && req.path.match?(%r{\A/contests/[^/]+/entry_payment_status\z})
   end
 

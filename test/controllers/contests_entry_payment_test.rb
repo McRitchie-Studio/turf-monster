@@ -433,4 +433,19 @@ class ContestsEntryPaymentTest < ActionDispatch::IntegrationTest
     assert_equal "entry_held", body["code"]
     assert_equal "submitted", @entry.reload.payment_state, "CONTROL: still not released by a clock"
   end
+
+  test "a managed player who reloads while the payment is unresolved is shown it on load" do
+    get contest_path(@contest)
+    refute_match(/pendingPayment":\{/, response.body, "CONTROL: nothing in flight, nothing to poll")
+
+    @vault.fail_next_enter = :unlanded
+    hold
+    get contest_path(@contest)
+
+    assert_response :success
+    config = response.body[/"pendingPayment":(\{[^}]*\})/, 1]
+    assert config, "the board config names the unresolved payment"
+    assert_equal({ "entry" => @entry.slug, "code" => "entry_pending", "error" => Entries::PaymentCopy.message(:pending) },
+                 JSON.parse(config))
+  end
 end

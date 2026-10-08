@@ -3001,6 +3001,17 @@ class ContestsController < ApplicationController
     end
     @cart_entry = @contest.entries.cart.find_by(user: current_user) if logged_in?
     @pending_recovery_ptx = find_pending_recovery_ptx
+    @pending_payment = pending_payment_for_board
+  end
+
+  # What the board polls on load: the player's unresolved payment in this
+  # contest, with the sentence it opens on. nil when there is none.
+  def pending_payment_for_board
+    entry = logged_in? && Entry.payment_in_flight_for(user: current_user, contest: @contest)
+    return nil unless entry
+
+    copy = unresolved_payment_copy(entry)
+    { entry: entry.slug, error: copy[:error], code: copy[:code] == "pending" ? "entry_pending" : "entry_held" }
   end
 
   # Which game the live page opens on: whatever is being played, else whatever
