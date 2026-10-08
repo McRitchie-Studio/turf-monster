@@ -330,4 +330,73 @@ class ContestsEntryPaymentTest < ActionDispatch::IntegrationTest
     assert_response :conflict
     assert_equal "entry_confirmed", body["code"]
   end
+
+  # --- ROUND 2, B1: two rails, one cart; the pin never moves under a wire ------------
+
+  def managed_hold_fails_before_sending
+    @vault.block_height = nil
+    assert_raises(Solana::Client::RpcError) do
+      chain { Entries::ManagedEntry.new(contest: @contest, user: @user.reload, usdc_allowed: true).call(@entry.reload) }
+    end
+    @vault.block_height = 1_000
+  end
+
+  test "a combo account: a managed hold while a Phantom wire is prepared is refused, and does not re-pin the cart" do
+    log_in_as_onchain(@user)
+    phantom = @user.reload.web3_solana_address
+    chain { post prepare_entry_contest_path(@contest), as: :json }
+    assert_response :success, response.body
+    assert_equal [phantom, 0], @entry.reload.values_at(:wallet_address, :entry_number)
+
+    reset! # a second device: a new session
+    log_in_as @user # the same account, signed in with Google
+    hold
+
+    assert_response :conflict
+    assert_equal ["payment_started_elsewhere", true], body.values_at("code", "retry")
+    assert_match(/started in another session.*not charged/, body["error"])
+    assert_equal [:build_enter_contest], @vault.enter_calls.map { |call| call[:method] }, "only the Phantom build: the managed wallet sent nothing"
+    assert_empty @vault.tickets
+    assert_equal [phantom, 0, "draft"], @entry.reload.values_at(:wallet_address, :entry_number, :payment_state)
+  end
+
+  test "the old Phantom wire is refused at its send once the cart is pinned elsewhere: nothing goes out, nothing is released" do
+    log_in_as_onchain(@user)
+    phantom = @user.reload.web3_solana_address
+    chain { post prepare_entry_contest_path(@contest), as: :json }
+    wire = JSON.parse(response.body)
+
+    travel 6.minutes do # the unsigned wire no longer holds the pin
+      managed_hold_fails_before_sending
+      assert_equal @user.web2_solana_address, @entry.reload.wallet_address, "CONTROL: the managed rail now holds the pin"
+
+      chain do
+        post confirm_onchain_entry_contest_path(@contest),
+             params: { signed_tx: "PHANTOM_SIGNED_WIRE_B64", entry_id: @entry.id, entry_pda: wire["entry_pda"] }, as: :json
+      end
+    end
+
+    assert_response :unprocessable_entity
+    assert_equal ["pin_moved", true], body.values_at("code", "retry")
+    assert_equal 0, @vault.cosign_broadcast_sends, "the wire that pays the OLD address was never sent"
+    assert_equal ["draft", @user.web2_solana_address], @entry.reload.values_at(:payment_state, :wallet_address)
+    refute_equal phantom, @entry.wallet_address, "the confirm did not flip the wallet back"
+  end
+
+  test "CONTROL: with the pin untouched the same Phantom wire is stamped and sent" do
+    log_in_as_onchain(@user)
+    chain { post prepare_entry_contest_path(@contest), as: :json }
+    wire = JSON.parse(response.body)
+
+    chain do
+      Solana::TxVerifier.stub(:verify!, true) do
+        post confirm_onchain_entry_contest_path(@contest),
+             params: { signed_tx: "PHANTOM_SIGNED_WIRE_B64", entry_id: @entry.id, entry_pda: wire["entry_pda"] }, as: :json
+      end
+    end
+
+    assert_equal 1, @vault.cosign_broadcast_sends
+    assert_equal "phantom", @entry.reload.payment_rail
+    refute_equal "draft", @entry.payment_state
+  end
 end

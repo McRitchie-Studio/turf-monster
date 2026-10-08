@@ -67,6 +67,36 @@ class Entry
 
     class IllegalTransition < StandardError; end
 
+    # THE PIN IS HELD. A wire was prepared for this cart (another session, the
+    # other rail) and may still be signed and sent, so the cart's wallet and
+    # slot cannot be moved under it. 409; nothing was sent.
+    class PinHeld < Refusal
+      attr_reader :entry
+
+      def initialize(entry)
+        @entry = entry
+        super(:payment_started_elsewhere, MESSAGES.fetch(:payment_started_elsewhere))
+      end
+    end
+
+    # A prepared wire reached its send and the cart is no longer pinned to the
+    # wallet and ticket the wire pays. Nothing is sent.
+    class PinMoved < Refusal
+      def initialize
+        super(:pin_moved, MESSAGES.fetch(:pin_moved))
+      end
+    end
+
+    MESSAGES = {
+      payment_started_elsewhere: "A payment for these picks was started in another session. Finish it there, or try " \
+                                 "again here in a few minutes. Nothing was sent from here and you were not charged.",
+      pin_moved: "These picks were changed in another session after this payment was prepared, so nothing was " \
+                 "sent and you were not charged. Try again."
+    }.freeze
+    # How long an unsigned prepared wire holds the pin: past this its blockhash
+    # is dead and the confirm that carries it is refused before any send.
+    PREPARED_WIRE_HOLD = OnchainSendVerdict::BLOCKHASH_LAPSE
+
     # Prepended, so the pick writers above keep their cited line numbers.
     module EditGuard
       def toggle_selection!(slate_matchup)
@@ -120,14 +150,30 @@ class Entry
     end
 
     # Fix the wallet and slot this row pays with. A no-op once pinned to
-    # `wallet`. Only a draft row may be pinned or moved to another wallet: a
-    # draft row has nothing in the air, so the probe's answer is the truth.
+    # `wallet`.
+    #
+    # THE PIN IS WALLET AND SLOT TOGETHER, AND IT MOVES ONLY WHEN NOTHING CAN
+    # STILL PAY AT IT. An existing pin is moved to another wallet only when the
+    # row is a draft, no prepared wire for this cart can still be signed and
+    # sent (#payment_wire_prepared?), and the one verdict says the pinned
+    # ticket does not exist (Entries::PaymentSettlement: read at `finalized`,
+    # and at `confirmed`, where a hit is "wait"). Otherwise the second rail is
+    # refused; it never re-pins under the first.
     def pin_payment_slot!(wallet, vault = Solana::Vault.new)
       raise ArgumentError, "a wallet is required to pin an entry slot" if wallet.blank?
+
+      # Asked BEFORE the row lock's transaction: if the ticket is there the
+      # verdict confirms the entry, and that write must not roll back with the
+      # refusal raised here.
+      if payment_pinned_draft? && !payment_slot_pinned_to?(wallet)
+        raise PinHeld.new(self) if payment_wire_prepared?
+        raise InFlight.new(reload) unless Entries::PaymentSettlement.call(self, vault: vault).idle?
+      end
 
       with_lock do
         raise InFlight.new(self) if payment_in_flight?
         next entry_number if payment_slot_pinned_to?(wallet)
+        raise PinHeld.new(self) if payment_pinned_draft? && payment_wire_prepared? # a wire prepared since the check above
 
         assign_onchain_entry_number!(wallet, vault)
         update!(wallet_address: wallet)
@@ -154,14 +200,30 @@ class Entry
       raise InFlight.new(self.class.payment_in_flight_for(user: user, contest: contest) || self)
     end
 
+    # A prepared entry wire for this cart that can still be signed and sent:
+    # stamped and unresolved, or unsigned and young enough for its blockhash.
+    def payment_wire_prepared?
+      wires = PendingTransaction.where(target: self, tx_type: "enter_contest")
+      wires.where(status: "submitted").where.not(tx_signature: [nil, ""]).exists? ||
+        wires.where(status: %w[pending submitted], created_at: PREPARED_WIRE_HOLD.ago..).exists?
+    end
+
     # The Phantom rail's begin and record in one step, called from the confirm
-    # request's before_send. The wire was built at prepare against the pinned
-    # slot; a row prepared before the pin existed adopts the signing wallet. The
-    # same signature again (identical bytes resent) is a no-op.
-    def begin_phantom_charge!(signature:, wallet:, last_valid_block_height: nil)
+    # request's before_send. The same signature again (identical bytes resent)
+    # is a no-op.
+    #
+    # THE WIRE MUST PAY THE ROW'S OWN PIN. It was built at prepare for one
+    # wallet and one ticket; if the cart is no longer pinned to that wallet, or
+    # its ticket address is no longer the one the wire names (`prepared_pda`),
+    # this raises PinMoved and nothing is sent. It never adopts a wallet over
+    # an existing pin. Only a row that was never pinned (prepared before the
+    # pin existed, in flight across the deploy) takes the signing wallet.
+    def begin_phantom_charge!(signature:, wallet:, last_valid_block_height: nil, prepared_pda: nil)
       return self if payment_state == "submitted" && payment_signature == signature
 
-      update!(wallet_address: wallet) if payment_state == "draft" && wallet_address != wallet && !entry_number.nil?
+      update!(wallet_address: wallet) if payment_state == "draft" && wallet_address.blank? && !entry_number.nil?
+      raise PinMoved unless payment_slot_pinned_to?(wallet)
+      raise PinMoved if prepared_pda.present? && prepared_pda != payment_entry_pda
       begin_charge!(rail: "phantom")
       record_payment_attempt!(signature: signature, last_valid_block_height: last_valid_block_height)
     end

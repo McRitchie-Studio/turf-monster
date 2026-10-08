@@ -34,6 +34,8 @@ module Entries
                      "enough USDC and try again. If it does, the problem is on our side and we are fixing it.", true],
       check_failed: ["We could not check your last payment just now, so nothing was changed and nothing was " \
                      "charged. Try again in a moment.", true],
+      payment_started_elsewhere: [Entry::Payment::MESSAGES.fetch(:payment_started_elsewhere), true],
+      pin_moved: [Entry::Payment::MESSAGES.fetch(:pin_moved), true],
       # Sent, outcome not known yet, or known and held.
       pending: [Entry::Payment::IN_FLIGHT_MESSAGES.fetch("submitted"), false],
       landed: [Entry::Payment::IN_FLIGHT_MESSAGES.fetch("landed"), false],

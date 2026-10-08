@@ -40,10 +40,18 @@ class ContestsEntryStillConfirmingTest < ActionDispatch::IntegrationTest
     )
   end
 
+  # encode_base58 is the identity here, as in every test on the fake chain: the
+  # stamp compares the prepared wire's ticket with the row's own, and the fake
+  # vault's ticket addresses are plain strings.
   def post_confirm
-    post confirm_onchain_entry_contest_path(@contest),
-         params: { signed_tx: "PHANTOM_SIGNED_WIRE_B64", entry_id: @entry.id, entry_pda: @expected_pda },
-         as: :json
+    send_it = proc do
+      post confirm_onchain_entry_contest_path(@contest),
+           params: { signed_tx: "PHANTOM_SIGNED_WIRE_B64", entry_id: @entry.id, entry_pda: @expected_pda },
+           as: :json
+    end
+    return send_it.call if Solana::Keypair.respond_to?(:__minitest_stub__encode_base58) # a caller already stubbed it
+
+    Solana::Keypair.stub(:encode_base58, ->(s) { s.to_s }, &send_it)
   end
 
   def assert_still_confirming(ptx)

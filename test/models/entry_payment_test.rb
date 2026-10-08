@@ -106,6 +106,80 @@ class EntryPaymentTest < ActiveSupport::TestCase
     assert_equal "OtherWallet", entry.reload.wallet_address
   end
 
+  # --- the pin does not move under a wire that can still pay ---------------------------
+
+  def prepared_wire(entry, wallet:, age: 0.seconds, signature: nil)
+    PendingTransaction.create!(tx_type: "enter_contest", serialized_tx: "stx", target: entry, initiator_address: wallet,
+                               status: signature ? "submitted" : "pending", tx_signature: signature,
+                               created_at: age.ago, metadata: {}.to_json)
+  end
+
+  test "a cart with a wire prepared on the other rail cannot be re-pinned: the second rail is refused" do
+    entry = pinned(cart, wallet: "PhantomWallet")
+    prepared_wire(entry, wallet: "PhantomWallet")
+
+    error = assert_raises(Entry::Payment::PinHeld) { on_chain(@vault) { entry.pin_payment_slot!(@wallet, @vault) } }
+    assert_equal :payment_started_elsewhere, error.code
+    assert_match(/started in another session.*not charged/, error.message)
+    assert_equal ["PhantomWallet", 0], entry.reload.values_at(:wallet_address, :entry_number), "wallet and slot stay together"
+  end
+
+  test "CONTROL: once the unsigned wire is too old to be signed and sent, the pin may move" do
+    entry = pinned(cart, wallet: "PhantomWallet")
+    prepared_wire(entry, wallet: "PhantomWallet", age: 6.minutes)
+
+    on_chain(@vault) { entry.pin_payment_slot!(@wallet, @vault) }
+    assert_equal @wallet, entry.reload.wallet_address
+  end
+
+  test "the pin does not move off a ticket that exists, or one that cannot be read" do
+    entry = pinned(cart, wallet: "PhantomWallet")
+    entry.update_columns(payment_rail: "managed") # activated without the wallet verifier, which has its own tests
+    @vault.chain_unreadable = true
+    assert_raises(Entry::Payment::InFlight) { on_chain(@vault) { entry.pin_payment_slot!(@wallet, @vault) } }
+    assert_equal "PhantomWallet", entry.reload.wallet_address, "unreadable: nothing moves"
+
+    @vault.chain_unreadable = false
+    @vault.send(:land!, "PhantomWallet", @contest.slug, 0, :usdc) { nil }
+    assert_raises(Entry::Payment::InFlight) { on_chain(@vault) { entry.pin_payment_slot!(@wallet, @vault) } }
+    assert entry.reload.active?, "the ticket at the old pin is this entry's payment: confirmed, not abandoned"
+    assert_equal "PhantomWallet", entry.wallet_address
+  end
+
+  test "a Phantom wire is refused at its send when the cart is no longer pinned to the wallet it pays from" do
+    entry = pinned(cart, wallet: @wallet) # the managed rail holds the pin now
+
+    assert_raises(Entry::Payment::PinMoved) do
+      entry.begin_phantom_charge!(signature: "phantom-sig", wallet: "PhantomWallet", last_valid_block_height: 500)
+    end
+    assert_equal ["draft", @wallet, nil], entry.reload.values_at(:payment_state, :wallet_address, :payment_signature),
+                 "the wallet is not adopted over an existing pin, and nothing is recorded"
+  end
+
+  test "a Phantom wire is refused at its send when the cart's ticket is no longer the one the wire names" do
+    entry = pinned(cart, wallet: "PhantomWallet")
+    wire_ticket = on_chain(@vault) { entry.payment_entry_pda(@vault) }
+    entry.update_columns(entry_number: 1) # the slot moved under the prepared wire
+
+    on_chain(@vault) do
+      assert_raises(Entry::Payment::PinMoved) do
+        entry.begin_phantom_charge!(signature: "phantom-sig", wallet: "PhantomWallet", prepared_pda: wire_ticket)
+      end
+    end
+    assert_equal "draft", entry.reload.payment_state
+  end
+
+  test "CONTROL: the wire for the row's own pin begins the charge; a never-pinned row takes the signing wallet" do
+    entry = pinned(cart, wallet: "PhantomWallet")
+    wire_ticket = on_chain(@vault) { entry.payment_entry_pda(@vault) }
+    on_chain(@vault) { entry.begin_phantom_charge!(signature: "phantom-sig", wallet: "PhantomWallet", prepared_pda: wire_ticket) }
+    assert_equal %w[submitted phantom-sig], entry.reload.values_at(:payment_state, :payment_signature)
+
+    legacy = @contest.entries.create!(user: make_managed!(users(:jordan)), status: :cart, entry_number: 0)
+    legacy.begin_phantom_charge!(signature: "legacy-sig", wallet: "LegacyWallet")
+    assert_equal %w[submitted LegacyWallet], legacy.reload.values_at(:payment_state, :wallet_address)
+  end
+
   # --- the in-flight key ---------------------------------------------------------
 
   test "a second charge on a submitted row is refused with the row and a message" do

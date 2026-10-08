@@ -923,6 +923,8 @@ class ContestsController < ApplicationController
     end
   rescue Entries::ManagedEntry::PendingConfirmation => e
     render_entry_payment_pending(e.entry, status: :accepted) # sent; Entries::PaymentSettleJob finishes it
+  rescue Entry::Payment::PinHeld => e
+    render json: { success: false, **Entries::PaymentCopy.payload(e.code) }, status: :conflict
   rescue Entry::Payment::InFlight => e
     render_entry_payment_pending(e.entry, status: :conflict)
   rescue StandardError => e
@@ -1167,6 +1169,8 @@ class ContestsController < ApplicationController
         currency: currency
       }
     end
+  rescue Entry::Payment::PinHeld => e
+    render json: { success: false, **Entries::PaymentCopy.payload(e.code) }, status: :conflict
   rescue Entry::Payment::InFlight => e
     render_entry_payment_pending(e.entry, status: :conflict)
   rescue StandardError => e
@@ -2693,7 +2697,8 @@ class ContestsController < ApplicationController
     # takes the player's in-flight key, so the managed rail and every other
     # cart are refused while it is unresolved. Raising here sends nothing.
     ptx.target.begin_phantom_charge!(signature: signature, wallet: ptx.initiator_address,
-                                     last_valid_block_height: prepared_last_valid_block_height(ptx))
+                                     last_valid_block_height: prepared_last_valid_block_height(ptx),
+                                     prepared_pda: prepared_metadata(ptx)["entry_pda"].presence)
     # Its own savepoint, as update! had: a unique-index collision on the
     # signature must not poison an enclosing transaction.
     stamped = PendingTransaction.transaction(requires_new: true) do
@@ -2728,8 +2733,8 @@ class ContestsController < ApplicationController
     entry.begin_phantom_charge!(signature: ptx.tx_signature, wallet: ptx.initiator_address,
                                 last_valid_block_height: prepared_last_valid_block_height(ptx))
     entry.update_columns(payment_submitted_at: ptx.broadcast_at)
-  rescue Entry::Payment::InFlight
-    nil
+  rescue Entry::Payment::InFlight, Entry::Payment::PinMoved
+    nil # another payment holds the row, or the cart has since been pinned elsewhere: not this wire's to judge
   end
 
 

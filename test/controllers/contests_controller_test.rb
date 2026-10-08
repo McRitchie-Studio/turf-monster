@@ -1946,9 +1946,11 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     vault = FakeVault.new
     vault.cosign_broadcast_raises = "send failed — reconcile before rebuilding"
     Solana::Vault.stub :new, vault do
-      post confirm_onchain_entry_contest_path(@contest),
-        params: { signed_tx: "PHANTOM_SIGNED_WIRE_B64", entry_id: entry.id, entry_pda: expected_pda },
-        as: :json
+      Solana::Keypair.stub :encode_base58, ->(s) { s.to_s } do # the stamp compares the wire's ticket with the row's
+        post confirm_onchain_entry_contest_path(@contest),
+          params: { signed_tx: "PHANTOM_SIGNED_WIRE_B64", entry_id: entry.id, entry_pda: expected_pda },
+          as: :json
+      end
     end
 
     assert_response :accepted # sent, still confirming — never "try again" (turf-phantom-entry-still-confirming)
