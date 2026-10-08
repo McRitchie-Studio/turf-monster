@@ -22,6 +22,16 @@ class Api::V1::ContestsControllerTest < ActionDispatch::IntegrationTest
     json["contests"].map { |contest| contest["slug"] }
   end
 
+  test "a read the RPC deadline stops answers 503 rpc_deadline with Retry-After" do
+    Api::V1::Operations::ListContests.stub :call, ->(**) { raise Solana::Deadline::Exceeded } do
+      api_get api_v1_contests_path
+    end
+
+    assert_response :service_unavailable
+    assert_equal "rpc_deadline", json.dig("error", "code")
+    assert_equal Solana::Deadline::RETRY_AFTER.to_s, response.headers["Retry-After"]
+  end
+
   # --- authentication ------------------------------------------------------
 
   test "every route answers 401 in the envelope without a key" do
