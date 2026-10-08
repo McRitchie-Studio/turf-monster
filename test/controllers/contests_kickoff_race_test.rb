@@ -72,11 +72,15 @@ class ContestsKickoffRaceTest < ActionDispatch::IntegrationTest
     transactions["sig-race-recover"] = { "blockTime" => (@kickoff + 5.seconds).to_i }
     on_fake_chain(vault) { post recover_pending_entry_contest_path(@contest), params: { ptx_slug: ptx.slug }, as: :json }
     # Landed after the kickoff: still not credited. But the payment LANDED, so
-    # the entry gate's refusal is no verdict on it — the row stays submitted
+    # the entry gate's refusal is no verdict on it — the wire stays submitted
     # and the 409 stands, rather than freeing a second paying wire
-    # (recovery-never-fails-landed-entries). An operator resolves it.
-    assert_equal "processing", JSON.parse(response.body)["status"], "landed after the kickoff: still refused"
+    # (recovery-never-fails-landed-entries). The entry is HELD (`landed`) and
+    # the player is told so, with where to go; an operator resolves it.
+    held = JSON.parse(response.body)
+    assert_equal "held", held["status"], "landed after the kickoff: still refused"
+    assert_match(/payment for this contest arrived.*contact support@turfmonster.media/, held["error"])
     assert @entry.reload.cart?
+    assert_equal %w[landed team_locked], @entry.values_at(:payment_state, :payment_refusal_code)
     assert_equal "submitted", ptx.reload.status
     transactions["sig-race-recover"] = { "blockTime" => (@kickoff - 5.seconds).to_i }
     on_fake_chain(vault) { post recover_pending_entry_contest_path(@contest), params: { ptx_slug: ptx.slug }, as: :json }

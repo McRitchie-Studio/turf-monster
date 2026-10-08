@@ -127,10 +127,10 @@ Hold to Confirm
 
 | Branch | Where |
 |---|---|
-| guest → auth modal — `confirmEntry()` | `app/views/contests/_turf_totals_board.html.erb:1655-1660` |
+| guest → auth modal — `confirmEntry()` | `app/views/contests/_turf_totals_board.html.erb:1656-1661` |
 | client preflight — the `eligibilityBlocker` export | `app/javascript/solana_utils.js:874`, mirrored onto `window` at `:962` |
-| the blocker, re-checked inside `confirmEntry()` at submit time | `app/views/contests/_turf_totals_board.html.erb:1665-1669` |
-| route by session — `useOnchainFlow = sess.isWeb3 && this.contestOnchain` in `confirmEntry()` | `:1711`, branch taken at `:1725` |
+| the blocker, re-checked inside `confirmEntry()` at submit time | `app/views/contests/_turf_totals_board.html.erb:1666-1670` |
+| route by session — `useOnchainFlow = sess.isWeb3 && this.contestOnchain` in `confirmEntry()` | `:1712`, branch taken at `:1726` |
 
 Currency pick (web3): USDC-first, USDT only when the contest's `accepts_usdt`
 is true (contests created before 2026-06-11 are USDC-only forever — their

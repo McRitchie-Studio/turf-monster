@@ -1289,7 +1289,7 @@ class ContestsController < ApplicationController
     elsif settled.released?
       render json: { status: "failed", error: Entries::PaymentCopy.message(settled.code) }
     elsif settled.landed?
-      render json: { status: "failed", error: Entries::PaymentCopy.message(:landed) } # held: the row and the 409 stay
+      render json: { status: "held", error: Entries::PaymentCopy.message(:landed) } # paid, and a gate refused it: the row and the 409 stay
     else
       render json: { status: "processing" }
     end

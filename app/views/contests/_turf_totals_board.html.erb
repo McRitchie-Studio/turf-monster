@@ -552,6 +552,7 @@ window.selectionBoard = function() {
             if (data.redirect) modal.onClose = function () { window.location.href = data.redirect; };
             return;
           }
+          if (data.status === 'held') { modal.error(data.error, 'Entry On Hold'); return; } // paid; an entry gate refused it
           if (data.status === 'failed' || data.status === 'error' || data.status === 'missing') {
             modal.close();
             if (data.error) {
