@@ -383,7 +383,7 @@ class WalletSetupPreviewTest < ActionDispatch::IntegrationTest
     body = modal_host_page
 
     host = ResolvedModalHost.source
-    default = host[/DEFAULT_CARD_WIDTH\s*=\s*'([\w-]+)'/, 1]
+    default = ResolvedModalHost.script[/DEFAULT_CARD_WIDTH\s*=\s*'([\w-]+)'/, 1]
     # READ AS CODE. A plain substring match on the body finds the engine host's
     # own `// … CARD_WIDTHS = { 'wallet-setup': 'max-w-md' };` doc example, which
     # ships to the page like any other text inside an inline script — so it stays
