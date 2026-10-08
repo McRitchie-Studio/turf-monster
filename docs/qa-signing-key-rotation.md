@@ -1,10 +1,28 @@
 # Giving turf-monster-qa its own signing key
 
-**Status: NOT RUN.** This is the ceremony runbook. The tooling it uses (the
-isolation guard in warn mode and the `bin/qa-signer-rotation` dry run) is built.
-The ceremony itself is Mr. McRitchie's to run: it needs a new private key and a
-devnet transaction signed by current vault signers. No agent signs, sends,
-stores, or reads a key in any step below.
+**Status: PARTLY RUN. The devnet signer change (step 6) has NOT run, and QA
+still holds production's key.** Where each step stands, as of 2026-10-08:
+
+| Step | State |
+|---|---|
+| 1. Choose the rotation | **Open: Mr. McRitchie's decision.** Option A's dry run passes with the key below |
+| 2–3. The QA key, filed in 1Password | Done before this runbook was written: `solana.turf.system.devnet`, `2eGs8G3wzhEeNQQU2Q86BmmA2xTpDbMMae3Y1bvpZfx9`. No new key is generated |
+| 4. Fund it | Done: 995,118,360 lamports on devnet at `finalized`, 2026-10-08. Re-read before the flip |
+| 5. Dry run | Option A passes (2026-10-08). Re-run it on the day |
+| 6–7. Sign and confirm the devnet signer change | **NOT RUN. Mr. McRitchie signs** |
+| 8–9. Point turf-monster-qa at the key, verify | **NOT RUN.** Only after step 7 |
+| 10. File QA's public key | Done ahead of the flip (task `turf-qa-gets-own-signer`) |
+| 11. Turn the guard to enforce | **NOT RUN.** A separate decision |
+
+The tooling (the isolation guard in warn mode and the `bin/qa-signer-rotation`
+dry run) is built. The signer change is Mr. McRitchie's to sign: it is a devnet
+transaction that current vault signers authorize. No agent signs or sends a
+transaction in any step below. An agent reads the QA key only through a pipe
+that prints its public half (step 3's proof, run 2026-10-08).
+
+**Do not start step 6 in the hours before a QA release that must settle a
+contest.** Option A evicts Mason, whose key `bin/qa-contest-rehearsal` uses to
+cosign settlement (step 1). Move that cosigner first, or settle by link.
 
 **Mainnet is untouched.** QA runs devnet, and each cluster's `VaultState` is its
 own account. Nothing here changes mainnet's signer set, mainnet's config, or
@@ -53,9 +71,21 @@ Agent reach does not get worse under any option: today an agent holds Xan and
 Mason, two of three. Under A it holds Xan and the QA key, still two of three, on
 devnet only. The five-signer redesign is what removes that, not this ceremony.
 
-## Step 2 — Generate the QA keypair (Mr. McRitchie, offline)
+## Step 2 — Generate the QA keypair (SKIP: the key exists)
 
-Use your own terminal. Print and paste the public key only.
+**Skip steps 2 and 3's filing.** QA's key was filed on 2026-09-15 as
+`solana.turf.system.devnet`, in vault **`studio-agents`** (item id
+`luzehmyewswpnbgytyawc25sdy`, labels `wallet-address` and `private-key`), and
+its public key is `2eGs8G3wzhEeNQQU2Q86BmmA2xTpDbMMae3Y1bvpZfx9`. Run step 3's
+proof and go to step 4 with:
+
+```bash
+QA_PUBKEY=2eGs8G3wzhEeNQQU2Q86BmmA2xTpDbMMae3Y1bvpZfx9
+```
+
+What follows in this step and the next is the recipe for a key that does not
+exist yet. It applies again only if that item is ever lost or retired. Use your
+own terminal, and print and paste the public key only.
 
 ```bash
 f="$(mktemp -t qa-signer)"                                   # never `cat` this file
@@ -69,10 +99,15 @@ solana-keygen pubkey "$f"                                    # the QA PUBLIC key
 
 This follows the credential-filing SOP (`mcritchie-studio`,
 `docs/agents/agents/steffon/sops/credential-filing.md`). `.env.example` already
-reserves the title **`solana.turf.system.devnet`** for QA's system wallet. If that
-item already exists, use its key instead of the one from step 2, and do not file
-a duplicate. Vault: **`studio-applications`**, because the consumer is a Heroku
-config var. Labels are hyphenated, to match the other Solana items.
+reserves the title **`solana.turf.system.devnet`** for QA's system wallet. **That
+item exists** (step 2), so use its key and do not file a duplicate. It lives in
+**`studio-agents`**, not in `studio-applications`, where the filing SOP would
+put a key whose consumer is a Heroku config var. That is drift, recorded here
+and not fixed: moving it is a filing act of its own, and every path below names
+the vault the item is really in. A fresh filing, should one ever be needed,
+goes to `studio-applications` as the recipe below says; then change the two
+`op read` paths in this runbook to match. Labels are hyphenated, to match the
+other Solana items.
 
 `SOLANA_ADMIN_KEY` wants the **base58** 64-byte secret, not the JSON array that
 `solana-keygen` writes. The secret never touches a shell variable or a command
@@ -112,26 +147,28 @@ holds no secret), add the `private-key` field to it the same way, and pipe that.
 Never fall back to an assignment statement for the key.
 
 Prove the filed secret signs as the QA key. This prints a public key and nothing
-else; run it from a turf-monster checkout:
+else; run it from a turf-monster checkout. It printed `2eGs8G3w…pZfx9` on
+2026-10-08:
 
 ```bash
-op read "op://studio-applications/solana.turf.system.devnet/private-key" \
+op read "op://studio-agents/solana.turf.system.devnet/private-key" \
   | ruby -r ./lib/solana/signer_isolation -e 'puts Solana::SignerIsolation.derive_pubkey($stdin.read)'
 echo "$QA_PUBKEY"                                            # the two must match
-rm -P "$f"
+[ -z "${f:-}" ] || rm -P "$f"                                # only when step 2 made a file
 ```
 
 Read back the public field too: `op item get solana.turf.system.devnet --vault
-studio-applications --fields wallet-address`.
+studio-agents --fields label=wallet-address`.
 
 ## Step 4 — Fund it with devnet SOL
 
 The QA key becomes QA's fee payer, and an unfunded fee payer fails every
-transaction. Airdrops take a public key:
+transaction. Read the balance first. It held 0.995 SOL on 2026-10-08, which
+needs no airdrop; ask the faucet once, and only if the read is low:
 
 ```bash
-solana airdrop 2 "$QA_PUBKEY" --url devnet
 solana balance "$QA_PUBKEY" --url devnet
+solana airdrop 2 "$QA_PUBKEY" --url devnet                   # only if the balance is low
 ```
 
 ## Step 5 — Dry run
@@ -208,7 +245,7 @@ only the HTTP status is printed; `200` is success.
 SIGNERS="<the value after SOLANA_MULTISIG_SIGNERS= from step 5>"   # public keys only
 umask 077; h="$(mktemp)"
 heroku auth:token | sed 's/^/Authorization: Bearer /' > "$h"
-op read "op://studio-applications/solana.turf.system.devnet/private-key" \
+op read "op://studio-agents/solana.turf.system.devnet/private-key" \
   | SIGNERS="$SIGNERS" ruby -rjson -e 'print JSON.generate(
       "SOLANA_ADMIN_KEY" => $stdin.read.strip,
       "SOLANA_MULTISIG_SIGNERS" => ENV.fetch("SIGNERS"))' \
@@ -244,7 +281,12 @@ works on the new one.
 ### Rollback
 
 `heroku rollback <the release you noted> --app turf-monster-qa` restores both
-config vars as they were: the old key, `8K81…`, and the old signer list. It
+config vars as they were: the old key, `8K81…`, and the old signer list (on
+2026-10-08 QA set no `SOLANA_MULTISIG_SIGNERS` at all, so "the old list" is the
+code default, `8K81…,7ZDJ…,CytJ…`). The old key's 1Password home is
+`agent.xan.solana`, vault `studio-agents-admin`, field `private key`; a
+rollback never needs to read it, because Heroku keeps the value in the release
+it returns to. It
 reverts **config only; it never touches the chain**, so whether QA works
 afterwards depends on whether the chain still seats `8K81…`. Any rollback also
 puts QA back on production's key, so treat it as a pause, not a resting state.
@@ -288,16 +330,28 @@ reads, as under option A.
 
 ## Step 9 — Verify QA
 
-- The boot log carries one `[signer-isolation]` line. It still warns "unfiled"
-  until step 10, but it must no longer say "holds production's system wallet".
+- The boot log carries one `[signer-isolation]` line. With step 10 already
+  merged and deployed to QA it reads OK; on an older QA build it still warns
+  "unfiled". Either way it must no longer say "holds production's system wallet".
+- The guard itself, read-only, from a turf-monster checkout that has step 10.
+  It must print the OK line and exit 0 even with enforcement forced:
+
+  ```bash
+  heroku config --json --app turf-monster-qa \
+    | SIGNER_ISOLATION=enforce ruby lib/solana/signer_isolation.rb --environment qa; echo "exit=$?"
+  ```
 - `/admin/authorities` on QA names the new key as the server's signing identity.
 - One routine devnet action succeeds, such as creating a test contest.
 
-## Step 10 — File QA's public key
+## Step 10 — File QA's public key (DONE, ahead of the flip)
 
-In a turf-monster PR, set `qa.system_wallet` in `config/solana_signers.yml` to
-the QA public key. After QA deploys it, the boot line reads OK, and the next
-`bin/deploy` pre-flight prints an OK line for both apps.
+`qa.system_wallet` in `config/solana_signers.yml` is
+`2eGs8G3wzhEeNQQU2Q86BmmA2xTpDbMMae3Y1bvpZfx9` (task `turf-qa-gets-own-signer`).
+It was filed before step 8 so that the flip needs no further PR. Until step 8
+runs, the guard therefore reports two findings for qa, in warn mode: QA holds
+production's wallet, and QA's key is not its filed wallet. After step 8, and
+once QA runs a build that carries the filing, the boot line reads OK, and the
+next `bin/deploy` pre-flight prints an OK line for both apps.
 
 ## Step 11 — Turn the guard to enforce
 
