@@ -2514,7 +2514,27 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
     decl = Rails.root.join("Gemfile").read[/^\s*gem\s+["']#{Regexp.escape(name)}["'].*$/]
     assert decl, "no gem #{name.inspect} line in the Gemfile"
     reqs = decl.sub(/#.*/, "").scan(/["']([^"']+)["']/).flatten.drop(1)
-    Gem::Requirement.new(reqs).requirements.filter_map { |op, v| v if %w[>= ~> =].include?(op) }.max
+    requirement_floor(reqs)
+  end
+
+  # A release candidate is not a floor: while a gem release is under QA the line
+  # may carry `x.y.z.rcN` exactly, or as a lower bound (`">= x.y.z.rcN", "< next"`).
+  # The first is skipped and the second reads as the release it is a candidate of
+  # (the same rule as test/lib/engine_pin_contract_test.rb#requirement_floor).
+  def requirement_floor(reqs)
+    Gem::Requirement.new(reqs).requirements.filter_map do |op, v|
+      next unless %w[>= ~> =].include?(op)
+      next if op == "=" && v.prerelease?
+
+      v.release
+    end.max
+  end
+
+  test "a release candidate on a gem line does not move the floor the docs are held to" do
+    assert_equal Gem::Version.new("0.12"), requirement_floor(["~> 0.12", "0.13.0.rc1"])
+    assert_equal Gem::Version.new("0.13.0"), requirement_floor([">= 0.13.0.rc1", "< 1"])
+    # THE CONTROL: released requirements floor where they say.
+    assert_equal Gem::Version.new("0.12.3"), requirement_floor(["~> 0.12", ">= 0.12.3"])
   end
 
   def gem_file(gem, path)

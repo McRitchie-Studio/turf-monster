@@ -858,8 +858,38 @@ class EnginePinContractTest < ActiveSupport::TestCase
   # report the `>=` operand for it. That is bundler's refusal to make, not this
   # guard's: the resolver never gets past such a Gemfile, so the suite that
   # reads it never runs.
+  #
+  # A RELEASE CANDIDATE IS NOT THIS APP'S FLOOR. While a gem release is under QA
+  # the hub's `bin/release prepare` locks this app to a prerelease (x.y.z.rcN)
+  # and the ship re-locks it to x.y.z. The line normally does not change at all;
+  # when the release moves the pin it carries the candidate as a floor
+  # (`">= x.y.z.rcN", "< next"`), and a resolve may name it exactly
+  # (`"~> 0.93", "x.y.z.rcN"`). Read literally, either makes the floor a
+  # version that will never be released. So an exact prerelease is no floor at
+  # all, and a prerelease lower bound reads as the release it is a candidate OF.
   def requirement_floor(requirement)
-    requirement.requirements.filter_map { |op, version| version if ["~>", ">=", "="].include?(op) }.max
+    requirement.requirements.filter_map do |op, version|
+      next unless ["~>", ">=", "="].include?(op)
+      next if op == "=" && version.prerelease?
+
+      version.release
+    end.max
+  end
+
+  test "a release candidate on the Gemfile line does not move the floor" do
+    floor = ->(*reqs) { requirement_floor(Gem::Requirement.new(*reqs)) }
+
+    assert_equal Gem::Version.new("0.93"), floor.call("~> 0.93", "0.96.0.rc1"),
+                 "an exact candidate beside the pin is what QA is running, not the floor"
+    assert_equal Gem::Version.new("0.97.0"), floor.call(">= 0.97.0.rc1", "< 1"),
+                 "a candidate lower bound reads as the release it is a candidate of"
+    assert_equal Gem::Version.new("0.69.5"), floor.call("~> 0.69", ">= 0.69.5", "0.70.0.rc2")
+
+    # THE CONTROLS: a released version still floors exactly where it says.
+    assert_equal Gem::Version.new("0.69.5"), floor.call("0.69.5")
+    assert_equal Gem::Version.new("0.69.5"), floor.call("~> 0.69", ">= 0.69.5")
+    assert_nil floor.call("< 1"), "a ceiling alone is still no floor"
+    assert_nil floor.call("0.96.0.rc1"), "and a candidate alone states none: the line must still pin"
   end
 
   # WHY THE LOCKFILE IS NOT GUARDED HERE, written down because the obvious guard
