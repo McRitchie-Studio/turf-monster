@@ -85,6 +85,28 @@ class NflLivePollJobTest < ActiveSupport::TestCase
     assert_nil Game.find_by(external_id: "EV9")
   end
 
+  # A graded contest's ranks and prizes are fixed while its settlement is
+  # pending, so the same refusal covers it. Control: the same slot with the
+  # contest still open is scored.
+  test "a tick against a settlement_pending contest's slot writes nothing" do
+    teams(:team_b).update!(league: "nfl", sport: "football")
+    SlateMatchup.create!(slate: slates(:one), team_slug: teams(:team_a).slug,
+                         opponent_team_slug: teams(:team_b).slug,
+                         game_slug: "team-a-vs-team-b", slug: "sm-settling", rank: 1)
+    Contest.where(slate_id: slates(:one).id).update_all(status: "settlement_pending")
+
+    Nfl::Espn::Client.stub(:new, StubEspnClient.new(board, summary_payload)) do
+      Nfl::LivePollJob.perform_now
+    end
+    assert_nil Game.find_by(external_id: "EV9")
+
+    Contest.where(slate_id: slates(:one).id).update_all(status: "open")
+    Nfl::Espn::Client.stub(:new, StubEspnClient.new(board, summary_payload)) do
+      Nfl::LivePollJob.perform_now
+    end
+    assert Game.find_by(external_id: "EV9"), "control: an open contest on the slot is scored"
+  end
+
   private
 
   # Regular season, so the computed slug carries no season discriminator:

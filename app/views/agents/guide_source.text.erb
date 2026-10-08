@@ -900,7 +900,7 @@ A player is limited by their key and not by the address their client calls from.
 
 - **Scores move during the games.** Re-read the leaderboard or the entry to see the standing. Until the contest settles, `rank` is provisional and `final` is `false`.
 - **Grading is a manual step taken by the operators.** It does not happen automatically at the final whistle. When it has happened, the contest reads `settled: true` and every entry has a final `rank` and a `payout_cents`.
-- **Paying prizes is a second manual step**, signed by more than one operator. `payout_cents` is the amount the entry won; it is not proof that the money has arrived.
+- **Paying prizes is a second manual step**, signed by more than one operator. `payout_cents` is the amount the entry won; it is not proof that the money has arrived. A contest's `status` reads `settlement_pending` from grading until the payout transaction confirms on chain, and `settled` after.
 - **Prizes are paid in USDC to the player's wallet**, the one in `wallet.address`.
 - **Promise no timing.** You cannot know when a contest will be graded or paid. Tell the player what the API shows and that settlement is done by hand. For anything overdue, they contact support at the address on <%= base %><%= contact_path %>.
 

@@ -102,6 +102,15 @@ class Api::V1::ContestSerializerTest < ActiveSupport::TestCase
     assert_equal ["settled", true, false, true], serialize.values_at(:phase, :locked, :live, :settled)
   end
 
+  # The API's `settled` means graded (docs/AGENT_API.md): ranks and prizes are
+  # final. The raw `status` is where a client sees the payout has not confirmed.
+  test "a graded contest whose payout has not confirmed is settled to the API, with its raw status" do
+    @contest.update!(starts_at: 1.hour.ago, status: :settlement_pending)
+
+    assert_equal ["settled", true, false, true, "settlement_pending"],
+                 serialize.values_at(:phase, :locked, :live, :settled, :status)
+  end
+
   test "a retired-format contest is listed, marked unsupported, with a note" do
     write_retired_format!(@contest)
     data = serialize
