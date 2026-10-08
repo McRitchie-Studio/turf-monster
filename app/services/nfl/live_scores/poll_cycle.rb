@@ -186,7 +186,7 @@ module Nfl
           contests = Contest.where(slate_id: slate_ids)
           # `.order(:slug)` because `pick` is otherwise unordered, and an anomaly
           # naming a different contest on each tick is one an operator cannot grep.
-          settled = contests.settled.order(:slug).pick(:slug)
+          settled = contests.graded.order(:slug).pick(:slug)
           next if settled.nil?
 
           label = GameLookup.slug_for(row, home: home, away: away) || row.external_id

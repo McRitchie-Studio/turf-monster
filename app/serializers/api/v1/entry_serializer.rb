@@ -58,7 +58,7 @@ module Api
       attr_reader :entry, :contest, :facts
 
       def standing
-        final = contest.settled?
+        final = contest.graded?
         {
           score: entry.score.to_f.round(1),
           rank: final ? entry.rank : @ranks[entry.id],

@@ -106,6 +106,13 @@
                     <%= meta["settlements"].size %> settlement(s),
                     total payout: <%= dollars(Solana::Config.base_units_to_dollars(meta["settlements"].sum { |s| s["payout"].to_i })) %>
                   </div>
+                  <%# Why this contest is still unpaid: the last settle attempt's
+                      outcome, written by Contest::Settlement. %>
+                  <% if tx.settlement_contest&.settlement_pending? && tx.settlement_contest.settlement_error.present? %>
+                    <div class="mt-2 text-xs text-red-400 break-words" data-settlement-error>
+                      Last attempt: <%= tx.settlement_contest.settlement_error %>
+                    </div>
+                  <% end %>
                 <% end %>
                 <% case tx.tx_type %>
                 <% when "register_currency" %>

@@ -564,7 +564,7 @@ module TurfMonster
           # turf-totals-alpha-contest-v1 has been stuck in since June. So grade
           # only when there is grading left to do, and let the co-sign below
           # pick up a contest that already has its ranks.
-          contest.grade! unless contest.settled?
+          contest.grade! unless contest.graded?
           contest.reload
           ptx = PendingTransaction.where(target: contest, tx_type: "settle_contest").order(:id).last
           winners = contest.entries.complete.where("payout_cents > 0").order(:rank).map do |e|

@@ -1,0 +1,19 @@
+<%# A graded contest whose prizes are not paid yet (Contest::Settlement). The
+    player is told the results stand and the money is on its way; an admin
+    also sees why the last settle attempt paid nothing, and where to retry. %>
+<div class="mt-2 rounded-lg border border-subtle bg-surface-alt px-3 py-2 text-xs text-body" data-settlement-notice>
+  <p>
+    <span class="font-semibold text-heading">Results are final.</span>
+    Prizes are paid on chain once the payout transaction confirms, and winners get an email when it does.
+  </p>
+  <% if current_user&.admin? %>
+    <p class="mt-1 text-muted">
+      <% if contest.settlement_error.present? %>
+        <span class="text-red-400" data-settlement-error>Last settle attempt: <%= contest.settlement_error %></span>
+      <% else %>
+        Settlement pending: the settle transaction is waiting on a cosign or a chain verdict.
+      <% end %>
+      <%= link_to "Pending Transactions", admin_pending_transactions_path, class: "underline underline-offset-2 text-secondary" %>
+    </p>
+  <% end %>
+</div>

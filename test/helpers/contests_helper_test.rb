@@ -2,6 +2,7 @@ require "test_helper"
 
 class ContestsHelperTest < ActionView::TestCase
   include ContestsHelper
+  include ApplicationHelper # contest_badge_classes
 
   setup do
     @contest = contests(:one)
@@ -333,5 +334,24 @@ class ContestsHelperTest < ActionView::TestCase
   test "a bye column has no matchup at all and still names its slot" do
     assert_equal "Week 6", opponent_slot_labels(6, nil)[:shown]
     assert_equal "Week ?", opponent_slot_labels(nil, nil)[:shown]
+  end
+
+  # --- a graded contest whose prizes are not paid yet ---
+
+  test "a settlement_pending contest is never badged Won and keeps the pool in its prize cell" do
+    @contest.update!(status: "settlement_pending")
+
+    assert_equal "Settlement pending", contest_status_badge(@contest, payout_cents: 300_00)[:label]
+    assert_equal "Settlement pending", contest_status_badge(@contest)[:label]
+    assert_equal @contest.guaranteed_prize_dollars, contest_prize_cell(@contest, payout_cents: 300_00)[:amount]
+    assert_equal :final, contest_live_state(@contest)
+    assert picks_visible_for?(@entry), "a graded contest's picks are public"
+  end
+
+  test "control: the same contest once settled is badged Won with the amount won" do
+    @contest.update!(status: "settled")
+
+    assert_equal "Won", contest_status_badge(@contest, payout_cents: 300_00)[:label]
+    assert_equal 300.0, contest_prize_cell(@contest, payout_cents: 300_00)[:amount]
   end
 end

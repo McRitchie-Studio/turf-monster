@@ -45,7 +45,7 @@ module Api
           phase: facts.phase(contest),
           locked: facts.locked?(contest),
           live: facts.live?(contest),
-          settled: contest.settled?,
+          settled: contest.graded?,
           cancelled: contest.cancelled?,
           locks_at: facts.locks_at(contest)&.iso8601
         }
@@ -80,7 +80,7 @@ module Api
           phase: facts.phase(contest),
           locked: locked,
           live: facts.live?(contest),
-          settled: contest.settled?,
+          settled: contest.graded?,
           cancelled: contest.cancelled?,
           coming_soon: contest.coming_soon?,
           accepting_entries: accepting_entries?(locked, spots_left),

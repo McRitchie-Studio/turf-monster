@@ -34,6 +34,8 @@ class Admin::PendingTransactionsBroadcastRecordTest < ActionDispatch::Integratio
   end
 
   def ptx(tx_type = "settle_contest", metadata = { settlements: [] }, target: @contest)
+    # A settle row exists only for a graded contest (Contest#grade! queues it).
+    target.update_columns(status: "settlement_pending") if tx_type == "settle_contest" && target
     PendingTransaction.create!(
       tx_type: tx_type, serialized_tx: "OLD_TX", status: "pending",
       target: target, initiator_address: "init", metadata: metadata.to_json
@@ -123,6 +125,9 @@ class Admin::PendingTransactionsBroadcastRecordTest < ActionDispatch::Integratio
     tx.reload
     assert tx.pending?, "nothing left the server, so the operator must be able to rebuild and retry"
     assert_nil tx.tx_signature
+    @contest.reload
+    assert_equal "settlement_pending", @contest.status
+    assert_match "refused before it was sent (Pre-flight simulation failed: SettlementOverflow)", @contest.settlement_error
   end
 
   test "an AMBIGUOUS failure after the send keeps the row claimed and unsigned" do
@@ -302,6 +307,8 @@ class Admin::PendingTransactionsBroadcastRecordTest < ActionDispatch::Integratio
     tx.reload
     assert tx.pending?, "verified-dead, so the operator can rebuild — not a console job"
     assert_nil tx.tx_signature
+    assert_equal "settlement_pending", @contest.reload.status
+    assert_match "expired", @contest.settlement_error
     assert_nil tx.broadcast_at, "and the next attempt gets its own anchor"
   end
 
@@ -321,6 +328,7 @@ class Admin::PendingTransactionsBroadcastRecordTest < ActionDispatch::Integratio
     tx.reload
     assert_not tx.pending?, "an unresolved row must not become rebuildable"
     assert_equal "FAKE_SIG_SIGNED_WIRE", tx.tx_signature
+    assert_nil @contest.reload.settlement_error, "no verdict, so no reason is written"
 
     second = FakeVault.new
     with_vault(second, verifier: ->(**) { true }) { broadcast(tx, wire: "A_SECOND_WIRE") }
@@ -346,6 +354,9 @@ class Admin::PendingTransactionsBroadcastRecordTest < ActionDispatch::Integratio
     tx.reload
     assert tx.pending?, "the treasury did not move, so the row must be rebuildable"
     assert_nil tx.tx_signature
+    assert_equal "settlement_pending", @contest.reload.status, "a failed settle never reads settled"
+    assert_match "landed and failed on chain", @contest.settlement_error
+    assert_match "6046", @contest.settlement_error
   end
 
   # A LANDED row is NOT confirmed here. Reconcile has no signer set, and

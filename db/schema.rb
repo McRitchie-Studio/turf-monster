@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_08_190000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_08_210000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -265,6 +265,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_08_190000) do
     t.bigint "payout_table_cents", array: true
     t.integer "rank"
     t.integer "season_id"
+    t.text "settlement_error"
     t.bigint "slate_id"
     t.string "slug"
     t.datetime "starts_at"
@@ -1112,7 +1113,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_08_190000) do
   end
 
   create_table "transaction_logs", force: :cascade do |t|
-    t.integer "amount_cents", null: false
+    t.integer "amount_cents"
     t.integer "balance_after_cents"
     t.datetime "created_at", null: false
     t.string "description"

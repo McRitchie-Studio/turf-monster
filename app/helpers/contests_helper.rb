@@ -39,7 +39,7 @@ module ContestsHelper
 
     return { label: "Coming Soon", classes: contest_badge_classes("pending") } if contest.coming_soon?
 
-    { label: contest.status.capitalize, classes: contest_badge_classes(contest.status) }
+    { label: contest.status.humanize, classes: contest_badge_classes(contest.status) }
   end
 
   # ── The ribbon laid across a contest card ────────────────────────────────
@@ -452,7 +452,7 @@ module ContestsHelper
   # earlier state.
   def contest_live_state(contest)
     return :cancelled if contest.cancelled?
-    return :final if contest.settled?
+    return :final if contest.graded?
     return :concluded if contest.concluded?
     return :live if contest.live?
 
