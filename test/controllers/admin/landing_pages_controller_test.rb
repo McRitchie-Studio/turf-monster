@@ -54,7 +54,48 @@ class Admin::LandingPagesControllerTest < ActionDispatch::IntegrationTest
     assert_equal "New Headline", @landing_page.reload.headline
   end
 
-  test "destroy removes a landing page" do
+  test "update renames a changed slug through rename_slug!" do
+    log_in_as(@admin)
+    renames = []
+    original = LandingPage.instance_method(:rename_slug!)
+    LandingPage.define_method(:rename_slug!) { |slug| renames << slug; original.bind_call(self, slug) }
+
+    patch admin_landing_page_path(@landing_page), params: { landing_page: { slug: "launch-renamed", headline: "Renamed" } }
+
+    assert_redirected_to admin_landing_pages_path
+    assert_equal ["launch-renamed"], renames
+    @landing_page.reload
+    assert_equal "launch-renamed", @landing_page.slug
+    assert_equal "Renamed", @landing_page.headline
+  ensure
+    LandingPage.remove_method(:rename_slug!)
+  end
+
+  test "update with a blank slug re-derives it from the name" do
+    log_in_as(@admin)
+    patch admin_landing_page_path(@landing_page), params: { landing_page: { name: "Fresh Name", slug: "" } }
+
+    assert_redirected_to admin_landing_pages_path
+    assert_equal "fresh-name", @landing_page.reload.slug
+  end
+
+  test "update refuses a taken or badly formed slug with the reason and writes nothing" do
+    log_in_as(@admin)
+    taken = LandingPage.create!(name: "Taken Page")
+    old_slug = @landing_page.slug
+
+    { taken.slug => "Slug has already been taken", "Not A Slug" => "Slug is invalid" }.each do |slug, reason|
+      patch admin_landing_page_path(@landing_page), params: { landing_page: { slug: slug, headline: "Unsaved" } }
+
+      assert_response :unprocessable_entity
+      assert_select "li", text: reason
+      @landing_page.reload
+      assert_equal old_slug, @landing_page.slug
+      assert_not_equal "Unsaved", @landing_page.headline
+    end
+  end
+
+
     log_in_as(@admin)
     assert_difference "LandingPage.count", -1 do
       delete admin_landing_page_path(@landing_page)
