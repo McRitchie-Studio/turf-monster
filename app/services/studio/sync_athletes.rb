@@ -39,11 +39,16 @@ module Studio
       def collided? = collisions.any?
     end
 
-    def self.configured? = ENV["AGENT_API_SECRET"].present?
+    CALLER = "turf-monster/sync_athletes".freeze
 
-    def initialize(base_url: nil, secret: nil, full: false)
+    def self.configured? = HubCredential.configured?
+
+    # `runtime_key` is this app's own hub key (HubCredential); with one, the
+    # shared `secret` is not read and no auth exchange is made.
+    def initialize(base_url: nil, secret: nil, runtime_key: nil, full: false)
       @base_url = (base_url || ENV["STUDIO_API_BASE"].presence || DEFAULT_BASE_URL).chomp("/")
-      @secret = secret || ENV["AGENT_API_SECRET"]
+      @runtime_key = runtime_key || (HubCredential.runtime_key unless secret)
+      @secret = secret || HubCredential.secret
       @full = full
     end
 
@@ -67,9 +72,9 @@ module Studio
     #     zero on purpose; `record_refusal` says why.
     def call
       cursor = SyncCursor.for(SOURCE)
-      return skip(cursor, "AGENT_API_SECRET not set") unless self.class.configured?
+      return skip(cursor, HubCredential::MISSING) unless @runtime_key.present? || @secret.present?
 
-      token = authenticate
+      token = @runtime_key.presence || authenticate
       @collisions = []
       seen = written = pages = 0
       since, after_id = start_from(cursor)
@@ -338,6 +343,7 @@ module Studio
       klass = method == :post ? Net::HTTP::Post : Net::HTTP::Get
       req = klass.new(uri.request_uri, { "Content-Type" => "application/json", "Accept" => "application/json" })
       req["Authorization"] = "Bearer #{token}" if token
+      req[HubCredential::CALLER_HEADER] = CALLER
       req.body = body.to_json if body
 
       res = http.request(req)

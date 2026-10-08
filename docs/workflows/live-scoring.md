@@ -404,10 +404,13 @@ It ENQUEUES rather than calling. An HTTP round trip to another host has no
 business inside the loop that re-scores contests people paid to enter; the worker
 dyno pays that cost.
 
-**Configuration.** `AGENT_API_SECRET` is the hub's shared agent secret and is
-what arms the push — with it absent the push is skipped SILENTLY, so a laptop or
-a review app scores exactly as it always did. `STUDIO_API_BASE` overrides the
-hub URL (default `https://mcritchie.studio`). The hub endpoint is idempotent, so
+**Configuration.** `STUDIO_RUNTIME_KEY` is this app's own hub key and is what
+arms the push; the hub mints it for the turf-monster client soul and it reaches
+only the athletes read and the game recap post. While it is unset the push reads
+`AGENT_API_SECRET`, the hub's shared agent secret. With both absent the push is
+skipped SILENTLY, so a laptop or a review app scores exactly as it always did.
+`STUDIO_API_BASE` overrides the hub URL (default `https://mcritchie.studio`).
+The hub endpoint is idempotent, so
 a Sidekiq retry that already succeeded answers 200 and changes nothing.
 
 ## The external dependency
