@@ -1061,7 +1061,8 @@ class FakeSolanaClient
     account_info_commitments << commitment
     raise Solana::Client::RpcError, "simulated RPC failure" if @account_info_raises
 
-    @account_infos[pda_b58]
+    info = @account_infos[pda_b58]
+    info.respond_to?(:call) ? info.call(commitment) : info # a lambda answers per commitment
   end
 
   # The commitment each account read asked for (nil: the RPC's default).

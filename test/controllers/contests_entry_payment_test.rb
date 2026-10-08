@@ -243,7 +243,7 @@ class ContestsEntryPaymentTest < ActionDispatch::IntegrationTest
     assert_equal "failed", body["status"]
     assert_equal Entries::PaymentCopy.message(:expired), body["error"]
     assert_equal %w[draft expired failed], [*@entry.reload.values_at(:payment_state, :payment_refusal_code), @ptx.reload.status]
-    assert_equal ["finalized"], @vault.client.account_info_commitments.uniq
+    assert_equal %w[finalized finalized confirmed], @vault.client.account_info_commitments, "never the RPC's default"
     assert_equal 6, @entry.selections.count
   end
 
@@ -398,5 +398,24 @@ class ContestsEntryPaymentTest < ActionDispatch::IntegrationTest
     assert_equal 1, @vault.cosign_broadcast_sends
     assert_equal "phantom", @entry.reload.payment_rail
     refute_equal "draft", @entry.payment_state
+  end
+
+  # --- the funding pre-check sits in front of the hold ---------------------------------
+
+  def funding = chain { post check_funding_contest_path(@contest), as: :json }
+
+  test "the funding check never puts the funds panel in front of a cart that may already be paid for" do
+    @vault = LedgerVault.new(tokens: [], usdc: 0.0) # the first payment spent everything
+    funding
+    assert_equal [false, "no_funding"], body.values_at("fundable", "reason"), "CONTROL: an empty wallet and a cart that never paid"
+
+    chain { @entry.pin_payment_slot!(@user.web2_solana_address, @vault) }
+    @entry.update_columns(payment_signature: "an-earlier-attempt")
+    funding
+    assert_equal [true, nil], body.values_at("fundable", "reason"), "a cart that once sent a payment is #enter's to answer"
+
+    @entry.begin_charge!(rail: "managed")
+    funding
+    assert_equal true, body["fundable"], "and so is one with a payment in flight"
   end
 end

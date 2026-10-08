@@ -177,8 +177,9 @@ class Entries::ManagedEntryPaymentTest < ActiveSupport::TestCase
     @vault.block_height = 1_151
     settle
 
-    assert_equal ["finalized"], @vault.client.account_info_commitments.uniq
-    assert_operator @vault.client.account_info_commitments.size, :>=, 2, "before the height and again after it"
+    commitments = @vault.client.account_info_commitments
+    assert_equal %w[finalized finalized confirmed], commitments,
+                 "before the height, again after it, and once at confirmed before the release; never the default"
   end
 
   test "the contest locks between the send and the confirm: the chain took it in time, so the entry stands" do
@@ -387,5 +388,41 @@ class Entries::ManagedEntryPaymentTest < ActiveSupport::TestCase
       on_chain(@vault) { Solana::Deadline.within(0) { Entries::ManagedEntry.new(contest: @contest, user: @user, usdc_allowed: true).call(@entry) } }
     end
     assert_equal %w[draft too_late], state
+  end
+
+  # --- absence is asked at both commitments before a pin can move or a signed row release ---
+
+  def ticket_visible_only_at(commitment, pda)
+    ticket = { "value" => { "lamports" => 1, "owner" => Solana::Config::PROGRAM_ID } }
+    @vault.instance_variable_get(:@ledger_accounts)[pda] = ->(asked) { asked == commitment ? ticket : nil }
+  end
+
+  test "a pinned cart whose ticket is confirmed but not yet finalized is not charged, re-pinned or called unpaid" do
+    on_chain(@vault) { @entry.pin_payment_slot!(@user.web2_solana_address, @vault) }
+    pda = on_chain(@vault) { @entry.payment_entry_pda(@vault) }
+    ticket_visible_only_at("confirmed", pda)
+
+    assert settle.pending?, "not idle: idle is what lets a pin move"
+    assert_raises(Entry::Payment::InFlight) { attempt }
+    assert_empty @vault.enter_calls
+    assert_raises(Entry::Payment::InFlight) { on_chain(@vault) { @entry.pin_payment_slot!("OtherWallet", @vault) } }
+    assert_equal @user.web2_solana_address, @entry.reload.wallet_address
+  end
+
+  test "a wire that failed on chain is not released while a ticket is visible at confirmed" do
+    @vault.fail_next_enter = :unlanded
+    assert_raises(Entries::ManagedEntry::PendingConfirmation) { attempt }
+    pda = on_chain(@vault) { @entry.reload.payment_entry_pda(@vault) }
+    @vault.instance_variable_get(:@ledger_statuses)[@entry.payment_signature] =
+      { "err" => { "InstructionError" => [0, { "Custom" => 6004 }] }, "confirmationStatus" => "finalized" }
+    ticket_visible_only_at("confirmed", pda)
+
+    held = settle
+    assert_equal %i[pending ticket_confirming], [held.status, held.code]
+    assert_equal "submitted", @entry.reload.payment_state
+
+    @vault.instance_variable_get(:@ledger_accounts).delete(pda) # CONTROL: seen at neither commitment
+    assert settle.released?
+    assert_equal "failed_onchain", @entry.reload.payment_refusal_code
   end
 end

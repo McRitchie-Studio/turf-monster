@@ -87,6 +87,10 @@ module Entries
         return paid if paid
       end
       return result(:pending) unless @entry.payment_release_allowed?(status: status, finalized_block_height: height, now: @now)
+      # ABSENCE IS ASKED TWICE. No ticket at `finalized` is what the rule needs;
+      # a ticket already visible at `confirmed` is on its way there, so a signed
+      # row is not released over it.
+      return result(:pending, :ticket_confirming) if @entry.payment_signature.present? && ticket_arriving?(pda)
 
       release(status)
     rescue Entry::Payment::IllegalTransition
@@ -131,7 +135,9 @@ module Entries
     # known. If the ticket is there, an earlier payment landed.
     def settle_draft
       pda = @entry.payment_entry_pda(@vault)
-      return result(:idle) unless ticket?(pda)
+      # `idle` lets a caller move or clear this pin, so absence is asked at
+      # both commitments: a ticket seen only at `confirmed` means wait.
+      return result(ticket_arriving?(pda) ? :pending : :idle, :ticket_confirming) unless ticket?(pda)
       return result(:idle) if Entry.where.not(id: @entry.id).exists?(onchain_entry_id: pda)
 
       signature = ticket_signature(pda)
@@ -160,6 +166,12 @@ module Entries
     def ticket?(pda)
       value = @vault.client.get_account_info(pda, commitment: TICKET_COMMITMENT)&.dig("value")
       value.present? && value["owner"] == Solana::Config::PROGRAM_ID
+    end
+
+    # The ticket is visible at `confirmed`: not yet proof of a payment, and
+    # never proof of none.
+    def ticket_arriving?(pda)
+      @vault.client.get_account_info(pda, commitment: "confirmed")&.dig("value", "owner") == Solana::Config::PROGRAM_ID
     end
 
     # The transaction that created the ticket: the recorded attempt when it

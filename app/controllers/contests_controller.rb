@@ -978,6 +978,13 @@ class ContestsController < ApplicationController
     # FIRST, so the population that owes a signature never pays for the
     # getProgramAccounts the cache bust below forces.
     return render json: { fundable: true, reason: nil, method: nil } if entry_step_up_refusal
+    # NOR IS A CART THAT MAY ALREADY BE PAID FOR. A payment unresolved in this
+    # contest, or a cart that once sent one (its ticket may exist, and the
+    # payment that created it spent the very funds this check would look for),
+    # is #enter's to answer: it reads the pinned ticket before any funding
+    # check. Saying "not fundable" here would put the funds panel in front of
+    # a player who has already paid.
+    return render json: { fundable: true, reason: nil, method: nil } if payment_precedes_funding?
 
     current_user.bust_entry_tokens_cache!
     fundable, method = entry_funding_status
@@ -2781,6 +2788,10 @@ class ContestsController < ApplicationController
       render_entry_payment_pending(entry.reload, status: :conflict)
     end
     true
+  end
+
+  def payment_precedes_funding?
+    Entry.payment_in_flight_for(user: current_user, contest: @contest).present? || pinned_draft_cart(:attempted).present?
   end
 
   def pinned_draft_cart(drafts)
