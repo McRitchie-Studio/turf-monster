@@ -193,7 +193,7 @@
             </div>
             <div class="flex items-center gap-3">
               <span class="text-sm font-mono font-bold <%= txn.credit? ? 'text-primary' : 'text-red-400' %>">
-                <%= txn.credit? ? '+' : '-' %><%= dollars(txn.amount_dollars) %>
+                <%= ledger_amount(txn) %>
               </span>
               <span class="text-xs text-muted"><%= txn.created_at.strftime("%b %d") %></span>
             </div>

@@ -26,4 +26,14 @@ module SolanaExplorerHelper
   def solana_explorer_cluster_param
     Solana::Config.devnet? ? "?cluster=devnet" : ""
   end
+
+  # A ledger row's amount cell. A pointer row (TransactionLog#pointer?) has no
+  # amount: it links to the transaction that moved the money, which is where
+  # the figure lives.
+  def ledger_amount(txn)
+    return "#{txn.credit? ? '+' : '-'}#{dollars(txn.amount_dollars)}" unless txn.pointer?
+
+    link_to "Paid on chain", "https://explorer.solana.com/tx/#{txn.onchain_tx}#{solana_explorer_cluster_param}",
+            target: "_blank", rel: "noopener", class: "underline underline-offset-2"
+  end
 end
