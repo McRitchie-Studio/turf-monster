@@ -375,7 +375,7 @@ and every such case except #6 self-heals automatically.
   because there are two entry paths, both read by
   `Entries::OnchainReconciler.reconcilable?`
   (`app/services/entries/onchain_reconciler.rb:209-214`) and its
-  `broadcast_proof?` (`:218-222`): the consume signature **on the ENTRY**
+  `broadcast_proof?` (`:222-226`): the consume signature **on the ENTRY**
   (§2, the managed durable capture → fast path, slot spared) **or** a signed
   `PendingTransaction` targeting it (§3c, the Phantom path → chain probe, slot
   released). The managed half was added by `reach-managed-abandoned-strand`;
