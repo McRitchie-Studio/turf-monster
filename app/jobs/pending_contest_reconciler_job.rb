@@ -12,6 +12,7 @@
 # reconcile threshold means an in-flight finalize is never touched.
 class PendingContestReconcilerJob < ApplicationJob
   queue_as :default
+  self.rpc_long_budget = :reconcile_sweep
 
   def perform(older_than_minutes: nil)
     older_than = older_than_minutes ? older_than_minutes.to_f.minutes : Contests::PendingReconciler::RECONCILE_AFTER

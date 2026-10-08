@@ -25,4 +25,8 @@ class Current < ActiveSupport::CurrentAttributes
   #   fails safe to `false` in the latter case so a transient RPC blip
   #   doesn't pop the alarming "Vault Init" navbar badge.
   attribute :vault_state, :vault_state_fetched, :vault_state_error
+
+  # Solana::Deadline: the monotonic time this request's or job's Solana RPC
+  # waits end, and the LONG_BUDGET name of the block running outside it.
+  attribute :rpc_deadline, :rpc_long_budget
 end

@@ -751,6 +751,7 @@ Every error is `{ "error": { "code": "...", "message": "..." } }`. **Unless a ro
 | 422 | `wallet_not_server_signable` | The wallet is self-custodied or linked to Phantom, or there is no wallet | Send the player to the website. The API cannot enter for this account. |
 | 429 | `rate_limited` | Too many requests | Wait `retry_after` seconds (also in the `Retry-After` header), then continue more slowly. |
 | 500 | `internal_error` | A fault on the server | Retry shortly. For a new entry, send the same request with the same idempotency key. |
+| 503 | `rpc_deadline` | A read of Solana ran out of time. Nothing was sent. | Wait the `Retry-After` header's seconds and send the same request. |
 | 503 | `chain_unavailable` | Solana could not be read, or did not confirm the payment in time. **The payment may or may not have landed.** | Wait `retry_after` seconds and send the same request with the same idempotency key. The server looks for the payment before it pays again. Expect this answer to repeat for a few minutes. |
 
 A `401` also carries `WWW-Authenticate: Bearer realm="Turf Monster API"`. `idempotency_in_progress`, `chain_unavailable` and a `202` carry `retry_after` in the body and a `Retry-After` header.

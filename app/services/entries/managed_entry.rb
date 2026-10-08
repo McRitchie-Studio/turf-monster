@@ -99,8 +99,8 @@ module Entries
         if @contest.entry_fee_cents.to_i.positive? && !@contest.onchain?
           raise Entry::Refusal.new(:contest_not_open, "This contest isn't on-chain yet — paid entry is unavailable.")
         end
-        # The spend keeps the gem's 15s wait budget: a send_and_confirm poll stopped by the request's 5s strands a paid entry.
-        Solana::Client.with_wait_budget(Solana::Client::DEFAULT_WAIT_BUDGET) { fund!(entry) } if @contest.onchain? && @contest.entry_fee_cents > 0
+        # The spend keeps the gem's 15s wait budget and runs outside the request deadline: a stopped confirm poll strands a paid entry.
+        Solana::Deadline.long_budget(:managed_entry_spend) { Solana::Client.with_wait_budget(Solana::Client::DEFAULT_WAIT_BUDGET) { fund!(entry) } } if @contest.onchain? && @contest.entry_fee_cents > 0
       end
 
       # Durable capture (incident 2026-06-08). The on-chain consume/transfer

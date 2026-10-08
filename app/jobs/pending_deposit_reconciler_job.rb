@@ -12,6 +12,7 @@
 # reconcile threshold means an in-flight deposit is never touched.
 class PendingDepositReconcilerJob < ApplicationJob # parked: FiatRailsParked, docs/FIAT_RAILS.md
   queue_as :default
+  self.rpc_long_budget = :reconcile_sweep
 
   def perform(older_than_minutes: nil)
     older_than = older_than_minutes ? older_than_minutes.to_f.minutes : Deposits::OnchainReconciler::RECONCILE_AFTER

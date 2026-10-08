@@ -13,6 +13,7 @@
 #
 # `succeed_after: n` answers 429 n times, then a JSON-RPC result, for a read
 # that recovers.
+# `on_sleep:` is called with each wait, for a test that keeps a fake clock.
 module ThrottledRpc
   Response = Struct.new(:code, :body, :headers) do
     def [](name)
@@ -20,7 +21,7 @@ module ThrottledRpc
     end
   end
 
-  def self.client(retry_after: 3, succeed_after: nil, result: { "value" => nil })
+  def self.client(retry_after: 3, succeed_after: nil, result: { "value" => nil }, on_sleep: nil)
     client = Solana::Client.new(rpc_url: "https://rpc.throttled.test")
     slept = []
     posts = 0
@@ -33,7 +34,10 @@ module ThrottledRpc
         Response.new("429", "Too many requests", { "Retry-After" => retry_after.to_s })
       end
     end
-    client.define_singleton_method(:sleep) { |seconds| slept << seconds }
+    client.define_singleton_method(:sleep) do |seconds|
+      slept << seconds
+      on_sleep&.call(seconds)
+    end
     client.define_singleton_method(:slept) { slept }
     client.define_singleton_method(:posts) { posts }
     client

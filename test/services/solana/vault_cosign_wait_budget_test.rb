@@ -66,6 +66,21 @@ class Solana::VaultCosignWaitBudgetTest < ActiveSupport::TestCase
     end
   end
 
+  test "a cosign submit runs outside a request deadline that has passed" do
+    spy = CompleterSpy.new
+    spy.define_singleton_method(:complete) do |wire, **opts|
+      (@seen ||= []) << [Current.rpc_long_budget, Solana::Deadline.remaining]
+      super(wire, **opts)
+    end
+
+    Solana::Deadline.within(0) do
+      assert_operator Solana::Deadline.remaining, :<=, 0, "CONTROL: outside the submit the deadline has passed"
+      vault_with(completer: spy).cosign_and_broadcast_entry("WIRE", expectation: :exp)
+    end
+
+    assert_equal [[:cosign_submit, nil]], spy.instance_variable_get(:@seen)
+  end
+
   test "simulate_and_broadcast simulates and sends under the cosign budget" do
     client = BroadcastClient.new
 

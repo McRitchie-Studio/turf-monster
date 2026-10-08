@@ -105,6 +105,21 @@ class Entries::ManagedEntryTest < ActiveSupport::TestCase
     assert_equal [Solana::Client::DEFAULT_WAIT_BUDGET], budgets
   end
 
+  test "the spend runs outside a request deadline that has passed" do
+    seen = []
+    @vault.define_singleton_method(:enter_contest_with_token) do |*args, **opts|
+      seen << [Current.rpc_long_budget, Solana::Deadline.remaining]
+      super(*args, **opts)
+    end
+
+    Solana::Deadline.within(0) do
+      assert_operator Solana::Deadline.remaining, :<=, 0, "CONTROL: outside the spend the deadline has passed"
+      on_chain(@vault) { service.call(cart) }
+    end
+
+    assert_equal [[:managed_entry_spend, nil]], seen
+  end
+
   test "funding: no token and USDC not allowed refuses no_entry_token with funded USDC untouched" do
     @vault = LedgerVault.new(tokens: [], usdc: 100.0)
     managed = service(usdc_allowed: false)

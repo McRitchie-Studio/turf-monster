@@ -1047,6 +1047,32 @@ Guards: `test/services/solana/public_rpc_url_test.rb` (the primitive) and
 plus a standing ban on any `.erb` or `app/javascript` file naming the server
 constant at all).
 
+## RPC wait bounds
+
+Three bounds apply to the waits between retries of a server-side RPC call.
+None of them bounds the time one attempt spends on the wire: that is the gem's
+open and read timeout.
+
+| Bound | Value | Where |
+|---|---|---|
+| Per call | 5 s in a request, 2 s for a navbar hydrate read, 15 s in a job | `SolanaWaitBudget`, `Solana::Client::DEFAULT_WAIT_BUDGET` |
+| Per request | 25 s from the start of the request | `Solana::Deadline::WEB` |
+| Per job | 120 s from the start of the job, or `SOLANA_JOB_DEADLINE` | `Solana::Deadline.job_seconds`, `ApplicationJob` |
+
+Each call waits the smaller of its own budget and the time left. A call the
+deadline stops raises `Solana::Deadline::Exceeded`. A web request answers it
+503 with `Retry-After` and `error_code: "RPC_DEADLINE"`; `/api/v1` answers 503
+`rpc_deadline` in its own envelope. An action that rescues every error answers
+it as it answers any other RPC failure.
+
+Two things run outside the deadline, under their per-call budget:
+
+- A `sendTransaction` and every call after it in the same request or job. So
+  `Exceeded` means that request or job sent nothing.
+- The calls in `Solana::Deadline::LONG_BUDGET`: the ones that spend a player's
+  money or decide whether a spend landed. A new call of that kind is wrapped in
+  `Solana::Deadline.long_budget(:name)` and gets a line in that list.
+
 ## Boot alignment guard (OPSEC-039) and rotating the server RPC key
 
 `SOLANA_RPC_URL` carries a provider key on mainnet, so it will need rotating.

@@ -9,6 +9,7 @@ module Entries
   # open contest (the scheduled / operator path, mirroring the rake task).
   class OnchainReconcileJob < ApplicationJob
     queue_as :default
+    self.rpc_long_budget = :reconcile_sweep
 
     def perform(entry_id = nil)
       # OnchainReconciler.reconcile_entry rescues + logs its OWN per-entry faults

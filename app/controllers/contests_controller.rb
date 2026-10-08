@@ -2046,7 +2046,7 @@ class ContestsController < ApplicationController
     # without double-logging the rescue_and_log path. (Operator directive: every
     # endpoint records failures to ErrorLog.)
     capture_unlogged(exception, parent: @contest)
-
+    return render_rpc_deadline(exception) if exception.is_a?(Solana::Deadline::Exceeded)
     # Thread the viewer's wallet mode so a web2/managed USDC entry that 6002s
     # on-chain (underfunded ATA) routes to the no_funding/web2 Top Up modal, not
     # the web3 deposit/currency picker. web3 (Phantom) sessions stay unchanged.

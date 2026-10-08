@@ -8,8 +8,8 @@ class ApplicationController < ActionController::Base
   # DECISION of what to lock — see the before_actions on ContestsController,
   # EntriesController, WalletsController and Cdp::RampSessionsController.
   include Studio::GeoDetection
-  # Every request's Solana calls wait at most SolanaWaitBudget::REQUEST seconds
-  # between retries, so a throttled RPC answers inside Heroku's 30s timeout.
+  # Every request's Solana calls share one deadline (Solana::Deadline::WEB) and
+  # each waits at most SolanaWaitBudget::REQUEST seconds between retries.
   include SolanaWaitBudget
 
   # Guard the JS-heavy *interactive* app against ancient browsers — but NOT the
@@ -845,16 +845,16 @@ class ApplicationController < ActionController::Base
   # the render path. Each field is independently nil-safe (an RPC flake yields
   # nil for balances / 0 for seeds, never raises).
   #
-  # The wait budget is THREAD-LOCAL, so the request's own budget does not reach
-  # these threads: each body opens its own SolanaWaitBudget::NAVBAR_HYDRATE
-  # block, or its reads would wait the gem's 15-second default.
-  def fetch_navbar_hydrate(user)
+  # Neither the wait budget nor the request deadline reaches these threads:
+  # each body opens SolanaWaitBudget#under_navbar_hydrate_budget with the
+  # deadline read here, or its reads would wait the gem's 15-second default.
+  def fetch_navbar_hydrate(user, deadline: Solana::Deadline.current)
     address = user.solana_address
     token_address = entry_token_wallet_address(user)
 
     balances_thread = Thread.new do
       Rails.application.executor.wrap do
-        Solana::Client.with_wait_budget(SolanaWaitBudget::NAVBAR_HYDRATE) { Solana::Vault.new.fetch_wallet_balances(address) }
+        under_navbar_hydrate_budget(deadline) { Solana::Vault.new.fetch_wallet_balances(address) }
       rescue => e
         Rails.logger.warn("[hydrate] fetch_wallet_balances failed: #{e.message}")
         nil
@@ -863,7 +863,7 @@ class ApplicationController < ActionController::Base
 
     seeds_thread = Thread.new do
       Rails.application.executor.wrap do
-        Solana::Client.with_wait_budget(SolanaWaitBudget::NAVBAR_HYDRATE) { Solana::Vault.new.sync_balance(address)&.dig(:seeds) }
+        under_navbar_hydrate_budget(deadline) { Solana::Vault.new.sync_balance(address)&.dig(:seeds) }
       rescue => e
         Rails.logger.warn("[hydrate] sync_balance failed: #{e.message}")
         nil
@@ -877,7 +877,7 @@ class ApplicationController < ActionController::Base
     # badge value instead of zeroing it.
     tokens_thread = Thread.new do
       Rails.application.executor.wrap do
-        Solana::Client.with_wait_budget(SolanaWaitBudget::NAVBAR_HYDRATE) do
+        under_navbar_hydrate_budget(deadline) do
           token_address.present? ?
             Solana::Vault.new.list_entry_tokens(token_address).count { |t| !t[:consumed] } : 0
         end

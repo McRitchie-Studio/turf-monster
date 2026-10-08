@@ -28,16 +28,20 @@ class SolanaWaitBudgetTest < ActionDispatch::IntegrationTest
 
   # A FakeVault that writes down the budget each RPC-shaped call ran under.
   class BudgetVault < FakeVault
-    attr_reader :budgets
+    attr_reader :budgets, :deadlines
 
     def initialize(...)
       super(...)
       @budgets = Hash.new { |h, k| h[k] = [] }
+      @deadlines = Hash.new { |h, k| h[k] = [] }
       @budget_lock = Mutex.new
     end
 
     def record(name)
-      @budget_lock.synchronize { @budgets[name] << Thread.current[Solana::Client::WAIT_BUDGET_KEY] }
+      @budget_lock.synchronize do
+        @budgets[name] << Thread.current[Solana::Client::WAIT_BUDGET_KEY]
+        @deadlines[name] << Solana::Deadline.remaining
+      end
     end
 
     def fetch_wallet_balances(*, **)
@@ -142,6 +146,112 @@ class SolanaWaitBudgetTest < ActionDispatch::IntegrationTest
     assert_equal [SolanaWaitBudget::ENSURE_USER_ACCOUNT.to_f], vault.budgets[:ensure_user_account]
     assert_equal [7.0], vault.budgets[:next_free_entry_index].uniq,
                  "a read with no budget of its own runs under the request default"
+  end
+
+  # ── The request deadline ───────────────────────────────────────────────
+
+  # A vault whose account preamble reads the chain ten times and tolerates
+  # each failed read, as a page of several balances does.
+  class TolerantReadsVault < FakeVault
+    def initialize(rpc)
+      super()
+      @rpc = rpc
+    end
+
+    def ensure_user_account(wallet, username: nil)
+      10.times do
+        @rpc.get_account_info(wallet)
+      rescue Solana::Client::HttpError
+        nil
+      end
+    end
+  end
+
+  def post_throttled_prepare_entry(now)
+    @user.update!(web3_solana_address: "Web3DeadlineWallet#{SecureRandom.hex(4)}")
+    @contest.update!(onchain_contest_id: "onchain_deadline", season_id: 1)
+    log_in_as_onchain(@user)
+    entry = @contest.entries.create!(user: @user, status: :cart)
+    %i[m1 m2 m3 m4 m5 m6].each { |m| entry.selections.create!(slate_matchup: slate_matchups(m)) }
+
+    rpc = ThrottledRpc.client(retry_after: 3, on_sleep: ->(seconds) { now[0] += seconds })
+    Solana::Deadline.stub :clock, -> { now[0] } do
+      Solana::Vault.stub :new, TolerantReadsVault.new(rpc) do
+        post prepare_entry_contest_path(@contest), as: :json
+      end
+    end
+    rpc
+  end
+
+  test "throttled reads in one request answer 503 RPC_DEADLINE before 25 seconds of waits" do
+    now = [5_000.0]
+
+    rpc = post_throttled_prepare_entry(now)
+
+    assert_response :service_unavailable
+    body = JSON.parse(response.body)
+    assert_equal "RPC_DEADLINE", body["error_code"]
+    assert_match(/Nothing was sent/, body["error"])
+    assert_equal Solana::Deadline::RETRY_AFTER.to_s, response.headers["Retry-After"]
+    assert_operator rpc.slept.size, :>=, 3
+    assert_operator rpc.slept.sum, :<=, Solana::Deadline::WEB
+    assert_operator now[0] - 5_000.0, :<=, Solana::Deadline::WEB
+  end
+
+  test "CONTROL: with no deadline the same request waits past 25 seconds" do
+    now = [5_000.0]
+
+    rpc = Solana::Deadline.stub(:remaining, nil) { post_throttled_prepare_entry(now) }
+
+    assert_response :success
+    assert_equal 10, rpc.slept.size
+    assert_operator rpc.slept.sum, :>, Solana::Deadline::WEB
+  end
+
+  test "each navbar hydrate thread runs under the request's deadline" do
+    @user.update!(web2_solana_address: "Web2DeadlineWallet#{SecureRandom.hex(4)}")
+    log_in_as(@user)
+    vault = BudgetVault.new(usdc_balance: 1.0)
+
+    Solana::Vault.stub :new, vault do
+      get session_refresh_account_path, as: :json
+    end
+
+    assert_response :success
+    %i[fetch_wallet_balances sync_balance list_entry_tokens].each do |read|
+      left = vault.deadlines[read].first
+      assert_not_nil left, "#{read} has no deadline inside its thread"
+      assert_operator left, :<=, Solana::Deadline::WEB
+    end
+  end
+
+  test "a long-budget action runs as its named block, and an ordinary one does not" do
+    log_in_as(@user)
+    names = []
+    real = Solana::Deadline.method(:long_budget)
+    spy = ->(name, &block) { names << name; real.call(name, &block) }
+
+    Solana::Deadline.stub :long_budget, spy do
+      post discard_prepared_entry_contest_path(@contest), as: :json
+      assert_empty names, "CONTROL: an action off the list"
+      post recover_pending_entry_contest_path(@contest), as: :json
+    end
+
+    assert_equal [:entry_recovery], names
+  end
+
+  test "every long-budget action is a route" do
+    Solana::Deadline::LONG_BUDGET_ACTIONS.each_key do |key|
+      controller, action = key.split("#")
+      assert Rails.application.routes.routes.any? { |r| r.defaults[:controller] == controller && r.defaults[:action] == action }, key
+    end
+  end
+
+  test "all three base controllers answer Exceeded themselves" do
+    [ApplicationController, Api::V1::BaseController, McpController].each do |klass|
+      handler = klass.rescue_handlers.reverse.find { |name, _| Solana::Deadline::Exceeded <= name.constantize }
+      assert_equal ["Solana::Deadline::Exceeded", :render_rpc_deadline], handler, klass.name
+    end
   end
 
   # ── Jobs keep the gem default ──────────────────────────────────────────
