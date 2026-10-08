@@ -3100,30 +3100,57 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 2, vault.create_contest_calls.first[:params][:season_id]
   end
 
-  test "create refuses a format whose payout table is over max ranks, before any transaction is built" do
-    log_in_as(admin_phantom)
-    SeasonConfig.set_current!(2)
-    vault = FakeVault.new(usdc_balance: 100.0, season: { season_id: 2 })
+  # Runs the block with `format` paying five ranks, one more than settles.
+  def with_five_rank_format(format)
     five = { 1 => 20_00, 2 => 10_00, 3 => 5_00, 4 => 5_00, 5 => 5_00 }
-    formats = Contest::FORMATS.merge("tiny" => Contest::FORMATS.fetch("tiny").merge(payouts: five))
     original = Contest::FORMATS
     Contest.send(:remove_const, :FORMATS)
-    Contest.const_set(:FORMATS, formats)
+    Contest.const_set(:FORMATS, original.merge(format => original.fetch(format).merge(payouts: five)))
+    yield
+  ensure
+    Contest.send(:remove_const, :FORMATS)
+    Contest.const_set(:FORMATS, original)
+  end
 
-    Solana::Vault.stub :new, vault do
-      post contests_path,
-        params: { contest: { name: "Five Rank Cup", slate_id: slates(:one).id, contest_type: "tiny" } },
-        as: :json
-    end
-
+  def assert_refused_over_max_ranks(vault)
     assert_response :unprocessable_entity
     json = JSON.parse(response.body)
     assert_equal false, json["success"]
     assert_equal "Payout table has 5 paid ranks; one settlement pays at most 4", json["error"]
     assert_empty vault.create_contest_calls
-  ensure
-    Contest.send(:remove_const, :FORMATS)
-    Contest.const_set(:FORMATS, original)
+  end
+
+  test "create refuses a format whose payout table is over max ranks, before any transaction is built" do
+    log_in_as(admin_phantom)
+    SeasonConfig.set_current!(2)
+    vault = FakeVault.new(usdc_balance: 100.0, season: { season_id: 2 })
+
+    with_five_rank_format("tiny") do
+      Solana::Vault.stub :new, vault do
+        post contests_path,
+          params: { contest: { name: "Five Rank Cup", slate_id: slates(:one).id, contest_type: "tiny" } },
+          as: :json
+      end
+    end
+
+    assert_refused_over_max_ranks(vault)
+  end
+
+  test "generate_bundle refuses a format whose payout table is over max ranks, before any transaction is built" do
+    log_in_as(admin_phantom)
+    SeasonConfig.set_current!(2)
+    vault = FakeVault.new(usdc_balance: 100_000.0, season: { season_id: 2 })
+
+    spec = ContestBundle::ALL.fetch("alpha")[:contest]
+    slates(:one).update!(name: spec[:slate_name])
+
+    with_five_rank_format(spec[:contest_type]) do
+      Solana::Vault.stub :new, vault do
+        post generate_bundle_contests_path(key: "alpha"), as: :json
+      end
+    end
+
+    assert_refused_over_max_ranks(vault)
   end
 
   test "create uses the season selected in the form" do
