@@ -7,7 +7,7 @@ still holds production's key.** Where each step stands, as of 2026-10-08:
 |---|---|
 | 1. Choose the rotation | **Open: Mr. McRitchie's decision.** Option A's dry run passes with the key below |
 | 2–3. The QA key, filed in 1Password | Done before this runbook was written: `solana.turf.system.devnet`, `2eGs8G3wzhEeNQQU2Q86BmmA2xTpDbMMae3Y1bvpZfx9`. No new key is generated |
-| 4. Fund it | Done: 995,118,360 lamports on devnet at `finalized`, 2026-10-08. Re-read before the flip |
+| 4. Fund it | SOL done: 995,118,360 lamports on devnet at `finalized`, 2026-10-08. Re-read before the flip. **USDC mint authority: open (step 4)** |
 | 5. Dry run | Option A passes (2026-10-08). Re-run it on the day |
 | 6–7. Sign and confirm the devnet signer change | **NOT RUN. Mr. McRitchie signs** |
 | 8–9. Point turf-monster-qa at the key, verify | **NOT RUN.** Only after step 7 |
@@ -170,6 +170,17 @@ needs no airdrop; ask the faucet once, and only if the read is low:
 solana balance "$QA_PUBKEY" --url devnet
 solana airdrop 2 "$QA_PUBKEY" --url devnet                   # only if the balance is low
 ```
+
+**SOL is not all the server key needs on devnet.** The devnet USDC test mint,
+`222Dcu2RgAXE3T8A4mGSG3kQyXaNjqePx7vva1RdWBN9`, names `8K81…` as its mint
+authority (read at `finalized`, 2026-10-08), and the QA key owns no token
+account. After step 8 QA's server signs `mint_spl` as the QA key, so the
+faucet, the devnet deposit credit, `bin/qa-contest-rehearsal create` and an
+operator-funded test contest all fail. **Open: Mr. McRitchie's decision,
+before step 8.** Either move the mint authority to the QA key (one devnet
+signature by `8K81…`; local development, which derives `8K81…`, then loses
+devnet minting), or leave it and accept that QA cannot mint. Re-read it with
+`spl-token display 222Dcu2RgAXE3T8A4mGSG3kQyXaNjqePx7vva1RdWBN9 --url devnet`.
 
 ## Step 5 — Dry run
 
