@@ -32,6 +32,10 @@ require "nokogiri"
 class ModalHostFocusContractTest < ActionDispatch::IntegrationTest
   def host_source = ResolvedModalHost.source
 
+  # The store's JavaScript: studio/modal_host.js on an engine that ships the
+  # store as a module, the same resolved partial on one that keeps it inline.
+  def host_script = ResolvedModalHost.script
+
   # THE BACKDROP ELEMENT, parsed out of the RENDERED page.
   #
   # WHY NOT assert_includes ON THE SOURCE — this is the trap the first version of
@@ -96,7 +100,7 @@ class ModalHostFocusContractTest < ActionDispatch::IntegrationTest
   # which prose cannot satisfy — the whole reason the substring version failed.
   test "every store function the backdrop binds is actually defined" do
     el = backdrop
-    src = host_source
+    src = host_script
 
     called = %w[x-init @keydown.tab.prevent :aria-label @keydown.escape.window @click.self]
              .flat_map { |a| el[a].to_s.scan(/\$store\.modals\.(\w+)\(/) }
@@ -107,7 +111,7 @@ class ModalHostFocusContractTest < ActionDispatch::IntegrationTest
                     "#{called.inspect} — if the bindings moved, re-point this test"
 
     called.each do |name|
-      assert_match(/\b#{Regexp.escape(name)}: function\s*\(/, src,
+      assert_match(ResolvedModalHost.store_function(name), src,
                    "the backdrop binds $store.modals.#{name}(), and the store never DEFINES it. " \
                    "The attribute assertions above stay green on this — they prove the wire, not " \
                    "what is on the end of it — and Alpine throws in the browser where no Rails " \
@@ -137,7 +141,7 @@ class ModalHostFocusContractTest < ActionDispatch::IntegrationTest
   # current() truthy, so the outer template never re-mounts and x-init never
   # re-runs — the trap would hold on open and release on every swap.
   test "the resolved host re-focuses after a swap" do
-    src = host_source
+    src = host_script
 
     assert_includes src, "refocus: function",
                     "the host has no refocus() — the trap releases on the first swap"
@@ -151,7 +155,7 @@ class ModalHostFocusContractTest < ActionDispatch::IntegrationTest
   # FOCUS MUST COME BACK. Without releaseFocus the opener never regains focus and
   # a keyboard user is stranded on a detached backdrop.
   test "the resolved host returns focus to the opener when the last dialog closes" do
-    src = host_source
+    src = host_script
 
     # ANCHORED ON THE DEFINITION FORM, same as refocus above, and for the same
     # reason. A bare `assert_includes src, "releaseFocus"` is satisfied by the
@@ -168,14 +172,14 @@ class ModalHostFocusContractTest < ActionDispatch::IntegrationTest
 
   # THE ACCESSIBLE NAME. An unnamed dialog announces as just "dialog".
   test "the resolved host names the dialog" do
-    src = host_source
+    src = host_script
 
     # Definition form, not the bare name — prose cannot satisfy it. Nothing in
     # the host documents dialogLabel in a comment TODAY, which is exactly the
     # state releaseFocus was in before a comment was added above it.
     assert_includes src, "dialogLabel: function",
                     "the dialog has no accessible name — it announces as just 'dialog'"
-    assert_match(/:aria-label=/, src, "the name is computed but never bound to the element")
+    assert_match(/:aria-label=/, host_source, "the name is computed but never bound to the element")
   end
 
   # CLOSE() MUST RELEASE EVEN WHEN THE ENTRY IS ALREADY GONE.
@@ -193,13 +197,16 @@ class ModalHostFocusContractTest < ActionDispatch::IntegrationTest
   # from the setTimeout callback, so the release must sit at depth 1 (the callback's
   # own body) and not at depth 2 (inside the idx guard).
   test "close() releases focus outside the already-spliced guard" do
-    src = host_source
-    body = src[/close: function\(\).*?\n        \},/m]
+    # close() in either dialect: an object-literal member of the inline store, or
+    # `store.close = function` in studio/modal_host.js.
+    src = host_script
+    body = src[/close: function\(\).*?\n        \},/m] ||
+           src[/store\.close = function \(\) \{.*?\n  \}\n/m]
 
     refute_nil body, "close() moved — re-point this test rather than deleting it"
 
     call_at = body.index(/self\.releaseFocus\(\)/)
-    guard_at = body.index("var idx = self.stack.indexOf(entry);")
+    guard_at = body.index("var idx = self.stack.indexOf(entry)")
 
     assert call_at && guard_at, "close() no longer both guards on idx and releases focus"
 

@@ -45,6 +45,26 @@ module ResolvedModalHost
     template.source
   end
 
+  # The engine module that carries the modal store, or nil on an engine that
+  # keeps the store inline in the host partial.
+  def script_module
+    path = Studio::Engine.root.join("app/javascript/studio/modal_host.js")
+    path.read if path.exist?
+  end
+
+  # The modal store's JavaScript wherever the bundled engine keeps it:
+  # studio/modal_host.js when it ships one, the resolved host partial otherwise.
+  def script
+    script_module || source
+  end
+
+  # A store function's DEFINITION in either engine dialect: `name: function (`
+  # in an object literal, or `store.name = function (`. Prose writes neither.
+  def store_function(name)
+    n = Regexp.escape(name)
+    /\b(?:#{n}:\s*function\s*\(|store\.#{n}\s*=\s*function\s*\()/
+  end
+
   # True when the render resolves to a file inside this app — i.e. the shadow is
   # back. Deliberately a prefix test on app/views and nothing else.
   def shadowed_by_app?
