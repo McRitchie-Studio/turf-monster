@@ -3100,6 +3100,32 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 2, vault.create_contest_calls.first[:params][:season_id]
   end
 
+  test "create refuses a format whose payout table is over max ranks, before any transaction is built" do
+    log_in_as(admin_phantom)
+    SeasonConfig.set_current!(2)
+    vault = FakeVault.new(usdc_balance: 100.0, season: { season_id: 2 })
+    five = { 1 => 20_00, 2 => 10_00, 3 => 5_00, 4 => 5_00, 5 => 5_00 }
+    formats = Contest::FORMATS.merge("tiny" => Contest::FORMATS.fetch("tiny").merge(payouts: five))
+    original = Contest::FORMATS
+    Contest.send(:remove_const, :FORMATS)
+    Contest.const_set(:FORMATS, formats)
+
+    Solana::Vault.stub :new, vault do
+      post contests_path,
+        params: { contest: { name: "Five Rank Cup", slate_id: slates(:one).id, contest_type: "tiny" } },
+        as: :json
+    end
+
+    assert_response :unprocessable_entity
+    json = JSON.parse(response.body)
+    assert_equal false, json["success"]
+    assert_equal "Payout table has 5 paid ranks; one settlement pays at most 4", json["error"]
+    assert_empty vault.create_contest_calls
+  ensure
+    Contest.send(:remove_const, :FORMATS)
+    Contest.const_set(:FORMATS, original)
+  end
+
   test "create uses the season selected in the form" do
     log_in_as(admin_phantom)
     SeasonConfig.set_current!(1)

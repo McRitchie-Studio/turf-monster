@@ -68,6 +68,21 @@ class ContestGradeTiePayoutsTest < ActiveSupport::TestCase
     assert_equal 4, @contest.entries.where("payout_cents > 0").count
   end
 
+  test "a tie straddling the last paid rank pays the lowest entry ids, whatever order they finish scoring" do
+    e1 = make_active_entry(score: 100.0)
+    e2 = make_active_entry(score: 90.0)
+    tied = 3.times.map { make_active_entry(score: 0.0) }
+    # Reach the tied score newest-first, so only entries.id can order them.
+    tied.reverse_each { |entry| entry.update!(score: 80.0) }
+
+    grade!
+
+    [e1, e2, *tied].each(&:reload)
+    assert_equal tied.map(&:id).sort, tied.map(&:id)
+    assert_equal [1, 2, 3, 3, 3], [e1, e2, *tied].map(&:rank)
+    assert_equal [300_00, 100_00, 50_00, 50_00, 0], [e1, e2, *tied].map(&:payout_cents)
+  end
+
   test "an earlier tie still splits when the last paid rank is not tied" do
     e1 = make_active_entry(score: 100.0)
     e2 = make_active_entry(score: 90.0)
@@ -250,6 +265,46 @@ class ContestFormatsTest < ActiveSupport::TestCase
 
   test "an unsaved contest prices its format's current row" do
     assert_equal Contest::FORMATS.fetch("standard")[:payouts], Contest.new(contest_type: "standard").payouts
+  end
+
+  NINE_RANKS = ([1000_00] + [100_00] * 8).freeze
+
+  def with_formats(formats)
+    original = Contest::FORMATS
+    Contest.send(:remove_const, :FORMATS)
+    Contest.const_set(:FORMATS, formats)
+    yield
+  ensure
+    Contest.send(:remove_const, :FORMATS)
+    Contest.const_set(:FORMATS, original)
+  end
+
+  test "create refuses table over max ranks" do
+    attrs = { name: "Ranks", slate: slates(:one), status: :open, contest_type: "large" }
+    over = Contest.new(**attrs, payout_table_cents: NINE_RANKS)
+
+    refute over.save
+    assert_equal ["Payout table has 9 paid ranks; one settlement pays at most 4"], over.errors.full_messages
+    # Control: the same contest with a four-rank table saves.
+    assert Contest.new(**attrs, payout_table_cents: [1000_00, 400_00, 200_00, 200_00]).save
+  end
+
+  test "create refuses a format whose row is over max ranks" do
+    five = { 1 => 20_00, 2 => 10_00, 3 => 5_00, 4 => 5_00, 5 => 5_00 }
+    with_formats(Contest::FORMATS.merge("tiny" => Contest::FORMATS.fetch("tiny").merge(payouts: five))) do
+      contest = Contest.new(name: "Five", slate: slates(:one), status: :open, contest_type: "tiny")
+
+      refute contest.valid?
+      assert_equal ["Payout table has 5 paid ranks; one settlement pays at most 4"], contest.errors[:base]
+    end
+  end
+
+  test "a saved contest over max ranks still saves" do
+    contest = Contest.create!(name: "Opened", slate: slates(:one), status: :open, contest_type: "large")
+    Contest.where(id: contest.id).update_all(payout_table_cents: NINE_RANKS)
+
+    assert contest.reload.update(name: "Opened, renamed")
+    assert_equal NINE_RANKS, contest.reload.payout_table_cents
   end
 
   test "a contest saved before snapshots pays the table it opened with" do
