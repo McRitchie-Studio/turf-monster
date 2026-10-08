@@ -29,6 +29,18 @@ class Contest::PayoutSplitTest < ActiveSupport::TestCase
     assert_equal [[1, 1000_00], [2, 266_67], [2, 266_67], [2, 266_66], [2, 0]], split([9, 8, 8, 8, 8], large)
   end
 
+  # The owner's ruling: a tie that straddles the last paid rank goes to the
+  # earlier entries, in join order. Scores arrive in join order within a tie.
+  test "straddle pays earliest join order" do
+    # Five tied from rank 2: the first three hold places 2, 3 and 4 and split
+    # them; the last two to join are unpaid.
+    assert_equal [[1, 300_00], [2, 66_67], [2, 66_67], [2, 66_66], [2, 0], [2, 0]], split([9, 8, 8, 8, 8, 8])
+    # Two tied from rank 4: the earlier takes the last place alone.
+    assert_equal [[1, 300_00], [2, 100_00], [3, 50_00], [4, 50_00], [4, 0]], split([9, 8, 7, 6, 6])
+    # The straddling entries are paid from the places they cover, never more.
+    assert_equal 500_00, split([9, 8, 8, 8, 8, 8]).sum(&:last)
+  end
+
   test "everyone tied pays only as many entries as there are places" do
     result = split(Array.new(29, 1))
     assert_equal 4, result.count { |_rank, cents| cents > 0 }

@@ -1245,4 +1245,16 @@ class Contest < ApplicationRecord
       "and grade again; nothing was graded."
   end
   private :missing_payout_wallet_message
+
+  # A table over MAX_PAID_RANKS cannot settle in one transaction, so a contest
+  # that would carry one is refused when it is created.
+  validate :payout_table_settles, on: :create
+
+  def payout_table_settles
+    ranks = payout_table_cents.to_a.size
+    return if ranks <= MAX_PAID_RANKS
+
+    errors.add(:base, "Payout table has #{ranks} paid ranks; one settlement pays at most #{MAX_PAID_RANKS}")
+  end
+  private :payout_table_settles
 end

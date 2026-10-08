@@ -6,6 +6,9 @@ class Contest
   # ascending, so the earliest entry leads every group of equal scores. Tied
   # entries share a rank and the next rank is skipped (1, 1, 3).
   #
+  # The owner's ruling on a tie that straddles the last paid rank: it goes to
+  # the earlier entries, in join order. Join order is entries.id ascending.
+  #
   # The number of paid entries never exceeds the number of paid ranks, which is
   # what keeps every contest inside one settle transaction:
   #

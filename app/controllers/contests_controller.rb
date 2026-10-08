@@ -2322,8 +2322,8 @@ class ContestsController < ApplicationController
     if (slug_errors = contest.errors[:slug]).any?
       return "Slug #{slug_errors.first}"
     end
-    if (name_errors = contest.errors[:name]).any?
-      return "Name #{name_errors.first}"
+    if (error = contest.errors.full_messages_for(:name).first || contest.errors[:base].first)
+      return error
     end
 
     slug = contest.slug

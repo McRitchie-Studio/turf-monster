@@ -79,6 +79,40 @@ class SettleWireSizeTest < ActiveSupport::TestCase
     end
   end
 
+  # A contest carrying the nine-rank table cannot settle; contests:reshape_payout
+  # gives it a four-rank table of the same pool, and then it does.
+  test "reshaped pre snapshot large fits" do
+    require "rake"
+    Rails.application.load_tasks unless Rake::Task.task_defined?("contests:reshape_payout")
+    contest = Contest.create!(name: "Pre-snapshot large", slate: slates(:one), status: :open, contest_type: "large")
+    Contest.where(id: contest.id).update_all(payout_table_cents: Contest::PRE_SNAPSHOT_PAYOUTS.fetch("large"))
+    no_ties = TIE_PATTERNS.fetch("no ties").call(99, 9)
+
+    # Control: the table it opened with does not fit.
+    assert_raises(Solana::Vault::SettleTooLargeError) do
+      wire_bytes(settlements_for(no_ties, contest.reload.payouts), governance: true)
+    end
+
+    ENV["WRITE"] = "1"
+    ENV["TABLE_CENTS"] = "100000,40000,20000,20000"
+    capture_io do
+      Rake::Task["contests:reshape_payout"].reenable
+      Rake::Task["contests:reshape_payout"].invoke(contest.slug)
+    end
+
+    payouts = contest.reload.payouts
+    assert_equal 1800_00, payouts.values.sum
+    SHAPES.each do |shape, governance|
+      TIE_PATTERNS.each do |pattern, scores_for|
+        settlements = settlements_for(scores_for.call(99, payouts.keys.max), payouts)
+        size = wire_bytes(settlements, governance: governance)
+        assert_operator size, :<=, Solana::Vault::PACKET_DATA_SIZE, "#{pattern} on #{shape}: #{size} bytes"
+      end
+    end
+  ensure
+    %w[WRITE TABLE_CENTS].each { |key| ENV.delete(key) }
+  end
+
   # The ceiling the formats are built to: four paid entries fit the v0.26
   # shape, and a fifth does not, so the builder refuses it before anything is
   # queued.
