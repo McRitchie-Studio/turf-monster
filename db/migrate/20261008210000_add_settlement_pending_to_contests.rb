@@ -31,6 +31,11 @@ class AddSettlementPendingToContests < ActiveRecord::Migration[8.1]
     add_column :contests, :settlement_error, :text, if_not_exists: true
     change_column_null :transaction_logs, :amount_cents, true
 
+    backfill_settlements_in_flight
+  end
+
+  # Safe to run twice: a row it has moved no longer reads `settled`.
+  def backfill_settlements_in_flight
     execute("UPDATE contests SET status = 'settlement_pending' WHERE #{IN_FLIGHT}")
   end
 

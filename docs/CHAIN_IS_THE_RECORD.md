@@ -91,13 +91,24 @@ decision log at the end.
   that straddles the last paid rank pays the earlier entries, in join order
   (`entries.id`), so a tie exactly at the last paid rank pays the earliest entry
   alone.
-- **Settle is built before the contest reads settled.** `Contest#grade!` ranks,
-  writes `rank` and `payout_cents`, writes `TransactionLog` payout credits with
-  `amount_cents`, calls `settle_onchain!` (which queues a `settle_contest`
-  `PendingTransaction`), then sets `status: "settled"`. A failed build rolls the
-  grade back. But `settled` means *queued*, not *paid*:
-  `Admin::PendingTransactionsController#verify_and_record_cosign!` flips the
-  separate `onchain_settled` flag only after a cosign lands.
+- **Grade proposes; a confirmed settle settles** (`Contest::Settlement`).
+  `Contest#grade!` ranks, writes `rank` and `payout_cents`, and calls
+  `settle_onchain!`, which queues a `settle_contest` `PendingTransaction`. The
+  contest then reads `settlement_pending`; a failed build rolls the grade back,
+  and a second grade is refused. `settled` is written only by
+  `Contest#mark_settled!`, which takes the confirmed signature and is called
+  from the operator's cosign
+  (`Admin::PendingTransactionsController#verify_and_record_cosign!`) and from
+  the sweep (`Contests::SettlementReconciler`). An off-chain contest, and one
+  where no entry won a prize, owes nothing on chain and settles at grade.
+- **A settle that does not pay stays visible.** A settle that lands and fails,
+  expires, or is refused before the send returns its row to `pending` for a
+  rebuild and writes the reason to `contests.settlement_error`; the contest
+  stays `settlement_pending`, and the contest page and the cosign queue show
+  the reason.
+- **Payout ledger rows are pointers.** `mark_settled!` writes one
+  `TransactionLog` payout row per paid entry, carrying the settle signature
+  and no amount. Every other ledger type still records `amount_cents`.
 - **Grade refuses a cancelled contest** (grade-refuses-cancelled-contests):
   `Contest#grade!` raises `CancelledContestError` before any write.
 - **Reconcile is chain-first** (reconcile-cancelled-contest-34):
@@ -109,21 +120,17 @@ decision log at the end.
 - **The frozen-account guard** (`FrozenAccount`, `FrozenAccountGuard`,
   `FrozenAccount::Validation`) is an app-level hold. It stops the app acting for
   a frozen account; it does not touch funds, and settlement does not consult it.
-- **Paying wallet: a live mismatch.** `settle_onchain!` reads
-  `entry.user.solana_address`, which is `web3_solana_address ||
-  web2_solana_address`. Managed and API entries enter from the web2 wallet
-  (`Entries::ApiSubmission`, the managed paths in `ContestsController`), so any
-  account holding both wallets names the wrong wallet for those entries, with no
-  wallet change needed. The entry row stores no wallet, the entry PDA's seeds are
-  the wallet that paid, and settle is all or nothing: one mismatched row makes the
-  program reject the whole settlement. Winners with a blank address are dropped
-  silently (`select { |w| w[:wallet].present? }`), and if none remain the contest
-  is marked `onchain_settled` with nothing paid. The code fix is its own task,
-  `settle-pays-the-entering-wallet`.
+- **Settle pays the entering wallet.** `Contest#payout_settlements` pays each
+  entry at `Entry#wallet_address`, the wallet whose seeds derive its entry PDA.
+  A paid entry with no recorded wallet refuses the grade; none is dropped.
 - **Sweeps.** `Entries::PaymentSweepJob` settles every entry whose payment is
   `submitted` from the chain, every two minutes (`Entry::Payment`,
-  `Entries::PaymentSettlement`). Treasury rows (settle, cancel) have no sweep at all. `Entries::OnchainReconcileJob` heals one
-  stranded entry when enqueued; it is not on `config/schedule.yml`.
+  `Entries::PaymentSettlement`). `Contests::SettlementSweepJob` does the same
+  for every `settle_contest` row left `submitted`, every two minutes
+  (`Contests::SettlementReconciler`). Neither moves a row by its age alone. The
+  other treasury rows (cancel, currency, revenue sweep) have no sweep.
+  `Entries::OnchainReconcileJob` heals one stranded entry when enqueued; it is
+  not on `config/schedule.yml`.
 - **Balances** come from chain already: the navbar reads cached USDC and USDT
   balances with a 60-second TTL (`docs/SOLANA.md`, "Navbar Balance").
 
@@ -168,8 +175,9 @@ what paid the fee. Nothing ties an entry to a Turf user id on chain.
    attempt, as it does today.
 5. **A scheduled chain sweep reconciles.** One job reads the chain for every
    `submitted` entry and every `settlement_pending` contest and moves each row to
-   what the chain says. `Entries::PaymentSweepJob` is the entry half; age only
-   decides when to look, never what to write. The settlement half is not built.
+   what the chain says. `Entries::PaymentSweepJob` is the entry half and
+   `Contests::SettlementSweepJob` the settlement half; age only decides when to
+   look, never what to write.
 6. **Displays read chain.** Balances, prizes and winnings come from chain reads
    cached about a minute, the pattern the navbar already uses. Rails' copies
    (`payout_cents`, `payout_table_cents`) render only as "pending" or as labels.
@@ -267,15 +275,16 @@ each re-pins `EXPECTED_IDL_HASH`.
 
 ## 7. Rails changes
 
-Each is a future task title.
-- **Contest grades to settlement pending**: a `settlement_pending` status;
-  `settled` only on a confirmed chain read.
+Each is a task title; the ones marked built are in the code.
+- **Contest grades to settlement pending** (built, `Contest::Settlement`): a
+  `settlement_pending` status; `settled` only on a confirmed chain read.
 - **Entry stores its paying wallet**, and settle reads it, not the user's wallet
   (filed as `settle-pays-the-entering-wallet`).
-- **Chain sweep reconciles entries and settlements.** Entries:
-  `Entries::PaymentSweepJob`. Settlements: not built.
+- **Chain sweep reconciles entries and settlements** (built). Entries:
+  `Entries::PaymentSweepJob`. Settlements: `Contests::SettlementSweepJob`.
 - **Transaction log holds pointers only**: drop `amount_cents` and
   `balance_after_cents` from new writes; add signature, kind, wallet and target.
+  Payout rows are pointers already; the other types still carry amounts.
 - **Ties break by join order** in `Contest::PayoutSplit`.
 - **Money displays read cached chain** for prizes and winnings.
 - **Terms match no refunds**: `pages/terms.html.erb` (`#refunds`) still promises

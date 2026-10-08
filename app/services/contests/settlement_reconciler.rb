@@ -9,8 +9,9 @@ module Contests
   # the send). The verdict is OnchainSendVerdict#send_verdict on that
   # signature's history-searched status:
   #
-  #   landed, no error    → verify it is this contest's settle, then the contest
-  #                         is settled (Contest::Settlement#mark_settled!) and
+  #   landed, no error    → verify it is this contest's settle and that the
+  #                         contest account reads Settled, then the contest is
+  #                         settled (Contest::Settlement#mark_settled!) and
   #                         the row confirmed                        (:settled)
   #   landed with an error → nothing was paid. The row returns to `pending` for
   #                          a rebuild; the reason is written on the contest,
@@ -82,6 +83,8 @@ module Contests
     def settle(signature)
       Solana::TxVerifier.verify!(signature: signature, instruction_name: INSTRUCTION,
                                  writable_pubkey: contest_account, client: @vault.client)
+      return result(:pending, "landed; the contest account does not read Settled yet") unless chain_reads_settled?
+
       cosigners = chain_cosigners(signature)
       Rails.logger.warn("[settlement] #{@tx.slug} landed with no configured vault cosigner among its signers") if cosigners.empty?
 
@@ -98,6 +101,14 @@ module Contests
       @contest.record_settlement_failure!(reason)
       ErrorLog.capture!(error)
       result(:unverified, reason)
+    end
+
+    # The contest account's own status, the second read behind the signature.
+    # An absent account was closed after it settled or was cancelled, which
+    # this read cannot tell apart; the verified settle above already can.
+    def chain_reads_settled?
+      onchain = @vault.read_contest(@contest.slug)
+      onchain.nil? || onchain[:status] == "Settled"
     end
 
     def contest_account

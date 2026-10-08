@@ -73,7 +73,7 @@ namespace :contests do
   task :reshape_payout, [:slug] => :environment do |_task, args|
     contest = Contest.find_by(slug: args[:slug])
     abort "Refused: no contest with slug #{args[:slug].inspect}." unless contest
-    abort "Refused: #{contest.slug} is settled." if contest.settled? || contest.onchain_settled?
+    abort "Refused: #{contest.slug} is graded or settled." if contest.graded? || contest.onchain_settled?
 
     table = ENV["TABLE_CENTS"].to_s.split(",").map { |cents| Integer(cents.strip, 10, exception: false) }
     unless table.any? && table.all? { |cents| cents&.positive? }

@@ -12,11 +12,15 @@ module SettlementScenario
   class Chain
     attr_reader :client
 
-    def initialize(statuses: {}, transactions: {}, status_raises: nil)
+    # `contest_status:` is what the contest account reads; nil is a closed account.
+    def initialize(statuses: {}, transactions: {}, status_raises: nil, contest_status: "Settled")
       @client = FakeSolanaClient.new(statuses, transactions: transactions, status_raises: status_raises)
+      @contest_status = contest_status
     end
 
     def contest_pda(slug) = ["cpda-#{slug}", 254]
+
+    def read_contest(_slug) = @contest_status && { status: @contest_status }
   end
 
   def settlement_contest(name: "Settlement sweep")

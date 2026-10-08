@@ -376,10 +376,11 @@ These are guards with reproductions behind them, not defensive padding.
   (`app/services/nfl/live_scores/poll_cycle.rb:224-232`) reports that case, so the
   trade is visible in the watch log rather than silent.
 
-  It reads `Contest#status`, never `onchain_settled`: `grade!` queues the
-  settle transaction through `Contest#settle_onchain!` and then writes `settled`
-  (`app/models/contest.rb:897-899`), so a graded, paid-out contest routinely reads
-  `onchain_settled` false.
+  It reads `Contest#status`, never `onchain_settled`, and it reads GRADED, not
+  paid: `grade!` queues the settle transaction through `Contest#settle_onchain!`
+  (`app/models/contest.rb:897-899`) and leaves the contest `settlement_pending`
+  until that transaction confirms, and the ranks are final in both states. A
+  `settlement_pending` contest is refused exactly as a `settled` one is.
 - **It will not un-complete a finished game.** A stale scoreboard row would
   otherwise re-open a settled game and re-fire the FINAL broadcast.
 - **It will not store an id-less play.** `play["id"].to_s` yields `""`, which the

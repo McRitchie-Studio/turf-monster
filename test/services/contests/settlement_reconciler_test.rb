@@ -122,6 +122,33 @@ class Contests::SettlementReconcilerTest < ActiveJob::TestCase
     assert_equal "submitted", @tx.reload.status
   end
 
+  test "a landed settle whose contest account does not read Settled yet is asked again" do
+    chain = Chain.new(statuses: { SIGNATURE => landed_status }, contest_status: "Open",
+                      transactions: { SIGNATURE => settle_transaction_info(account: @contest.onchain_contest_id) })
+
+    assert_equal :pending, reconcile(chain).status
+    assert_equal "settlement_pending", @contest.reload.status
+    assert_equal "submitted", @tx.reload.status
+  end
+
+  test "a verified settle whose contest account is already closed still settles" do
+    chain = Chain.new(statuses: { SIGNATURE => landed_status }, contest_status: nil,
+                      transactions: { SIGNATURE => settle_transaction_info(account: @contest.onchain_contest_id) })
+
+    assert_equal :settled, reconcile(chain).status
+    assert_equal "settled", @contest.reload.status
+  end
+
+  test "a verified settle for a contest this app does not hold as graded is left for a person" do
+    @contest.update_columns(status: "open")
+
+    result = reconcile(landed_chain)
+
+    assert_equal :ungraded, result.status
+    assert_equal "open", @contest.reload.status
+    assert_equal ["submitted", SIGNATURE], [@tx.reload.status, @tx.tx_signature]
+  end
+
   test "a row that is not a broadcast settle is left alone without a chain read" do
     @tx.rewind_broadcast!(SIGNATURE)
     chain = Chain.new

@@ -90,6 +90,15 @@ class ContestsReshapePayoutTest < ActiveSupport::TestCase
     assert_empty writes
   end
 
+  test "a graded contest whose settlement is pending is refused: its payouts are fixed" do
+    pending = make_contest!(NINE_RANKS, status: "settlement_pending")
+    status, output, writes = run_reshape(pending.slug, table: FOUR_RANKS, write: true)
+
+    assert_equal 1, status
+    assert_match(/graded or settled/, output)
+    assert_empty writes
+  end
+
   test "a missing or malformed table is refused" do
     [nil, [], ["180000", "abc"], ["0x2bf20"], [1800_00, 0], [1900_00, -100_00]].each do |table|
       status, output, writes = run_reshape(@contest.slug, table: table, write: true)
