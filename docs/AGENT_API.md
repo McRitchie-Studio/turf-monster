@@ -101,6 +101,7 @@ Branch on `code`. `message` is written for a person and may change.
 | 404 | `not_found` | No such resource. Also `/api` itself and any path under it that is not an endpoint, on any method. |
 | 429 | `rate_limited` | Too many requests. The body also carries `retry_after` (seconds), and so does the `Retry-After` header. |
 | 500 | `internal_error` | Our fault. Retry shortly. |
+| 503 | `rpc_deadline` | A read of Solana ran out of time. Nothing was sent. Wait the `Retry-After` header's seconds and send the same request. |
 
 A 401 also carries `WWW-Authenticate: Bearer realm="Turf Monster API"`.
 

@@ -70,6 +70,22 @@ class Entries::ApiSubmissionTest < ActiveSupport::TestCase
 
   # ── the happy path and what it writes ─────────────────────────────────────
 
+  test "a submission runs outside a request deadline that has passed" do
+    seen = []
+    @vault.define_singleton_method(:list_entry_tokens) do |*args, **opts|
+      seen << [Current.rpc_long_budget, Solana::Deadline.remaining]
+      super(*args, **opts)
+    end
+
+    result = Solana::Deadline.within(0) do
+      assert_operator Solana::Deadline.remaining, :<=, 0, "CONTROL: outside the submission the deadline has passed"
+      submit
+    end
+
+    assert_equal :created, result.status
+    assert_equal [:api_entry_submission, nil], seen.first
+  end
+
   test "a first request spends one token and returns the active entry" do
     result = submit
 

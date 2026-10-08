@@ -16,6 +16,7 @@ module Admin
   # failing the whole batch.
   class FreeEntriesRefreshJob < ApplicationJob
     queue_as :default
+    self.rpc_long_budget = :free_entries_refresh
 
     def perform(user_ids)
       User.where(id: user_ids).find_each do |user|

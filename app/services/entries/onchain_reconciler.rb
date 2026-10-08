@@ -98,6 +98,10 @@ module Entries
     end
 
     def reconcile_entry(entry)
+      Solana::Deadline.long_budget(:entry_reconcile) { heal(entry) }
+    end
+
+    private def heal(entry)
       return :skipped if entry.nil?
       entry.reload
       return :skipped unless reconcilable?(entry)

@@ -196,7 +196,7 @@ module Entries
       when :reused then error(:idempotency_key_reused)
       when :busy   then error(:idempotency_in_progress, retry_after: BUSY_RETRY_AFTER)
       when :replay then replay(record)
-      else run(record)
+      else Solana::Deadline.long_budget(:api_entry_submission) { run(record) }
       end
     end
 

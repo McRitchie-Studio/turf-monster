@@ -3904,11 +3904,11 @@ module Solana
 
     private
 
-    # Runs a cosign submit's RPC calls under COSIGN_WAIT_BUDGET. Thread-local
-    # (Solana::Client.with_wait_budget), and it restores the caller's budget
-    # when the submit ends.
+    # Runs a cosign submit's RPC calls under COSIGN_WAIT_BUDGET and outside
+    # the request deadline (Solana::Deadline). The budget is thread-local, and
+    # the caller's comes back when the submit ends.
     def under_cosign_wait_budget(&block)
-      Solana::Client.with_wait_budget(COSIGN_WAIT_BUDGET, &block)
+      Solana::Deadline.long_budget(:cosign_submit) { Solana::Client.with_wait_budget(COSIGN_WAIT_BUDGET, &block) }
     end
 
     # THE ONE SIMULATE-AND-READ-ERR BLOCK (cap-cashout-failed-send-rearms).

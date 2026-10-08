@@ -72,6 +72,23 @@ class Entries::OnchainReconcilerTest < ActiveSupport::TestCase
     assert_equal "consume-sig-fast", entry.onchain_tx_signature, "the consume proof must be preserved (token not lost)"
   end
 
+  test "a reconcile reads the chain outside a deadline that has passed" do
+    entry = cart_entry_with_picks(entry_number: 0)
+    vault = FakeVault.new
+    seen = []
+    vault.define_singleton_method(:entry_pda) do |*args|
+      seen << [Current.rpc_long_budget, Solana::Deadline.remaining]
+      super(*args)
+    end
+
+    Solana::Deadline.within(0) do
+      assert_operator Solana::Deadline.remaining, :<=, 0, "CONTROL: outside the reconcile the deadline has passed"
+      Entries::OnchainReconciler.reconcile_entry(entry, vault: vault)
+    end
+
+    assert_equal [:entry_reconcile, nil], seen.first
+  end
+
   # Idempotency: re-running must never double-enter or double-charge.
   test "is idempotent — a second run is a no-op once the entry is active" do
     entry = cart_entry_with_picks(

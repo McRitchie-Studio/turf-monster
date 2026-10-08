@@ -365,7 +365,7 @@ and every such case except #6 self-heals automatically.
   (`app/services/entries/managed_entry.rb:266`), for the browser and the agent API alike; (b) a no-arg sweep over all
   eligible open contests via the `reconcile_onchain` task
   (`lib/tasks/entries.rake:33`) or `Entries::OnchainReconcileJob#perform` with no id
-  (`app/jobs/entries/onchain_reconcile_job.rb:13-42`, sweep branch at `:26`), which
+  (`app/jobs/entries/onchain_reconcile_job.rb:14-43`, sweep branch at `:27`), which
   calls `Entries::OnchainReconciler.run` (`app/services/entries/onchain_reconciler.rb:84-98`).
   Idempotent — never double-enters or double-charges.
 - **Heals**: `cart` entries (signature on the row → fast path; none → chain
@@ -374,7 +374,7 @@ and every such case except #6 self-heals automatically.
 - **What proves a broadcast for an `abandoned` row** — one rule, two records,
   because there are two entry paths, both read by
   `Entries::OnchainReconciler.reconcilable?`
-  (`app/services/entries/onchain_reconciler.rb:205-210`) and its
+  (`app/services/entries/onchain_reconciler.rb:209-214`) and its
   `broadcast_proof?` (`:218-222`): the consume signature **on the ENTRY**
   (§2, the managed durable capture → fast path, slot spared) **or** a signed
   `PendingTransaction` targeting it (§3c, the Phantom path → chain probe, slot

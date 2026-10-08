@@ -33,6 +33,7 @@ class AgentGuideGuardTest < ActionDispatch::IntegrationTest
     app/controllers/api/**/*.rb
     app/controllers/mcp_controller.rb
     app/controllers/concerns/api_key_authentication.rb
+    app/controllers/concerns/solana_wait_budget.rb
     app/services/api/v1/operations/**/*.rb
     app/services/agent_mcp/**/*.rb
     app/services/entries/**/*.rb

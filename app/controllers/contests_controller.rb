@@ -2039,8 +2039,6 @@ class ContestsController < ApplicationController
   # escalated to Rails.logger.error so ops sees it; rescue_and_log has
   # already persisted an error_logs row with the full backtrace.
   def render_entry_error(exception)
-    return render_rpc_deadline(exception) if exception.is_a?(Solana::Deadline::Exceeded)
-
     # rescue_and_log persists an error_logs row for any fault raised INSIDE its
     # block (and sets @_error_logged). But the entry endpoints (enter,
     # prepare_entry, confirm_onchain_entry) do guard/auth work BEFORE that block
@@ -2048,7 +2046,7 @@ class ContestsController < ApplicationController
     # without double-logging the rescue_and_log path. (Operator directive: every
     # endpoint records failures to ErrorLog.)
     capture_unlogged(exception, parent: @contest)
-
+    return render_rpc_deadline(exception) if exception.is_a?(Solana::Deadline::Exceeded)
     # Thread the viewer's wallet mode so a web2/managed USDC entry that 6002s
     # on-chain (underfunded ATA) routes to the no_funding/web2 Top Up modal, not
     # the web3 deposit/currency picker. web3 (Phantom) sessions stay unchanged.
