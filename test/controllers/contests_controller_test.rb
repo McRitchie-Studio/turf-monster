@@ -2289,10 +2289,15 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :success
     body = JSON.parse(response.body)
-    assert_equal "failed", body["status"]
+    # The signature SUCCEEDED on chain and the verifier refuses it: not
+    # activated, and NOT released either. A recorded signature is a wire the
+    # server stamped, so a success is a payment; the row is held for a person.
+    assert_equal "held", body["status"]
+    assert_match(/contact support@turfmonster.media/, body["error"])
     assert entry.reload.cart?, "a forged/unverified signature must NOT activate the entry"
     assert_nil entry.onchain_tx_signature
-    assert_equal "failed", ptx.reload.status
+    assert_equal %w[landed verification_refused], entry.values_at(:payment_state, :payment_refusal_code)
+    assert_equal "submitted", ptx.reload.status, "the wire stays open, so the 409 on a second wire stands"
   end
 
   test "recover_pending_entry returns processing when RPC doesn't know the signature" do

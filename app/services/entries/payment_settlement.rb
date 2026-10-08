@@ -193,17 +193,12 @@ module Entries
     rescue Entry::Refusal, Solana::TxVerifier::VerificationError => e
       return result(:pending, :not_indexed) if e.is_a?(Solana::TxVerifier::NotFound)
 
-      # The recorded signature landed and is NOT this wallet's entry on this
-      # ticket, and no ticket exists: that signature can never land again, so
-      # it paid nothing here.
-      if e.is_a?(Solana::TxVerifier::VerificationError) && signature == @entry.payment_signature && !ticket?(pda)
-        capture(e)
-        @entry.note_payment_failure!(:failed_onchain)
-        return release(nil)
-      end
-
-      # Paid, and an app gate (lock, capacity, a kicked-off pick) refuses to
-      # activate it. It stays: it never fails and never lapses.
+      # A SIGNATURE THAT SUCCEEDED ON CHAIN IS NEVER RELEASED. Every recorded
+      # signature is a wire the server stamped and cosigned, so a success means
+      # the player paid, whatever the verifier says about the row's pinned
+      # address and whether or not a ticket sits there. It is held (`landed`):
+      # paid, and either an app gate (lock, capacity, a kicked-off pick) or the
+      # verifier refuses to activate it. It never fails and never lapses.
       code = e.respond_to?(:code) ? e.code : :verification_refused
       if @entry.reload.payment_state == "submitted"
         @entry.mark_payment_landed!(code: code, signature: signature)

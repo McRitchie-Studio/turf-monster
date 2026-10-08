@@ -277,15 +277,28 @@ class ContestsEntryStillConfirmingTest < ActionDispatch::IntegrationTest
     assert_still_processing(body, ptx)
   end
 
-  test "CONTROL: a landed signature that verifies as the wrong instruction still fails" do
+  test "a landed signature the verifier refuses is held, never released: a success on chain is a payment" do
     ptx = submitted_ptx(age: 30.seconds)
 
     body = Solana::TxVerifier.stub :verify!, ->(**) { raise Solana::TxVerifier::VerificationError, "Transaction does not contain a `enter_contest` instruction" } do
       post_recover(ptx, statuses: { ptx.tx_signature => landed })
     end
 
+    assert_equal "held", body["status"]
+    assert_equal "submitted", ptx.reload.status
+    assert_equal "landed", @entry.reload.payment_state
+    assert @entry.cart?
+  end
+
+  test "CONTROL: the same signature FAILED on chain is released, and the player may try again" do
+    ptx = submitted_ptx(age: 30.seconds)
+    failed = { "err" => { "InstructionError" => [0, { "Custom" => 6004 }] }, "confirmationStatus" => "finalized" }
+
+    body = post_recover(ptx, statuses: { ptx.tx_signature => failed })
+
     assert_equal "failed", body["status"]
     assert_equal "failed", ptx.reload.status
+    assert_equal "draft", @entry.reload.payment_state
   end
 
   test "five minutes elapsed before the chain passes the deadline does not fail the row" do
