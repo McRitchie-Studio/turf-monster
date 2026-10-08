@@ -69,6 +69,7 @@ module Entries
 
     def settle
       @entry.reload
+      @token = @entry.payment_attempt_token # the attempt this verdict is about
       return result(:confirmed) if @entry.active? || @entry.complete?
       return settle_draft if @entry.payment_pinned_draft?
       return result(:idle) unless @entry.payment_in_flight?
@@ -137,7 +138,7 @@ module Entries
       return result(:pending, :ticket_unsigned) if signature.nil?
 
       rail = @entry.payment_rail || (@entry.wallet_address == @entry.user.web3_solana_address ? "phantom" : "managed")
-      @entry.transition_payment!("submitted", payment_rail: rail,
+      @entry.transition_payment!("submitted", payment_rail: rail, payment_attempt_token: SecureRandom.hex(12),
                                               payment_submitted_at: @entry.payment_submitted_at || @now)
       activate(signature, pda)
     rescue ActiveRecord::RecordNotUnique, Entry::Payment::IllegalTransition
@@ -200,10 +201,14 @@ module Entries
       # paid, and either an app gate (lock, capacity, a kicked-off pick) or the
       # verifier refuses to activate it. It never fails and never lapses.
       code = e.respond_to?(:code) ? e.code : :verification_refused
-      if @entry.reload.payment_state == "submitted"
-        @entry.mark_payment_landed!(code: code, signature: signature)
+      # A fresh copy: the failed confirm left this one dirty. The move is
+      # conditional on the attempt this verdict judged.
+      fresh = Entry.find(@entry.id)
+      if fresh.payment_state == "submitted" && fresh.payment_attempt_token == @token
+        fresh.mark_payment_landed!(code: code, signature: signature)
         capture(e) # once, on the move; a re-check of a landed row is quiet
       end
+      @entry.reload
       result(:landed, code)
     rescue ActiveRecord::ActiveRecordError => e
       capture(e)

@@ -199,7 +199,7 @@ module Entries
     rescue Entry::Payment::InFlight
       raise
     rescue StandardError => e
-      raise unless entry.reload.payment_state == "submitted" # refused before the charge began
+      raise unless @attempt_token # refused before THIS attempt began a charge
 
       resolve_failed_charge!(entry, e)
     end
@@ -221,18 +221,25 @@ module Entries
       @first_payment_found = true
     end
 
+    # EVERYTHING HERE ACTS ON THIS ATTEMPT'S ROW ONLY (@attempt_token, written
+    # by #fund!'s begin_charge!). A request that stalled can wake to find the
+    # row released and begun again by the player's retry; it must not release,
+    # hint or settle that newer attempt's row, whose wire may be in the air.
     def resolve_failed_charge!(entry, error)
-      unless @sent # no signature was recorded, so nothing was sent
+      unless @sent # THIS attempt recorded no signature, so THIS attempt sent nothing
         @failure_code = failure_code_for(error)
-        entry.release_payment!(@failure_code)
-        raise error
+        raise error if entry.release_unsent_attempt!(@attempt_token, @failure_code)
+
+        @failure_code = nil
+        superseded!(entry, error)
       end
+      superseded!(entry, error) unless entry.reload.payment_attempt_token == @attempt_token
 
       # A signed attempt. What the error text says is kept as a hint for the
       # sentence; whether the row is released is the chain's to say.
       if Entries::PaymentCopy.chain_refusal?(error)
         hint = failure_code_for(error)
-        entry.note_payment_failure!(hint)
+        entry.note_payment_failure!(hint, token: @attempt_token)
         ErrorLog.capture!(error) if hint == :network_fee # ours to fix: the house wallet is short
       end
 
@@ -251,6 +258,22 @@ module Entries
       end
     end
 
+    # The row is not this attempt's any more. Say the true thing about the row
+    # as it stands, and change nothing on it.
+    def superseded!(entry, error)
+      entry.reload
+      raise Entry::Payment::InFlight.new(entry) if entry.payment_in_flight? # a newer attempt is in flight
+
+      if entry.active?
+        @tx_signature = entry.onchain_tx_signature
+        @onchain_entry_id = entry.onchain_entry_id
+        @first_payment_found = true
+        return
+      end
+      @failure_code = entry.payment_refusal_code.presence&.to_sym # a settlement released this attempt, and says why
+      raise error
+    end
+
     def failure_code_for(error)
       Entries::PaymentCopy.code_for(error, sent: @sent, funding: @funding_method, funds_confirmed: @usdc_confirmed == true)
     end
@@ -266,7 +289,7 @@ module Entries
         left = seconds_left
         raise SpendTooLate if left && left < MIN_SECONDS_TO_SEND
 
-        entry.record_payment_attempt!(signature: signature, last_valid_block_height: ceiling)
+        entry.record_payment_attempt!(signature: signature, last_valid_block_height: ceiling, token: @attempt_token)
         @sent = true
       end
     end
@@ -306,6 +329,7 @@ module Entries
       # of a second charge.
       entry.pin_payment_slot!(address, vault)
       entry.begin_charge!(rail: @rail)
+      @attempt_token = entry.payment_attempt_token
 
       # Token detection MUST be scoped to the SAME web2 `address` we sign with.
       # User#next_unconsumed_entry_token reads #solana_address (web3-preferred for a

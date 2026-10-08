@@ -329,6 +329,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_08_190000) do
     t.integer "entry_number"
     t.string "onchain_entry_id"
     t.string "onchain_tx_signature"
+    t.string "payment_attempt_token"
     t.bigint "payment_last_valid_block_height"
     t.string "payment_rail"
     t.string "payment_refusal_code"

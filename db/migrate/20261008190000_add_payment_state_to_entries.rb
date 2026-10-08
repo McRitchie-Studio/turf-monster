@@ -21,6 +21,7 @@ class AddPaymentStateToEntries < ActiveRecord::Migration[8.1]
     add_column :entries, :payment_submitted_at, :datetime, if_not_exists: true
     add_column :entries, :payment_last_valid_block_height, :bigint, if_not_exists: true
     add_column :entries, :payment_refusal_code, :string, if_not_exists: true
+    add_column :entries, :payment_attempt_token, :string, if_not_exists: true
 
     MigrationEntry.where(status: %w[active complete]).where.not(payment_state: "confirmed")
                   .in_batches(of: 1_000) { |batch| batch.update_all(payment_state: "confirmed") }
@@ -83,7 +84,7 @@ class AddPaymentStateToEntries < ActiveRecord::Migration[8.1]
   def down
     remove_index :entries, name: IN_FLIGHT_INDEX, algorithm: :concurrently, if_exists: true
     %i[payment_state payment_rail payment_signature payment_submitted_at
-       payment_last_valid_block_height payment_refusal_code].each do |column|
+       payment_last_valid_block_height payment_refusal_code payment_attempt_token].each do |column|
       remove_column :entries, column, if_exists: true
     end
   end

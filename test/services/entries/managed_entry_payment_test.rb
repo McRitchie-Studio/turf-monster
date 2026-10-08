@@ -328,4 +328,64 @@ class Entries::ManagedEntryPaymentTest < ActiveSupport::TestCase
     assert settle.pending?
     refute @entry.reload.active?, "a transfer of dust to the address must never read as a paid entry"
   end
+
+  # --- ROUND 2, B2: a stalled attempt cannot release the retry that replaced it ---------
+
+  # Hold A begins and stalls before its send. Meanwhile (inside the vault's
+  # before-send window) the player's retry B settles A away as unsent, begins,
+  # signs and sends, and its confirm wait times out. Then A wakes.
+  def stalled_then_retried(a_deadline_passed:)
+    b_service = Entries::ManagedEntry.new(contest: @contest, user: @user, usdc_allowed: true)
+    b_error = nil
+    @vault.before_enter = lambda do
+      @vault.before_enter = nil
+      travel 31.seconds # A has been stalled past the unsent grace
+      assert settle.released?, "CONTROL: A recorded no signature, so the retry's check releases it"
+      @vault.fail_next_enter = :unlanded
+      b_error = assert_raises(StandardError) { on_chain(@vault) { b_service.call(Entry.find(@entry.id)) } }
+    end
+    a_error = assert_raises(StandardError) do
+      on_chain(@vault) do
+        if a_deadline_passed
+          Solana::Deadline.within(0) { Entries::ManagedEntry.new(contest: @contest, user: @user, usdc_allowed: true).call(@entry) }
+        else
+          Entries::ManagedEntry.new(contest: @contest, user: @user, usdc_allowed: true).call(@entry)
+        end
+      end
+    end
+    [a_error, b_error]
+  ensure
+    travel_back
+  end
+
+  [true, false].each do |too_late|
+    test "A stalls, B retries and sends, A wakes #{too_late ? 'too late' : 'and tries to sign'}: B's row is untouched and still settles from the chain" do
+      a_error, b_error = nil
+      assert_enqueued_with(job: Entries::PaymentSettleJob, args: [@entry.id]) do
+        a_error, b_error = stalled_then_retried(a_deadline_passed: too_late)
+      end
+
+      assert_kind_of Entries::ManagedEntry::PendingConfirmation, b_error, "B's confirm wait timed out: told 'still confirming', a job queued"
+      assert_kind_of Entry::Payment::InFlight, a_error, "A is told the truth: a newer attempt is in flight"
+      assert_match(/still confirming/, a_error.message)
+      refute_match(/nothing was sent|not charged/i, a_error.message)
+
+      row = @entry.reload
+      assert_equal "submitted", row.payment_state, "A did not release B's row"
+      assert row.payment_signature.present?, "B's signature stands"
+      assert_nil row.payment_refusal_code, "A wrote no 'nothing was sent' reason onto it"
+      assert_empty @vault.tickets
+
+      @vault.block_height = 1_151 # and B's wire is then judged by the chain alone
+      assert settle.released?
+      assert_equal %w[draft expired], state
+    end
+  end
+
+  test "CONTROL: with no retry in between, A's own too-late stop releases A's own row" do
+    assert_raises(Entries::ManagedEntry::SpendTooLate) do
+      on_chain(@vault) { Solana::Deadline.within(0) { Entries::ManagedEntry.new(contest: @contest, user: @user, usdc_allowed: true).call(@entry) } }
+    end
+    assert_equal %w[draft too_late], state
+  end
 end

@@ -192,13 +192,13 @@ raises "No entry tokens" instead.
 | `assert_enterable!` pre-flight — `Entry#assert_enterable!` | `Entries::ManagedEntry#preflight!` at `:174`; definition `app/models/entry.rb:135-170` |
 | season configured? | `Entries::ManagedEntry#preflight!` at `app/services/entries/managed_entry.rb:178-180` |
 | paid contest with no on-chain PDA → refuse | `Entries::ManagedEntry#preflight!` at `:185-187` |
-| payment branch — `Entries::ManagedEntry#fund!` | `:297-381` |
-| token → `Solana::Vault#enter_contest_with_token` | `#fund!` at `:318-334` |
-| no token, USDC allowed → `Solana::Vault#enter_contest_with_usdc` | `#fund!` at `:335-374` |
-| neither → "No entry tokens" | `#fund!` at `:376` |
+| payment branch — `Entries::ManagedEntry#fund!` | `:320-405` |
+| token → `Solana::Vault#enter_contest_with_token` | `#fund!` at `:342-358` |
+| no token, USDC allowed → `Solana::Vault#enter_contest_with_usdc` | `#fund!` at `:359-398` |
+| neither → "No entry tokens" | `#fund!` at `:400` |
 | durable capture, OUTSIDE the lock | `#call` at `:144` |
-| `Entries::ManagedEntry#finalize!` → `Entry#confirm!` | `:392-418` |
-| transient failure after the spend → `Entries::OnchainReconcileJob.perform_later` | `#finalize!` at `:417` |
+| `Entries::ManagedEntry#finalize!` → `Entry#confirm!` | `:416-442` |
+| transient failure after the spend → `Entries::OnchainReconcileJob.perform_later` | `#finalize!` at `:441` |
 
 **Why the gate ordering is sacred:** incident 2026-06-08 — the consume ran
 before a validation gate; the gate then failed and the user was paid-on-chain
@@ -428,7 +428,7 @@ and every such case except #6 self-heals automatically.
 ### 5.2 `Entries::OnchainReconcileJob` / `OnchainReconciler` (web2)
 - **Triggers**: (a) enqueued inline by `Entries::ManagedEntry#finalize!`
   when `confirm!` fails after a successful consume/transfer
-  (`app/services/entries/managed_entry.rb:417`), for the browser and the agent API alike; (b) a no-arg sweep over all
+  (`app/services/entries/managed_entry.rb:441`), for the browser and the agent API alike; (b) a no-arg sweep over all
   eligible open contests via the `reconcile_onchain` task
   (`lib/tasks/entries.rake:33`) or `Entries::OnchainReconcileJob#perform` with no id
   (`app/jobs/entries/onchain_reconcile_job.rb:14-43`, sweep branch at `:27`), which

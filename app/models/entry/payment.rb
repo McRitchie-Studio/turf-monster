@@ -67,6 +67,11 @@ class Entry
 
     class IllegalTransition < StandardError; end
 
+    # The row no longer carries the attempt that tried to write it: a
+    # settlement released that attempt, or a newer one began. Nothing was
+    # written, and the caller sends nothing.
+    class Superseded < IllegalTransition; end
+
     # THE PIN IS HELD. A wire was prepared for this cart (another session, the
     # other rail) and may still be signed and sent, so the cart's wallet and
     # slot cannot be moved under it. 409; nothing was sent.
@@ -193,7 +198,8 @@ class Entry
         raise IllegalTransition, "entry #{id} has no pinned slot" if wallet_address.blank? || entry_number.nil?
 
         update!(payment_state: "submitted", payment_rail: rail, payment_submitted_at: Time.current,
-                payment_signature: nil, payment_last_valid_block_height: nil, payment_refusal_code: nil)
+                payment_signature: nil, payment_last_valid_block_height: nil, payment_refusal_code: nil,
+                payment_attempt_token: SecureRandom.hex(12))
       end
       self
     rescue ActiveRecord::RecordNotUnique
@@ -228,32 +234,58 @@ class Entry
       record_payment_attempt!(signature: signature, last_valid_block_height: last_valid_block_height)
     end
 
-    # Written BEFORE the send, in its own committed write. Raises when the row
-    # is no longer submitted (a settlement released it), so the caller sends
-    # nothing.
-    def record_payment_attempt!(signature:, last_valid_block_height: nil)
-      with_lock(requires_new: true) do
-        unless payment_state == "submitted"
-          raise IllegalTransition, "entry #{id} is #{payment_state}; this attempt was superseded and sent nothing"
-        end
-
-        update!(payment_signature: signature, payment_last_valid_block_height: last_valid_block_height,
-                payment_submitted_at: Time.current)
-      end
+    # EVERY ATTEMPT OWNS ITS ROW BY A TOKEN. #begin_charge! writes a fresh
+    # payment_attempt_token, and every later write an attempt or a verdict makes
+    # (the signature, a release, a move to landed, the failure hint) is one
+    # UPDATE whose WHERE names the state AND the token the writer holds. A
+    # writer holding an older attempt's token changes nothing: it cannot record
+    # a signature on, or release, a row a newer attempt has since begun.
+    def payment_attempt_scope(token, state: "submitted")
+      self.class.where(id: id, payment_state: state, payment_attempt_token: token)
     end
 
+    # "Nothing was sent" for the attempt holding `token`: back to draft, only if
+    # the row is still that attempt's and still unsigned. False when it is not.
+    def release_unsent_attempt!(token, code)
+      released = payment_attempt_scope(token).where(payment_signature: nil)
+                                             .update_all(payment_state: "draft", payment_refusal_code: code.to_s, updated_at: Time.current)
+      reload
+      released == 1
+    end
+
+    # Written BEFORE the send, in its own committed write. Raises Superseded
+    # when the row is no longer this attempt's (a settlement released it, or a
+    # newer attempt began), so the caller sends nothing. `token` defaults to
+    # the one this object loaded.
+    def record_payment_attempt!(signature:, last_valid_block_height: nil, token: payment_attempt_token)
+      written = payment_attempt_scope(token).update_all(
+        payment_signature: signature, payment_last_valid_block_height: last_valid_block_height,
+        payment_submitted_at: Time.current, updated_at: Time.current
+      )
+      raise Superseded, "entry #{id}: this attempt was superseded and sent nothing" unless written == 1
+
+      reload
+    end
+
+    # One move in the table, as one UPDATE conditional on the state and the
+    # attempt token this object loaded: a verdict reached on an older reading
+    # of the row cannot move what a newer attempt now holds.
     def transition_payment!(to, **attributes)
       to = to.to_s
-      with_lock(requires_new: true) do
-        next self if payment_state == to
+      from = payment_state
+      return self if from == to
 
-        unless TRANSITIONS.fetch(payment_state).include?(to)
-          raise IllegalTransition, "entry #{id}: #{payment_state} → #{to} is not a legal payment move"
-        end
-
-        update!(payment_state: to, **attributes)
+      unless TRANSITIONS.fetch(from).include?(to)
+        raise IllegalTransition, "entry #{id}: #{from} → #{to} is not a legal payment move"
       end
-      self
+
+      moved = self.class.transaction(requires_new: true) do
+        payment_attempt_scope(payment_attempt_token, state: from)
+          .update_all(payment_state: to, updated_at: Time.current, **attributes)
+      end
+      raise Superseded, "entry #{id}: #{from} → #{to} lost to a newer attempt" unless moved == 1
+
+      reload
     end
 
     # submitted → draft: the attempt provably paid nothing. Picks stay.
@@ -301,8 +333,8 @@ class Entry
     # While a signed attempt is unresolved, remember what its failure looked
     # like (an Entries::PaymentCopy code). A hint only: the chain decides
     # whether the row is released, and the hint then words the reason.
-    def note_payment_failure!(code)
-      self.class.where(id: id, payment_state: "submitted").update_all(payment_refusal_code: code.to_s)
+    def note_payment_failure!(code, token: payment_attempt_token)
+      payment_attempt_scope(token).update_all(payment_refusal_code: code.to_s)
     end
 
     private
