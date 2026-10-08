@@ -62,7 +62,7 @@ class SessionsController < ApplicationController
     # behind (the board's localStorage copy is cleared client-side on the
     # logout link too). Rescued so a cart-destroy hiccup can't 500 the logout.
     begin
-      current_user&.entries&.cart&.destroy_all
+      current_user&.entries&.cart&.where(payment_signature: nil)&.destroy_all # a cart that ever sent a payment keeps its pinned slot (Entry::Payment)
     rescue => e
       Rails.logger.warn("[logout] cart clear failed: #{e.message}")
     end

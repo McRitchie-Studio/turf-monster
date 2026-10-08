@@ -45,10 +45,15 @@ module Entries
   #   * the browser's entry is a committed cart, so the gates run under the
   #     contest lock and the spend runs AFTER it. Every payment write is then
   #     its own commit, visible to the next request and to the sweep, and a
-  #     raise cannot roll it back. A failure is resolved here (#resolve_failed_charge!):
-  #     nothing sent or refused by the program returns the cart to draft and
-  #     re-raises; anything else asks the chain, and an answer still unknown
-  #     raises PendingConfirmation, which the controller answers as "pending".
+  #     raise cannot roll it back. BEFORE any gate or funding check, a cart that
+  #     already has a pinned slot is asked whether its ticket exists
+  #     (#first_payment_landed?): if it does, an earlier payment landed and the
+  #     entry is confirmed with nothing built or sent. A failure is resolved in
+  #     #resolve_failed_charge!: an attempt that recorded no signature sent
+  #     nothing, so the cart returns to draft and the error re-raises; a SIGNED
+  #     attempt is released only by Entries::PaymentSettlement, from the chain,
+  #     whatever the error text says, and an answer still unknown raises
+  #     PendingConfirmation, which the controller answers as "pending".
   #   * the API's entry is built by the block inside the lock's transaction, so
   #     its spend stays inside it and the row exists only if the spend commits.
   #     Entries::ApiSubmission keeps its own durable record of the attempt.
@@ -109,10 +114,14 @@ module Entries
 
     def spend_attempted? = @spend_attempted
     def token_consumed? = @token_consumed
+    # This call found an earlier payment's ticket and confirmed the entry from it.
+    def first_payment_found? = @first_payment_found == true
 
     def call(entry = nil)
       if entry
         @entry = entry
+        return outcome(entry) if first_payment_landed?(entry)
+
         @contest.with_lock { preflight!(entry) }
         charge!(entry) if paid_onchain?
         return outcome(entry) if entry.active? # a settlement already activated it
@@ -195,11 +204,36 @@ module Entries
       resolve_failed_charge!(entry, e)
     end
 
+    # THE PINNED TICKET IS READ FIRST, on every retry. A cart whose earlier
+    # payment landed has already spent its token or its USDC, so the funding
+    # checks below would turn it away as unfunded; and a cart that cannot be
+    # read must not be charged on a guess.
+    def first_payment_landed?(entry)
+      return false unless entry.payment_pinned_draft?
+
+      settled = Entries::PaymentSettlement.call(entry)
+      raise Solana::Client::RpcError, "the entry's ticket could not be read; nothing was sent" if settled.unreadable?
+      raise Entry::Payment::InFlight.new(entry.reload) if settled.pending? || settled.landed?
+      return false unless settled.confirmed?
+
+      @tx_signature = entry.onchain_tx_signature
+      @onchain_entry_id = entry.onchain_entry_id
+      @first_payment_found = true
+    end
+
     def resolve_failed_charge!(entry, error)
-      if !@sent || Entries::PaymentCopy.provably_unpaid?(error)
-        @failure_code = Entries::PaymentCopy.code_for(error, sent: @sent)
+      unless @sent # no signature was recorded, so nothing was sent
+        @failure_code = failure_code_for(error)
         entry.release_payment!(@failure_code)
         raise error
+      end
+
+      # A signed attempt. What the error text says is kept as a hint for the
+      # sentence; whether the row is released is the chain's to say.
+      if Entries::PaymentCopy.chain_refusal?(error)
+        hint = failure_code_for(error)
+        entry.note_payment_failure!(hint)
+        ErrorLog.capture!(error) if hint == :network_fee # ours to fix: the house wallet is short
       end
 
       settled = Entries::PaymentSettlement.call(entry)
@@ -215,6 +249,10 @@ module Entries
         Entries::PaymentSettleJob.perform_later(entry.id)
         raise PendingConfirmation.new(entry)
       end
+    end
+
+    def failure_code_for(error)
+      Entries::PaymentCopy.code_for(error, sent: @sent, funding: @funding_method, funds_confirmed: @usdc_confirmed == true)
     end
 
     def seconds_left
@@ -318,6 +356,7 @@ module Entries
           if usdc_cents < fee_cents
             raise Entry::Refusal.new(:insufficient_funds, "Not enough USDC to enter this contest — top up your wallet and try again.")
           end
+          @usdc_confirmed = true # a fresh read says the player can pay; a 0x1 after this is not theirs
         rescue Solana::Client::RpcError
           # Balance read flaked — defer to the self-protecting atomic enter below.
         end

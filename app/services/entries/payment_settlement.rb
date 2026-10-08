@@ -1,34 +1,50 @@
 module Entries
-  # Move an entry whose payment is unresolved on from what the CHAIN says. One
-  # verdict for both rails, for the request that just sent, the page that polls,
-  # the retry that was refused, and the sweep.
+  # Move an entry whose payment is unresolved on from what the CHAIN says. THE
+  # ONE VERDICT, for both rails: the request that just sent, a retry, the page
+  # that polls (#entry_payment_status and #recover_pending_entry), the job and
+  # the sweep all end here, and none of them sends anything.
   #
-  # The question is never "did my transaction succeed" (an error string, a
-  # timeout and a lost response all fail to answer it). It is "does this entry's
-  # ticket exist": the ContestEntry account at the row's pinned wallet and slot.
-  # turf-vault creates that account in the same instruction that takes the fee,
-  # so it exists if and only if the player paid.
+  # The question is "does this entry's ticket exist": the ContestEntry account
+  # at the row's pinned wallet and slot, OWNED BY THE VAULT PROGRAM. turf-vault
+  # creates it in the same instruction that takes the fee, so it exists if and
+  # only if the player paid.
   #
-  #   ticket exists                         → activate the entry (:confirmed), or,
-  #                                           when an app gate refuses a paid
-  #                                           entry, keep it (:landed)
-  #   no ticket, and the attempt can no     → back to draft with the picks
-  #   longer land                             (:released)
-  #   no ticket yet, or the chain cannot    → :pending; ask again
+  #   the recorded signature landed, or   → activate the entry (:confirmed), or,
+  #   the ticket exists                     when an app gate refuses a paid
+  #                                         entry, keep it (:landed)
+  #   neither, and the attempt provably   → back to draft with the picks
+  #   paid nothing                          (:released)
+  #   anything else, or the chain cannot  → :pending; ask again
   #   be read
   #
-  # "Can no longer land" is the wire's last valid block height against the
-  # FINALIZED height, read before the ticket, so every block the transaction
-  # could be in is settled by the time the ticket is looked for.
+  # THE ORDER OF THE READS IS PART OF THE RULE. A release that leans on the
+  # block height reads the FINALIZED height and then reads the signature's
+  # status and the ticket (at `finalized`) AGAIN, after it. So when that height
+  # is past the wire's last valid block height, every block the wire could be
+  # in was already finalized when the two reads that found nothing were made;
+  # a read made before the height carries no such guarantee. What "provably
+  # paid nothing" requires is Entry::Payment#payment_release_allowed?, the one
+  # place it is written. The height is read only on that path.
+  #
+  # A DRAFT cart with a pinned slot is asked the same question (#settle_draft):
+  # if its ticket exists, an earlier payment landed and the app never learned,
+  # and the entry is confirmed instead of being charged, edited or cleared.
   class PaymentSettlement
     Result = Struct.new(:status, :entry, :code, keyword_init: true) do
       def confirmed? = status == :confirmed
       def pending? = status == :pending
       def released? = status == :released
       def landed? = status == :landed
+      def idle? = status == :idle
+      # The chain could not be read, so nothing is known.
+      def unreadable? = pending? && code == :chain_unreadable
     end
 
     INSTRUCTIONS = %w[enter_contest enter_contest_with_token].freeze
+    TICKET_COMMITMENT = "finalized".freeze
+    NETWORK_FAULTS = [SystemCallError, IOError, SocketError, OpenSSL::SSL::SSLError, Timeout::Error].freeze
+    # Stands in for "past any height" when asking what else the rule needs.
+    ANY_HEIGHT = 2**62
 
     def self.call(entry, vault: Solana::Vault.new, now: Time.current)
       new(entry, vault: vault, now: now).call
@@ -42,7 +58,9 @@ module Entries
 
     def call
       Solana::Deadline.long_budget(:entry_payment_settlement) { settle }
-    rescue Solana::Client::RpcError => e
+    rescue Solana::Client::RpcError, *NETWORK_FAULTS => e
+      # A read that errors is never a verdict: a 429, a timeout, a refused or
+      # reset connection, a DNS or TLS fault.
       Rails.logger.warn("[entry-payment] unreadable entry=#{@entry.id} #{e.class}: #{e.message.to_s[0, 140]}")
       result(:pending, :chain_unreadable)
     end
@@ -52,33 +70,94 @@ module Entries
     def settle
       @entry.reload
       return result(:confirmed) if @entry.active? || @entry.complete?
+      return settle_draft if @entry.payment_pinned_draft?
       return result(:idle) unless @entry.payment_in_flight?
 
       pda = @entry.payment_entry_pda(@vault)
-      height = @vault.client.get_block_height(commitment: "finalized") if @entry.payment_state == "submitted"
+      status, paid = read_payment(pda)
+      return paid if paid
+      return result(:landed, @entry.payment_refusal_code) unless @entry.payment_state == "submitted"
 
-      if ticket?(pda)
-        signature = ticket_signature(pda)
-        return result(:pending, :ticket_unsigned) if signature.nil?
-
-        return activate(signature, pda)
+      height = nil
+      if height_decides?(status)
+        # The height, THEN the status and the ticket again (see the class comment).
+        height = @vault.client.get_block_height(commitment: "finalized")
+        status, paid = read_payment(pda)
+        return paid if paid
       end
-      return result(:landed, @entry.payment_refusal_code) if @entry.payment_state == "landed"
-      return result(:pending) unless @entry.payment_attempt_lapsed?(finalized_block_height: height, now: @now)
+      return result(:pending) unless @entry.payment_release_allowed?(status: status, finalized_block_height: height, now: @now)
 
-      code = @entry.payment_signature.present? ? :expired : :not_sent
-      @entry.release_payment!(code)
-      close_wire("failed")
-      Rails.logger.info("[entry-payment] released entry=#{@entry.id} code=#{code}")
-      result(:released, code)
+      release(status)
     rescue Entry::Payment::IllegalTransition
       result(@entry.reload.payment_in_flight? ? :pending : :idle) # another settlement moved it first
     end
 
-    # A real ticket: an account the vault program owns. Lamports alone do not
-    # count, because anyone can send lamports to an address.
+    # The recorded signature's status, and the result when the payment is on
+    # chain: the signature landed, or the ticket exists.
+    def read_payment(pda)
+      status = signature_status(@entry.payment_signature)
+      return [status, activate(@entry.payment_signature, pda)] if landed?(status)
+      return [status, nil] unless ticket?(pda)
+
+      signature = ticket_signature(pda)
+      [status, signature ? activate(signature, pda) : result(:pending, :ticket_unsigned)]
+    end
+
+    # Whether the block height is the one thing still to be asked: a signed
+    # attempt with no status, for which everything else the rule needs holds.
+    def height_decides?(status)
+      @entry.payment_signature.present? && status.nil? &&
+        @entry.payment_release_allowed?(status: nil, finalized_block_height: ANY_HEIGHT, now: @now)
+    end
+
+    # Why it paid nothing: the hint the sending request left, else what the
+    # chain itself showed.
+    def release(status)
+      code = @entry.payment_refusal_code.presence || release_code(status)
+      @entry.release_payment!(code)
+      close_wire("failed")
+      Rails.logger.info("[entry-payment] released entry=#{@entry.id} code=#{code}")
+      result(:released, code)
+    end
+
+    def release_code(status)
+      return :not_sent if @entry.payment_signature.blank?
+
+      status ? :failed_onchain : :expired
+    end
+
+    # A pinned draft cart: nothing is in flight, but its ticket address is
+    # known. If the ticket is there, an earlier payment landed.
+    def settle_draft
+      pda = @entry.payment_entry_pda(@vault)
+      return result(:idle) unless ticket?(pda)
+      return result(:idle) if Entry.where.not(id: @entry.id).exists?(onchain_entry_id: pda)
+
+      signature = ticket_signature(pda)
+      return result(:pending, :ticket_unsigned) if signature.nil?
+
+      rail = @entry.payment_rail || (@entry.wallet_address == @entry.user.web3_solana_address ? "phantom" : "managed")
+      @entry.transition_payment!("submitted", payment_rail: rail,
+                                              payment_submitted_at: @entry.payment_submitted_at || @now)
+      activate(signature, pda)
+    rescue ActiveRecord::RecordNotUnique, Entry::Payment::IllegalTransition
+      result(:pending, :other_payment_in_flight)
+    end
+
+    def signature_status(signature)
+      return nil if signature.blank?
+
+      @vault.client.confirm_transaction(signature)&.dig("value", 0)
+    end
+
+    def landed?(status)
+      status.present? && status["err"].nil? && %w[confirmed finalized].include?(status["confirmationStatus"])
+    end
+
+    # A real ticket: an account the vault program owns, read at `finalized`.
+    # Lamports alone do not count, because anyone can send lamports to an address.
     def ticket?(pda)
-      value = @vault.client.get_account_info(pda)&.dig("value")
+      value = @vault.client.get_account_info(pda, commitment: TICKET_COMMITMENT)&.dig("value")
       value.present? && value["owner"] == Solana::Config::PROGRAM_ID
     end
 
@@ -86,10 +165,8 @@ module Entries
     # succeeded, else the oldest success on the address (an earlier attempt).
     def ticket_signature(pda)
       recorded = @entry.payment_signature.presence
-      if recorded
-        status = @vault.client.confirm_transaction(recorded)&.dig("value", 0)
-        return recorded if status && status["err"].nil?
-      end
+      status = signature_status(recorded)
+      return recorded if status && status["err"].nil?
 
       history = @vault.client.send(:call, "getSignaturesForAddress", [pda, { "limit" => 20 }])
       Array(history).reverse.find { |row| row && row["err"].nil? }&.dig("signature")
@@ -116,6 +193,15 @@ module Entries
     rescue Entry::Refusal, Solana::TxVerifier::VerificationError => e
       return result(:pending, :not_indexed) if e.is_a?(Solana::TxVerifier::NotFound)
 
+      # The recorded signature landed and is NOT this wallet's entry on this
+      # ticket, and no ticket exists: that signature can never land again, so
+      # it paid nothing here.
+      if e.is_a?(Solana::TxVerifier::VerificationError) && signature == @entry.payment_signature && !ticket?(pda)
+        capture(e)
+        @entry.note_payment_failure!(:failed_onchain)
+        return release(nil)
+      end
+
       # Paid, and an app gate (lock, capacity, a kicked-off pick) refuses to
       # activate it. It stays: it never fails and never lapses.
       code = e.respond_to?(:code) ? e.code : :verification_refused
@@ -132,7 +218,7 @@ module Entries
     # The player's wallet signed an entry instruction that wrote this ticket.
     def verify_wallet_signed!(signature, pda)
       refusal = nil
-      INSTRUCTIONS.each do |name|
+      expected_instructions(signature).each do |name|
         return Solana::TxVerifier.verify!(signature: signature, instruction_name: name, signer_pubkey: @entry.wallet_address,
                                           writable_pubkey: pda, client: @vault.client)
       rescue Solana::TxVerifier::NotFound
@@ -141,6 +227,20 @@ module Entries
         refusal = e
       end
       raise refusal
+    end
+
+    # Which instruction the wire must carry: the one the server PREPARED for
+    # this signature (a token consume must be proved as a consume, never as a
+    # transfer); both names only when no prepared wire records it.
+    def expected_instructions(signature)
+      wire = PendingTransaction.where(target: @entry, tx_type: "enter_contest", tx_signature: signature).order(:id).last
+      return INSTRUCTIONS if wire.nil?
+
+      meta = wire.metadata
+      meta = JSON.parse(meta) if meta.is_a?(String)
+      meta.is_a?(Hash) && meta["entry_token_pda"].present? ? %w[enter_contest_with_token] : %w[enter_contest]
+    rescue JSON::ParserError
+      INSTRUCTIONS
     end
 
     # The Phantom rail's prepared wire follows the entry, so the older ptx

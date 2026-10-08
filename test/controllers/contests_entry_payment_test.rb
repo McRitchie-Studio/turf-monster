@@ -189,4 +189,145 @@ class ContestsEntryPaymentTest < ActionDispatch::IntegrationTest
     assert_equal "entry_held", body["code"]
     assert_equal 1, @vault.enter_calls.size
   end
+
+  # --- BLOCKER 1: the Phantom release is no weaker than the rule it replaced -------
+
+  # A Phantom wire stamped and sent `ago`, built to land by block 1,150.
+  def phantom_in_flight(ago: 0.seconds)
+    log_in_as_onchain(@user)
+    @wallet = @user.reload.web3_solana_address
+    chain { @entry.pin_payment_slot!(@wallet, @vault) }
+    @ptx = PendingTransaction.create!(tx_type: "enter_contest", serialized_tx: "stx", status: "submitted",
+                                      tx_signature: "phantom-sig", broadcast_at: ago.ago, target: @entry,
+                                      initiator_address: @wallet,
+                                      metadata: { last_valid_block_height: 1_150 }.to_json)
+    @entry.begin_phantom_charge!(signature: "phantom-sig", wallet: @wallet, last_valid_block_height: 1_150)
+    @entry.update_columns(payment_submitted_at: ago.ago)
+  end
+
+  def recover
+    chain do
+      Solana::TxVerifier.stub(:verify!, true) { post recover_pending_entry_contest_path(@contest), params: { ptx_slug: @ptx.slug }, as: :json }
+    end
+  end
+
+  test "Phantom: past the stored height but inside five minutes nothing is released, and the late wire is confirmed" do
+    phantom_in_flight(ago: 2.minutes)
+    @vault.block_height = 1_151 # the height the SERVER's wire could land by has passed
+
+    recover
+    assert_equal "processing", body["status"], "the wallet may have signed a fresher blockhash: the height does not bind it"
+    assert_equal({ pending: 1 }, chain { Entries::PaymentSweepJob.perform_now }.to_h, "nor does the sweep release it")
+    assert_equal %w[submitted submitted], [@entry.reload.payment_state, @ptx.reload.status]
+
+    chain { post prepare_entry_contest_path(@contest), as: :json }
+    assert_response :conflict, "and no second wire is built meanwhile"
+
+    @vault.send(:land!, @wallet, @contest.slug, @entry.entry_number, :usdc) { nil } # it lands, late
+    recover
+    assert_equal "confirmed", body["status"]
+    assert @entry.reload.active?
+    assert_equal "confirmed", @ptx.reload.status
+    assert_equal 1, @vault.tickets.size
+  end
+
+  test "CONTROL Phantom: past the height AND the five minutes, with no status and no ticket, the row is released" do
+    phantom_in_flight(ago: 6.minutes)
+    @vault.block_height = 1_150
+    recover
+    assert_equal "processing", body["status"], "past the clock alone is not enough either"
+
+    @vault.block_height = 1_151
+    @vault.client.account_info_commitments.clear
+    recover
+    assert_equal "failed", body["status"]
+    assert_equal Entries::PaymentCopy.message(:expired), body["error"]
+    assert_equal %w[draft expired failed], [*@entry.reload.values_at(:payment_state, :payment_refusal_code), @ptx.reload.status]
+    assert_equal ["finalized"], @vault.client.account_info_commitments.uniq
+    assert_equal 6, @entry.selections.count
+  end
+
+  test "Phantom: a wire that failed on chain is released with its own sentence, not 'never reached Solana'" do
+    phantom_in_flight
+    @vault.instance_variable_get(:@ledger_statuses)["phantom-sig"] =
+      { "err" => { "InstructionError" => [0, { "Custom" => 6004 }] }, "confirmationStatus" => "finalized" }
+
+    recover
+    assert_equal "failed", body["status"]
+    assert_match(/reached Solana and was turned down there/, body["error"])
+    assert_equal "failed_onchain", @entry.reload.payment_refusal_code
+  end
+
+  # --- BLOCKER 2: a pinned draft cart whose ticket exists is confirmed, not charged ---
+
+  test "Phantom: prepare reads the pinned ticket first; when it exists the entry is confirmed and no wire is built" do
+    log_in_as_onchain(@user)
+    wallet = @user.reload.web3_solana_address
+    chain { @entry.pin_payment_slot!(wallet, @vault) }
+    @vault.send(:land!, wallet, @contest.slug, 0, :usdc) { nil } # landed; the row was (wrongly) left a draft
+    assert_equal "draft", @entry.reload.payment_state
+
+    assert_no_difference "PendingTransaction.count" do
+      chain { Solana::TxVerifier.stub(:verify!, true) { post prepare_entry_contest_path(@contest), as: :json } }
+    end
+
+    assert_response :conflict
+    assert_equal "entry_confirmed", body["code"]
+    assert_match(/first payment went through.*not charged again/i, body["error"])
+    assert_equal contest_path(@contest), body["redirect"]
+    assert @entry.reload.active?
+    assert_equal ["phantom", wallet], @entry.values_at(:payment_rail, :wallet_address)
+    assert_equal 1, @vault.tickets.size
+  end
+
+  test "CONTROL Phantom: the same pinned cart with no ticket is handed a wire, at the same slot" do
+    log_in_as_onchain(@user)
+    wallet = @user.reload.web3_solana_address
+    chain { @entry.pin_payment_slot!(wallet, @vault) }
+
+    assert_difference "PendingTransaction.count", 1 do
+      chain { post prepare_entry_contest_path(@contest), as: :json }
+    end
+    assert_response :success, response.body
+    assert body["serialized_tx"].present?
+    assert_equal [0, "draft"], @entry.reload.values_at(:entry_number, :payment_state)
+  end
+
+  test "clear picks cannot move a paid cart to a new slot: the ticket is read first and the entry confirmed" do
+    chain { @entry.pin_payment_slot!(@user.web2_solana_address, @vault) }
+    @vault.send(:land!, @user.web2_solana_address, @contest.slug, 0, :usdc) { nil }
+
+    chain { post clear_picks_contest_path(@contest), as: :json }
+
+    assert_response :conflict
+    assert_equal "entry_confirmed", body["code"]
+    assert @entry.reload.active?, "not abandoned: its slot would have been released and the next cart charged again"
+  end
+
+  test "clear picks on a pinned cart whose ticket cannot be read changes nothing" do
+    chain { @entry.pin_payment_slot!(@user.web2_solana_address, @vault) }
+    @vault.chain_unreadable = true
+
+    chain { post clear_picks_contest_path(@contest), as: :json }
+
+    assert_response :service_unavailable
+    assert_equal "check_failed", body["code"]
+    assert_match(/could not check your last payment.*nothing was changed/i, body["error"])
+    assert @entry.reload.cart?
+  end
+
+  test "a pick tap reads the chain only for a cart that once sent a payment" do
+    chain { @entry.pin_payment_slot!(@user.web2_solana_address, @vault) }
+    @vault.client.account_info_commitments.clear
+    chain { post toggle_selection_contest_path(@contest), params: { matchup_id: fixture_matchups.first.id }, as: :json }
+    assert_response :success
+    assert_empty @vault.client.account_info_commitments, "CONTROL: a cart that never sent anything costs no read"
+
+    @entry.selections.create!(slate_matchup: fixture_matchups.first) # six picks again
+    @entry.update_columns(payment_signature: "an-earlier-attempt")
+    @vault.send(:land!, @user.web2_solana_address, @contest.slug, 0, :usdc) { nil }
+    chain { post toggle_selection_contest_path(@contest), params: { matchup_id: fixture_matchups.second.id }, as: :json }
+    assert_response :conflict
+    assert_equal "entry_confirmed", body["code"]
+  end
 end

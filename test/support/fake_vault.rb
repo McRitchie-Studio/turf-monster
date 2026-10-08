@@ -1057,10 +1057,16 @@ class FakeSolanaClient
 
   # ContestsController#onchain_create_precheck reads dig("value") to decide
   # whether the contest PDA already exists on-chain.
-  def get_account_info(pda_b58)
+  def get_account_info(pda_b58, commitment: nil, **_opts)
+    account_info_commitments << commitment
     raise Solana::Client::RpcError, "simulated RPC failure" if @account_info_raises
 
     @account_infos[pda_b58]
+  end
+
+  # The commitment each account read asked for (nil: the RPC's default).
+  def account_info_commitments
+    @account_info_commitments ||= []
   end
 
   # Entries::OnchainReconciler#oldest_success_signature reaches the raw JSON-RPC

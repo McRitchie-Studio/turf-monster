@@ -83,9 +83,10 @@ class LedgerVault < FakeVault
     client.instance_variable_set(:@block_height, height)
   end
 
-  # Every account read raises, as when the RPC is down.
+  # Every account read and every status read raises, as when the RPC is down.
   def chain_unreadable=(down)
     client.instance_variable_set(:@account_info_raises, down)
+    client.instance_variable_set(:@status_raises, down ? "simulated RPC failure" : nil)
   end
 
   def enter_contest_with_token(wallet_address, contest_slug, entry_num, entry_token_pda_b58,
@@ -148,12 +149,16 @@ class LedgerVault < FakeVault
     before_enter&.call
     pda = entry_pda(slug, wallet, slot).first
     before_send&.call("ledger-sig-#{@sequence + 1}", client.get_block_height + 150)
-    raise Solana::Client::RpcError, "#{SIMULATION_FAILED}Allocate: account already in use" if @ledger_accounts[pda]
+    raise Solana::Client::RpcError, "#{SIMULATION_FAILED}custom program error: 0x0" if @ledger_accounts[pda] # the RPC's own text; "already in use" is only in the logs
 
     failure = fail_next_enter
     self.fail_next_enter = nil
     raise Solana::Client::RpcError, "#{SIMULATION_FAILED}custom program error: 0x1774" if failure == :rejected
     raise Solana::Client::RpcError, "Transaction confirmation timeout" if failure == :unlanded
+    if failure == :landed_failed # the cluster processed the wire and it failed: a status with an error, no ticket
+      @ledger_statuses["ledger-sig-#{@sequence + 1}"] = { "err" => { "InstructionError" => [0, { "Custom" => 6004 }] }, "confirmationStatus" => "finalized" }
+      raise Solana::Client::RpcError, %(Transaction failed: {"InstructionError"=>[0, {"Custom"=>6004}]})
+    end
     raise Solana::Client::RpcError, "Transaction simulation failed: Transaction results in an account (0) with insufficient funds for rent" if failure == :fee
 
     yield
@@ -164,7 +169,8 @@ class LedgerVault < FakeVault
     @tickets << { slot: slot, pda: pda, signature: signature, method: method }
     raise Solana::Client::RpcError, "Transaction confirmation timeout" if failure == :lost
     raise Solana::Client::RpcError, "Transaction simulation failed: This transaction has already been processed" if failure == :resent
-    raise Solana::Client::RpcError, "#{SIMULATION_FAILED}Allocate: account already in use" if failure == :in_use
+    raise Solana::Client::RpcError, "#{SIMULATION_FAILED}custom program error: 0x0" if failure == :in_use # a re-post refused in simulation
+    raise Solana::Client::RpcError, %(Transaction failed: {"InstructionError"=>[0, {"Custom"=>0}]}) if failure == :in_use_landed # a second wire that landed and failed
 
     { signature: signature, entry_pda: pda }
   end

@@ -91,36 +91,94 @@ class Entries::ManagedEntryPaymentTest < ActiveSupport::TestCase
     assert_equal 0, @vault.tickets.sole[:slot]
   end
 
-  test "the chain cannot pay the fee: nothing charged, cart back to draft at once" do
-    @vault.fail_next_enter = :fee
-    assert_raises(Solana::Client::RpcError) { attempt }
-
-    assert_equal %w[draft network_fee], state
+  # A SIGNED attempt is never released from what an error says. The text is
+  # kept as the reason; the chain (the wire's last valid block height, then a
+  # status and a ticket read made after it) is what releases the row.
+  def assert_released_by_the_chain_only(code)
+    assert_equal ["submitted", code], state, "the error's reading is a hint on a row still submitted"
+    assert settle.pending?, "CONTROL: inside the wire's life nothing releases it"
+    @vault.block_height = 1_151
+    assert settle.released?
+    assert_equal ["draft", code], state
     assert_empty @vault.tickets
     picks_kept!
+  end
+
+  test "the house wallet cannot pay the fee: pending, then released from the chain with the cause that is ours" do
+    @vault.fail_next_enter = :fee
+    assert_difference -> { ErrorLog.count }, 1, "the operator is told: the house wallet is short" do
+      assert_raises(Entries::ManagedEntry::PendingConfirmation) { attempt }
+    end
+    assert_released_by_the_chain_only "network_fee"
+
     assert attempt.entry.active?
     paid_once!
   end
 
-  test "not enough funds, caught by the read and by the chain: nothing charged, cart back to draft" do
+  test "not enough USDC, confirmed by a fresh read: refused before anything is signed, draft at once" do
     @vault = LedgerVault.new(tokens: [], usdc: 0.0)
     assert_equal :insufficient_funds, assert_raises(Entry::Refusal) { attempt }.code
-    assert_equal %w[draft insufficient_funds], state
 
-    @vault.wallet_balances_raises = true # the balance read flakes; the chain refuses with 0x1
-    error = assert_raises(Solana::Client::RpcError) { attempt }
-    assert_match(/0x1\z/, error.message)
     assert_equal %w[draft insufficient_funds], state
-    assert_empty @vault.tickets
-    picks_kept!
+    assert_nil @entry.payment_signature, "nothing was signed, so nothing waits on the chain"
   end
 
-  test "the program refuses the entry (contest full on chain): nothing charged, draft, and the reason is kept" do
-    @vault.fail_next_enter = :rejected
-    assert_raises(Solana::Client::RpcError) { attempt }
+  test "0x1 when the balance could not be read names both causes; 0x1 after a balance read as enough is ours" do
+    @vault = LedgerVault.new(tokens: [], usdc: 0.0)
+    @vault.wallet_balances_raises = true # the read flakes; the chain answers 0x1
+    assert_raises(Entries::ManagedEntry::PendingConfirmation) { attempt }
+    assert_released_by_the_chain_only "funds_or_fee"
 
-    assert_equal %w[draft contest_full], state
+    error = Solana::Client::RpcError.new("Transaction simulation failed: Error processing Instruction 0: custom program error: 0x1")
+    code = ->(**context) { Entries::PaymentCopy.code_for(error, sent: true, **context) }
+    assert_equal :network_fee, code.call(funding: "usdc", funds_confirmed: true), "the player's USDC was just read as enough"
+    assert_equal :network_fee, code.call(funding: "token"), "a token entry moves no USDC at all"
+    assert_equal :funds_or_fee, code.call(funding: "usdc", funds_confirmed: false)
+    refute_match(/not enough USDC/i, Entries::PaymentCopy.message(:network_fee))
+    assert_match(/on our side.*not charged/i, Entries::PaymentCopy.message(:network_fee))
+  end
+
+  test "the program refuses the entry in simulation (contest full): pending, then released with the reason" do
+    @vault.fail_next_enter = :rejected
+    assert_raises(Entries::ManagedEntry::PendingConfirmation) { attempt }
+    assert_released_by_the_chain_only "contest_full"
+  end
+
+  test "a wire the cluster processed and failed is released at once: its status shows the error" do
+    @vault.fail_next_enter = :landed_failed
+    error = assert_raises(Solana::Client::RpcError) { attempt }
+
+    assert_match(/Custom"=>6004/, error.message)
+    assert_equal %w[draft contest_full], state, "read from the decimal shape, not shown as a bare refusal"
     assert_empty @vault.tickets
+  end
+
+  test "the status is read again after the height: a wire that lands late is confirmed, not released" do
+    @vault.fail_next_enter = :unlanded
+    assert_raises(Entries::ManagedEntry::PendingConfirmation) { attempt }
+    @vault.block_height = 1_151
+    signature = @entry.reload.payment_signature
+    reads = 0
+    # Unseen on the first read; landed by the read made after the height.
+    @vault.instance_variable_get(:@ledger_statuses)[signature] =
+      ->(_count) { (reads += 1) == 1 ? nil : { "err" => nil, "confirmationStatus" => "finalized" } }
+
+    @vault.client.instance_variable_get(:@block_height_calls).clear
+    assert settle.confirmed?
+    assert_equal 2, reads, "one read before the height and one after"
+    assert_equal ["finalized"], @vault.client.instance_variable_get(:@block_height_calls).uniq
+    assert @entry.reload.active?
+  end
+
+  test "every ticket read asks for finalized, never the RPC's default" do
+    @vault.fail_next_enter = :unlanded
+    assert_raises(Entries::ManagedEntry::PendingConfirmation) { attempt }
+    @vault.client.account_info_commitments.clear
+    @vault.block_height = 1_151
+    settle
+
+    assert_equal ["finalized"], @vault.client.account_info_commitments.uniq
+    assert_operator @vault.client.account_info_commitments.size, :>=, 2, "before the height and again after it"
   end
 
   test "the contest locks between the send and the confirm: the chain took it in time, so the entry stands" do
@@ -191,6 +249,53 @@ class Entries::ManagedEntryPaymentTest < ActiveSupport::TestCase
     assert_equal @vault.tickets.sole[:signature], outcome.entry.onchain_tx_signature
     assert_equal 100.0, @vault.usdc_balance, "the retry moved no money"
     paid_once!
+  end
+
+  # --- the pinned ticket is read first, on every retry ------------------------------
+
+  # The first payment landed and spent the wallet's only funds; the app never
+  # learned (the row is a pinned draft).
+  def landed_unseen!(vault)
+    on_chain(vault) { @entry.pin_payment_slot!(@user.web2_solana_address, vault) }
+    vault.send(:land!, @user.web2_solana_address, @contest.slug, 0, :usdc) { vault.wallet_balances = { sol: 0.1, usdc: 0.0, usdt: 0.0 } }
+    assert_equal "draft", @entry.reload.payment_state
+  end
+
+  test "a retry whose first payment spent the funds is confirmed from its ticket, before any funding check" do
+    @vault = LedgerVault.new(tokens: [], usdc: 19.0)
+    landed_unseen!(@vault)
+    @vault.client.account_info_commitments.clear
+
+    service = Entries::ManagedEntry.new(contest: @contest, user: @user, usdc_allowed: true)
+    outcome = on_chain(@vault) { service.call(@entry) }
+
+    assert outcome.entry.active?
+    assert service.first_payment_found?
+    assert_equal @vault.tickets.sole[:signature], outcome.entry.onchain_tx_signature
+    assert_empty @vault.enter_calls, "nothing was built or sent"
+    assert_empty @vault.balance_calls, "the funding check never ran: it would have refused a wallet the first payment emptied"
+    assert_equal ["finalized"], @vault.client.account_info_commitments.uniq
+    paid_once!
+  end
+
+  test "CONTROL: the same emptied wallet with NO ticket is refused as unfunded, and a funded one pays once" do
+    @vault = LedgerVault.new(tokens: [], usdc: 0.0)
+    on_chain(@vault) { @entry.pin_payment_slot!(@user.web2_solana_address, @vault) }
+    assert_equal :insufficient_funds, assert_raises(Entry::Refusal) { attempt }.code
+    assert_empty @vault.tickets
+
+    @vault.wallet_balances = { sol: 0.1, usdc: 100.0, usdt: 0.0 }
+    assert attempt.entry.active?
+    paid_once!
+  end
+
+  test "a pinned cart whose ticket cannot be read is not charged on a guess" do
+    on_chain(@vault) { @entry.pin_payment_slot!(@user.web2_solana_address, @vault) }
+    @vault.chain_unreadable = true
+
+    assert_raises(Solana::Client::RpcError) { attempt }
+    assert_empty @vault.enter_calls
+    assert_equal "draft", @entry.reload.payment_state
   end
 
   test "two devices, two wallets: a Phantom payment in flight refuses the managed spend, and nothing is sent" do

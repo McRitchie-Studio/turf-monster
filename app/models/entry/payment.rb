@@ -41,15 +41,18 @@ class Entry
     # A started charge that never recorded a signature sent nothing (the
     # signature is written before the send), so it is released after this.
     UNSENT_GRACE = 30.seconds
-    # For a sent attempt with no recorded block height (rows from before this
-    # column): a recent blockhash is long dead by then.
-    UNDATED_LAPSE = 10.minutes
+    # The wall-clock floor under a Phantom wire's release. Its stored block
+    # height describes the wire the server BUILT; the wallet signs it and may
+    # hand back another blockhash, so the height alone does not bind it.
+    WALLET_WIRE_FLOOR = OnchainSendVerdict::BLOCKHASH_LAPSE
+    SUPPORT_EMAIL = "support@turfmonster.media".freeze
 
     IN_FLIGHT_MESSAGES = {
       "submitted" => "Your entry was sent and is still confirming on Solana. We are checking it now. " \
                      "You will not be charged twice.",
       "landed" => "Your payment for this contest arrived, but we could not finish the entry. " \
-                  "You will not be charged again, and we are sorting it out."
+                  "You will not be charged again, and we are sorting it out. " \
+                  "If it is not resolved within a day, contact #{SUPPORT_EMAIL}."
     }.freeze
 
     # A second charge was refused. Controllers answer 409 with the message.
@@ -201,13 +204,43 @@ class Entry
       transition_payment!("landed", payment_refusal_code: code.to_s, payment_signature: signature)
     end
 
-    # Whether a submitted attempt can no longer land. `finalized_block_height`
-    # is read at `finalized`, so every block it could have landed in is settled.
-    def payment_attempt_lapsed?(finalized_block_height:, now: Time.current)
+    # THE ONE RELEASE RULE: what must be true before a submitted row goes back
+    # to draft and its pin can be used for a new payment. Entries::PaymentSettlement
+    # is its only caller, and supplies the reads in the order the rule needs:
+    # the FINALIZED block height first, then the recorded signature's status,
+    # then the ticket at `finalized` (absent, or this is never asked).
+    #
+    #   * NO SIGNATURE RECORDED: nothing was sent (the signature is committed
+    #     before the send), so the grace is all that is waited.
+    #   * A SIGNATURE WHOSE STATUS SHOWS AN ERROR, confirmed or finalized: that
+    #     wire landed and failed; it cannot pay.
+    #   * A SIGNATURE WITH NO STATUS: only when a last valid block height was
+    #     recorded AND the finalized height is past it AND, on the Phantom rail,
+    #     the wall-clock floor has also passed since the stamp. Every block the
+    #     wire could be in is then finalized, and the status and ticket reads
+    #     made after that height would have seen it.
+    #   * A signature with any other status (seen, not yet confirmed), or with
+    #     no recorded height or no stamp time, is never released by a clock.
+    def payment_release_allowed?(status:, finalized_block_height:, now: Time.current)
       return payment_submitted_at.nil? || payment_submitted_at <= now - UNSENT_GRACE if payment_signature.blank?
-      return finalized_block_height.to_i > payment_last_valid_block_height if payment_last_valid_block_height
+      return %w[confirmed finalized].include?(status["confirmationStatus"]) if status && status["err"]
+      return false unless status.nil?
+      return false if payment_last_valid_block_height.nil? || finalized_block_height.nil?
+      return false if payment_rail == "phantom" && (payment_submitted_at.nil? || payment_submitted_at > now - WALLET_WIRE_FLOOR)
 
-      payment_submitted_at.nil? || payment_submitted_at <= now - UNDATED_LAPSE
+      finalized_block_height.to_i > payment_last_valid_block_height
+    end
+
+    # A draft cart whose wallet and slot are fixed: its ticket address is known.
+    def payment_pinned_draft?
+      cart? && payment_state == "draft" && wallet_address.present? && !entry_number.nil?
+    end
+
+    # While a signed attempt is unresolved, remember what its failure looked
+    # like (an Entries::PaymentCopy code). A hint only: the chain decides
+    # whether the row is released, and the hint then words the reason.
+    def note_payment_failure!(code)
+      self.class.where(id: id, payment_state: "submitted").update_all(payment_refusal_code: code.to_s)
     end
 
     private

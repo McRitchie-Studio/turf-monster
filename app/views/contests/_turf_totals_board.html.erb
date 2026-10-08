@@ -869,6 +869,8 @@ window.selectionBoard = function() {
       if (data.code === 'entry_confirmed') {
         this.submitting = false;
         this.resetHoldButtons();
+        // A pick tap or a clear has no card open; success() only fills one.
+        if (!Alpine.store('solanaModal').visible) Alpine.store('solanaModal').show("You're In", data.error);
         Alpine.store('solanaModal').success(data.tx_signature, data.error);
         if (data.redirect) Alpine.store('solanaModal').onClose = function () { window.location.href = data.redirect; };
         return true;
@@ -2068,7 +2070,7 @@ window.selectionBoard = function() {
       // red error styling) — same path as the recovery/confirm toasts above,
       // instead of the old bespoke "Entry Failed" popup. A freeze is not a
       // failed entry: the server's account_frozen code gets its own title.
-      var title = code === <%= FrozenAccount::CODE.to_json.html_safe %> ? <%= FrozenAccount::TOAST_TITLE.to_json.html_safe %> : 'Entry Failed';
+      var title = code === <%= FrozenAccount::CODE.to_json.html_safe %> ? <%= FrozenAccount::TOAST_TITLE.to_json.html_safe %> : (code === 'check_failed' ? 'Nothing Changed' : 'Entry Failed');
       try {
         window.dispatchEvent(new CustomEvent('toast', { detail: { type: 'alert', title: title, message: message || '', duration: 6000 } }));
       } catch (_) {}
@@ -2106,6 +2108,11 @@ window.selectionBoard = function() {
           } else if (data) {
             this._handleBlockerResponse(data);
           }
+        } else if (resp && resp.status === 503) {
+          // The cart's last payment could not be checked, so the server kept the
+          // picks. Say so; the page shows them again on its next load.
+          var kept = await resp.json();
+          this.showError(kept.error, kept.code);
         }
       } catch (err) {
         // network — silent

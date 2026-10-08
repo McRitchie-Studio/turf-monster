@@ -167,22 +167,69 @@ class EntryPaymentTest < ActiveSupport::TestCase
     assert_equal "sig-1", entry.reload.payment_signature
   end
 
-  test "an attempt lapses by block height when one was recorded, never before it" do
+  # --- the one release rule ---------------------------------------------------------
+
+  LANDED = { "err" => nil, "confirmationStatus" => "finalized" }.freeze
+  FAILED = { "err" => { "InstructionError" => [0, { "Custom" => 6004 }] }, "confirmationStatus" => "finalized" }.freeze
+
+  def allowed?(entry, status: nil, height: 501, now: Time.current)
+    entry.payment_release_allowed?(status: status, finalized_block_height: height, now: now)
+  end
+
+  test "an unsigned attempt sent nothing: released after the grace, whatever the height" do
+    entry = submitted
+    refute allowed?(entry, height: 9_999, now: 29.seconds.from_now), "CONTROL: a live request may still be about to send"
+    assert allowed?(entry, height: nil, now: 31.seconds.from_now)
+  end
+
+  test "a signed managed attempt is released only past its recorded height, with no status" do
     entry = submitted
     entry.record_payment_attempt!(signature: "sig-1", last_valid_block_height: 500)
 
-    refute entry.payment_attempt_lapsed?(finalized_block_height: 500, now: 1.day.from_now)
-    assert entry.payment_attempt_lapsed?(finalized_block_height: 501)
+    refute allowed?(entry, height: 500, now: 1.day.from_now), "at the last valid block the wire can still land"
+    refute allowed?(entry, height: nil, now: 1.day.from_now), "no height read, no release"
+    assert allowed?(entry, height: 501), "CONTROL: one block past it"
   end
 
-  test "an attempt with no signature sent nothing and lapses after the grace; an undated sent one after ten minutes" do
+  test "a status that shows the wire, landed or merely seen, forbids a release at any height or age" do
     entry = submitted
-    refute entry.payment_attempt_lapsed?(finalized_block_height: 9_999, now: 29.seconds.from_now)
-    assert entry.payment_attempt_lapsed?(finalized_block_height: 0, now: 31.seconds.from_now)
+    entry.record_payment_attempt!(signature: "sig-1", last_valid_block_height: 500)
 
+    refute allowed?(entry, status: LANDED, height: 99_999, now: 1.day.from_now)
+    refute allowed?(entry, status: { "err" => nil, "confirmationStatus" => "processed" }, height: 99_999, now: 1.day.from_now)
+    assert allowed?(entry, status: FAILED, height: nil), "CONTROL: a wire that landed and failed cannot pay"
+    refute allowed?(entry, status: FAILED.merge("confirmationStatus" => "processed"), height: 99_999), "a failure not yet confirmed is not one"
+  end
+
+  test "a signed attempt with no recorded height is never released by a clock" do
+    entry = submitted
     entry.record_payment_attempt!(signature: "sig-1")
-    refute entry.payment_attempt_lapsed?(finalized_block_height: 9_999, now: 9.minutes.from_now)
-    assert entry.payment_attempt_lapsed?(finalized_block_height: 0, now: 11.minutes.from_now)
+
+    refute allowed?(entry, height: 99_999, now: 1.year.from_now)
+  end
+
+  test "a Phantom wire also needs the wall-clock floor: its stored height does not bind the wire the wallet returned" do
+    entry = pinned
+    entry.begin_phantom_charge!(signature: "sig-1", wallet: @wallet, last_valid_block_height: 500)
+
+    refute allowed?(entry, height: 99_999, now: 4.minutes.from_now), "past the height, inside the floor"
+    refute allowed?(entry, height: 500, now: 6.minutes.from_now), "past the floor, at the height"
+    assert allowed?(entry, height: 501, now: 6.minutes.from_now), "CONTROL: past both"
+
+    entry.update_columns(payment_submitted_at: nil)
+    refute allowed?(entry, height: 99_999, now: 1.year.from_now), "a stamp with no time is never released by a clock"
+  end
+
+  test "CONTROL: the floor is the Phantom rail's; a managed wire's height binds it" do
+    entry = submitted
+    entry.record_payment_attempt!(signature: "sig-1", last_valid_block_height: 500)
+
+    assert allowed?(entry, height: 501, now: 1.second.from_now)
+  end
+
+  test "the landed sentence names the support contact the app uses elsewhere" do
+    assert_includes Entry::Payment::IN_FLIGHT_MESSAGES.fetch("landed"), "contact support@turfmonster.media"
+    assert_includes FrozenAccount::MESSAGE, Entry::Payment::SUPPORT_EMAIL
   end
 
   # --- the row stays --------------------------------------------------------------
