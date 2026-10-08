@@ -95,7 +95,7 @@ class Admin::LandingPagesControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
-
+  test "destroy removes a landing page" do
     log_in_as(@admin)
     assert_difference "LandingPage.count", -1 do
       delete admin_landing_page_path(@landing_page)
