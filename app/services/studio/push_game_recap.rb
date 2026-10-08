@@ -20,23 +20,28 @@ module Studio
     OPEN_TIMEOUT = 5
     READ_TIMEOUT = 10
 
-    # The hub push is optional infrastructure. A stack with no shared secret —
+    CALLER = "turf-monster/push_game_recap".freeze
+
+    # The hub push is optional infrastructure. A stack with no hub credential —
     # a developer's laptop, a review app — should run the scoring cycle exactly
     # as it always did rather than fail or log noise on every final.
     def self.configured?
-      ENV["AGENT_API_SECRET"].present?
+      HubCredential.configured?
     end
 
-    def initialize(game, base_url: nil, secret: nil)
+    # `runtime_key` is this app's own hub key (HubCredential); with one, the
+    # shared `secret` is not read and no auth exchange is made.
+    def initialize(game, base_url: nil, secret: nil, runtime_key: nil)
       @game = game
       @base_url = (base_url || ENV["STUDIO_API_BASE"].presence || DEFAULT_BASE_URL).chomp("/")
-      @secret = secret || ENV["AGENT_API_SECRET"]
+      @runtime_key = runtime_key || (HubCredential.runtime_key unless secret)
+      @secret = secret || HubCredential.secret
     end
 
     def call
-      raise Error, "AGENT_API_SECRET not set" if @secret.blank?
+      raise Error, HubCredential::MISSING if @runtime_key.blank? && @secret.blank?
 
-      post_recap(authenticate)
+      post_recap(@runtime_key.presence || authenticate)
     end
 
     private
@@ -81,6 +86,7 @@ module Studio
       request["Content-Type"] = "application/json"
       request["Accept"] = "application/json"
       request["Authorization"] = "Bearer #{token}" if token
+      request[HubCredential::CALLER_HEADER] = CALLER
 
       request.body = body.to_json
 
@@ -91,8 +97,8 @@ module Studio
 
       JSON.parse(response.body.to_s)
     rescue JSON::ParserError => e
-      # Never echo the body — this request carries the shared secret, and the
-      # auth call's body IS the secret.
+      # Never echo the body — this request carries a credential, and the auth
+      # call's body IS the shared secret.
       raise Error, "studio #{path} returned unparseable JSON (#{e.class})"
     end
   end
