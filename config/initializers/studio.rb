@@ -235,6 +235,17 @@ Studio.configure do |config|
   # banner management — takes the URL.
   config.draw_admin_emails_routes = true
 
+  # The header-image generator, linked from the top of /admin/emails: where a new
+  # email's banner is made (the hub's email-image SOP and /email_images pages).
+  # GUARDED: the setting arrives with studio-engine's email-manager-generator-link
+  # task, unreleased as of this line. Until this app's pinned engine defines it,
+  # the guard makes this a no-op; once it does, the link appears with no further
+  # change here. If the engine ships the setting under another name, rename it
+  # here (both the guard and the setter).
+  if config.respond_to?(:email_manager_generator_url=)
+    config.email_manager_generator_url = "https://mcritchie.studio/email_images/generator/turf-monster"
+  end
+
   # Draw the engine's first-name onboarding endpoints. This app used to own both
   # routes and their controller; they are deleted in the same change, which is
   # what frees the names for the gem. The engine's flag is opt-in precisely

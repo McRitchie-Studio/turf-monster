@@ -82,6 +82,28 @@ test.describe("Admin emails manager", () => {
     await expect(frame.locator('td[style*="background-size:cover"]')).toHaveCount(1);
   });
 
+  // The slate-drop emails (DropSignupMailer) register with NO committed header
+  // yet, so the manager has to render them on the engine's no-art path and
+  // their preview has to be the real email, text-only, with no broken image.
+  test("lists the slate-drop emails and previews them without a broken image", async ({ page }) => {
+    await loginAdmin(page);
+    await page.goto("/admin/emails");
+
+    const confirmation = page.getByRole("link", { name: "Slate drop — you're on the list" });
+    await expect(confirmation).toBeVisible();
+    await expect(page.getByRole("link", { name: "Slate drop — the slate is live" })).toBeVisible();
+
+    await confirmation.click();
+    await expect(page).toHaveURL(/\/admin\/emails\/drop_signup_confirmation$/);
+    const frame = page.frameLocator('iframe[src*="/raw"]');
+    await expect(frame.getByText("You're on the list.")).toBeVisible();
+
+    const broken = await page.evaluate(() =>
+      [...document.querySelectorAll("img")].filter((i) => i.complete && i.naturalWidth === 0).length
+    );
+    expect(broken).toBe(0);
+  });
+
   // SCOPE NOTE — read before "strengthening" this test.
   //
   // It stops at "the form submitted and the page came back". It deliberately

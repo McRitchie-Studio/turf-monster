@@ -114,9 +114,24 @@ when the outbox renders the mail, not when it is queued:
 - **Abuse bound**: `drop_signups/ip` (10/h) and `drop_signups/email` (5/h)
   throttle the form, and the claim caps the confirmation at one per address per
   drop whatever the IP. Previews: `/rails/mailers/drop_signup_mailer`.
-- **Images**: none today. `DropSignupMailer.hero_image_resolver` (nil) is the seam
-  for the planned email-image system: a callable `(kind, variant, signup)` that
-  returns `{ url:, alt: }`, drawn by the `branded_mailer` banner slot.
+- **Images**: each email's header is managed on `/admin/emails` under one
+  catalog key per email, shared by both variants: `drop_signup_confirmation`
+  and `drop_signup_announcement`. `DropSignupMailer.hero_image_resolver`
+  defaults to `CATALOG_HERO`, which reads `Studio::EmailCatalog.resolved_url`
+  and uses the email's headline as alt text. Neither key has a committed
+  default yet, so until a banner is uploaded the emails render text-only.
+
+## Registering a new email
+
+Every new transactional email registers in `Studio::EmailCatalog`
+(`config/initializers/studio_emails.rb`) so it is managed at `/admin/emails`:
+a label, a description, its type, and a preview that renders the real mailer on
+sample data that writes nothing. Its mailer reads its header from
+`Studio::EmailCatalog.resolved_url(<key>)`, so an operator upload ships with no
+deploy. Its header image comes from the email-image SOP
+(`mcritchie-studio/docs/agents/agents/pokemon/sops/email-image.md`): commit the
+exported file under `app/assets/images/emails/` and name it as the key's
+`default_asset`.
 
 ## Cutover Checklist
 
