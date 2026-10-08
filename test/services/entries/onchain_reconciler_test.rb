@@ -112,6 +112,26 @@ class Entries::OnchainReconcilerTest < ActiveSupport::TestCase
   # PROBE path: a LEGACY strand (e.g. #133) has no proof on the Rails row. The
   # reconciler derives the Entry PDA, confirms it exists on-chain, and recovers
   # the consume signature from getSignaturesForAddress.
+  # Anyone can send lamports to an address. A System-owned account at a cart's
+  # ticket address, with the transfer that funded it in its history, is NOT a
+  # paid ticket: only an account the vault program owns is.
+  test "dust sent to a cart's ticket address is not a paid ticket: the cart is not activated" do
+    entry = cart_entry_with_picks(entry_number: nil)
+    pda0 = "epda-#{@contest.slug}-#{@user.solana_address[0, 4]}-0"
+    vault = FakeVault.new(
+      account_infos: { pda0 => { "value" => { "lamports" => 5_000, "owner" => "11111111111111111111111111111111" } } },
+      signatures:    { pda0 => [{ "signature" => "dust-transfer-sig", "err" => nil }] }
+    )
+
+    outcome = Solana::Keypair.stub(:encode_base58, ->(s) { s.is_a?(String) ? s : s.to_s }) do
+      Entries::OnchainReconciler.reconcile_entry(entry, vault: vault)
+    end
+
+    assert_equal :skipped, outcome
+    assert entry.reload.cart?
+    assert_nil entry.onchain_tx_signature
+  end
+
   test "probes the chain for the Entry PDA + recovers the consume signature when the row has no proof" do
     entry = cart_entry_with_picks(entry_number: nil)
 
@@ -120,7 +140,7 @@ class Entries::OnchainReconcilerTest < ActiveSupport::TestCase
     # encode_base58 stubbed to identity the b58 PDA IS that string.
     pda0 = "epda-#{@contest.slug}-#{wallet[0, 4]}-0"
     vault = FakeVault.new(
-      account_infos: { pda0 => { "value" => { "owner" => "prog" } } },
+      account_infos: { pda0 => { "value" => { "owner" => Solana::Config::PROGRAM_ID } } },
       signatures:    { pda0 => [{ "signature" => "recovered-consume-sig", "err" => nil }] }
     )
 
@@ -191,7 +211,7 @@ class Entries::OnchainReconcilerTest < ActiveSupport::TestCase
     stray = cart_entry_with_picks(entry_number: nil)
 
     vault = FakeVault.new(
-      account_infos: { pda0 => { "value" => { "owner" => "prog" } } },
+      account_infos: { pda0 => { "value" => { "owner" => Solana::Config::PROGRAM_ID } } },
       signatures:    { pda0 => [{ "signature" => "dup-consume-sig", "err" => nil }] }
     )
 
@@ -221,7 +241,7 @@ class Entries::OnchainReconcilerTest < ActiveSupport::TestCase
 
   def probing_vault(pda:, signature:)
     FakeVault.new(
-      account_infos: { pda => { "value" => { "owner" => "prog" } } },
+      account_infos: { pda => { "value" => { "owner" => Solana::Config::PROGRAM_ID } } },
       signatures:    { pda => [{ "signature" => signature, "err" => nil }] }
     )
   end

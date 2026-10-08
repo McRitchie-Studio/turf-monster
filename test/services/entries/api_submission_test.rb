@@ -200,6 +200,26 @@ class Entries::ApiSubmissionTest < ActiveSupport::TestCase
     assert_equal 1, @vault.spent_tokens.size, "token-2 is untouched"
   end
 
+  # THE FREE ENTRY. Anyone can send lamports to an address, their own slot-0
+  # ticket address included. That leaves a System-owned account there with a
+  # successful transfer in its history, which the orphan probe used to read as
+  # "a paid ticket no row holds" and build an entry on. Only an account the
+  # vault program owns is a ticket. (The test above is the control: a real
+  # ticket the reset left behind IS adopted.)
+  test "dust sent to one's own ticket address is not a paid ticket: the entry is paid for, not adopted" do
+    dusted = @vault.entry_pda(@contest.slug, @user.web2_solana_address, 0).first
+    @vault.instance_variable_get(:@ledger_accounts)[dusted] = { "value" => { "lamports" => 5_000, "owner" => "11111111111111111111111111111111" } }
+    @vault.instance_variable_get(:@ledger_signatures)[dusted] = [{ "signature" => "dust-transfer-sig", "err" => nil }]
+
+    result = submit
+
+    assert_equal :created, result.status
+    assert_equal 1, @vault.spent_tokens.size, "the entry cost its token"
+    assert_equal 1, @vault.tickets.size, "and bought a real ticket"
+    assert_equal @vault.tickets.sole[:signature], entries.sole.onchain_tx_signature
+    refute_equal "dust-transfer-sig", entries.sole.onchain_tx_signature
+  end
+
   # A request still in doubt holds no response to replay, and its clock is what
   # stops a second spend while its transaction could still land. Reset leaves it.
   test "reset: a request still in doubt keeps its state and its clock" do
@@ -355,7 +375,7 @@ class Entries::ApiSubmissionTest < ActiveSupport::TestCase
   # sendTransaction after a read timeout. If the first post landed, the re-post
   # is answered with a "simulation failed" that is PROOF OF A LANDING. It was
   # read as a rejection, the key went `failed`, and the retry paid again.
-  %i[resent in_use].each do |mode|
+  %i[resent in_use in_use_landed].each do |mode|
     test "a landing answered as a simulation failure (#{mode}) is never read as a rejection" do
       @vault.fail_next_enter = mode
       @vault.grant_token("token-2")

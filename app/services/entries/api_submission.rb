@@ -154,7 +154,7 @@ module Entries
     PROGRAM_REFUSED_IN_SIMULATION =
       /\ATransaction simulation failed: Error processing Instruction \d+: custom program error: 0x(?:1|17[0-9a-f]{2})\z/i
     LANDED_AND_FAILED = /\ATransaction failed: /
-    NEVER_PROOF = /already been processed|already in use/i
+    NEVER_PROOF = /already been processed|already in use|custom program error: 0x0\b|"Custom"\s*=>\s*0\b/i # 0x0 in either shape the RPC gives it
 
     # A signal from inside the contest lock that this attempt must not spend.
     class Superseded < StandardError; end
@@ -636,7 +636,7 @@ module Entries
 
         pda = Solana::Keypair.encode_base58(vault.entry_pda(@contest.slug, wallet, slot).first)
         info = vault.client.get_account_info(pda)
-        next unless info && info["value"]
+        next unless info&.dig("value", "owner") == Solana::Config::PROGRAM_ID # a ticket is the PROGRAM's account; dust sent to the address is not one
         next if @contest.entries.exists?(onchain_entry_id: pda)
 
         signature = creating_signature(vault, pda)
