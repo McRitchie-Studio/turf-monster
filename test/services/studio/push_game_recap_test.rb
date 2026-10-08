@@ -24,6 +24,16 @@ class Studio::PushGameRecapTest < ActiveSupport::TestCase
     calls
   end
 
+  test "a runtime key is the bearer, with no auth call" do
+    service = Studio::PushGameRecap.new(@game, runtime_key: "rk-1")
+    calls = recorder_for(service)
+
+    service.call
+
+    assert_equal ["/api/v1/game_recaps"], calls.map { |c| c[:path] }
+    assert_equal "rk-1", calls.last[:token]
+  end
+
   test "configured? follows the shared secret" do
     ENV["AGENT_API_SECRET"] = "s"
     assert Studio::PushGameRecap.configured?
