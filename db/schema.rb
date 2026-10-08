@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_07_131208) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_08_135701) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -928,6 +928,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_07_131208) do
     t.bigint "expectation_id"
     t.string "mime_type"
     t.string "path", default: "", null: false
+    t.bigint "recording_byte_size"
+    t.string "recording_key"
+    t.string "recording_mime_type"
+    t.text "recording_source_url"
     t.string "s3_key"
     t.string "source_note"
     t.string "status", default: "inbox", null: false
@@ -940,6 +944,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_07_131208) do
     t.index ["entity", "path"], name: "index_studio_knowledge_docs_on_entity_and_path"
     t.index ["entity", "status"], name: "index_studio_knowledge_docs_on_entity_and_status"
     t.index ["expectation_id"], name: "index_studio_knowledge_docs_on_expectation_id"
+    t.index ["recording_key"], name: "index_studio_knowledge_docs_on_recording_key", unique: true
     t.index ["s3_key"], name: "index_studio_knowledge_docs_on_s3_key", unique: true
     t.index ["superseded_by_id"], name: "index_studio_knowledge_docs_on_superseded_by_id"
   end
