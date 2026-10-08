@@ -1,0 +1,212 @@
+class Entry
+  # THE ENTRY'S PAYMENT STATE MACHINE. One row, one state, one table of moves;
+  # every path that can charge an entry goes through it.
+  #
+  #   draft      nothing is owed and nothing is in the air. The player may edit,
+  #              clear, or submit. A failed or lapsed attempt comes back here
+  #              with its picks, and #payment_refusal_code says why.
+  #   submitted  a payment was started and its outcome is not known yet.
+  #   landed     the chain holds this entry's ticket but the app could not
+  #              activate it. It never fails and never lapses (the player paid).
+  #   confirmed  the entry is live. Written whenever status becomes active or
+  #              complete, so every confirm path lands here without naming it.
+  #
+  # TWO THINGS MAKE A SECOND CHARGE IMPOSSIBLE, and each covers what the other
+  # cannot (turf-vault derives the ticket from contest, WALLET and slot):
+  #
+  #   * THE PIN. The wallet and slot are fixed before the first send and reused
+  #     by every retry (#pin_payment_slot!). The program refuses to create a
+  #     ticket that exists, so two transactions for one pin cannot both pay.
+  #   * THE IN-FLIGHT KEY. One row per player and contest may be submitted or
+  #     landed (index_entries_one_payment_in_flight). That covers the other
+  #     wallet and any other cart, where the pin says nothing.
+  #
+  # Entries::PaymentSettlement moves a submitted row on from what the chain says.
+  module Payment
+    extend ActiveSupport::Concern
+
+    STATES = %w[draft submitted landed confirmed].freeze
+    IN_FLIGHT = %w[submitted landed].freeze
+    TRANSITIONS = {
+      "draft" => %w[submitted confirmed],
+      "submitted" => %w[draft landed confirmed],
+      "landed" => %w[confirmed],
+      "confirmed" => []
+    }.freeze
+    RAILS = %w[managed phantom api].freeze
+
+    # A recent blockhash is good for 150 blocks, so the height read at build
+    # time plus this is a ceiling on where the transaction can land.
+    BLOCKHASH_LIFETIME_BLOCKS = 150
+    # A started charge that never recorded a signature sent nothing (the
+    # signature is written before the send), so it is released after this.
+    UNSENT_GRACE = 30.seconds
+    # For a sent attempt with no recorded block height (rows from before this
+    # column): a recent blockhash is long dead by then.
+    UNDATED_LAPSE = 10.minutes
+
+    IN_FLIGHT_MESSAGES = {
+      "submitted" => "Your entry was sent and is still confirming on Solana. We are checking it now. " \
+                     "You will not be charged twice.",
+      "landed" => "Your payment for this contest arrived, but we could not finish the entry. " \
+                  "You will not be charged again, and we are sorting it out."
+    }.freeze
+
+    # A second charge was refused. Controllers answer 409 with the message.
+    class InFlight < Refusal
+      attr_reader :entry
+
+      def initialize(entry)
+        @entry = entry
+        super(:payment_in_flight, IN_FLIGHT_MESSAGES.fetch(entry.payment_state, IN_FLIGHT_MESSAGES["submitted"]))
+      end
+    end
+
+    class IllegalTransition < StandardError; end
+
+    # Prepended, so the pick writers above keep their cited line numbers.
+    module EditGuard
+      def toggle_selection!(slate_matchup)
+        raise InFlight.new(self) if payment_in_flight?
+
+        super
+      end
+    end
+
+    included do
+      validates :payment_state, inclusion: { in: STATES }
+      validates :payment_rail, inclusion: { in: RAILS }, allow_nil: true
+      validate :payment_in_flight_row_is_kept, if: -> { will_save_change_to_status?(to: "abandoned") }
+      before_save :confirm_payment_with_status
+      before_destroy :keep_row_while_payment_in_flight, prepend: true
+    end
+
+    class_methods do
+      # This player's unresolved payment in this contest, on either wallet.
+      def payment_in_flight_for(user:, contest:)
+        scope = where(user_id: user.id, contest_id: contest.id, payment_state: IN_FLIGHT)
+        # A row activated by a writer that skipped callbacks (a dyno from before
+        # this column, during the deploy) is live, not in flight.
+        scope.where(status: %w[active complete]).update_all(payment_state: "confirmed")
+        scope.order(:id).first
+      end
+    end
+
+    def payment_in_flight?
+      cart? && IN_FLIGHT.include?(payment_state)
+    end
+
+    def payment_slot_pinned_to?(wallet)
+      wallet.present? && wallet_address == wallet && !entry_number.nil?
+    end
+
+    # The ticket address this row's payment creates, or nil before the pin.
+    def payment_entry_pda(vault = Solana::Vault.new(client: nil))
+      return nil if wallet_address.blank? || entry_number.nil?
+
+      Solana::Keypair.encode_base58(vault.entry_pda(contest.slug, wallet_address, entry_number).first)
+    end
+
+    # Fix the wallet and slot this row pays with. A no-op once pinned to
+    # `wallet`. Only a draft row may be pinned or moved to another wallet: a
+    # draft row has nothing in the air, so the probe's answer is the truth.
+    def pin_payment_slot!(wallet, vault = Solana::Vault.new)
+      raise ArgumentError, "a wallet is required to pin an entry slot" if wallet.blank?
+
+      with_lock do
+        raise InFlight.new(self) if payment_in_flight?
+        next entry_number if payment_slot_pinned_to?(wallet)
+
+        assign_onchain_entry_number!(wallet, vault)
+        update!(wallet_address: wallet)
+        entry_number
+      end
+    end
+
+    # draft → submitted. Raises InFlight when this row, or another of the
+    # player's rows in this contest, already has a payment unresolved.
+    def begin_charge!(rail:)
+      other = self.class.payment_in_flight_for(user: user, contest: contest)
+      raise InFlight.new(other) if other
+
+      with_lock(requires_new: true) do
+        raise InFlight.new(self) if payment_in_flight?
+        raise IllegalTransition, "entry #{id} is #{status}/#{payment_state}, not a draft cart" unless cart? && payment_state == "draft"
+        raise IllegalTransition, "entry #{id} has no pinned slot" if wallet_address.blank? || entry_number.nil?
+
+        update!(payment_state: "submitted", payment_rail: rail, payment_submitted_at: Time.current,
+                payment_signature: nil, payment_last_valid_block_height: nil, payment_refusal_code: nil)
+      end
+      self
+    rescue ActiveRecord::RecordNotUnique
+      raise InFlight.new(self.class.payment_in_flight_for(user: user, contest: contest) || self)
+    end
+
+    # Written BEFORE the send, in its own committed write. Raises when the row
+    # is no longer submitted (a settlement released it), so the caller sends
+    # nothing.
+    def record_payment_attempt!(signature:, last_valid_block_height: nil)
+      with_lock(requires_new: true) do
+        unless payment_state == "submitted"
+          raise IllegalTransition, "entry #{id} is #{payment_state}; this attempt was superseded and sent nothing"
+        end
+
+        update!(payment_signature: signature, payment_last_valid_block_height: last_valid_block_height,
+                payment_submitted_at: Time.current)
+      end
+    end
+
+    def transition_payment!(to, **attributes)
+      to = to.to_s
+      with_lock(requires_new: true) do
+        next self if payment_state == to
+
+        unless TRANSITIONS.fetch(payment_state).include?(to)
+          raise IllegalTransition, "entry #{id}: #{payment_state} → #{to} is not a legal payment move"
+        end
+
+        update!(payment_state: to, **attributes)
+      end
+      self
+    end
+
+    # submitted → draft: the attempt provably paid nothing. Picks stay.
+    def release_payment!(code)
+      transition_payment!("draft", payment_refusal_code: code.to_s)
+    end
+
+    # submitted → landed: paid on chain, refused by an app gate.
+    def mark_payment_landed!(code:, signature: payment_signature)
+      transition_payment!("landed", payment_refusal_code: code.to_s, payment_signature: signature)
+    end
+
+    # Whether a submitted attempt can no longer land. `finalized_block_height`
+    # is read at `finalized`, so every block it could have landed in is settled.
+    def payment_attempt_lapsed?(finalized_block_height:, now: Time.current)
+      return payment_submitted_at.nil? || payment_submitted_at <= now - UNSENT_GRACE if payment_signature.blank?
+      return finalized_block_height.to_i > payment_last_valid_block_height if payment_last_valid_block_height
+
+      payment_submitted_at.nil? || payment_submitted_at <= now - UNDATED_LAPSE
+    end
+
+    private
+
+    def confirm_payment_with_status
+      return unless active? || complete?
+      return if payment_state == "confirmed"
+
+      self.payment_state = "confirmed"
+      self.payment_refusal_code = nil
+    end
+
+    def payment_in_flight_row_is_kept
+      return unless IN_FLIGHT.include?(payment_state)
+
+      errors.add(:base, IN_FLIGHT_MESSAGES.fetch(payment_state))
+    end
+
+    def keep_row_while_payment_in_flight
+      throw :abort if payment_in_flight?
+    end
+  end
+end
