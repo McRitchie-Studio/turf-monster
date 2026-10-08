@@ -354,6 +354,7 @@ Rails.application.routes.draw do
       post :prepare_entry
       post :discard_prepared_entry
       post :recover_pending_entry
+      post :entry_payment_status
       post :confirm_onchain_entry
       post :clear_picks
       post :grade

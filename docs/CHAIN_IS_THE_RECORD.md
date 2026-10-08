@@ -120,9 +120,9 @@ decision log at the end.
   silently (`select { |w| w[:wallet].present? }`), and if none remain the contest
   is marked `onchain_settled` with nothing paid. The code fix is its own task,
   `settle-pays-the-entering-wallet`.
-- **Sweeps.** `PendingTransactionSweeperJob` flips `enter_contest_direct` rows
-  older than an hour to `failed` by age, without asking the chain. Treasury rows
-  (settle, cancel) have no sweep at all. `Entries::OnchainReconcileJob` heals one
+- **Sweeps.** `Entries::PaymentSweepJob` settles every entry whose payment is
+  `submitted` from the chain, every two minutes (`Entry::Payment`,
+  `Entries::PaymentSettlement`). Treasury rows (settle, cancel) have no sweep at all. `Entries::OnchainReconcileJob` heals one
   stranded entry when enqueued; it is not on `config/schedule.yml`.
 - **Balances** come from chain already: the navbar reads cached USDC and USDT
   balances with a 60-second TTL (`docs/SOLANA.md`, "Navbar Balance").
@@ -168,9 +168,8 @@ what paid the fee. Nothing ties an entry to a Turf user id on chain.
    attempt, as it does today.
 5. **A scheduled chain sweep reconciles.** One job reads the chain for every
    `submitted` entry and every `settlement_pending` contest and moves each row to
-   what the chain says. It replaces the age-based flip in
-   `PendingTransactionSweeperJob`; age only decides when to look, never what to
-   write.
+   what the chain says. `Entries::PaymentSweepJob` is the entry half; age only
+   decides when to look, never what to write. The settlement half is not built.
 6. **Displays read chain.** Balances, prizes and winnings come from chain reads
    cached about a minute, the pattern the navbar already uses. Rails' copies
    (`payout_cents`, `payout_table_cents`) render only as "pending" or as labels.
@@ -273,8 +272,8 @@ Each is a future task title.
   `settled` only on a confirmed chain read.
 - **Entry stores its paying wallet**, and settle reads it, not the user's wallet
   (filed as `settle-pays-the-entering-wallet`).
-- **Chain sweep reconciles entries and settlements**, replacing the age-based
-  `PendingTransactionSweeperJob` flip.
+- **Chain sweep reconciles entries and settlements.** Entries:
+  `Entries::PaymentSweepJob`. Settlements: not built.
 - **Transaction log holds pointers only**: drop `amount_cents` and
   `balance_after_cents` from new writes; add signature, kind, wallet and target.
 - **Ties break by join order** in `Contest::PayoutSplit`.

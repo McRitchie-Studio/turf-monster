@@ -54,7 +54,7 @@ class Solana::VaultEnterContestWithUsdcTest < ActiveSupport::TestCase
       calls << { m: :ensure_ata, addr: addr, mint: mint }
       { ata: "ata-#{addr[0, 4]}", created: false }
     end
-    vault.define_singleton_method(:enter_contest) do |addr, slug, num, currency_idx: 0, user_keypair:, season_id: nil|
+    vault.define_singleton_method(:enter_contest) do |addr, slug, num, currency_idx: 0, user_keypair:, season_id: nil, before_send: nil, confirm_timeout: nil|
       calls << {
         m: :enter_contest, addr: addr, slug: slug, num: num,
         currency_idx: currency_idx, keypair_addr: user_keypair&.address, season_id: season_id

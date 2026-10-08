@@ -295,6 +295,15 @@ class Rack::Attack
     req.ip if req.path.match?(%r{\A/contests/[^/]+/(toggle_selection|enter|clear_picks)\z})
   end
 
+  ### Throttle: the entry payment poll. The board asks every 3 seconds while a
+  # payment is unresolved (20 a minute per tab), and each call reads the chain
+  # a few times. Signed-in only, and it answers only for the player's own
+  # entry, so the limit is a flood backstop sized for several tabs behind one
+  # address, not a meter: the board backs off on a 429 and keeps polling.
+  throttle("entry_payment_status/ip", limit: 120, period: 1.minute) do |req|
+    req.ip if req.post? && req.path.match?(%r{\A/contests/[^/]+/entry_payment_status\z})
+  end
+
   ### Throttle: the agent API (/api/) — its own tier (docs/AGENT_API.md)
   # Every other rule in this file is an allowlist of browser paths, so a new
   # route defaults to EXEMPT. These two are deliberately a PREFIX match

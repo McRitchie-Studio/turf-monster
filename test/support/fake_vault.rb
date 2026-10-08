@@ -304,13 +304,15 @@ class FakeVault
 
   # --- On-chain contest entry ---
 
-  def enter_contest_with_token(wallet, slug, entry_number, token_pda, user_keypair:, season_id:)
+  def enter_contest_with_token(wallet, slug, entry_number, token_pda, user_keypair:, season_id:, before_send: nil, confirm_timeout: nil)
     @enter_calls << {
       method: :enter_contest_with_token,
       wallet: wallet, slug: slug, entry_number: entry_number,
       token_pda: token_pda, season_id: season_id
     }
-    { signature: "fake-enter-with-token-#{SecureRandom.hex(2)}", entry_pda: "epda-#{SecureRandom.hex(2)}" }
+    signature = "fake-enter-with-token-#{SecureRandom.hex(2)}"
+    before_send&.call(signature, FAKE_LAST_VALID_BLOCK_HEIGHT) # as Solana::Vault#send_entry_wire: before the send
+    { signature: signature, entry_pda: "epda-#{SecureRandom.hex(2)}" }
   end
 
   def enter_contest(wallet, slug, entry_number, season_id: nil)
@@ -326,13 +328,15 @@ class FakeVault
   # user's web2 address, pins currency_idx 0 (USDC, never USDT for web2), and
   # records into enter_calls so a controller test can assert the web2 USDC
   # funding path fired (vs the token path).
-  def enter_contest_with_usdc(user:, contest:, entry_num:)
+  def enter_contest_with_usdc(user:, contest:, entry_num:, before_send: nil, confirm_timeout: nil)
     @enter_calls << {
       method: :enter_contest_with_usdc,
       wallet: user.web2_solana_address, slug: contest.slug,
       entry_number: entry_num, currency_idx: 0, season_id: contest.season_id
     }
-    { signature: "fake-enter-usdc-#{SecureRandom.hex(2)}", entry_pda: "epda-#{SecureRandom.hex(2)}" }
+    signature = "fake-enter-usdc-#{SecureRandom.hex(2)}"
+    before_send&.call(signature, FAKE_LAST_VALID_BLOCK_HEIGHT)
+    { signature: signature, entry_pda: "epda-#{SecureRandom.hex(2)}" }
   end
 
   # --- Build-only partial-signed TXs (Phantom co-sign flow) ---
@@ -1053,10 +1057,17 @@ class FakeSolanaClient
 
   # ContestsController#onchain_create_precheck reads dig("value") to decide
   # whether the contest PDA already exists on-chain.
-  def get_account_info(pda_b58)
+  def get_account_info(pda_b58, commitment: nil, **_opts)
+    account_info_commitments << commitment
     raise Solana::Client::RpcError, "simulated RPC failure" if @account_info_raises
 
-    @account_infos[pda_b58]
+    info = @account_infos[pda_b58]
+    info.respond_to?(:call) ? info.call(commitment) : info # a lambda answers per commitment
+  end
+
+  # The commitment each account read asked for (nil: the RPC's default).
+  def account_info_commitments
+    @account_info_commitments ||= []
   end
 
   # Entries::OnchainReconciler#oldest_success_signature reaches the raw JSON-RPC

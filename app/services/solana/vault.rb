@@ -2136,7 +2136,7 @@ module Solana
     # 1 = USDT, etc.). Defaults to 0 for the v1 UX. The contest's
     # entry_fee_by_currency[idx] determines the amount.
     def enter_contest(wallet_address, contest_slug, entry_num, currency_idx: 0,
-                      user_keypair:, season_id: nil)
+                      user_keypair:, season_id: nil, before_send: nil, confirm_timeout: nil)
       raise "user_keypair required for managed-wallet entry (v0.16 OPSEC)" unless user_keypair
 
       admin = Keypair.admin
@@ -2175,7 +2175,7 @@ module Solana
           ),
           data: data
         )
-        client.send_and_confirm(tx.serialize_base64)
+        send_entry_wire(tx.serialize_base64, before_send, confirm_timeout)
       end
       { signature: signature, entry_pda: Keypair.encode_base58(e_pda) }
     end
@@ -2210,7 +2210,7 @@ module Solana
     # to the token path.
     USDC_CURRENCY_IDX = 0
 
-    def enter_contest_with_usdc(user:, contest:, entry_num:)
+    def enter_contest_with_usdc(user:, contest:, entry_num:, before_send: nil, confirm_timeout: nil)
       wallet_address = user.web2_solana_address
       raise ArgumentError, "enter_contest_with_usdc requires a managed (web2) wallet" if wallet_address.blank?
 
@@ -2236,7 +2236,7 @@ module Solana
         contest.slug,
         entry_num,
         currency_idx: USDC_CURRENCY_IDX,
-        user_keypair: user_keypair,
+        user_keypair: user_keypair, before_send: before_send, confirm_timeout: confirm_timeout,
         season_id: contest.season_id
       )
     end
@@ -2356,7 +2356,7 @@ module Solana
     # `user_keypair` required: token owner must sign the consume (OPSEC-004).
     # Used by ContestsController#enter for web2 users.
     def enter_contest_with_token(wallet_address, contest_slug, entry_num, entry_token_pda_b58,
-                                 user_keypair:, season_id: nil)
+                                 user_keypair:, season_id: nil, before_send: nil, confirm_timeout: nil)
       raise "user_keypair required (OPSEC-004)" unless user_keypair
       admin = Keypair.admin
       vault_pda,   _ = vault_state_pda
@@ -2389,7 +2389,7 @@ module Solana
           ],
           data: data
         )
-        client.send_and_confirm(tx.serialize_base64)
+        send_entry_wire(tx.serialize_base64, before_send, confirm_timeout)
       end
       invalidate_entry_tokens_cache(wallet_address)
       { signature: signature, entry_pda: Keypair.encode_base58(e_pda) }
@@ -4274,6 +4274,20 @@ module Solana
       sig = wire.byteslice(offset, 64)
       raise "wire too short to carry a signature" if sig.nil? || sig.bytesize != 64
       Keypair.encode_base58(sig)
+    end
+
+    # A server-signed entry's send. `before_send` is handed the signature and a
+    # ceiling on the block height the wire can land in BEFORE anything is sent,
+    # so the caller can commit them first (Entry#record_payment_attempt!); if it
+    # raises, nothing is sent. The ceiling is the height now plus a blockhash's
+    # life: the blockhash is at least as old as this read.
+    def send_entry_wire(wire_base64, before_send, confirm_timeout)
+      if before_send
+        ceiling = client.get_block_height + Entry::Payment::BLOCKHASH_LIFETIME_BLOCKS
+        before_send.call(extract_tx_signature(Base64.decode64(wire_base64)), ceiling)
+      end
+      confirm_timeout = confirm_timeout.call if confirm_timeout.respond_to?(:call)
+      client.send_and_confirm(wire_base64, **(confirm_timeout ? { timeout: confirm_timeout } : {}))
     end
 
     def b(str)

@@ -743,7 +743,7 @@ class Contest < ApplicationRecord
 
   def reset!
     transaction do
-      entries.destroy_all
+      Entry.lifting_payment_guard { entries.destroy_all } # an operator's reset takes unresolved payments' rows too
       ApiEntryRequest.void_for_reset!(self) # no agent key replays a 201 for an entry deleted above
       matchups.update_all(goals: nil, status: "pending")
       matchups.includes(:game).find_each { |m| m.game&.update!(home_score: nil, away_score: nil, status: "scheduled") }

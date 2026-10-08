@@ -285,7 +285,7 @@ module Entries
       begin
         attempts += 1
         info = @vault.client.get_account_info(pda_b58)
-        !!(info && info["value"])
+        info&.dig("value", "owner") == Solana::Config::PROGRAM_ID # a ticket is the PROGRAM's account; dust sent to the address is not one
       rescue StandardError => e
         if attempts < 2
           sleep(0.25)

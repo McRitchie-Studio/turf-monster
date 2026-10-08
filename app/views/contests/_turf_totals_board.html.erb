@@ -148,6 +148,7 @@
   userEmail: current_user&.email.to_s,
   seedsPerLevel: User::SEEDS_PER_LEVEL,
   pendingRecoveryPtxSlug: @pending_recovery_ptx&.slug,
+  pendingPayment: @pending_payment,
   mode: edit_entry ? "edit" : "create",
   editEntrySlug: edit_entry&.slug,
   frozen: account_frozen? ? { title: FrozenAccount::TOAST_TITLE, message: FrozenAccount::MESSAGE, code: FrozenAccount::CODE } : nil
@@ -525,6 +526,11 @@ window.selectionBoard = function() {
       if (cfg.pendingRecoveryPtxSlug) {
         var board = this;
         setTimeout(function () { board.recoverPendingEntry(cfg.pendingRecoveryPtxSlug); }, 200);
+      } else if (cfg.pendingPayment) {
+        // A payment the entry row holds unresolved (the managed rail has no
+        // prepared wire to recover by): show it on load, not only after a tap.
+        var held = this;
+        setTimeout(function () { held.pollEntryPayment(cfg.pendingPayment.entry, cfg.pendingPayment); }, 200);
       }
     },
 
@@ -547,11 +553,8 @@ window.selectionBoard = function() {
           });
           if (!resp) return; // 401 — authedFetch already opened the login modal
           var data = await resp.json();
-          if (data.status === 'confirmed') {
-            modal.success(data.tx_signature, "You're in! Good luck.");
-            if (data.redirect) modal.onClose = function () { window.location.href = data.redirect; };
-            return;
-          }
+          if (data.status === 'confirmed') { this._paymentConfirmed(data, "You're in! Good luck."); return; }
+          if (data.status === 'held') { modal.error(data.error, 'Entry On Hold'); return; } // paid; an entry gate refused it
           if (data.status === 'failed' || data.status === 'error' || data.status === 'missing') {
             modal.close();
             if (data.error) {
@@ -568,6 +571,110 @@ window.selectionBoard = function() {
       // Out of attempts. Leave the PT in submitted; admin can resolve.
       modal.close();
       try { window.dispatchEvent(new CustomEvent('toast', { detail: { type: 'alert', title: "Couldn't confirm last entry yet", message: "It was sent and is still confirming — reload in a minute to check on it.", duration: 6000 } })); } catch (_) {}
+    },
+
+    // THE POLL WHILE A PAYMENT IS UNRESOLVED (code 'entry_pending' with an
+    // `entry`, from enter, toggle_selection, clear_picks or prepare_entry). The
+    // server asks the chain on each call and answers one of four words, and
+    // every one of them ends this card: confirmed (you're in), retry (nothing
+    // was charged; the sentence says why and the hold button is live again),
+    // held (paid, and we owe the player a fix), or, after two minutes of
+    // pending, a sentence that says it is safe to leave. Never a spinner with
+    // no end. `first` is the answer that started the poll.
+    async pollEntryPayment(entrySlug, first) {
+      if (this._paymentPoll === entrySlug) return; // one poll per entry, however many answers name it
+      this._paymentPoll = entrySlug;
+      var board = this;
+      try {
+        if (first && first.code === 'entry_held') { this._paymentStopped('Entry On Hold', first.error); return; }
+        Alpine.store('solanaModal').show('Entry Still Confirming', (first && first.error) || 'Checking your entry on Solana.', { dismissible: false });
+        // After 15 seconds the card can be put away. The poll goes on behind
+        // it and paints its answer on a fresh card when it has one.
+        setTimeout(function () {
+          var card = board._txCard();
+          if (card && card.props.state === 'processing') card.props.dismissible = true;
+        }, 15000);
+        var wait = 3000, backoffs = 0;
+        for (var attempt = 0; attempt < 40; attempt++) {
+          await new Promise(function (r) { setTimeout(r, wait); });
+          wait = 3000;
+          var resp, data;
+          // Plain fetch, not authedFetch: a 429 or a 401 here must not open a
+          // second modal on top of this card and leave it spinning underneath.
+          try {
+            resp = await fetch('/contests/' + this.contestId + '/entry_payment_status', {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: { 'X-CSRF-Token': this.csrfToken, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+              body: JSON.stringify({ entry: entrySlug })
+            });
+          } catch (_) { continue; } // a network blip on the poll itself: ask again
+          if (resp.status === 429 && backoffs < 12) { // rate limited: wait as told and keep going
+            backoffs++; attempt--;
+            wait = Math.min(30000, (parseInt(resp.headers.get('Retry-After'), 10) || 10) * 1000);
+            continue;
+          }
+          if (resp.status === 401) {
+            this._paymentStopped('Still Confirming', 'You were signed out while this entry was confirming. Sign in again and this page will show it. You will not be charged twice.');
+            return;
+          }
+          try { data = await resp.json(); } catch (_) { continue; }
+          if (data.status === 'confirmed') { this._paymentConfirmed(data, data.message || "You're in! Good luck."); return; }
+          if (data.status === 'retry') { this._paymentStopped('You Were Not Charged', data.error); return; }
+          if (data.status === 'held') { this._paymentStopped('Entry On Hold', data.error); return; }
+        }
+        this._paymentStopped('Still Confirming', 'This is taking longer than usual. Your entry is safe and you will not be charged twice. ' +
+                             'We will keep checking, and this page will show your entry when you come back.');
+      } finally {
+        this._paymentPoll = null;
+      }
+    },
+
+    // The live on-chain card, wherever it sits in the modal stack, or null.
+    _txCard() {
+      var stack = Alpine.store('modals').stack;
+      for (var i = stack.length - 1; i >= 0; i--) {
+        if (stack[i].id === 'onchain-tx' && !stack[i]._closing) return stack[i];
+      }
+      return null;
+    },
+
+    // A finished payment state, painted whether or not a card is open: a pick
+    // tap or a clear has none, and a poll card may have been put away. The
+    // store's success() and error() only fill a card that exists.
+    _paymentCard(title, body) {
+      var modal = Alpine.store('solanaModal');
+      if (!this._txCard()) modal.show(title, body);
+      return modal;
+    },
+
+    _paymentStopped(title, message) {
+      this._paymentCard(title, message).error(message, title);
+      this.submitting = false;
+      this.resetHoldButtons();
+    },
+
+    // "You're in", on the success card that SHOWS its sentence (the entry
+    // celebration card prints a fixed "Entry Confirmed", and a player whose
+    // retry found the first payment needs to read "you were not charged
+    // again"). Its Contest Lobby button gets its address, and however the card
+    // goes away (the button, Dismiss) the page then leaves for the contest,
+    // because this board's cart is now an entry.
+    _paymentConfirmed(data, message) {
+      var modal = this._paymentCard("You're In", message);
+      modal.success(data.tx_signature, message, {
+        variant: 'generic', title: "You're In", subtitle: message,
+        ctaLabel: data.redirect ? 'Contest Lobby' : null, ctaHref: data.redirect || null
+      });
+      this.submitting = false;
+      this.resetHoldButtons();
+      if (!data.redirect) return;
+      var board = this;
+      var watch = setInterval(function () {
+        if (board._txCard()) return;
+        clearInterval(watch);
+        window.location.href = data.redirect;
+      }, 250);
     },
 
     toggleSort(mode) {
@@ -732,6 +839,8 @@ window.selectionBoard = function() {
         if (!result.ok) {
           self.selections = oldSelections;
           self.selectionOrder = oldOrder;
+          // 409: these picks have a payment unresolved. Poll it; do not toast.
+          if (/^entry_(pending|held|confirmed)$/.test(result.data.code || '') && self._handleBlockerResponse(result.data)) return;
           self.showError(result.data.error || 'Failed to save selection', result.data.code);
           return;
         }
@@ -813,6 +922,18 @@ window.selectionBoard = function() {
         this.submitting = false;
         this.resetHoldButtons();
         this.recoverPendingEntry(data.ptx_slug, { title: 'Entry Sent', body: data.error });
+        return true;
+      }
+      // A payment the ENTRY holds unresolved (either wallet): poll its verdict.
+      if ((data.code === 'entry_pending' || data.code === 'entry_held') && data.entry) {
+        this.submitting = false;
+        this.resetHoldButtons();
+        this.pollEntryPayment(data.entry, data);
+        return true;
+      }
+      // The first payment had already landed: the player is in, charged once.
+      if (data.code === 'entry_confirmed') {
+        this._paymentConfirmed(data, data.error);
         return true;
       }
       if (!data.blocker) return false;
@@ -1789,7 +1910,16 @@ window.selectionBoard = function() {
             this.submitting = false;
             return;
           }
-          var data = await response.json();
+          var data;
+          try {
+            data = await response.json();
+          } catch (_) {
+            // Not JSON: the router cut the request at 30 seconds and answered
+            // for the server, which may still be finishing the payment. That is
+            // not a wallet error and not a failure anyone can vouch for.
+            this._paymentStopped('Still Confirming', 'This is taking longer than usual. Your entry may still be confirming, and you will not be charged twice. Reload this page in a minute to see it.');
+            return;
+          }
 
           if (data.success) {
             this.setHoldSuccess();
@@ -1886,7 +2016,9 @@ window.selectionBoard = function() {
               // over a red error body — in-progress wording on a finished
               // failure. Reported by an operator on 2026-09-07, alongside the
               // raw raise text this same card was showing.
-              Alpine.store('solanaModal').error(data.error || 'Something went wrong', 'Entry Failed');
+              // `retry`: the server classed this as a failure that charged nothing (Entries::PaymentCopy).
+              if (data.retry) Alpine.store('solanaModal').error(data.error, 'You Were Not Charged');
+              else Alpine.store('solanaModal').error(data.error || 'Something went wrong', 'Entry Failed');
             } else {
               this.showError(data.error || 'Something went wrong', data.code);
             }
@@ -2008,13 +2140,16 @@ window.selectionBoard = function() {
       // red error styling) — same path as the recovery/confirm toasts above,
       // instead of the old bespoke "Entry Failed" popup. A freeze is not a
       // failed entry: the server's account_frozen code gets its own title.
-      var title = code === <%= FrozenAccount::CODE.to_json.html_safe %> ? <%= FrozenAccount::TOAST_TITLE.to_json.html_safe %> : 'Entry Failed';
+      var title = code === <%= FrozenAccount::CODE.to_json.html_safe %> ? <%= FrozenAccount::TOAST_TITLE.to_json.html_safe %> : (code === 'check_failed' ? 'Nothing Changed' : 'Entry Failed');
       try {
         window.dispatchEvent(new CustomEvent('toast', { detail: { type: 'alert', title: title, message: message || '', duration: 6000 } }));
       } catch (_) {}
     },
 
     async clearSelections() {
+      // Kept until the server answers: a cart whose payment is unresolved, or
+      // could not be checked, is NOT cleared, and the picks go back on screen.
+      var keptSelections = this.selections, keptOrder = this.selectionOrder;
       this.selections = {};
       this.selectionOrder = [];
       this.cartOpen = false;
@@ -2039,11 +2174,22 @@ window.selectionBoard = function() {
         });
         // 409 entry_pending: this cart's payment is still confirming, so the
         // server kept it. Resolve it the way prepare_entry's 409 does.
+        if (resp && (resp.status === 409 || resp.status === 503)) {
+          this.selections = keptSelections;
+          this.selectionOrder = keptOrder;
+        }
         if (resp && resp.status === 409) {
           var data = await resp.json();
           if (data && data.code === 'entry_pending' && data.ptx_slug) {
             this.recoverPendingEntry(data.ptx_slug, { title: 'Entry Sent', body: data.error });
+          } else if (data) {
+            this._handleBlockerResponse(data);
           }
+        } else if (resp && resp.status === 503) {
+          // The cart's last payment could not be checked, so the server kept the
+          // picks. Say so; the page shows them again on its next load.
+          var kept = await resp.json();
+          this.showError(kept.error, kept.code);
         }
       } catch (err) {
         // network — silent

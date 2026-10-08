@@ -673,8 +673,9 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     vault = Solana::Vault.new(client: raising_client)
     enter_usdc_calls = []
     vault.define_singleton_method(:next_free_entry_index) { |*_args, **_kwargs| 0 }
-    vault.define_singleton_method(:enter_contest_with_usdc) do |user:, contest:, entry_num:|
+    vault.define_singleton_method(:enter_contest_with_usdc) do |user:, contest:, entry_num:, before_send: nil, confirm_timeout: nil|
       enter_usdc_calls << { user: user.id, contest: contest.slug, entry_num: entry_num }
+      before_send&.call("fake-usdc-sig-conn", 1_000)
       { signature: "fake-usdc-sig-conn", entry_pda: "epda-conn" }
     end
 
@@ -1945,9 +1946,11 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     vault = FakeVault.new
     vault.cosign_broadcast_raises = "send failed — reconcile before rebuilding"
     Solana::Vault.stub :new, vault do
-      post confirm_onchain_entry_contest_path(@contest),
-        params: { signed_tx: "PHANTOM_SIGNED_WIRE_B64", entry_id: entry.id, entry_pda: expected_pda },
-        as: :json
+      Solana::Keypair.stub :encode_base58, ->(s) { s.to_s } do # the stamp compares the wire's ticket with the row's
+        post confirm_onchain_entry_contest_path(@contest),
+          params: { signed_tx: "PHANTOM_SIGNED_WIRE_B64", entry_id: entry.id, entry_pda: expected_pda },
+          as: :json
+      end
     end
 
     assert_response :accepted # sent, still confirming — never "try again" (turf-phantom-entry-still-confirming)
@@ -2288,10 +2291,15 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :success
     body = JSON.parse(response.body)
-    assert_equal "failed", body["status"]
+    # The signature SUCCEEDED on chain and the verifier refuses it: not
+    # activated, and NOT released either. A recorded signature is a wire the
+    # server stamped, so a success is a payment; the row is held for a person.
+    assert_equal "held", body["status"]
+    assert_match(/contact support@turfmonster.media/, body["error"])
     assert entry.reload.cart?, "a forged/unverified signature must NOT activate the entry"
     assert_nil entry.onchain_tx_signature
-    assert_equal "failed", ptx.reload.status
+    assert_equal %w[landed verification_refused], entry.values_at(:payment_state, :payment_refusal_code)
+    assert_equal "submitted", ptx.reload.status, "the wire stays open, so the 409 on a second wire stands"
   end
 
   test "recover_pending_entry returns processing when RPC doesn't know the signature" do

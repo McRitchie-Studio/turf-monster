@@ -105,19 +105,31 @@ class Entries::ManagedEntryTest < ActiveSupport::TestCase
     assert_equal [Solana::Client::DEFAULT_WAIT_BUDGET], budgets
   end
 
-  test "the spend runs outside a request deadline that has passed" do
+  test "the spend's calls run outside the request deadline, and a spend is not started with too little of it left" do
     seen = []
     @vault.define_singleton_method(:enter_contest_with_token) do |*args, **opts|
       seen << [Current.rpc_long_budget, Solana::Deadline.remaining]
       super(*args, **opts)
     end
+    entry = cart
 
     Solana::Deadline.within(0) do
       assert_operator Solana::Deadline.remaining, :<=, 0, "CONTROL: outside the spend the deadline has passed"
-      on_chain(@vault) { service.call(cart) }
+      error = on_chain(@vault) { assert_raises(Entries::ManagedEntry::SpendTooLate) { service.call(entry) } }
+      assert_match(/stopped before sending anything/, error.message)
     end
 
-    assert_equal [[:managed_entry_spend, nil]], seen
+    assert_equal [[:managed_entry_spend, nil]], seen, "no call was shortened or refused by the deadline"
+    assert_empty @vault.tickets, "nothing was sent"
+    assert_equal %w[draft too_late], entry.reload.values_at(:payment_state, :payment_refusal_code)
+  end
+
+  test "CONTROL: with the request's time in hand the same spend goes out" do
+    entry = cart
+    Solana::Deadline.within(Solana::Deadline::WEB) { on_chain(@vault) { service.call(entry) } }
+
+    assert entry.reload.active?
+    assert_equal 1, @vault.tickets.size
   end
 
   test "funding: no token and USDC not allowed refuses no_entry_token with funded USDC untouched" do
@@ -162,7 +174,7 @@ class Entries::ManagedEntryTest < ActiveSupport::TestCase
     managed = service
     entry = cart
 
-    on_chain(@vault) { assert_raises(Solana::Client::RpcError) { managed.call(entry) } }
+    on_chain(@vault) { assert_raises(Entries::ManagedEntry::PendingConfirmation) { managed.call(entry) } }
 
     assert managed.spend_attempted?
     assert entry.reload.cart?

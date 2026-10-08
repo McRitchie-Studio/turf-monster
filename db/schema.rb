@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_08_135701) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_08_190000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -329,6 +329,13 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_08_135701) do
     t.integer "entry_number"
     t.string "onchain_entry_id"
     t.string "onchain_tx_signature"
+    t.string "payment_attempt_token"
+    t.bigint "payment_last_valid_block_height"
+    t.string "payment_rail"
+    t.string "payment_refusal_code"
+    t.string "payment_signature"
+    t.string "payment_state", default: "draft", null: false
+    t.datetime "payment_submitted_at"
     t.integer "payout_cents", default: 0
     t.integer "rank"
     t.float "score", default: 0.0, null: false
@@ -345,6 +352,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_08_135701) do
     t.index ["status"], name: "index_entries_on_status"
     t.index ["user_id", "contest_id", "entry_number"], name: "index_entries_on_user_contest_entry_number", unique: true, where: "(entry_number IS NOT NULL)"
     t.index ["user_id", "contest_id"], name: "index_entries_on_user_id_and_contest_id"
+    t.index ["user_id", "contest_id"], name: "index_entries_one_payment_in_flight", unique: true, where: "((payment_state)::text = ANY ((ARRAY['submitted'::character varying, 'landed'::character varying])::text[]))"
     t.index ["user_id"], name: "index_entries_on_user_id"
   end
 

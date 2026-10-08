@@ -11,7 +11,7 @@ class ContestsController < ApplicationController
   # DB wall time on the two hot paths — /contests (the lobby, #index) and the contest
   # show page — to connect vs execute. No-op-safe; DB_SPAN_TRACE=0 disables.
   around_action :trace_db_span, only: [:index, :show, :contest]
-  before_action :set_contest, only: [:show, :contest, :admin, :edit, :update, :update_banner, :toggle_selection, :enter, :check_funding, :clear_picks, :grade, :fill, :lock, :prepare_lock_time, :confirm_lock_time, :prepare_conclusion_time, :confirm_conclusion_time, :jump, :simulate_game, :simulate_batch, :reset, :close_onchain, :cancel_onchain, :prepare_entry, :discard_prepared_entry, :recover_pending_entry, :confirm_onchain_entry, :confirm_onchain_contest, :leaderboard_poll, :live]
+  before_action :set_contest, only: [:show, :contest, :admin, :edit, :update, :update_banner, :toggle_selection, :enter, :check_funding, :clear_picks, :grade, :fill, :lock, :prepare_lock_time, :confirm_lock_time, :prepare_conclusion_time, :confirm_conclusion_time, :jump, :simulate_game, :simulate_batch, :reset, :close_onchain, :cancel_onchain, :prepare_entry, :discard_prepared_entry, :recover_pending_entry, :entry_payment_status, :confirm_onchain_entry, :confirm_onchain_contest, :leaderboard_poll, :live]
   before_action :require_admin, only: [:new, :create, :rebuild_create_tx, :finalize, :admin, :edit, :update, :update_banner, :generator, :generate_bundle, :finalize_bundle, :grade, :fill, :lock, :prepare_lock_time, :confirm_lock_time, :prepare_conclusion_time, :confirm_conclusion_time, :jump, :simulate_game, :simulate_batch, :reset, :close_onchain, :cancel_onchain, :confirm_onchain_contest]
   before_action :require_geo_allowed, only: [:toggle_selection, :enter, :prepare_entry]
   # B4 / OPSEC-048: frozen accounts can browse but cannot spend or enter.
@@ -780,6 +780,11 @@ class ContestsController < ApplicationController
       }, status: :unprocessable_entity
     end
 
+    # A payment already in the air is asked about first (either wallet, any
+    # cart): landed means this hold is answered by that entry, gone means the
+    # way is clear, unknown means 409 and the page polls.
+    return if render_payment_in_flight(confirmed_as_success: true)
+
     # The cart entry is created by toggle_selection.
     entry = @contest.entries.cart.find_by(user: current_user)
     return redirect_to contests_path, alert: "No cart entry found" unless entry
@@ -903,6 +908,8 @@ class ContestsController < ApplicationController
                                           token_consumed: managed.token_consumed?)
           render json: {
             success: true,
+            # Present when this hold found an earlier payment's ticket and charged nothing.
+            **(managed.first_payment_found? ? { message: Entries::PaymentCopy.message(:first_payment_landed) } : {}),
             redirect: contest_path(@contest),
             tx_signature: entry.onchain_tx_signature,
             # Flag for the client: true iff this entry was paid for by
@@ -914,8 +921,14 @@ class ContestsController < ApplicationController
         }
       end
     end
+  rescue Entries::ManagedEntry::PendingConfirmation => e
+    render_entry_payment_pending(e.entry, status: :accepted) # sent; Entries::PaymentSettleJob finishes it
+  rescue Entry::Payment::PinHeld => e
+    render json: { success: false, **Entries::PaymentCopy.payload(e.code) }, status: :conflict
+  rescue Entry::Payment::InFlight => e
+    render_entry_payment_pending(e.entry, status: :conflict)
   rescue StandardError => e
-    render_entry_error(e)
+    render_entry_error(e, payment_code: managed&.failure_code)
   end
 
   # Lightweight funding pre-check for the 2-second "Hold to Confirm" window
@@ -965,6 +978,13 @@ class ContestsController < ApplicationController
     # FIRST, so the population that owes a signature never pays for the
     # getProgramAccounts the cache bust below forces.
     return render json: { fundable: true, reason: nil, method: nil } if entry_step_up_refusal
+    # NOR IS A CART THAT MAY ALREADY BE PAID FOR. A payment unresolved in this
+    # contest, or a cart that once sent one (its ticket may exist, and the
+    # payment that created it spent the very funds this check would look for),
+    # is #enter's to answer: it reads the pinned ticket before any funding
+    # check. Saying "not fundable" here would put the funds panel in front of
+    # a player who has already paid.
+    return render json: { fundable: true, reason: nil, method: nil } if payment_precedes_funding?
 
     current_user.bust_entry_tokens_cache!
     fundable, method = entry_funding_status
@@ -1010,6 +1030,11 @@ class ContestsController < ApplicationController
     if (in_flight = player_broadcast_awaiting_verdict(@contest))
       return render_entry_still_confirming(in_flight, status: :conflict)
     end
+    # The other wallet's payment, another cart's, or THIS cart's own ticket:
+    # the pinned ticket is read before a wire is built, and a cart whose ticket
+    # exists is confirmed from it instead of being handed a wire that can only
+    # fail ("already in use").
+    return if render_payment_in_flight(drafts: :pinned)
 
     # Currency selection (2026-06-10): "usdc" (default, currency_idx 0) or
     # "usdt" (currency_idx 1). Strict allow-list — anything else is a client
@@ -1045,11 +1070,11 @@ class ContestsController < ApplicationController
       vault = Solana::Vault.new
       ensure_onchain_season_ready!(@contest.season_id, vault: vault)
 
-      # Assign entry slot by probing the chain for a free index — guards against
-      # the orphaned-PDA collision a contest Reset leaves behind (the System
-      # `Allocate` "already in use" / 0x0 pre-flight failure). See
-      # Entry#assign_onchain_entry_number!.
-      entry.assign_onchain_entry_number!(current_user.web3_solana_address, vault)
+      # Pin the entry's slot: probed for a free index ONCE (a contest Reset
+      # leaves orphaned tickets behind), then reused by every retry, so a second
+      # wire can only ever name the ticket the first one pays for.
+      # See Entry::Payment#pin_payment_slot!.
+      entry.pin_payment_slot!(current_user.web3_solana_address, vault)
 
       # Ensure user's onchain account exists and is current (auto-migrate if needed).
       # v0.16: username is required at PDA creation (validate_username on chain
@@ -1151,6 +1176,10 @@ class ContestsController < ApplicationController
         currency: currency
       }
     end
+  rescue Entry::Payment::PinHeld => e
+    render json: { success: false, **Entries::PaymentCopy.payload(e.code) }, status: :conflict
+  rescue Entry::Payment::InFlight => e
+    render_entry_payment_pending(e.entry, status: :conflict)
   rescue StandardError => e
     render_entry_error(e)
   end
@@ -1243,81 +1272,37 @@ class ContestsController < ApplicationController
     # turf-adopts-cosign-primitives (A1). That makes this branch's premise
     # STRONGER, not weaker: a blank tx_signature means the send was never even
     # REACHED, so nothing can have landed, and it is SAFE to release the user to
-    # retry (assign_onchain_entry_number! probes the chain for a free slot, so a
-    # retry won't collide). A broadcast that was attempted and then failed
+    # retry (the entry keeps its pinned slot, Entry::Payment#pin_payment_slot!).
+    # A broadcast that was attempted and then failed
     # ANYWHERE leaves a STAMPED PT (status "submitted", signature present), which
-    # skips this branch and falls through to the RPC poll + verify below.
+    # skips this branch and falls through to the one verdict below.
     if ptx.tx_signature.blank?
       fail_recovered_entry_ptx(ptx)
       return render json: { status: "failed", error: "Your last entry did not go through — try again." }
     end
 
-    # Ask the chain about the signature. The client owns the polling cadence;
-    # keeping this poll cheap (getSignatureStatuses, plus a block height read
-    # only on the dead path) avoids tying up a request thread while the TX
-    # propagates.
-    #
-    # ONLY A VERDICT MAY FAIL THIS ROW (recovery-never-fails-landed-entries).
-    # Failing it lifts prepare_entry's 409, so failing a wire that landed is how
-    # a player pays twice. A read that errors (a 429, a lagging node) is no
-    # verdict: it answers processing and the row stays submitted. And "never
-    # landed" needs the chain's word as well as the wall clock's — see
-    # PendingTransaction#entry_recovery_verdict.
-    vault = Solana::Vault.new
-    verdict = ptx.entry_recovery_verdict(vault.client,
-                                         last_valid_block_height: prepared_last_valid_block_height(ptx))
+    # ONE VERDICT (Entries::PaymentSettlement), the same one the managed rail,
+    # the sweep and #entry_payment_status use. It reads the finalized height,
+    # then the signature's status, then the ticket, and releases the row only
+    # under Entry::Payment#payment_release_allowed?: a read that errors, a
+    # node that lags, or a wire inside its window all answer `processing`, and
+    # the 409 stands (recovery-never-fails-landed-entries). The client owns the
+    # polling cadence. A landed wire is verified as this wallet's entry
+    # instruction on the server-derived ticket before it is credited
+    # (OPSEC-010 / Lazarus audit #1).
+    adopt_stamped_wire(entry, ptx)
+    settled = Entries::PaymentSettlement.call(entry)
 
-    case verdict
-    when :never_landed
-      fail_recovered_entry_ptx(ptx)
-      return render json: { status: "failed", error: "Your last entry did not go through — try again." }
-    when :failed
-      fail_recovered_entry_ptx(ptx)
-      return render json: { status: "failed", error: "On-chain transaction failed." }
-    when :ambiguous, :unreadable
-      return render json: { status: "processing" }
-    end
-
-    # TX landed. Run the SAME server-side verification the live path uses
-    # before crediting — never trust ptx.metadata.entry_pda (client-supplied).
-    # verify_and_confirm_onchain_entry! re-derives the PDA, asserts the
-    # signature is a genuine enter_contest IX from this wallet, and activates
-    # the entry; without it the recovery path would credit a paid entry from
-    # ANY finalized signature. confirm_onchain! re-checks open/lock/limit/sybil
-    # and the unique-signature index blocks replaying one tx across two rows.
-    # (OPSEC-010 / Lazarus audit #1.)
-    begin
-      verify_and_confirm_onchain_entry!(entry, ptx.tx_signature,
-                                        entry_token_pda: prepared_token_pda,
-                                        vault: vault, as_of: :block_time)
-      ptx.update!(status: "confirmed")
-
-      # Same consume, same stale cache: this path credits an entry whose token
-      # `enter_contest_with_token` CONSUMED on-chain — not burned; only the
-      # separate `burn_entry_token` claw-back sets that — and it used to bust
-      # nothing at all, so a user who crashed mid-entry came back to a navbar
-      # badge and a "Hold for Free Entry" button still counting a spent token.
+    if settled.confirmed?
+      # The consume flipped the token on-chain; the cache bust is idempotent.
       current_user.bust_entry_tokens_cache! if prepared_token_pda
-
-      render json: {
-        status: "confirmed",
-        redirect: contest_path(@contest),
-        tx_signature: ptx.tx_signature
-      }
-    rescue StandardError => e
-      capture_unlogged(e, target: entry, parent: @contest)
-      # The status said LANDED, so the money moved. Only the verifier REFUSING
-      # the transaction (wrong instruction, signer or account, or an on-chain
-      # err) may fail the row. Anything else — a 429, a DNS or TLS fault, a
-      # node that has not indexed it, a slot we cannot derive, an entry gate —
-      # is not a verdict on the payment: keep the row submitted, keep the 409
-      # standing, and let the client poll (or an operator) resolve it.
-      if e.is_a?(EntryVerifyRefused)
-        fail_recovered_entry_ptx(ptx)
-        render json: { status: "failed", error: "Recovery failed: #{e.message}" }
-      else
-        render json: { status: "processing" }
-      end
+      render json: { status: "confirmed", redirect: contest_path(@contest), tx_signature: entry.reload.onchain_tx_signature }
+    elsif settled.released?
+      render json: { status: "failed", error: Entries::PaymentCopy.message(settled.code) }
+    elsif settled.landed?
+      render json: { status: "held", error: Entries::PaymentCopy.message(:landed) } # paid, and a gate refused it: the row and the 409 stay
+    else
+      render json: { status: "processing" }
     end
   rescue StandardError => e
     capture_unlogged(e, parent: @contest)
@@ -1493,6 +1478,10 @@ class ContestsController < ApplicationController
   end
 
   def clear_picks
+    # Asked BEFORE the cart is loaded: a lapsed attempt is released by it, and
+    # a pinned cart whose ticket exists is confirmed, never cleared into a new slot.
+    return if render_payment_in_flight(drafts: :pinned)
+
     entry = @contest.entries.cart.find_by(user: current_user)
 
     # A CART WHOSE PAYMENT IS STILL CONFIRMING IS NOT CLEARABLE. Abandoning it
@@ -1534,6 +1523,10 @@ class ContestsController < ApplicationController
     matchup = @contest.matchups.find_by(id: params[:matchup_id])
     return render json: { error: "Matchup not found" }, status: :not_found unless matchup
 
+    # Picks are fixed while their payment is unresolved. Removing the last pick
+    # destroys the cart, so a cart that ever sent a payment is asked first too.
+    return if render_payment_in_flight(drafts: :attempted)
+
     entry = @contest.entries.find_or_create_by!(user: current_user, status: :cart)
 
     rescue_and_log(target: entry, parent: @contest) do
@@ -1545,8 +1538,34 @@ class ContestsController < ApplicationController
         render json: { selections: selections_hash, selection_count: selections_hash.size }
       end
     end
+  rescue Entry::Payment::InFlight => e
+    render_entry_payment_pending(e.entry, status: :conflict)
   rescue StandardError => e
     render json: { error: e.message }, status: :unprocessable_entity
+  end
+
+  # The page's poll while a payment is unresolved: ask the chain, answer with
+  # one of four words. `confirmed` (you're in), `retry` (it paid nothing; the
+  # cart is a draft again and the sentence says why), `pending` (ask again),
+  # `held` (paid, and the entry needs us).
+  def entry_payment_status
+    entry = @contest.entries.find_by(slug: params[:entry].to_s, user: current_user)
+    return render json: { status: "retry", **Entries::PaymentCopy.payload(:failed) } unless entry
+
+    Entries::PaymentSettlement.call(entry) if entry.payment_in_flight?
+    entry.reload
+    if entry.active? || entry.complete?
+      render json: { status: "confirmed", redirect: contest_path(@contest), tx_signature: entry.onchain_tx_signature,
+                     message: "You're in! Good luck." }
+    elsif entry.payment_in_flight?
+      copy = unresolved_payment_copy(entry)
+      render json: { status: copy[:code] == "pending" ? "pending" : "held", **copy } # held: the card stops polling and says where to go
+    else
+      render json: { status: "retry", **Entries::PaymentCopy.payload(entry.payment_refusal_code.presence || :failed) }
+    end
+  rescue StandardError => e
+    capture_unlogged(e, parent: @contest)
+    render json: { status: "pending", **Entries::PaymentCopy.payload(:pending) }
   end
 
   def simulate_game
@@ -2038,7 +2057,7 @@ class ContestsController < ApplicationController
   # 0xbbb / AccountDidNotDeserialize — IDL drift signal), the exception is
   # escalated to Rails.logger.error so ops sees it; rescue_and_log has
   # already persisted an error_logs row with the full backtrace.
-  def render_entry_error(exception)
+  def render_entry_error(exception, payment_code: nil)
     # rescue_and_log persists an error_logs row for any fault raised INSIDE its
     # block (and sets @_error_logged). But the entry endpoints (enter,
     # prepare_entry, confirm_onchain_entry) do guard/auth work BEFORE that block
@@ -2054,7 +2073,8 @@ class ContestsController < ApplicationController
     Rails.logger.error("[entry][escalate] #{exception.class}: #{exception.message}") if result[:log]
 
     if request.format.json?
-      render json: { success: false, error: result[:message], blocker: result[:blocker] },
+      copy = result[:blocker] ? {} : payment_failure_copy(exception, payment_code)
+      render json: { success: false, error: result[:message], blocker: result[:blocker], **copy },
              status: :unprocessable_entity
     else
       redirect_to contests_path, alert: result[:message]
@@ -2680,6 +2700,12 @@ class ContestsController < ApplicationController
   # "still confirming" from the winner's row.
   def stamp_entry_broadcast!(ptx, signature)
     now = Time.current
+    # THE ENTRY ROW FIRST (Entry::Payment). This is where a Phantom payment
+    # takes the player's in-flight key, so the managed rail and every other
+    # cart are refused while it is unresolved. Raising here sends nothing.
+    ptx.target.begin_phantom_charge!(signature: signature, wallet: ptx.initiator_address,
+                                     last_valid_block_height: prepared_last_valid_block_height(ptx),
+                                     prepared_pda: prepared_metadata(ptx)["entry_pda"].presence)
     # Its own savepoint, as update! had: a unique-index collision on the
     # signature must not poison an enclosing transaction.
     stamped = PendingTransaction.transaction(requires_new: true) do
@@ -2703,6 +2729,21 @@ class ContestsController < ApplicationController
       .update_all(status: "failed", updated_at: Time.current)
   end
 
+  # A wire stamped by a writer that did not move the entry row (a dyno from
+  # before Entry::Payment, during the deploy): bring the row into the machine
+  # so the one verdict can judge it. The stamp's own time is kept as the
+  # anchor of the wall-clock floor; a stamp with no time is never released by
+  # a clock. Refused (another payment is in flight) leaves it for that one.
+  def adopt_stamped_wire(entry, ptx)
+    return unless entry.cart? && entry.payment_state == "draft" && ptx.status == "submitted" && !entry.entry_number.nil?
+
+    entry.begin_phantom_charge!(signature: ptx.tx_signature, wallet: ptx.initiator_address,
+                                last_valid_block_height: prepared_last_valid_block_height(ptx))
+    entry.update_columns(payment_submitted_at: ptx.broadcast_at)
+  rescue Entry::Payment::InFlight, Entry::Payment::PinMoved
+    nil # another payment holds the row, or the cart has since been pinned elsewhere: not this wire's to judge
+  end
+
 
   # The one answer for "your entry may already be paid for". 202 from confirm
   # (the send happened), 409 from prepare (a second wire is refused). `code` is
@@ -2714,6 +2755,107 @@ class ContestsController < ApplicationController
   def render_entry_still_confirming(ptx, status:)
     render json: { success: false, code: "entry_pending", ptx_slug: ptx.slug,
                    error: ENTRY_STILL_CONFIRMING_MESSAGE }, status: status
+  end
+
+  # THE ONE ANSWER FOR "this player has a payment unresolved in this contest",
+  # on either wallet and any cart. The chain is asked first
+  # (Entries::PaymentSettlement), so the answer is never a wall: an attempt that
+  # can no longer land returns its cart to draft and this returns false, letting
+  # the caller carry on. Otherwise it renders and returns true.
+  #
+  # `drafts:` also asks about a DRAFT cart whose slot is pinned, because its
+  # ticket may exist (an earlier payment landed and the app never learned):
+  # `:pinned` any such cart (before a wire is built, before a clear), or
+  # `:attempted` only one that once recorded a signature (a ticket cannot exist
+  # without one; this keeps an ordinary pick tap off the RPC). A draft cart
+  # the chain cannot be read for is refused, not guessed at.
+  def render_payment_in_flight(confirmed_as_success: false, drafts: nil)
+    return false unless logged_in?
+
+    entry = Entry.payment_in_flight_for(user: current_user, contest: @contest)
+    draft = entry.nil?
+    entry ||= pinned_draft_cart(drafts)
+    return false unless entry
+
+    settled = Entries::PaymentSettlement.call(entry)
+    return false if settled.released? || settled.idle?
+
+    if settled.confirmed?
+      render_first_payment_landed(entry, as_success: confirmed_as_success)
+    elsif draft && settled.unreadable?
+      render_payment_check_failed
+    else
+      render_entry_payment_pending(entry.reload, status: :conflict)
+    end
+    true
+  end
+
+  def payment_precedes_funding?
+    Entry.payment_in_flight_for(user: current_user, contest: @contest).present? || pinned_draft_cart(:attempted).present?
+  end
+
+  def pinned_draft_cart(drafts)
+    return nil if drafts.nil?
+
+    carts = @contest.entries.cart.where(user: current_user, payment_state: "draft")
+                    .where.not(wallet_address: nil).where.not(entry_number: nil)
+    carts = carts.where.not(payment_signature: nil) if drafts == :attempted
+    carts.order(:id).first
+  end
+
+  def render_payment_check_failed
+    copy = Entries::PaymentCopy.payload(:check_failed)
+    return redirect_to(contest_path(@contest), alert: copy[:error]) unless request.format.json?
+
+    response.set_header("Retry-After", Solana::Deadline::RETRY_AFTER.to_s)
+    render json: { success: false, **copy }, status: :service_unavailable
+  end
+
+  # The retry found the first payment: the player is in and was charged once.
+  def render_first_payment_landed(entry, as_success:)
+    message = Entries::PaymentCopy.message(:first_payment_landed)
+    return redirect_to(contest_path(@contest), notice: message) unless request.format.json?
+
+    body = { redirect: contest_path(@contest), tx_signature: entry.onchain_tx_signature }
+    if as_success
+      render json: { success: true, message: message, **body }
+    else
+      render json: { success: false, code: "entry_confirmed", error: message, **body }, status: :conflict
+    end
+  end
+
+  # 202 from the request that sent it, 409 from one refused because of it.
+  # `entry` is what the page hands #entry_payment_status.
+  def render_entry_payment_pending(entry, status:)
+    copy = unresolved_payment_copy(entry)
+    return redirect_to(contest_path(@contest), alert: copy[:error]) unless request.format.json?
+
+    render json: { success: false, **copy, code: copy[:code] == "pending" ? "entry_pending" : "entry_held", entry: entry.slug },
+           status: status
+  end
+
+  # The sentence for a row still in flight: paid and held; still confirming;
+  # or still confirming for longer than any wire lives, which names the
+  # support contact instead of promising a check that is not converging.
+  def unresolved_payment_copy(entry)
+    code = if entry.payment_state == "landed" then :landed
+           elsif entry.payment_long_pending? then :pending_long
+           else :pending
+           end
+    Entries::PaymentCopy.payload(code)
+  end
+
+  # The sentence for a failure that charged nothing, when the failure is the
+  # network's or the chain's and not a rule of the contest. A raw RPC error
+  # never reaches the page.
+  # `payment_code` is the cause the managed spend itself recorded for THIS
+  # attempt; without one the failure came before any send.
+  def payment_failure_copy(exception, payment_code)
+    network = exception.is_a?(Solana::Client::RpcError) || exception.is_a?(Entries::ManagedEntry::SpendTooLate)
+    known = exception.is_a?(Entry::Refusal) && Entries::PaymentCopy::COPY.key?(exception.code)
+    return {} unless payment_code || network || known
+
+    Entries::PaymentCopy.payload(payment_code || Entries::PaymentCopy.code_for(exception, sent: false))
   end
 
   def prepared_metadata(ptx)
@@ -2859,6 +3001,17 @@ class ContestsController < ApplicationController
     end
     @cart_entry = @contest.entries.cart.find_by(user: current_user) if logged_in?
     @pending_recovery_ptx = find_pending_recovery_ptx
+    @pending_payment = pending_payment_for_board
+  end
+
+  # What the board polls on load: the player's unresolved payment in this
+  # contest, with the sentence it opens on. nil when there is none.
+  def pending_payment_for_board
+    entry = logged_in? && Entry.payment_in_flight_for(user: current_user, contest: @contest)
+    return nil unless entry
+
+    copy = unresolved_payment_copy(entry)
+    { entry: entry.slug, error: copy[:error], code: copy[:code] == "pending" ? "entry_pending" : "entry_held" }
   end
 
   # Which game the live page opens on: whatever is being played, else whatever

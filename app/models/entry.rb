@@ -481,4 +481,9 @@ class Entry < ApplicationRecord
       candidates: [user&.web2_solana_address, user&.web3_solana_address]
     )
   end
+
+  # The payment state machine. At the foot, and its pick-writer guard prepended,
+  # so docs/workflows' line citations above hold.
+  include Payment
+  prepend Payment::EditGuard
 end

@@ -40,10 +40,18 @@ class ContestsEntryStillConfirmingTest < ActionDispatch::IntegrationTest
     )
   end
 
+  # encode_base58 is the identity here, as in every test on the fake chain: the
+  # stamp compares the prepared wire's ticket with the row's own, and the fake
+  # vault's ticket addresses are plain strings.
   def post_confirm
-    post confirm_onchain_entry_contest_path(@contest),
-         params: { signed_tx: "PHANTOM_SIGNED_WIRE_B64", entry_id: @entry.id, entry_pda: @expected_pda },
-         as: :json
+    send_it = proc do
+      post confirm_onchain_entry_contest_path(@contest),
+           params: { signed_tx: "PHANTOM_SIGNED_WIRE_B64", entry_id: @entry.id, entry_pda: @expected_pda },
+           as: :json
+    end
+    return send_it.call if Solana::Keypair.respond_to?(:__minitest_stub__encode_base58) # a caller already stubbed it
+
+    Solana::Keypair.stub(:encode_base58, ->(s) { s.to_s }, &send_it)
   end
 
   def assert_still_confirming(ptx)
@@ -277,15 +285,28 @@ class ContestsEntryStillConfirmingTest < ActionDispatch::IntegrationTest
     assert_still_processing(body, ptx)
   end
 
-  test "CONTROL: a landed signature that verifies as the wrong instruction still fails" do
+  test "a landed signature the verifier refuses is held, never released: a success on chain is a payment" do
     ptx = submitted_ptx(age: 30.seconds)
 
     body = Solana::TxVerifier.stub :verify!, ->(**) { raise Solana::TxVerifier::VerificationError, "Transaction does not contain a `enter_contest` instruction" } do
       post_recover(ptx, statuses: { ptx.tx_signature => landed })
     end
 
+    assert_equal "held", body["status"]
+    assert_equal "submitted", ptx.reload.status
+    assert_equal "landed", @entry.reload.payment_state
+    assert @entry.cart?
+  end
+
+  test "CONTROL: the same signature FAILED on chain is released, and the player may try again" do
+    ptx = submitted_ptx(age: 30.seconds)
+    failed = { "err" => { "InstructionError" => [0, { "Custom" => 6004 }] }, "confirmationStatus" => "finalized" }
+
+    body = post_recover(ptx, statuses: { ptx.tx_signature => failed })
+
     assert_equal "failed", body["status"]
     assert_equal "failed", ptx.reload.status
+    assert_equal "draft", @entry.reload.payment_state
   end
 
   test "five minutes elapsed before the chain passes the deadline does not fail the row" do
