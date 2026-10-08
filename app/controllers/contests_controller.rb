@@ -924,7 +924,7 @@ class ContestsController < ApplicationController
   rescue Entry::Payment::InFlight => e
     render_entry_payment_pending(e.entry, status: :conflict)
   rescue StandardError => e
-    render_entry_error(e, entry: entry)
+    render_entry_error(e, payment_code: managed&.failure_code)
   end
 
   # Lightweight funding pre-check for the 2-second "Hold to Confirm" window
@@ -2080,7 +2080,7 @@ class ContestsController < ApplicationController
   # 0xbbb / AccountDidNotDeserialize — IDL drift signal), the exception is
   # escalated to Rails.logger.error so ops sees it; rescue_and_log has
   # already persisted an error_logs row with the full backtrace.
-  def render_entry_error(exception, entry: nil)
+  def render_entry_error(exception, payment_code: nil)
     # rescue_and_log persists an error_logs row for any fault raised INSIDE its
     # block (and sets @_error_logged). But the entry endpoints (enter,
     # prepare_entry, confirm_onchain_entry) do guard/auth work BEFORE that block
@@ -2096,7 +2096,7 @@ class ContestsController < ApplicationController
     Rails.logger.error("[entry][escalate] #{exception.class}: #{exception.message}") if result[:log]
 
     if request.format.json?
-      copy = result[:blocker] ? {} : payment_failure_copy(exception, entry)
+      copy = result[:blocker] ? {} : payment_failure_copy(exception, payment_code)
       render json: { success: false, error: result[:message], blocker: result[:blocker], **copy },
              status: :unprocessable_entity
     else
@@ -2818,13 +2818,14 @@ class ContestsController < ApplicationController
   # The sentence for a failure that charged nothing, when the failure is the
   # network's or the chain's and not a rule of the contest. A raw RPC error
   # never reaches the page.
-  def payment_failure_copy(exception, entry)
+  # `payment_code` is the cause the managed spend itself recorded for THIS
+  # attempt; without one the failure came before any send.
+  def payment_failure_copy(exception, payment_code)
     network = exception.is_a?(Solana::Client::RpcError) || exception.is_a?(Entries::ManagedEntry::SpendTooLate)
     known = exception.is_a?(Entry::Refusal) && Entries::PaymentCopy::COPY.key?(exception.code)
-    return {} unless network || known
+    return {} unless payment_code || network || known
 
-    recorded = entry&.persisted? && !entry.destroyed? ? Entry.where(id: entry.id).pick(:payment_refusal_code) : nil
-    Entries::PaymentCopy.payload(recorded.presence || Entries::PaymentCopy.code_for(exception, sent: false))
+    Entries::PaymentCopy.payload(payment_code || Entries::PaymentCopy.code_for(exception, sent: false))
   end
 
   def prepared_metadata(ptx)

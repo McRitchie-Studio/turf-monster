@@ -67,10 +67,10 @@ Phantom must be installed in the browser or available via mobile deep link.
    `ContestsController#show` — `app/controllers/contests_controller.rb:681-688`.
    - `:show` sits in the `skip_before_action :require_authentication` list
      (`:9`), so guests render.
-   - `set_contest` (`:2876-2903`) loads the contest by slug and hides `pending`
-     rows from non-admins (`:2877-2878`). On a miss it logs a forensic
+   - `set_contest` (`:2877-2904`) loads the contest by slug and hides `pending`
+     rows from non-admins (`:2878-2879`). On a miss it logs a forensic
      `[set_contest:miss]` warning — slug, path, referer, turbo-frame, user
-     agent — for the recurring "Contest not found" toast (`:2886-2896`).
+     agent — for the recurring "Contest not found" toast (`:2887-2897`).
    - `render "contests/hero"` (`app/views/contests/show.html.erb:26`) and
      `render "contests/contest_header"` (`:29`) are unconditional. Only the
      matchup board is gated: contest `open?`, not cancelled, and the viewer
@@ -301,13 +301,13 @@ Phantom must be installed in the browser or available via mobile deep link.
        re-derives the entry PDA through `Solana::Vault#entry_pda`
        (`app/services/solana/vault.rb:465-470`) and refuses a client-supplied
        PDA that disagrees
-       (`app/controllers/contests_controller.rb:2841-2858`, `:2846`). Then
+       (`app/controllers/contests_controller.rb:2842-2859`, `:2847`). Then
        `verify_solana_transaction!` (`:2626-2637`) fetches the transaction from
        chain through `Solana::TxVerifier` and asserts the instruction
        discriminator — `enter_contest` or `enter_contest_with_token`, whichever
        was built — was signed by the user's wallet and wrote the derived PDA
-       (`:2848-2853`).
-     - `entry.confirm_onchain!(tx_signature:, entry_pda:)` (`:2856`) →
+       (`:2849-2854`).
+     - `entry.confirm_onchain!(tx_signature:, entry_pda:)` (`:2857`) →
        `app/models/entry.rb:262-292`. Inside a `user.with_lock` transaction
        (`:269`) it re-checks `assert_enterable!` (`:270`), refuses an entry with
        no verified signature (`:280-282`), then `update!(status: :active,
@@ -334,7 +334,7 @@ Phantom must be installed in the browser or available via mobile deep link.
 - `cookies[:reference]` (write in step 1 — funnel-attribution stamp)
 - `contests` (read in steps 2, 3 and 9; the row is locked via `@contest.with_lock`
   for `ContestsController#enter`, inside `Entries::ManagedEntry#call`
-  (`app/services/entries/managed_entry.rb:112`), not in `#prepare_entry` or
+  (`app/services/entries/managed_entry.rb:116`), not in `#prepare_entry` or
   `#confirm_onchain_entry`)
 - `entries` (insert `:cart` in step 3; update to `:active` in step 9 via
   `Entry#confirm_onchain!`)
@@ -371,14 +371,14 @@ Phantom must be installed in the browser or available via mobile deep link.
 - **No on-chain Contest PDA.** Paid contests refuse free entry —
   `ContestsController#enter` refuses with `"This contest isn't on-chain yet — paid
   entry is unavailable."`, raised by `Entries::ManagedEntry#preflight!`
-  (`app/services/entries/managed_entry.rb:172-174`).
+  (`app/services/entries/managed_entry.rb:176-178`).
   `Entry#confirm!` carries the model-level backstop for the same hole, with its
   own wording: `"Entry payment required — no entry token consumed or on-chain
   payment recorded"` (`app/models/entry.rb:205-207`). Always set the contest
   on-chain before publishing the landing page.
 - **No active season.** `#enter` refuses with `"No active season configured. Set one
   at /admin/seasons before users can enter on-chain contests."`, raised by
-  `Entries::ManagedEntry#preflight!` (`app/services/entries/managed_entry.rb:165-167`) — the operator must call
+  `Entries::ManagedEntry#preflight!` (`app/services/entries/managed_entry.rb:169-171`) — the operator must call
   `SeasonConfig.set_current!(season_id)` first. Caught before the user spends a
   Phantom signature.
 - **Wrong wallet connected.** `confirmEntry` declares the session address as
@@ -391,7 +391,7 @@ Phantom must be installed in the browser or available via mobile deep link.
 - **Refresh mid-flight (signed, handed to the server, awaiting confirmation).**
   Covered by `PendingTransaction`. On the next page load
   `find_pending_recovery_ptx`
-  (`app/controllers/contests_controller.rb:3000-3020`) puts the slug into the
+  (`app/controllers/contests_controller.rb:3001-3021`) puts the slug into the
   board config, `init()` calls `recoverPendingEntry()`
   (`app/views/contests/_turf_totals_board.html.erb:534-571`, POST at `:543`),
   and `ContestsController#recover_pending_entry`
@@ -405,11 +405,11 @@ Phantom must be installed in the browser or available via mobile deep link.
   landed status only a verifier refusal fails the row (`:1327-1329`); any
   other fault answers `processing` (`:1330-1331`). The CLIENT owns the polling
   cadence; the only server-side clock sweeps signature-less rows older than ten
-  minutes to `expired` (`:3015-3017`).
+  minutes to `expired` (`:3016-3018`).
 - **Refresh between sign and hand-off.** The server never received the bytes, so
   `ptx.tx_signature` is blank — and the recovery modal never opens for it.
   `find_pending_recovery_ptx` returns only signature-carrying rows and sweeps
-  the signature-less ones to `expired` after ten minutes (`:3015-3017`), so the
+  the signature-less ones to `expired` after ten minutes (`:3016-3018`), so the
   board config gets no slug and `recoverPendingEntry()` is never called. The
   user is released silently; nothing was broadcast, so nothing is owed. The
   blank-signature branch inside `recover_pending_entry` — `"Your last entry did
@@ -417,7 +417,7 @@ Phantom must be installed in the browser or available via mobile deep link.
   caller that supplies such a slug directly, not a message this flow produces.
 - **OPSEC-010 PDA mismatch.** `verify_and_confirm_onchain_entry!` raises
   `"Entry PDA mismatch"` when the client-supplied `entry_pda` differs from the
-  server-derived one (`:2846`). Surfaces as a red Solana modal; the entry
+  server-derived one (`:2847`). Surfaces as a red Solana modal; the entry
   stays in `:cart` and the user can retry. `#recover_pending_entry` omits the
   client value deliberately and skips that cross-check (`:1302-1304`).
 - **Sybil duplicate-combo entry.** `Entry#assert_enterable!` raises `"You

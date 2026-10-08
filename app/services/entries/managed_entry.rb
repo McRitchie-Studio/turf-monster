@@ -63,6 +63,10 @@ module Entries
 
     attr_reader :entry, :tx_signature, :onchain_entry_id, :funding_method
 
+    # Why THIS attempt returned the cart to draft (an Entries::PaymentCopy
+    # code), or nil. The row's payment_refusal_code can be an older attempt's.
+    attr_reader :failure_code
+
     # The send happened and its outcome is not known yet. Entries::PaymentSettleJob
     # is queued; the row stays `submitted` until the chain answers.
     class PendingConfirmation < StandardError
@@ -193,7 +197,8 @@ module Entries
 
     def resolve_failed_charge!(entry, error)
       if !@sent || Entries::PaymentCopy.provably_unpaid?(error)
-        entry.release_payment!(Entries::PaymentCopy.code_for(error, sent: @sent))
+        @failure_code = Entries::PaymentCopy.code_for(error, sent: @sent)
+        entry.release_payment!(@failure_code)
         raise error
       end
 
@@ -202,7 +207,9 @@ module Entries
       when :confirmed
         @tx_signature = entry.onchain_tx_signature
         @onchain_entry_id = entry.onchain_entry_id
-      when :released then raise error
+      when :released
+        @failure_code = settled.code
+        raise error
       when :landed then raise Entry::Payment::InFlight.new(entry)
       else
         Entries::PaymentSettleJob.perform_later(entry.id)

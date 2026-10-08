@@ -101,6 +101,19 @@ class ContestsEntryPaymentTest < ActionDispatch::IntegrationTest
     assert_equal %w[draft rpc_unreachable], @entry.reload.values_at(:payment_state, :payment_refusal_code)
   end
 
+  test "an older attempt's reason is not read back for a new failure" do
+    @vault.fail_next_enter = :unlanded
+    hold
+    @vault.block_height = 1_151
+    poll # the first attempt lapsed: the row now carries `expired`
+    assert_equal "expired", @entry.reload.payment_refusal_code
+
+    @vault.block_height = nil # and now the network is down before anything is sent
+    hold
+    assert_equal "rpc_unreachable", body["code"]
+    assert_match(/nothing was sent/i, body["error"])
+  end
+
   test "CONTROL: a contest rule keeps its own words and is not dressed as a network failure" do
     @entry.selections.last.destroy!
     hold
