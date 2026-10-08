@@ -26,6 +26,30 @@ async function board(page) {
   return page.evaluateHandle(() => Alpine.$data(document.querySelector(".hold-btn").closest("[x-data]")));
 }
 
+// The board only POSTs /enter for a wallet it believes can fund the entry, and
+// what it believes survives from earlier specs in the lane. So the session is
+// told, the way e2e/free_entry_spend_mirror.spec.js tells it, that one free
+// entry is held; without this the hold opens the funding panel instead.
+async function holdOneToken(page) {
+  await page.waitForFunction(() => typeof window.refreshSession === "function");
+  await page.waitForTimeout(1500);
+  await page.route("**/account/session_refresh", (route) =>
+    route.fulfill(json(200, { usdc: "0.0", usdt: "0.0", tokens: "1" }))
+  );
+  await expect
+    .poll(
+      async () => {
+        await page.evaluate(() => window.refreshSession().catch(() => null));
+        return page.evaluate(() => Alpine.store("session").tokensAvailable);
+      },
+      { timeout: 20000, intervals: [1000, 1000, 1000, 1500, 1500, 2000, 2000, 2000] }
+    )
+    .toBe(1);
+  await page.waitForTimeout(1500);
+  await page.evaluate(() => window.refreshSession().catch(() => null));
+  await expect.poll(() => page.evaluate(() => Alpine.store("session").tokensAvailable)).toBe(1);
+}
+
 // The on-chain card's live state, read from the modal host.
 const card = (page) =>
   page.evaluate(() => {
@@ -41,6 +65,7 @@ test("hold, pending, not charged, hold again: one entry, and every step says wha
     if (!res.ok()) throw new Error(`${path} failed: ${res.status()}`);
   }
   await page.goto(CONTEST_PATH);
+  await holdOneToken(page);
 
   let holds = 0;
   let polls = 0;
@@ -63,6 +88,7 @@ test("hold, pending, not charged, hold again: one entry, and every step says wha
 
   // 1. Hold. The outcome is unknown: a titled card with the sentence, polling.
   await b.evaluate((c) => c.confirmEntry());
+  await expect.poll(() => holds, { message: "the hold reached /enter" }).toBe(1);
   await expect.poll(() => card(page)).toMatchObject({ state: "processing", title: "Entry Still Confirming", message: PENDING });
   await expect(page.getByText(PENDING)).toBeVisible();
   expect(holds).toBe(1);
