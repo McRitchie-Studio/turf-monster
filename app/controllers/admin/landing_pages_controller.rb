@@ -24,13 +24,22 @@ module Admin
 
     def edit; end
 
+    # A persisted slug changes only through rename_slug!; a blank field
+    # re-derives it from the name.
     def update
-      @landing_page.assign_attributes(landing_page_params)
+      attributes = landing_page_params
+      slug = attributes.delete(:slug)
+      @landing_page.assign_attributes(attributes)
       return render :edit, status: :unprocessable_entity if @landing_page.invalid?
 
       rescue_and_log(target: @landing_page) do
-        @landing_page.save!
+        LandingPage.transaction do
+          @landing_page.rename_slug!(slug.presence || @landing_page.name.to_s.parameterize) unless slug.nil?
+          @landing_page.save!
+        end
         redirect_to admin_landing_pages_path, notice: %(Landing page "#{@landing_page.name}" updated.)
+      rescue Sluggable::SlugRefused
+        render :edit, status: :unprocessable_entity
       end
     end
 
