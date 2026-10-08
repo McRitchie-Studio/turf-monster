@@ -570,6 +570,47 @@ window.selectionBoard = function() {
       try { window.dispatchEvent(new CustomEvent('toast', { detail: { type: 'alert', title: "Couldn't confirm last entry yet", message: "It was sent and is still confirming — reload in a minute to check on it.", duration: 6000 } })); } catch (_) {}
     },
 
+    // THE POLL WHILE A PAYMENT IS UNRESOLVED (code 'entry_pending' with an
+    // `entry`, from enter, toggle_selection, clear_picks or prepare_entry). The
+    // server asks the chain on each call and answers one of four words, and
+    // every one of them ends this card: confirmed (you're in), retry (nothing
+    // was charged; the sentence says why and the hold button is live again),
+    // held (paid, and we owe the player a fix), or, after two minutes of
+    // pending, a sentence that says it is safe to leave. Never a spinner with
+    // no end. `first` is the answer that started the poll.
+    async pollEntryPayment(entrySlug, first) {
+      var modal = Alpine.store('solanaModal');
+      if (first && first.code === 'entry_held') { modal.error(first.error, 'Entry On Hold'); return; }
+      modal.show('Entry Still Confirming', (first && first.error) || 'Checking your entry on Solana.', { dismissible: false });
+      for (var attempt = 0; attempt < 40; attempt++) {
+        await new Promise(function (r) { setTimeout(r, 3000); });
+        try {
+          var resp = await window.authedFetch('/contests/' + this.contestId + '/entry_payment_status', {
+            method: 'POST',
+            headers: { 'X-CSRF-Token': this.csrfToken, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ entry: entrySlug })
+          });
+          if (!resp) { modal.close(); return; } // 401 or 429: authedFetch showed its own modal
+          var data = await resp.json();
+          if (data.status === 'confirmed') {
+            modal.success(data.tx_signature, data.message || "You're in! Good luck.");
+            if (data.redirect) modal.onClose = function () { window.location.href = data.redirect; };
+            return;
+          }
+          if (data.status === 'retry' || data.status === 'held') {
+            modal.error(data.error, data.status === 'held' ? 'Entry On Hold' : 'You Were Not Charged');
+            this.submitting = false;
+            this.resetHoldButtons();
+            return;
+          }
+        } catch (_) {
+          // A network blip on the poll itself: ask again.
+        }
+      }
+      modal.error('This is taking longer than usual. Your entry is safe and you will not be charged twice. ' +
+                  'We will keep checking, and this page will show your entry when you come back.', 'Still Confirming');
+    },
+
     toggleSort(mode) {
       if (mode === 'turfScore' && this.sortMode === 'turfScore') {
         this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';
@@ -732,6 +773,8 @@ window.selectionBoard = function() {
         if (!result.ok) {
           self.selections = oldSelections;
           self.selectionOrder = oldOrder;
+          // 409: these picks have a payment unresolved. Poll it; do not toast.
+          if (result.data.entry && self._handleBlockerResponse(result.data)) return;
           self.showError(result.data.error || 'Failed to save selection', result.data.code);
           return;
         }
@@ -813,6 +856,21 @@ window.selectionBoard = function() {
         this.submitting = false;
         this.resetHoldButtons();
         this.recoverPendingEntry(data.ptx_slug, { title: 'Entry Sent', body: data.error });
+        return true;
+      }
+      // A payment the ENTRY holds unresolved (either wallet): poll its verdict.
+      if ((data.code === 'entry_pending' || data.code === 'entry_held') && data.entry) {
+        this.submitting = false;
+        this.resetHoldButtons();
+        this.pollEntryPayment(data.entry, data);
+        return true;
+      }
+      // The first payment had already landed: the player is in, charged once.
+      if (data.code === 'entry_confirmed') {
+        this.submitting = false;
+        this.resetHoldButtons();
+        Alpine.store('solanaModal').success(data.tx_signature, data.error);
+        if (data.redirect) Alpine.store('solanaModal').onClose = function () { window.location.href = data.redirect; };
         return true;
       }
       if (!data.blocker) return false;
@@ -1886,7 +1944,9 @@ window.selectionBoard = function() {
               // over a red error body — in-progress wording on a finished
               // failure. Reported by an operator on 2026-09-07, alongside the
               // raw raise text this same card was showing.
-              Alpine.store('solanaModal').error(data.error || 'Something went wrong', 'Entry Failed');
+              // `retry`: the server classed this as a failure that charged nothing (Entries::PaymentCopy).
+              if (data.retry) Alpine.store('solanaModal').error(data.error, 'You Were Not Charged');
+              else Alpine.store('solanaModal').error(data.error || 'Something went wrong', 'Entry Failed');
             } else {
               this.showError(data.error || 'Something went wrong', data.code);
             }
@@ -2043,6 +2103,8 @@ window.selectionBoard = function() {
           var data = await resp.json();
           if (data && data.code === 'entry_pending' && data.ptx_slug) {
             this.recoverPendingEntry(data.ptx_slug, { title: 'Entry Sent', body: data.error });
+          } else if (data) {
+            this._handleBlockerResponse(data);
           }
         }
       } catch (err) {

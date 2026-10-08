@@ -553,6 +553,11 @@ module Entries
     # [code, message], or [nil, nil] for a fault that is ours (the controller
     # answers 500 and it is logged).
     def classify(exception)
+      # The player has a payment unresolved in this contest (from the website,
+      # on either wallet). To an agent that is the answer it already knows:
+      # something is still running for this player, wait and resend.
+      return [:idempotency_in_progress, MESSAGES[:idempotency_in_progress]] if exception.is_a?(Entry::Payment::InFlight)
+
       if exception.is_a?(Entry::Refusal)
         code = exception.code
         # Our own refusals already carry API wording; the model's are replaced

@@ -47,10 +47,12 @@ class LedgerVault < FakeVault
   attr_accessor :fail_next_enter, :token_read_raises, :before_enter, :before_token_read, :before_slot_probe
   attr_reader :tickets
 
-  def initialize(tokens: [], usdc: 0.0, **options)
+  def initialize(tokens: [], usdc: 0.0, block_height: 1_000, **options)
     @ledger_accounts = {}
     @ledger_signatures = {}
-    super(tokens: tokens, account_infos: @ledger_accounts, signatures: @ledger_signatures, **options)
+    @ledger_statuses = {}
+    super(tokens: tokens, account_infos: @ledger_accounts, signatures: @ledger_signatures,
+          signature_statuses: @ledger_statuses, block_height: block_height, **options)
     self.wallet_balances = { sol: 0.1, usdc: usdc, usdt: 0.0 }
     @tickets = []
     @sequence = 0
@@ -76,8 +78,18 @@ class LedgerVault < FakeVault
     super
   end
 
+  # The chain moves on: getBlockHeight answers `height` (nil: the read raises).
+  def block_height=(height)
+    client.instance_variable_set(:@block_height, height)
+  end
+
+  # Every account read raises, as when the RPC is down.
+  def chain_unreadable=(down)
+    client.instance_variable_set(:@account_info_raises, down)
+  end
+
   def enter_contest_with_token(wallet_address, contest_slug, entry_num, entry_token_pda_b58,
-                               user_keypair:, season_id: nil)
+                               user_keypair:, season_id: nil, before_send: nil, confirm_timeout: nil)
     raise "user_keypair required (OPSEC-004)" unless user_keypair
 
     @enter_calls << { method: :enter_contest_with_token, wallet: wallet_address, slug: contest_slug,
@@ -87,17 +99,18 @@ class LedgerVault < FakeVault
       raise Solana::Client::RpcError, "#{SIMULATION_FAILED}custom program error: 0x177f"
     end
 
-    land!(wallet_address, contest_slug, entry_num, :token) { token[:consumed] = true }
+    land!(wallet_address, contest_slug, entry_num, :token, before_send) { token[:consumed] = true }
   end
 
-  def enter_contest_with_usdc(user:, contest:, entry_num:)
+  def enter_contest_with_usdc(user:, contest:, entry_num:, before_send: nil, confirm_timeout: nil)
     wallet = user.web2_solana_address
     @enter_calls << { method: :enter_contest_with_usdc, wallet: wallet, slug: contest.slug,
                       entry_number: entry_num, currency_idx: 0, season_id: contest.season_id }
     fee = contest.entry_fee_cents / 100.0
+    before_send&.call("ledger-sig-#{@sequence + 1}", client.get_block_height + 150) if usdc_balance < fee
     raise Solana::Client::RpcError, "#{SIMULATION_FAILED}custom program error: 0x1" if usdc_balance < fee
 
-    land!(wallet, contest.slug, entry_num, :usdc) { @wallet_balances[:usdc] -= fee }
+    land!(wallet, contest.slug, entry_num, :usdc, usdc_balance < fee ? nil : before_send) { @wallet_balances[:usdc] -= fee }
   end
 
   def next_free_entry_index(contest_slug, wallet_address, max:, skip: [])
@@ -128,20 +141,26 @@ class LedgerVault < FakeVault
 
   private
 
-  def land!(wallet, slug, slot, method)
+  # The signature and the wire's block-height ceiling go to `before_send`
+  # first, as Solana::Vault#send_entry_wire hands them over: a raise there, or
+  # an unreadable block height, sends nothing.
+  def land!(wallet, slug, slot, method, before_send = nil)
     before_enter&.call
     pda = entry_pda(slug, wallet, slot).first
+    before_send&.call("ledger-sig-#{@sequence + 1}", client.get_block_height + 150)
     raise Solana::Client::RpcError, "#{SIMULATION_FAILED}Allocate: account already in use" if @ledger_accounts[pda]
 
     failure = fail_next_enter
     self.fail_next_enter = nil
     raise Solana::Client::RpcError, "#{SIMULATION_FAILED}custom program error: 0x1774" if failure == :rejected
     raise Solana::Client::RpcError, "Transaction confirmation timeout" if failure == :unlanded
+    raise Solana::Client::RpcError, "Transaction simulation failed: Transaction results in an account (0) with insufficient funds for rent" if failure == :fee
 
     yield
     signature = "ledger-sig-#{@sequence += 1}"
-    @ledger_accounts[pda] = { "value" => { "lamports" => 1 } }
+    @ledger_accounts[pda] = { "value" => { "lamports" => 1, "owner" => Solana::Config::PROGRAM_ID } }
     @ledger_signatures[pda] = [{ "signature" => signature, "err" => nil }]
+    @ledger_statuses[signature] = { "err" => nil, "confirmationStatus" => "confirmed" }
     @tickets << { slot: slot, pda: pda, signature: signature, method: method }
     raise Solana::Client::RpcError, "Transaction confirmation timeout" if failure == :lost
     raise Solana::Client::RpcError, "Transaction simulation failed: This transaction has already been processed" if failure == :resent

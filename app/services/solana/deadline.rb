@@ -34,7 +34,8 @@ module Solana
     # money or decides whether a spend landed. One line per `long_budget`
     # block, with the per-call wait budget it runs under.
     LONG_BUDGET = {
-      managed_entry_spend: "Entries::ManagedEntry#call around #fund!: slot probe, funding reads, send and confirm (15 s)",
+      managed_entry_spend: "Entries::ManagedEntry#spend! around #fund!: slot probe, funding reads, send, and a confirm wait that ends before the request does (15 s)",
+      entry_payment_settlement: "Entries::PaymentSettlement#call: reads whether an entry's ticket exists and whether its wire can still land (the caller's budget)",
       cosign_submit: "Solana::Vault#under_cosign_wait_budget: simulate, send and confirm of a cosigned entry, contest creation, contest time or settlement (5 s)",
       api_entry_submission: "Entries::ApiSubmission#call: the orphan probe that decides whether an earlier spend landed, then the managed spend (5 s, 15 s in #fund!)",
       entry_reconcile: "Entries::OnchainReconciler#reconcile_entry: reads whether a paid entry landed (the caller's budget)",

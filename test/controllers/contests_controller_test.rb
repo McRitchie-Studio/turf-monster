@@ -673,8 +673,9 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     vault = Solana::Vault.new(client: raising_client)
     enter_usdc_calls = []
     vault.define_singleton_method(:next_free_entry_index) { |*_args, **_kwargs| 0 }
-    vault.define_singleton_method(:enter_contest_with_usdc) do |user:, contest:, entry_num:|
+    vault.define_singleton_method(:enter_contest_with_usdc) do |user:, contest:, entry_num:, before_send: nil, confirm_timeout: nil|
       enter_usdc_calls << { user: user.id, contest: contest.slug, entry_num: entry_num }
+      before_send&.call("fake-usdc-sig-conn", 1_000)
       { signature: "fake-usdc-sig-conn", entry_pda: "epda-conn" }
     end
 

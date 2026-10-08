@@ -304,13 +304,15 @@ class FakeVault
 
   # --- On-chain contest entry ---
 
-  def enter_contest_with_token(wallet, slug, entry_number, token_pda, user_keypair:, season_id:)
+  def enter_contest_with_token(wallet, slug, entry_number, token_pda, user_keypair:, season_id:, before_send: nil, confirm_timeout: nil)
     @enter_calls << {
       method: :enter_contest_with_token,
       wallet: wallet, slug: slug, entry_number: entry_number,
       token_pda: token_pda, season_id: season_id
     }
-    { signature: "fake-enter-with-token-#{SecureRandom.hex(2)}", entry_pda: "epda-#{SecureRandom.hex(2)}" }
+    signature = "fake-enter-with-token-#{SecureRandom.hex(2)}"
+    before_send&.call(signature, FAKE_LAST_VALID_BLOCK_HEIGHT) # as Solana::Vault#send_entry_wire: before the send
+    { signature: signature, entry_pda: "epda-#{SecureRandom.hex(2)}" }
   end
 
   def enter_contest(wallet, slug, entry_number, season_id: nil)
@@ -326,13 +328,15 @@ class FakeVault
   # user's web2 address, pins currency_idx 0 (USDC, never USDT for web2), and
   # records into enter_calls so a controller test can assert the web2 USDC
   # funding path fired (vs the token path).
-  def enter_contest_with_usdc(user:, contest:, entry_num:)
+  def enter_contest_with_usdc(user:, contest:, entry_num:, before_send: nil, confirm_timeout: nil)
     @enter_calls << {
       method: :enter_contest_with_usdc,
       wallet: user.web2_solana_address, slug: contest.slug,
       entry_number: entry_num, currency_idx: 0, season_id: contest.season_id
     }
-    { signature: "fake-enter-usdc-#{SecureRandom.hex(2)}", entry_pda: "epda-#{SecureRandom.hex(2)}" }
+    signature = "fake-enter-usdc-#{SecureRandom.hex(2)}"
+    before_send&.call(signature, FAKE_LAST_VALID_BLOCK_HEIGHT)
+    { signature: signature, entry_pda: "epda-#{SecureRandom.hex(2)}" }
   end
 
   # --- Build-only partial-signed TXs (Phantom co-sign flow) ---

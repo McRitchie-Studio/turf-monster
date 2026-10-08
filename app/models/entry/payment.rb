@@ -82,6 +82,15 @@ class Entry
     end
 
     class_methods do
+      # Contest#reset! only: an operator wiping a contest takes every row.
+      def lifting_payment_guard
+        previous = Thread.current[:entry_payment_guard_lifted]
+        Thread.current[:entry_payment_guard_lifted] = true
+        yield
+      ensure
+        Thread.current[:entry_payment_guard_lifted] = previous
+      end
+
       # This player's unresolved payment in this contest, on either wallet.
       def payment_in_flight_for(user:, contest:)
         scope = where(user_id: user.id, contest_id: contest.id, payment_state: IN_FLIGHT)
@@ -140,6 +149,18 @@ class Entry
       self
     rescue ActiveRecord::RecordNotUnique
       raise InFlight.new(self.class.payment_in_flight_for(user: user, contest: contest) || self)
+    end
+
+    # The Phantom rail's begin and record in one step, called from the confirm
+    # request's before_send. The wire was built at prepare against the pinned
+    # slot; a row prepared before the pin existed adopts the signing wallet. The
+    # same signature again (identical bytes resent) is a no-op.
+    def begin_phantom_charge!(signature:, wallet:, last_valid_block_height: nil)
+      return self if payment_state == "submitted" && payment_signature == signature
+
+      update!(wallet_address: wallet) if payment_state == "draft" && wallet_address != wallet && !entry_number.nil?
+      begin_charge!(rail: "phantom")
+      record_payment_attempt!(signature: signature, last_valid_block_height: last_valid_block_height)
     end
 
     # Written BEFORE the send, in its own committed write. Raises when the row
@@ -206,7 +227,7 @@ class Entry
     end
 
     def keep_row_while_payment_in_flight
-      throw :abort if payment_in_flight?
+      throw :abort if payment_in_flight? && !Thread.current[:entry_payment_guard_lifted]
     end
   end
 end

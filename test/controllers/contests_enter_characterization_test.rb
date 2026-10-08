@@ -98,7 +98,8 @@ class ContestsEnterCharacterizationTest < ActionDispatch::IntegrationTest
     @entry.reload
     assert @entry.cart?
     assert_nil @entry.onchain_tx_signature
-    assert_nil @entry.entry_number, "the slot assigned inside the contest lock rolls back with it"
+    assert_equal [0, @user.web2_solana_address], @entry.values_at(:entry_number, :wallet_address), "the slot is pinned for the retry"
+    assert_equal %w[draft insufficient_funds], @entry.values_at(:payment_state, :payment_refusal_code), "and the cart is a draft again"
     assert_equal @contest, ErrorLog.where(target: @entry).last.parent
   end
 

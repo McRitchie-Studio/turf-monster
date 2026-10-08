@@ -15,10 +15,15 @@ includes:
 - Stripe webhook controller tests: `test/controllers/webhooks/stripe_controller_test.rb`
 - PayPal webhook and token purchase tests: `test/controllers/webhooks/paypal_controller_test.rb`,
   `test/controllers/tokens_paypal_test.rb`, `test/jobs/token_purchase_job_test.rb`
-- Pending transaction model/controller/sweeper tests:
+- Pending transaction model/controller tests:
   `test/models/pending_transaction_test.rb`,
-  `test/controllers/admin/pending_transactions_controller_test.rb`,
-  `test/jobs/pending_transaction_sweeper_job_test.rb`
+  `test/controllers/admin/pending_transactions_controller_test.rb`
+- Entry payment state machine tests: `test/models/entry_payment_test.rb`,
+  `test/models/entry_payment_concurrency_test.rb`,
+  `test/services/entries/payment_settlement_test.rb`,
+  `test/services/entries/managed_entry_payment_test.rb`,
+  `test/controllers/contests_entry_payment_test.rb`,
+  `test/jobs/entries/payment_sweep_job_test.rb`
 - Transaction log idempotency tests:
   `test/models/transaction_log_test.rb`
 - Contest grade tie/payout tests:

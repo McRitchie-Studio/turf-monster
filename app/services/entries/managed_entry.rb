@@ -38,6 +38,21 @@ module Entries
   #                  creates exists only if the spend commits: a refused or
   #                  failed submission leaves no row behind.
   #
+  # THE PAYMENT STATE MACHINE (Entry::Payment). #fund! pins the wallet and slot,
+  # moves the row to `submitted`, and hands the vault a hook that commits the
+  # signature BEFORE the send. Then the two callers differ in one thing:
+  #
+  #   * the browser's entry is a committed cart, so the gates run under the
+  #     contest lock and the spend runs AFTER it. Every payment write is then
+  #     its own commit, visible to the next request and to the sweep, and a
+  #     raise cannot roll it back. A failure is resolved here (#resolve_failed_charge!):
+  #     nothing sent or refused by the program returns the cart to draft and
+  #     re-raises; anything else asks the chain, and an answer still unknown
+  #     raises PendingConfirmation, which the controller answers as "pending".
+  #   * the API's entry is built by the block inside the lock's transaction, so
+  #     its spend stays inside it and the row exists only if the spend commits.
+  #     Entries::ApiSubmission keeps its own durable record of the attempt.
+  #
   # WHAT IT TELLS A CALLER AFTERWARDS. #spend_attempted? is true from the moment
   # just before the chain call that moves money. A caller that must decide
   # whether a failure could have spent (the API's idempotency record) reads it;
@@ -48,59 +63,62 @@ module Entries
 
     attr_reader :entry, :tx_signature, :onchain_entry_id, :funding_method
 
+    # The send happened and its outcome is not known yet. Entries::PaymentSettleJob
+    # is queued; the row stays `submitted` until the chain answers.
+    class PendingConfirmation < StandardError
+      attr_reader :entry
+
+      def initialize(entry)
+        @entry = entry
+        super(Entry::Payment::IN_FLIGHT_MESSAGES.fetch("submitted"))
+      end
+    end
+
+    # Raised from the before-send hook: nothing was sent. Not an Entry::Refusal,
+    # because it is the browser request's own clock and no rule of the contest.
+    class SpendTooLate < StandardError
+      def initialize = super(Entries::PaymentCopy.message(:too_late))
+    end
+
+    # A request must answer before the router cuts it at 30 seconds. With less
+    # than this left a spend is not started; the confirm wait ends this far
+    # before the deadline.
+    MIN_SECONDS_TO_SEND = 8
+    CONFIRM_MARGIN = 4
+
     # before_spend: called with the entry inside the contest lock, immediately
     # before each chain call that moves money. Raising there stops the
     # submission having spent nothing. The API uses it to fence an attempt a
     # retry has superseded; the browser passes none.
-    def initialize(contest:, user:, usdc_allowed:, before_spend: nil)
+    def initialize(contest:, user:, usdc_allowed:, before_spend: nil, rail: "managed")
       @contest = contest
       @user = user
       @usdc_allowed = usdc_allowed
       @before_spend = before_spend
+      @rail = rail
       @spend_attempted = false
       @token_consumed = false
+      @sent = false
+      # The request's own deadline, read now: a send releases Current's copy.
+      @deadline = Solana::Deadline.current
     end
 
     def spend_attempted? = @spend_attempted
     def token_consumed? = @token_consumed
 
     def call(entry = nil)
-      # DB-side gates (eligibility, season, on-chain backing) + entry-slot
-      # reservation, serialized under the contest row lock. The IRREVERSIBLE
-      # on-chain consume/transfer runs inside this block too — so EVERY
-      # read-only eligibility gate (selection count, lock time, started games,
-      # sybil, per-user limit, contest-full) MUST run BEFORE it (entry.
-      # assert_enterable! below). confirm! (below, outside the lock) re-runs the
-      # SAME assert_enterable! as its serialized backstop, and the durable
-      # capture covers a TRANSIENT post-broadcast failure (RPC/DB), which the
-      # reconciler then heals.
-      @contest.with_lock do
-        @entry = entry ||= yield
-
-        # PRE-FLIGHT: run the read-only eligibility gates BEFORE any consume.
-        # Raises here → token stays unconsumed, entry stays `cart`, fail loudly.
-        entry.assert_enterable!
-        @preflight_at = Time.current # confirm! judges its time gates as of this pass (Entry#assert_enterable! as_of:)
-
-        # On-chain entries require a configured season (seed_schedule lives on its PDA).
-        # Catch the missing-season case early with a clear error instead of a cryptic
-        # Anchor AccountNotInitialized further down.
-        if @contest.onchain?
-          current_sid = SeasonConfig.current_season_id
-          if current_sid.to_i.zero?
-            raise Entry::Refusal.new(:contest_not_open, "No active season configured. Set one at /admin/seasons before users can enter on-chain contests.")
-          end
+      if entry
+        @entry = entry
+        @contest.with_lock { preflight!(entry) }
+        charge!(entry) if paid_onchain?
+        return outcome(entry) if entry.active? # a settlement already activated it
+      else
+        # The API: the block builds the entry inside the lock's transaction.
+        @contest.with_lock do
+          @entry = entry = yield
+          preflight!(entry)
+          spend!(entry) if paid_onchain?
         end
-
-        # A paid contest must be backed by an on-chain Contest PDA — that PDA is
-        # where the entry token / USDC payment is recorded. An off-chain paid
-        # contest has no payment rail, so refuse rather than create a free entry.
-        # (Entry#confirm! enforces the same gate as a model-level backstop.)
-        if @contest.entry_fee_cents.to_i.positive? && !@contest.onchain?
-          raise Entry::Refusal.new(:contest_not_open, "This contest isn't on-chain yet — paid entry is unavailable.")
-        end
-        # The spend keeps the gem's 15s wait budget and runs outside the request deadline: a stopped confirm poll strands a paid entry.
-        Solana::Deadline.long_budget(:managed_entry_spend) { Solana::Client.with_wait_budget(Solana::Client::DEFAULT_WAIT_BUDGET) { fund!(entry) } } if @contest.onchain? && @contest.entry_fee_cents > 0
       end
 
       # Durable capture (incident 2026-06-08). The on-chain consume/transfer
@@ -113,9 +131,7 @@ module Entries
       entry.update!(onchain_tx_signature: @tx_signature, onchain_entry_id: @onchain_entry_id) if @tx_signature
 
       finalize!(entry)
-
-      Outcome.new(entry: entry, tx_signature: @tx_signature, onchain_entry_id: @onchain_entry_id,
-                  token_consumed: @token_consumed, funding_method: @funding_method)
+      outcome(entry)
     end
 
     # uiAmount dollars (Float | Integer | nil from Solana::Vault#fetch_wallet_balances)
@@ -128,6 +144,91 @@ module Entries
     end
 
     private
+
+    def outcome(entry)
+      Outcome.new(entry: entry, tx_signature: @tx_signature, onchain_entry_id: @onchain_entry_id,
+                  token_consumed: @token_consumed, funding_method: @funding_method)
+    end
+
+    def paid_onchain?
+      @contest.onchain? && @contest.entry_fee_cents > 0
+    end
+
+    # Every reversible gate, under the contest row lock, BEFORE any spend
+    # (incident 2026-06-08): a raise here leaves the token unconsumed and the
+    # entry a cart.
+    def preflight!(entry)
+      entry.assert_enterable!
+      @preflight_at = Time.current # confirm! judges its time gates as of this pass (Entry#assert_enterable! as_of:)
+
+      # On-chain entries require a configured season (seed_schedule lives on its PDA).
+      if @contest.onchain? && SeasonConfig.current_season_id.to_i.zero?
+        raise Entry::Refusal.new(:contest_not_open, "No active season configured. Set one at /admin/seasons before users can enter on-chain contests.")
+      end
+
+      # A paid contest must be backed by an on-chain Contest PDA: an off-chain
+      # paid contest has no payment rail, so refuse rather than create a free
+      # entry. (Entry#confirm! enforces the same gate as a model-level backstop.)
+      if @contest.entry_fee_cents.to_i.positive? && !@contest.onchain?
+        raise Entry::Refusal.new(:contest_not_open, "This contest isn't on-chain yet — paid entry is unavailable.")
+      end
+    end
+
+    # The spend keeps the gem's 15s wait budget and runs outside the request deadline: a stopped confirm poll strands a paid entry.
+    def spend!(entry)
+      Solana::Deadline.long_budget(:managed_entry_spend) { Solana::Client.with_wait_budget(Solana::Client::DEFAULT_WAIT_BUDGET) { fund!(entry) } }
+    end
+
+    # The browser's spend, with every failure resolved to a state the player
+    # can act on.
+    def charge!(entry)
+      spend!(entry)
+    rescue Entry::Payment::InFlight
+      raise
+    rescue StandardError => e
+      raise unless entry.reload.payment_state == "submitted" # refused before the charge began
+
+      resolve_failed_charge!(entry, e)
+    end
+
+    def resolve_failed_charge!(entry, error)
+      if !@sent || Entries::PaymentCopy.provably_unpaid?(error)
+        entry.release_payment!(Entries::PaymentCopy.code_for(error, sent: @sent))
+        raise error
+      end
+
+      settled = Entries::PaymentSettlement.call(entry)
+      case settled.status
+      when :confirmed
+        @tx_signature = entry.onchain_tx_signature
+        @onchain_entry_id = entry.onchain_entry_id
+      when :released then raise error
+      when :landed then raise Entry::Payment::InFlight.new(entry)
+      else
+        Entries::PaymentSettleJob.perform_later(entry.id)
+        raise PendingConfirmation.new(entry)
+      end
+    end
+
+    def seconds_left
+      @deadline && (@deadline - Solana::Deadline.clock)
+    end
+
+    # Handed to the vault, which calls it with the signature and the wire's
+    # block-height ceiling after signing and before sending.
+    def record_attempt(entry)
+      lambda do |signature, ceiling|
+        left = seconds_left
+        raise SpendTooLate if left && left < MIN_SECONDS_TO_SEND
+
+        entry.record_payment_attempt!(signature: signature, last_valid_block_height: ceiling)
+        @sent = true
+      end
+    end
+
+    def confirm_timeout
+      -> { (left = seconds_left) ? (left - CONFIRM_MARGIN).clamp(2, 30) : 30 }
+    end
 
     # Managed-wallet entry funding — runs INSIDE the contest lock, after
     # entry.assert_enterable!, on a paid on-chain contest. Funding priority
@@ -155,9 +256,11 @@ module Entries
       end
 
       vault = Solana::Vault.new
-      # Probe the chain for a free entry slot (handles orphaned PDAs left by a
-      # contest Reset). See Entry#assign_onchain_entry_number!.
-      entry.assign_onchain_entry_number!(address, vault)
+      # Pin the wallet and slot (probed once; every retry reuses them), then
+      # open the charge. Entry::Payment::InFlight from either is the refusal
+      # of a second charge.
+      entry.pin_payment_slot!(address, vault)
+      entry.begin_charge!(rail: @rail)
 
       # Token detection MUST be scoped to the SAME web2 `address` we sign with.
       # User#next_unconsumed_entry_token reads #solana_address (web3-preferred for a
@@ -176,7 +279,8 @@ module Entries
         # OPSEC-004: the token owner (managed keypair) must sign the consume.
         result = vault.enter_contest_with_token(
           address, @contest.slug, entry.entry_number, token[:pda],
-          user_keypair: keypair, season_id: @contest.season_id
+          user_keypair: keypair, season_id: @contest.season_id,
+          before_send: record_attempt(entry), confirm_timeout: confirm_timeout
         )
         # The on-chain EntryTokenAccount.consumed flag just flipped to true. Bust
         # the 60s entry-tokens cache so a follow-up entry within the same TTL
@@ -219,7 +323,8 @@ module Entries
         # signer/ATA-desync footgun can't reach the call site. Atomic SPL transfer
         # + entry-PDA init — an underfunded ATA fails the whole TX (no strand).
         result = vault.enter_contest_with_usdc(
-          user: @user, contest: @contest, entry_num: entry.entry_number
+          user: @user, contest: @contest, entry_num: entry.entry_number,
+          before_send: record_attempt(entry), confirm_timeout: confirm_timeout
         )
       else
         raise Entry::Refusal.new(:no_entry_token, "No entry tokens. Buy at /tokens/buy")

@@ -813,4 +813,24 @@ class Entries::ApiSubmissionTest < ActiveSupport::TestCase
     assert_equal 1, TransactionLog.where(user: @user, transaction_type: "entry_fee").count
     assert_equal 1, Message.where(contest: @contest, user: @user, system: true).count
   end
+
+  # --- the entry payment state machine (Entry::Payment) --------------------------
+
+  test "a website payment still unresolved for this player answers 409 in progress and spends nothing" do
+    cart = @contest.entries.create!(user: @user, status: :cart)
+    on_chain(@vault) { cart.pin_payment_slot!("PhantomWallet", @vault) }
+    cart.begin_phantom_charge!(signature: "phantom-sig", wallet: "PhantomWallet", last_valid_block_height: 1_150)
+
+    result = submit
+    assert_error result, :idempotency_in_progress, :conflict
+    assert_empty @vault.tickets
+    assert_empty @vault.spent_tokens
+    assert_equal [cart.id], entries.pluck(:id), "the API built no second row"
+
+    cart.release_payment!(:expired)
+    retried = submit # CONTROL: once it settles, the same key enters
+    assert_nil retried.error_code, retried.message
+    assert_equal 1, @vault.tickets.size
+    assert_equal "confirmed", entries.find_by(status: :active).payment_state
+  end
 end

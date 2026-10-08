@@ -75,7 +75,7 @@ class RpcSustained429RequestBudgetTest < ActionDispatch::IntegrationTest
     assert_response :unprocessable_entity
     body = JSON.parse(response.body)
     assert_equal false, body["success"]
-    assert_equal "The Solana network is busy right now — please try again in a moment.", body["error"]
+    assert_equal Entries::PaymentCopy.message(:rpc_unreachable), body["error"]
     refute_match(/HTTP 429|Too many requests/, body["error"], "the raw RPC string must not reach the player")
 
     assert_operator rpc.slept.sum, :<=, SolanaWaitBudget::ENSURE_USER_ACCOUNT

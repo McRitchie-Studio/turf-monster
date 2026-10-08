@@ -104,4 +104,18 @@ class SidekiqCronScheduleTest < ActiveSupport::TestCase
                        "no worker can perform"
     end
   end
+
+  # The entry payment sweep replaced the dead pending_transaction_sweeper, whose
+  # scope matched no row. It must be on the schedule, as an ActiveJob.
+  test "the entry payment sweep is scheduled as an ActiveJob, and the dead sweeper is gone" do
+    schedule = YAML.load_file(Rails.root.join("config/schedule.yml"))
+    entry = schedule.fetch("entry_payment_sweep")
+
+    assert_equal "Entries::PaymentSweepJob", entry["class"]
+    assert_equal true, entry["active_job"]
+    assert_operator Entries::PaymentSweepJob, :<, ApplicationJob
+    assert_equal :reconcile_sweep, Entries::PaymentSweepJob.rpc_long_budget
+    refute schedule.key?("pending_transaction_sweeper")
+    refute Object.const_defined?(:PendingTransactionSweeperJob)
+  end
 end
