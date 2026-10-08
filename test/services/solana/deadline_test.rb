@@ -9,14 +9,7 @@ class SolanaDeadlineTest < ActiveSupport::TestCase
   setup { @now = [1_000.0] }
 
   def throttled(**opts)
-    rpc = ThrottledRpc.client(**opts)
-    slept = rpc.slept
-    now = @now
-    rpc.define_singleton_method(:sleep) do |seconds|
-      slept << seconds
-      now[0] += seconds
-    end
-    rpc
+    ThrottledRpc.client(on_sleep: ->(seconds) { @now[0] += seconds }, **opts)
   end
 
   def fake_clock(&block)

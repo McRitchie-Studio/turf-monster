@@ -2039,6 +2039,8 @@ class ContestsController < ApplicationController
   # escalated to Rails.logger.error so ops sees it; rescue_and_log has
   # already persisted an error_logs row with the full backtrace.
   def render_entry_error(exception)
+    return render_rpc_deadline(exception) if exception.is_a?(Solana::Deadline::Exceeded)
+
     # rescue_and_log persists an error_logs row for any fault raised INSIDE its
     # block (and sets @_error_logged). But the entry endpoints (enter,
     # prepare_entry, confirm_onchain_entry) do guard/auth work BEFORE that block

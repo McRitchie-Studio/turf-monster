@@ -1,25 +1,26 @@
 # How long a Solana RPC call made from a web request may spend WAITING
-# between retries (solana-studio >= 0.12.3, Solana::Client wait budgets).
+# between retries (Solana::Client wait budgets, solana-studio >= 0.12.3).
 #
-# The gem's default budget is 15 seconds of waits per #call. That suits a
-# Sidekiq job, which has no deadline. It does not suit a request: Heroku cuts
-# a request at 30 seconds, and a page or JSON endpoint that makes two or three
-# throttled calls at 15 seconds each answers with a router H12 instead of an
-# error the client can show. So every request runs under REQUEST seconds per
-# call, and the paths named below run tighter still.
+# Two bounds apply to every request:
 #
-# The budget bounds the SLEEPS between attempts only, not the time an attempt
-# spends on the wire (the gem's own open/read timeouts), and it is per #call,
-# not per request. It is thread-local: `Solana::Client.with_wait_budget` sets
-# it for the current thread, so a Thread.new body must open its own block
-# (see ApplicationController#fetch_navbar_hydrate).
+#   * per call: REQUEST seconds of waits, or the tighter budget a path below
+#     names. A call its own budget stops raises its last error (an HttpError
+#     429, say), which Solana::ErrorInterpreter words as "network is busy".
+#   * per request: Solana::Deadline::WEB seconds from the start. Each call
+#     waits the smaller of its own budget and the time left, and a call the
+#     deadline stops raises Solana::Deadline::Exceeded, answered 503 below.
 #
-# When the budget stops a call, the call raises its last error at once
-# (`Solana::Client::HttpError` 429, say), with `call_stats.budget_stopped`
-# set. Every caller already handles that error; Solana::ErrorInterpreter
-# turns a rate limit into a "network is busy" message.
+# Solana::Deadline lists what runs outside the deadline: a send and what
+# follows it, and the LONG_BUDGET calls. LONG_BUDGET_ACTIONS names the
+# actions that run there whole.
 #
-# Jobs do not include this, and keep the gem's 15-second default.
+# Both bounds cover the SLEEPS between attempts, not the time an attempt
+# spends on the wire (the gem's own open and read timeouts). The per-call
+# budget is thread-local and the deadline lives on Current, so a Thread.new
+# body opens its own (#under_navbar_hydrate_budget).
+#
+# Jobs do not include this: ApplicationJob sets their deadline, and their
+# calls keep the gem's 15-second default.
 module SolanaWaitBudget
   extend ActiveSupport::Concern
 
@@ -35,11 +36,38 @@ module SolanaWaitBudget
   included do
     # Prepended so the before_actions that read the chain run inside it too.
     prepend_around_action :run_under_solana_wait_budget
+    rescue_from Solana::Deadline::Exceeded, with: :render_rpc_deadline
   end
 
   private
 
   def run_under_solana_wait_budget(&block)
-    Solana::Client.with_wait_budget(SolanaWaitBudget::REQUEST, &block)
+    Solana::Client.with_wait_budget(SolanaWaitBudget::REQUEST) do
+      Solana::Deadline.within(Solana::Deadline::WEB) do
+        name = Solana::Deadline::LONG_BUDGET_ACTIONS["#{controller_path}##{action_name}"]
+        name ? Solana::Deadline.long_budget(name, &block) : block.call
+      end
+    end
+  end
+
+  # One navbar hydrate read, inside its own thread. `deadline` is the
+  # request's Solana::Deadline.current, read before the thread starts.
+  def under_navbar_hydrate_budget(deadline, &block)
+    Solana::Deadline.at(deadline) do
+      Solana::Client.with_wait_budget(SolanaWaitBudget::NAVBAR_HYDRATE, &block)
+    end
+  end
+
+  # 503 with Retry-After. Exceeded is raised only before any send, so the
+  # body's "nothing was sent" holds.
+  def render_rpc_deadline(error)
+    response.set_header("Retry-After", Solana::Deadline::RETRY_AFTER.to_s)
+    if respond_to?(:render_api_error, true)
+      render_api_error(:rpc_deadline, error.message, status: :service_unavailable)
+    elsif request.format.html?
+      render plain: error.message, status: :service_unavailable
+    else
+      render json: { error: error.message, error_code: "RPC_DEADLINE" }, status: :service_unavailable
+    end
   end
 end
