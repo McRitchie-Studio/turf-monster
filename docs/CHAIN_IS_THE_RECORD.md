@@ -77,10 +77,20 @@ decision log at the end.
   `Contest::MAX_PAID_RANKS` is 4; `Contest#payout_table_cents` is snapshotted on
   create (`snapshot_payout_table`, `attr_readonly`) and is what
   `Contest#onchain_params` writes as `payout_amounts`. `Solana::Vault#assert_settle_fits_one_packet!`
-  names the failure if a table ever outgrows one transaction.
+  names the failure if a table ever outgrows one transaction. A contest whose
+  table has more than `MAX_PAID_RANKS` ranks is invalid on create
+  (`Contest#payout_table_settles`); the create and bundle endpoints answer 422
+  with the reason before a transaction is built.
+- **Contests that opened with a longer table.** `bin/rails contests:payout_census`
+  (SELECT only) lists every unsettled contest whose table is over the limit or
+  missing. `TABLE_CENTS=… bin/rails "contests:reshape_payout[slug]"` replaces one
+  unsettled contest's table: it is a dry run without `WRITE=1`, and it refuses a
+  table over the limit or one whose sum differs from the contest's prize pool.
 - **Ties** (`Contest::PayoutSplit`): entries order by score, then `entries.id`.
   A tie inside the paid ranks pools the tied places' prizes and splits them; a tie
-  at the last paid rank pays the earliest entry alone.
+  that straddles the last paid rank pays the earlier entries, in join order
+  (`entries.id`), so a tie exactly at the last paid rank pays the earliest entry
+  alone.
 - **Settle is built before the contest reads settled.** `Contest#grade!` ranks,
   writes `rank` and `payout_cents`, writes `TransactionLog` payout credits with
   `amount_cents`, calls `settle_onchain!` (which queues a `settle_contest`
