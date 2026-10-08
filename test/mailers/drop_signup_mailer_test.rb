@@ -148,11 +148,57 @@ class DropSignupMailerTest < ActionMailer::TestCase
 
   # --- image seam ----------------------------------------------------------------
 
-  teardown { DropSignupMailer.hero_image_resolver = nil }
+  teardown { DropSignupMailer.hero_image_resolver = DropSignupMailer::CATALOG_HERO }
 
-  test "with no hero image resolver the emails carry no image" do
+  test "the default resolver is the email catalog" do
+    assert_same DropSignupMailer::CATALOG_HERO, DropSignupMailer.hero_image_resolver
+  end
+
+  # The real default, not a stub: neither catalog key has a default_asset and
+  # nothing is uploaded in the test DB, so resolved_url is nil.
+  test "with no banner in the catalog the emails carry no image and keep their headline" do
     %i[confirmation announcement].each do |kind|
-      refute_includes DropSignupMailer.public_send(kind, signup("#{kind}@example.com")).html_part.body.to_s, "<img"
+      assert_nil Studio::EmailCatalog.resolved_url(DropSignupMailer::CATALOG_KEYS[kind])
+      mail = DropSignupMailer.public_send(kind, signup("#{kind}@example.com"))
+      html = mail.html_part.body.to_s
+      refute_includes html, "<img", kind.to_s
+      refute_includes html, "src=\"\"", kind.to_s
+    end
+    assert_includes DropSignupMailer.confirmation(signup("c2@example.com")).html_part.body.to_s, "You&#39;re on the list."
+    assert_includes DropSignupMailer.announcement(signup("a2@example.com")).html_part.body.to_s, "Weeks 7–9 is live."
+  end
+
+  test "the catalog's banner URL renders as the header with the headline as alt, per email key" do
+    asked = []
+    fake = lambda do |key|
+      asked << key
+      "https://bucket.example.com/emails/#{key}.jpg"
+    end
+    Studio::EmailCatalog.stub(:resolved_url, fake) do
+      confirmation = DropSignupMailer.confirmation(signup("c@example.com")).html_part.body.to_s
+      assert_includes confirmation, %(src="https://bucket.example.com/emails/drop_signup_confirmation.jpg")
+      assert_includes confirmation, %(alt="You&#39;re on the list.")
+
+      announcement = DropSignupMailer.announcement(signup("a@example.com"), variant: :existing_player).html_part.body.to_s
+      assert_includes announcement, %(src="https://bucket.example.com/emails/drop_signup_announcement.jpg")
+      assert_includes announcement, %(alt="Weeks 7–9 is live.")
+    end
+    assert_equal %w[drop_signup_confirmation drop_signup_announcement], asked
+  end
+
+  # ONE header per email: both audience variants read the same key.
+  test "both variants of an email share one catalog key" do
+    %i[new_player existing_player].each do |variant|
+      assert_equal({ url: "u" }, Studio::EmailCatalog.stub(:resolved_url, ->(key) { key == "drop_signup_confirmation" ? "u" : nil }) {
+        DropSignupMailer::CATALOG_HERO.call(:confirmation, variant, nil)
+      })
+    end
+  end
+
+  test "with the resolver turned off the emails carry no image" do
+    DropSignupMailer.hero_image_resolver = nil
+    Studio::EmailCatalog.stub(:resolved_url, "https://bucket.example.com/x.jpg") do
+      refute_includes DropSignupMailer.confirmation(signup("off@example.com")).html_part.body.to_s, "<img"
     end
   end
 

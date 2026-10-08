@@ -174,6 +174,45 @@ Rails.application.config.to_prepare do
     }
   )
 
+  # THE SLATE-DROP EMAILS (DropSignupMailer) — "You're on the list" and "<slate>
+  # is live". ONE key per email, not per audience: each has a new-player and an
+  # existing-player variant chosen at send time, and both share one header
+  # (Mr. McRitchie's call). The mailer reads its header from here through
+  # DropSignupMailer::CATALOG_HERO, so an upload on /admin/emails ships in the
+  # real send with no deploy.
+  #
+  # NO default_asset YET, deliberately: no header has been approved. With none
+  # registered and nothing uploaded, resolved_url is nil and the mail renders
+  # text-only (no <img>, so no broken image). When the email-image SOP exports
+  # an approved header, commit it under app/assets/images/emails/ and name it
+  # here as default_asset — the floor an operator upload still overrides.
+  #
+  # Both :transactional by Mr. McRitchie's call, though the announcement goes
+  # out from the marketing voice (DropSignupMailer#announcement sets `from:`).
+  #
+  # PREVIEWS are the new-player variant on an UNSAVED DropSignup, like
+  # DropSignupMailerPreview: an unsaved row mints no magic link and writes
+  # nothing. The existing-player variants are at /rails/mailers/drop_signup_mailer.
+  drop_signup_preview = lambda do
+    DropSignup.new(email: "new-player@example.com", slate_key: NextSlateDrop::SLATE_KEY, source: "tiktok")
+  end
+
+  Studio::EmailCatalog.register(
+    DropSignupMailer::CATALOG_KEYS[:confirmation],
+    label: "Slate drop — you're on the list",
+    description: "Sent once when an address joins a slate-drop notify-me list (new and existing players share the header).",
+    type: :transactional,
+    preview: -> { DropSignupMailer.confirmation(drop_signup_preview.call, variant: :new_player) }
+  )
+
+  Studio::EmailCatalog.register(
+    DropSignupMailer::CATALOG_KEYS[:announcement],
+    label: "Slate drop — the slate is live",
+    description: "Sent once per address when an admin sends the drop announcement (new and existing players share the header).",
+    type: :transactional,
+    preview: -> { DropSignupMailer.announcement(drop_signup_preview.call, variant: :new_player) }
+  )
+
   Studio::EmailCatalog.register(
     "newsletter_welcome",
     label: "Newsletter welcome",

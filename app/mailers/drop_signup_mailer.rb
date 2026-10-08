@@ -43,13 +43,31 @@ class DropSignupMailer < ApplicationMailer
   # day or two after it. Passed per mint; the app default is untouched.
   LINK_TTL = { confirmation: 7.days, announcement: 48.hours }.freeze
 
+  # The /admin/emails catalog key for each email's header. ONE header per email,
+  # shared by both audience variants (Mr. McRitchie's call): the variant changes
+  # the copy and the CTA, never the picture. Registered in
+  # config/initializers/studio_emails.rb.
+  CATALOG_KEYS = { confirmation: "drop_signup_confirmation", announcement: "drop_signup_announcement" }.freeze
+
   # THE IMAGE SEAM. Each email may open with a hero image, drawn by the
-  # branded_mailer layout from @banner_url / @banner_alt: an <img> with alt
-  # text when a URL is present, nothing at all when it is nil. Nothing supplies
-  # one today; the in-house email-image system plugs in here, as a callable
-  # (kind, variant, signup) -> { url:, alt: } or nil. Leave it nil and every
-  # email renders text-only.
-  class_attribute :hero_image_resolver, default: nil
+  # branded_mailer layout from @banner_url / @banner_alt: an <img> with alt text
+  # when a URL is present, nothing at all when it is nil.
+  #
+  # The default reads Studio::EmailCatalog.resolved_url for the email's catalog
+  # key, so a banner an operator uploads on /admin/emails ships in the real send
+  # with no deploy. Neither key registers a default_asset yet, so with nothing
+  # uploaded resolved_url is nil and the email renders text-only, exactly as it
+  # did before the catalog was wired. The alt is the email's headline.
+  #
+  # Still a seam: any callable (kind, variant, signup) -> { url:, alt: } or nil
+  # replaces it (tests stub it; nil turns images off entirely).
+  CATALOG_HERO = lambda do |kind, _variant, _signup|
+    key = CATALOG_KEYS[kind.to_sym]
+    url = key && Studio::EmailCatalog.resolved_url(key)
+    url.present? ? { url: url } : nil
+  end
+
+  class_attribute :hero_image_resolver, default: CATALOG_HERO
 
   def confirmation(signup, variant: nil)
     prepare(signup, variant)
@@ -98,13 +116,20 @@ class DropSignupMailer < ApplicationMailer
     @label   = NextSlateDrop.display_label
     @drops_at_label = NextSlateDrop.drops_at_label
     @variant = resolve_variant(signup, variant)
+    @headline = headline_for(action_name.to_sym)
     hero = hero_image_resolver&.call(action_name.to_sym, @variant, signup)
     @banner_url = hero&.dig(:url).presence
-    @banner_alt = hero&.dig(:alt).presence || "#{@label} — Turf Monster"
+    @banner_alt = hero&.dig(:alt).presence || @headline
     @unsubscribe_url = drop_unsubscribe_url(signup.persisted? ? signup.unsubscribe_token : PREVIEW_TOKEN)
 
     headers["List-Unsubscribe"] = "<#{@unsubscribe_url}>"
     headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
+  end
+
+  # The bold first line of each email, and the header image's alt text: a reader
+  # whose client blocks images reads the same words the picture carries.
+  def headline_for(kind)
+    kind == :announcement ? "#{@label} is live." : "You're on the list."
   end
 
   def resolve_variant(signup, forced)
