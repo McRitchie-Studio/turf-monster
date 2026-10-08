@@ -118,6 +118,73 @@ class EmailBannerTest < ActionDispatch::IntegrationTest
     assert_includes response.body, "magic-link-background"
   end
 
+  # --- the slate-drop emails ---------------------------------------------------
+
+  DROP_KEYS = %w[drop_signup_confirmation drop_signup_announcement].freeze
+
+  test "the two slate-drop emails are registered, transactional, previewable and bannerless by default" do
+    DROP_KEYS.each do |key|
+      assert Studio::EmailCatalog.registered?(key), "#{key} must be on /admin/emails"
+      assert_equal :transactional, Studio::EmailCatalog.type(key)
+      assert Studio::EmailCatalog.entry(key).previewable?
+      # No approved header yet: the engine's no-art path, which the mailer
+      # renders as a text-only email rather than a broken image.
+      assert_equal :none, Studio::EmailCatalog.source(key)
+      assert_nil Studio::EmailCatalog.resolved_url(key)
+    end
+    assert_equal DROP_KEYS, DropSignupMailer::CATALOG_KEYS.values
+  end
+
+  # THE ACCEPTANCE: a banner uploaded on /admin/emails shows in the real send.
+  test "a banner uploaded for a slate-drop email ships in that email" do
+    Studio::S3.stub(:upload, ->(**_) { "https://bucket.s3.amazonaws.com/x" }) do
+      Studio::S3.stub(:delete, ->(**_) { nil }) do
+        Studio::EmailCatalog.store(:drop_signup_announcement, io: StringIO.new("fake-png-bytes"), content_type: "image/png")
+      end
+    end
+    record = Studio::EmailCatalog.record(:drop_signup_announcement)
+    assert_equal :app, Studio::EmailCatalog.source(:drop_signup_announcement)
+
+    row = DropSignup.create!(email: "drop-banner@example.com", slate_key: NextSlateDrop::SLATE_KEY)
+    html = DropSignupMailer.announcement(row).html_part.body.to_s
+    assert_includes html, record.s3_key, "the uploaded banner must be the announcement's header"
+    assert_match(/<img[^>]+alt="#{Regexp.escape(NextSlateDrop.display_label)} is live\."/, html)
+
+    # The confirmation has its own key and stays bannerless.
+    refute_includes DropSignupMailer.confirmation(row).html_part.body.to_s, "<img"
+  end
+
+  test "the manager lists the slate-drop emails to admins only, and previews them" do
+    get admin_emails_path
+    assert_redirected_to signin_path
+
+    log_in_as(users(:alex))
+    get admin_emails_path
+    assert_response :success
+    assert_includes response.body, "Slate drop — you&#39;re on the list"
+    assert_includes response.body, "Slate drop — the slate is live"
+
+    { "drop_signup_confirmation" => "You&#39;re on the list.",
+      "drop_signup_announcement" => "is live." }.each do |key, headline|
+      assert_no_difference -> { Studio::Link.count } do
+        get admin_email_path(key)
+        assert_response :success
+        get admin_email_raw_path(key)
+        assert_response :success
+      end
+      assert_includes response.body, headline, "#{key} preview must render the real mailer"
+      refute_includes response.body, "<img src=\"\"", key
+    end
+  end
+
+  test "a non-admin is refused the slate-drop email pages" do
+    log_in_as(users(:jordan))
+    get admin_emails_path
+    assert_response :redirect
+    get admin_email_raw_path("drop_signup_confirmation")
+    assert_response :redirect
+  end
+
   # REGRESSION GUARD. turf-monster's own routes.rb used to define admin_emails
   # and admin_email; the engine page was opt-in ONLY to avoid that collision.
   # Those routes are deleted, so these helpers must now resolve to the ENGINE's
