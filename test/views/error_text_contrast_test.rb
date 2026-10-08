@@ -139,6 +139,9 @@ class ErrorTextContrastTest < ActiveSupport::TestCase
 
   COMPILED_CSS = Rails.root.join("app/assets/builds/tailwind.css").freeze
   AA_SMALL_TEXT = 4.5
+  # A red tuned to clear AA on the bare dark surfaces and nothing else; the
+  # control for the composite model reads it on a tint.
+  SURFACE_TUNED_INK = "#F48484"
   VOID_TAGS = %w[area base br col embed hr img input link meta param source track wbr].freeze
 
   # ── colour space ──────────────────────────────────────────────────────────
@@ -686,25 +689,32 @@ class ErrorTextContrastTest < ActiveSupport::TestCase
                            "bg-red-500/20 over the light card, in the oklch form Tailwind emits."
   end
 
-  test "a tinted panel is composited, so danger-ink on bg-red-500/10 is NOT read as if on the card" do
-    # This is the case that nearly shipped: text-danger-ink inside the
-    # leaderboard's old `bg-red-500/10` box measures 4.50:1 against the DARK
-    # card and passes, but 4.25:1 against the tint the user actually sees.
-    # (That second figure read 3.78:1 while composite() blended in linear light.
-    # The verdict never changed — both fail AA — but the number was a model
-    # artefact, and it reached docs/UI_PATTERNS.md before anyone noticed.)
+  test "a tinted panel is composited, so text on bg-red-500/10 is NOT read as if on the card" do
+    # A red tint lowers what red text measures, so the guard reads the tint and
+    # not the card under it. SURFACE_TUNED_INK is a red tuned to the bare dark
+    # surfaces alone (the danger-ink studio-engine derived through 0.95): it
+    # clears AA on the card at 4.50:1 and fails on the tint at 4.25:1. A guard
+    # that skipped the composite would call that panel fine.
+    #
+    # The app's own danger-ink is held only to the direction here, because its
+    # verdict on a tint belongs to the engine: an engine that derives the ink
+    # against its own tint clears this one too.
     dark_card = surfaces(:dark)["--color-surface"]
-    ink       = resolve("var(--color-danger-ink)", :dark)
     red500    = resolve("var(--color-red-500)", :dark)
     tinted    = composite(red500, 0.10, dark_card)
 
-    assert_operator contrast(ink, dark_card), :>=, AA_SMALL_TEXT,
-                    "danger-ink clears AA on the bare dark card — which is exactly why measuring " \
-                    "only the theme surfaces would have called the tinted panel fine."
-    assert_operator contrast(ink, tinted), :<, AA_SMALL_TEXT,
-                    "danger-ink on a 10% red tint over the dark card is " \
-                    "#{format('%.2f', contrast(ink, tinted))}:1. If this ever passes, the tint is " \
-                    "no longer a hazard and this control can go."
+    assert_operator contrast(SURFACE_TUNED_INK, dark_card), :>=, AA_SMALL_TEXT,
+                    "the surface-tuned red clears AA on the bare dark card, which is exactly why " \
+                    "measuring only the theme surfaces would have called the tinted panel fine."
+    assert_operator contrast(SURFACE_TUNED_INK, tinted), :<, AA_SMALL_TEXT,
+                    "the surface-tuned red on a 10% red tint over the dark card is " \
+                    "#{format('%.2f', contrast(SURFACE_TUNED_INK, tinted))}:1. If this passes, the " \
+                    "composite no longer darkens the backdrop: fix composite(), do not delete this."
+
+    ink = resolve("var(--color-danger-ink)", :dark)
+    assert_operator contrast(ink, dark_card), :>=, AA_SMALL_TEXT
+    assert_operator contrast(ink, tinted), :<, contrast(ink, dark_card) - 0.2,
+                    "danger-ink reads the same on the tint as on the card, so the tint was not composited"
   end
 
   test "the ancestor scan finds a real enclosing background, and does not invent one" do
