@@ -28,10 +28,10 @@
 # ── the ceremony this file is waiting on ─────────────────────────────────────
 #
 # turf-monster-qa and turf-monster-mainnet carry the SAME SOLANA_ADMIN_KEY
-# (compared by hash 2026-09-25; re-derived from QA's config 2026-10-08, public
-# key only). `qa.system_wallet` below names the key QA is MEANT to hold. It was
-# filed ahead of the config flip on purpose: until Mr. McRitchie signs the
-# devnet signer change in docs/qa-signing-key-rotation.md and turf-monster-qa is
+# (compared by hash 2026-09-25). `qa.system_wallet` below names the key QA is
+# MEANT to hold. It is filed ahead of the config flip on purpose: until
+# Mr. McRitchie signs the devnet signer change in
+# docs/qa-signing-key-rotation.md and turf-monster-qa is
 # pointed at that key, the guard reports two findings for qa (it holds
 # production's wallet, and its key is not its filed wallet). They clear together,
 # on the day QA's SOLANA_ADMIN_KEY derives the filed key, with no further PR.
@@ -61,8 +61,8 @@ environments:
     deployed: true
     heroku_app: turf-monster-qa
     # 1Password `solana.turf.system.devnet` (vault studio-agents): the devnet
-    # server key, filed 2026-09-15 and never yet loaded by an app. Its stored
-    # secret derives this address (checked 2026-10-08, public key only). It is
+    # server key, which no app loads yet. Its stored secret derives this
+    # address (task turf-qa-gets-own-signer; public key only). It is
     # NOT yet a devnet VaultState signer, so QA cannot be pointed at it until
     # the ceremony seats it. Today QA still holds production's key, which is
     # exactly the finding the guard reports.
