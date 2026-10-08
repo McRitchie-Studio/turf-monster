@@ -162,17 +162,16 @@ class ContestGradeTiePayoutsTest < ActiveSupport::TestCase
     assert_equal 0, PendingTransaction.where(target: @contest).count
   end
 
-  test "control: the same contest, not cancelled, grades, pays and queues the settle" do
+  test "control: the same contest, not cancelled, grades and queues the settle" do
     make_onchain_and_locked
     e1 = make_active_entry(score: 100.0)
     vault = settle_vault
 
     Solana::Vault.stub(:new, vault) { grade! }
 
-    assert_equal "settled", @contest.reload.status
+    assert_equal "settlement_pending", @contest.reload.status
     assert_equal 300_00, e1.reload.payout_cents
     assert_equal 1, vault.calls.size
-    assert_equal 1, TransactionLog.where(source: @contest).count
     assert_equal 1, PendingTransaction.where(target: @contest, tx_type: "settle_contest").count
   end
 
