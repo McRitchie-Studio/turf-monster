@@ -787,7 +787,7 @@ class ContestsController < ApplicationController
 
     # The cart entry is created by toggle_selection.
     entry = @contest.entries.cart.find_by(user: current_user)
-    return redirect_to contests_path, alert: "No cart entry found" unless entry
+    return render_no_cart_to_enter unless entry
 
     # Attribute any RPC writes spawned by this action to the cart entry —
     # OutboundRequestLogger falls back to Current.outbound_source so future
@@ -1499,9 +1499,9 @@ class ContestsController < ApplicationController
     end
 
     rescue_and_log(target: entry, parent: @contest) do
-      if entry
-        entry.update!(status: :abandoned)
-      end
+      # Locked and re-read (Entry::Payment#abandon_draft_cart!): a payment that
+      # began after the cart was loaded keeps it, and the player is told which.
+      return render_cart_kept(entry) unless entry.nil? || entry.abandon_draft_cart!
 
       respond_to do |format|
         format.html { redirect_to contests_path, notice: "Picks cleared" }
@@ -3154,6 +3154,28 @@ class ContestsController < ApplicationController
     raise "Lock timestamp can't be negative" if ts.negative?
 
     ts
+  end
+
+  # POST /enter with no cart: the duplicate of a hold that already confirmed,
+  # or a cart cleared elsewhere. JSON is answered 409 with the reason, never a
+  # redirect (the board cannot parse one). The player's most recent row in the
+  # contest says which.
+  def render_no_cart_to_enter
+    return redirect_to(contests_path, alert: "No cart entry found") unless request.format.json?
+
+    latest = @contest.entries.where(user: current_user).order(updated_at: :desc, id: :desc).first
+    return render_first_payment_landed(latest, as_success: false) if latest&.active? || latest&.complete?
+
+    render json: { success: false, code: "no_cart", error: "There are no picks to enter. Add your picks and try again." },
+           status: :conflict
+  end
+
+  # Clear Picks found the cart no longer a draft: it is kept. Confirmed means
+  # the player is in; anything else is a payment still unresolved.
+  def render_cart_kept(entry)
+    return render_first_payment_landed(entry, as_success: false) if entry.active? || entry.complete?
+
+    render_entry_payment_pending(entry, status: :conflict)
   end
 
   # OPSEC-048: FrozenAccountGuard refuses a frozen account every write but this.

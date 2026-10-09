@@ -333,4 +333,55 @@ class EntryPaymentTest < ActiveSupport::TestCase
     other.update!(status: :abandoned)
     assert other.reload.abandoned?
   end
+
+  # --- a payment that begins after the row was loaded ---------------------------
+
+  test "a stamp that lands after clear_picks loaded the cart keeps the cart, its slot and the in-flight key" do
+    entry = pinned
+    loaded = Entry.find(entry.id) # what the clear request holds
+    submitted(Entry.find(entry.id)).record_payment_attempt!(signature: "racing-sig", last_valid_block_height: 1_150)
+
+    assert_equal false, loaded.abandon_draft_cart!
+    assert_equal ["cart", "submitted", 0, "racing-sig"],
+                 entry.reload.values_at(:status, :payment_state, :entry_number, :payment_signature)
+  end
+
+  test "a cart confirmed after it was loaded is not abandoned" do
+    entry = pinned
+    loaded = Entry.find(entry.id)
+    entry.update!(status: :active)
+
+    assert_equal false, loaded.abandon_draft_cart!
+    assert_equal %w[active confirmed], entry.reload.values_at(:status, :payment_state)
+  end
+
+  test "CONTROL: a draft cart clears and gives up its slot; one carrying an on-chain signature keeps it" do
+    plain = pinned
+    assert_equal true, plain.abandon_draft_cart!
+    assert_equal ["abandoned", "draft", nil], plain.reload.values_at(:status, :payment_state, :entry_number)
+    assert_equal true, plain.abandon_draft_cart!, "clearing twice is still cleared"
+
+    signed = pinned
+    signed.update_columns(onchain_tx_signature: "landed-sig")
+    assert_equal true, signed.abandon_draft_cart!
+    assert_equal ["abandoned", 0], signed.reload.values_at(:status, :entry_number)
+  end
+
+  test "a row deleted from a copy loaded before its payment began stays" do
+    entry = pinned
+    loaded = Entry.find(entry.id) # a pick tap or a logout holding the draft
+    submitted(Entry.find(entry.id))
+
+    assert_raises(ActiveRecord::RecordNotDestroyed) { loaded.destroy! }
+    assert_equal ["submitted", 6], [entry.reload.payment_state, entry.selections.count]
+  end
+
+  test "CONTROL: a draft cart is deleted, and an operator's reset still takes an in-flight row" do
+    draft = cart
+    draft.destroy!
+    held = submitted
+    Entry.lifting_payment_guard { held.destroy! }
+
+    assert_empty Entry.where(id: [draft.id, held.id])
+  end
 end
