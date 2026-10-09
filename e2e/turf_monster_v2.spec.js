@@ -102,19 +102,17 @@ test.describe("turf-monster-v2 explainer", () => {
     await page.goto("/turf-monster-v2");
     const laptop = page.locator('[data-test="laptop-mock"]');
     await expect(laptop).toBeVisible();
-    await expect(laptop.locator('[data-test="laptop-lobby"]')).toContainText("Contests");
-    // A live snapshot, when there is one, is a 1280px desktop canvas scaled
-    // into the screen, so nothing in it is squeezed into an ellipsis.
+    await expect(laptop.locator('[data-test="laptop-screen"]')).toContainText("Turf Monster Showcase");
+    // The live snapshot is a 1280px desktop canvas scaled into the screen, so
+    // nothing in it is squeezed into an ellipsis.
     const canvas = laptop.locator('[data-test="laptop-canvas"]');
-    if (await canvas.count()) {
-      const m = await canvas.evaluate((c) => ({
-        width: c.offsetWidth,
-        squeezed: [...c.querySelectorAll("*")].filter((e) => e.children.length === 0 && e.textContent.trim() &&
-          e.scrollWidth > e.clientWidth + 1 && getComputedStyle(e).overflow !== "visible").length
-      }));
-      expect(m.width).toBe(1280);
-      expect(m.squeezed).toBe(0);
-    }
+    const m = await canvas.evaluate((c) => ({
+      width: c.offsetWidth,
+      squeezed: [...c.querySelectorAll("*")].filter((e) => e.children.length === 0 && e.textContent.trim() &&
+        e.scrollWidth > e.clientWidth + 1 && getComputedStyle(e).overflow !== "visible").length
+    }));
+    expect(m.width).toBe(1280);
+    expect(m.squeezed).toBe(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth === document.documentElement.clientWidth)).toBe(true);
 
     await page.setViewportSize({ width: 375, height: 800 });
@@ -164,27 +162,10 @@ test.describe("turf-monster-v2 explainer", () => {
   });
 });
 
-// THE LAPTOP'S SIMULATED TOUCHDOWNS (LaptopScoreSimulation). The laptop shows a
-// live page only while an NFL contest is being played, so the spec LOCKS
-// nfl-weeks-15-17 through the real admin path (as nfl_live_scoreboard.spec.js
-// does: off-chain, it only moves starts_at) and hands it back open after, pass
-// or fail. The visitor is a separate, signed-out context.
-const SIM_CONTEST = "nfl-weeks-15-17";
-
-async function setLock(page, slug, inSeconds) {
-  await page.goto(`/contests/${slug}`);
-  const status = await page.evaluate(async ([contestSlug, seconds]) => {
-    const token = document.querySelector('meta[name="csrf-token"]');
-    const res = await fetch(`/contests/${contestSlug}/lock`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-CSRF-Token": token ? token.content : "" },
-      body: JSON.stringify({ in_seconds: seconds }),
-    });
-    return res.status;
-  }, [slug, inSeconds]);
-  expect(status).toBeLessThan(400);
-}
-
+// THE LAPTOP'S SIMULATED TOUCHDOWNS (LaptopScoreSimulation), over the
+// FICTIONAL showcase (LaptopFictionalShowcase): the laptop always shows it, on
+// any date and whatever the seed holds, so no contest needs locking. The
+// visitor is a signed-out context.
 // The featured game's two scores, away then home, as the visible tile shows them.
 function featuredScore(page) {
   return page.evaluate(() => {
@@ -196,15 +177,6 @@ function featuredScore(page) {
 }
 
 test.describe("turf-monster-v2 laptop: simulated live scoring", () => {
-  test.beforeEach(async ({ page }) => {
-    await loginAdmin(page);
-    await setLock(page, SIM_CONTEST, 0);
-  });
-  test.afterEach(async ({ page }) => {
-    await loginAdmin(page);
-    await setLock(page, SIM_CONTEST, 3600);
-  });
-
   test("at 1920 the game opens at 3-7 and a touchdown lands within ten seconds", async ({ browser }) => {
     const context = await browser.newContext({ viewport: { width: 1920, height: 1080 }, timezoneId: "America/Denver" });
     const page = await context.newPage();
@@ -216,13 +188,29 @@ test.describe("turf-monster-v2 laptop: simulated live scoring", () => {
     await expect(page.locator('[data-test="laptop-sim"]')).toHaveAttribute("data-opening", "3-7");
     expect(await featuredScore(page)).toBe("3-7");
 
-    // The kickoffs on the strip read in the visitor's zone, as on /live.
-    const kickoffs = await page.evaluate(() =>
-      [...document.querySelectorAll('[data-test="laptop-live"] time[data-role="kickoff"]')].map((t) => ({
-        text: t.textContent.trim(),
-        want: new Date(t.getAttribute("datetime")).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" }),
-      })));
-    for (const k of kickoffs) expect(k.text).toBe(k.want);
+    // THE FICTIONAL SLATE: the featured game is the 49ers (top row) at the
+    // Cowboys (bottom row), and the board holds Mason and Turf only.
+    const teams = await page.evaluate(() => {
+      const root = document.querySelector('[data-test="laptop-sim"]');
+      const tile = [...document.querySelectorAll('[data-test="laptop-live"] [data-test="live-focus-game"]')]
+        .find((t) => t.dataset.focusSlug === root.dataset.gameSlug);
+      return [...tile.querySelectorAll('[data-role="team-row"]')].map((r) => r.dataset.teamSlug)
+        .filter((slug, i, all) => all.indexOf(slug) === i);
+    });
+    expect(teams).toEqual(["san-francisco-49ers", "dallas-cowboys"]);
+    const tops = await page.locator('[data-test="laptop-live"] [data-test="live-focus-game"]:visible [data-role="team-row"]')
+      .evaluateAll((rows) => rows.map((r) => ({ slug: r.dataset.teamSlug, top: r.getBoundingClientRect().top })));
+    const sf = tops.find((r) => r.slug === "san-francisco-49ers");
+    const dal = tops.find((r) => r.slug === "dallas-cowboys");
+    expect(sf.top).toBeLessThan(dal.top);
+    const entrants = await page.locator('[data-test="laptop-live-leaderboard"] [data-role="entry-row"]')
+      .evaluateAll((els) => els.map((e) => e.dataset.entrySlug));
+    expect(entrants).toEqual(["showcase-mason", "showcase-turf"]);
+
+    // EVERGREEN: kickoffs are fixed weekday-and-time text, never a date, and
+    // the live script has no <time> to re-format in the visitor's zone.
+    await expect(page.locator('[data-test="laptop-live"] time')).toHaveCount(0);
+    await expect(page.locator('[data-test="laptop-live"]')).toContainText("Sun 6:20 PM");
 
     // The live page's own banner and the scoring line arrive with the score.
     await expect.poll(() => featuredScore(page), { timeout: 11_500, intervals: [250] }).toBe("10-7");
@@ -312,11 +300,11 @@ test.describe("turf-monster-v2 laptop: simulated live scoring", () => {
     await context.close();
   });
 
-  // THE SHOWCASE BOARD TRADES PLACES (Alex, 2026-10-06). nfl-weeks-15-17 has
-  // no real entries, so the laptop's board is the scripted showcase: Mason
-  // holds the featured game's home team, turf its away team. The first
-  // touchdown (away) puts turf on top; the second (home) puts Mason back. Read
-  // on Playwright's clock, from the board the live script re-ranks.
+  // THE SHOWCASE BOARD TRADES PLACES (Alex, 2026-10-06, 2026-10-09): Mason
+  // and Turf only; Mason holds the home Cowboys, Turf the away 49ers. The
+  // first touchdown (the 49ers') puts Turf on top; the second (the Cowboys')
+  // puts Mason back. Read on Playwright's clock, from the board the live
+  // script re-ranks.
   test("the showcase board trades first place with each touchdown", async ({ browser }) => {
     const context = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
     const page = await context.newPage();
@@ -324,16 +312,16 @@ test.describe("turf-monster-v2 laptop: simulated live scoring", () => {
     await page.clock.install();
     await page.goto("/turf-monster-v2");
     const board = page.locator('[data-test="laptop-live-leaderboard"]');
-    await expect(board).toHaveAttribute("id", /^contest_\d+_leaderboard$/);
+    await expect(board).toHaveAttribute("id", /^contest_-?\d+_leaderboard$/);
     const leader = () => board.locator('[data-role="entry-row"]').first().locator(".font-bold.truncate").textContent();
     const rows = () => board.locator('[data-role="entry-row"]').evaluateAll((els) => els.map((e) => e.dataset.entrySlug));
 
     expect((await leader()).trim()).toBe("Mason");
-    expect(await rows()).toEqual(["showcase-mason", "showcase-turf", "showcase-mack"]);
+    expect(await rows()).toEqual(["showcase-mason", "showcase-turf"]);
 
     await expect(page.locator('[data-test="laptop-sim"]')).toHaveAttribute("data-sim", "running");
     await page.clock.runFor(10_500);
-    await expect.poll(async () => (await leader()).trim()).toBe("turf");
+    await expect.poll(async () => (await leader()).trim()).toBe("Turf");
     // The crown and the place badge go with the order: the board is redrawn.
     const first = board.locator('[data-role="entry-row"]').first();
     await expect(first).toHaveAttribute("data-rank", "1");
@@ -341,7 +329,7 @@ test.describe("turf-monster-v2 laptop: simulated live scoring", () => {
 
     await page.clock.runFor(10_000);
     await expect.poll(async () => (await leader()).trim()).toBe("Mason");
-    expect(await rows()).toEqual(["showcase-mason", "showcase-turf", "showcase-mack"]);
+    expect(await rows()).toEqual(["showcase-mason", "showcase-turf"]);
     await context.close();
   });
 
