@@ -189,6 +189,15 @@ class Api::V1::ContestsControllerTest < ActionDispatch::IntegrationTest
     api_get api_v1_contests_path, params: { status: "settled" }
     assert_equal [settled.slug], slugs
 
+    # A graded contest whose payout has not confirmed is `settled` to the API.
+    pending = extra_contest!("Payout Pending", status: :settlement_pending)
+    api_get api_v1_contests_path, params: { status: "settled" }
+    assert_equal [pending.slug, settled.slug], slugs
+    api_get api_v1_contests_path
+    assert_includes slugs, pending.slug
+    api_get api_v1_contests_path, params: { status: "open" }
+    refute_includes slugs, pending.slug
+
     api_get api_v1_contests_path, params: { status: "open" }
     assert_equal ["test-contest"], slugs
 

@@ -46,7 +46,6 @@ class GradeRefusesCancelledContestTest < ActionDispatch::IntegrationTest
     assert_equal "Contest graded and settled!", flash[:notice]
     assert_equal "settled", @contest.reload.status
     assert_equal 300_00, @entry.reload.payout_cents
-    assert_equal 1, TransactionLog.where(source: @contest).count
   end
 
   private

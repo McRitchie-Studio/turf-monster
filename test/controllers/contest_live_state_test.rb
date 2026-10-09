@@ -69,6 +69,15 @@ class ContestLiveStateTest < ActionDispatch::IntegrationTest
     assert_select "[data-test='live-state'] .animate-pulse", count: 0
   end
 
+  test "a graded contest whose settlement is pending reads as final, not live" do
+    @contest.update!(starts_at: 1.hour.ago, status: "settlement_pending")
+
+    get live_contest_path(@contest)
+
+    assert_select "[data-test='live-state'][data-state='final']"
+    assert_select "[data-test='live-state'] .animate-pulse", count: 0
+  end
+
   # The tab title is the same claim in a smaller place — a settled contest
   # sitting in a browser tab labelled "Live" is still wrong.
   test "the tab title carries the state too" do

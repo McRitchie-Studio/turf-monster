@@ -1,7 +1,7 @@
 <%# Entry-N label dropped — users recognize their own roster by the pick
     combo, and the saved space lets the card shrink to match the share-invite
     card's height. Score still surfaces on settled contests. %>
-<% if @contest.settled? && entry.score %>
+<% if @contest.graded? && entry.score %>
   <div class="flex justify-end mb-0.5">
     <span class="text-[10px] font-mono text-violet-ink"><%= sprintf('%.1f', entry.score) %></span>
   </div>

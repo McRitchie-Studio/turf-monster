@@ -209,18 +209,50 @@ class PendingTransaction < ApplicationRecord
   def reconcile_broadcast!(status, now: Time.current)
     verdict = send_verdict(status, now: now)
 
+    signature = tx_signature
     case verdict
     when :failed
       Rails.logger.warn("[treasury][reconcile] #{slug} tx failed on chain " \
-                        "err=#{status['err'].inspect} sig=#{tx_signature} — rewound for a rebuild")
-      rewind_broadcast!(tx_signature)
+                        "err=#{status['err'].inspect} sig=#{signature} — rewound for a rebuild")
+      note_settlement_failure!(self.class.settle_failed_message(signature, status["err"])) if rewind_broadcast!(signature)
     when :never_landed
-      Rails.logger.warn("[treasury][reconcile] #{slug} sig=#{tx_signature} never landed " \
+      Rails.logger.warn("[treasury][reconcile] #{slug} sig=#{signature} never landed " \
                         "(blockhash window lapsed) — rewound for a rebuild")
-      rewind_broadcast!(tx_signature)
+      note_settlement_failure!(self.class.settle_expired_message(signature)) if rewind_broadcast!(signature)
     end
 
     verdict
+  end
+
+  # ── A SETTLE THAT DID NOT PAY SAYS SO ON ITS CONTEST ────────────────────
+  #
+  # A rewound settle_contest row is `pending` again and can be rebuilt, which
+  # is the retry. The reason it needs one is written on the contest
+  # (Contest::Settlement#record_settlement_failure!), so the contest page and
+  # this queue both show why a graded contest is still unpaid. Every sentence
+  # ends with what the operator does next.
+  SETTLE_RETRY = "Nothing was paid. Rebuild the settle transaction and cosign it again.".freeze
+
+  def self.settle_failed_message(signature, err)
+    "The settle transaction landed and failed on chain (#{err.inspect.truncate(120)}), signature #{signature}. #{SETTLE_RETRY}"
+  end
+
+  def self.settle_expired_message(signature)
+    "The settle transaction expired: it never landed and its blockhash can no longer land, " \
+      "signature #{signature}. #{SETTLE_RETRY}"
+  end
+
+  def self.settle_refused_message(error)
+    "The settle transaction was refused before it was sent (#{error.to_s.truncate(200)}). #{SETTLE_RETRY}"
+  end
+
+  # The contest this row settles, or nil for every other kind of row.
+  def settlement_contest
+    target if tx_type == Contest::Settlement::SETTLE_TX_TYPE && target.is_a?(Contest)
+  end
+
+  def note_settlement_failure!(reason)
+    settlement_contest&.record_settlement_failure!(reason)
   end
 
   # Every vault signer recorded against this transaction, oldest schema first.

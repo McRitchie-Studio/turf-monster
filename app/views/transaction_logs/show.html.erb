@@ -10,7 +10,7 @@
       <div>
         <span class="text-xs font-mono text-muted"><%= @transaction_log.slug %></span>
         <div class="text-3xl font-bold font-mono mt-1 <%= @transaction_log.credit? ? 'text-primary' : 'text-red-400' %>">
-          <%= @transaction_log.credit? ? '+' : '-' %><%= dollars(@transaction_log.amount_dollars) %>
+          <%= ledger_amount(@transaction_log) %>
         </div>
       </div>
       <div>

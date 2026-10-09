@@ -76,6 +76,15 @@ class Api::V1::EntrySerializerTest < ActiveSupport::TestCase
     assert_equal "settled", data[:contest][:phase]
   end
 
+  test "an entry in a settlement_pending contest is final: the graded rank and prize" do
+    @contest.update!(status: :settlement_pending)
+    @entry.update!(status: :complete, rank: 2, payout_cents: 5000, score: 7.4)
+    data = serializer.as_json
+
+    assert_equal [2, 5000, true, false], data.values_at(:rank, :payout_cents, :final, :editable)
+    assert_equal "settled", data[:contest][:phase]
+  end
+
   test "a settled entry that won nothing reports a payout of zero, not null" do
     @contest.update!(status: :settled)
     @entry.update!(status: :complete, rank: 9, payout_cents: 0)
