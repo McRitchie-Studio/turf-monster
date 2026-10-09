@@ -105,6 +105,29 @@ async function countEnters(page) {
 // this dispatch (see the studio/hold_button render in _turf_totals_board).
 const completeOneHold = (page) => page.evaluate(() => window.dispatchEvent(new CustomEvent("hold-confirm-entry")));
 
+// Six picks, so the cart's hold button is on screen and its guard passes.
+async function pickSix(page) {
+  const cards = page.locator('[x-data*="selectionBoard"] button[role="checkbox"]:not([disabled])');
+  for (let i = 0; i < 6; i++) {
+    const blurOverlay = page.locator("div.fixed.inset-0.z-20.cursor-pointer");
+    if (await blurOverlay.isVisible({ timeout: 300 }).catch(() => false)) await blurOverlay.click();
+    await cards.nth(i).click();
+    await expect(page.locator("body")).toContainText(`${i + 1} / 6`);
+  }
+}
+
+// A REAL hold: the pointer goes down on the cart's button and stays down past
+// its two seconds, so the button itself decides to fire.
+async function holdTheButton(page) {
+  const button = page.locator('.hold-btn[data-hold-id="desktop"]');
+  await expect(button).toBeVisible();
+  const box = await button.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.waitForTimeout(2600);
+  await page.mouse.up();
+}
+
 // A real Turbo visit and a real restoration visit. page.goto() is a full load
 // that builds a new window, which would pass against the broken build.
 async function leaveAndComeBack(page) {
@@ -123,6 +146,7 @@ test("after a Turbo visit away and Back, one hold sends exactly one POST /enter"
   await censusListeners(page);
   await signedInBoard(page);
   await holdOneToken(page);
+  await pickSix(page);
   expect(await page.evaluate(() => window.__listenerCensus("window:hold-confirm-entry")), "a fresh board listens once").toBe(1);
 
   await leaveAndComeBack(page);
@@ -136,8 +160,9 @@ test("after a Turbo visit away and Back, one hold sends exactly one POST /enter"
     )
     .toBe(1);
 
+  await expect(page.locator("body")).toContainText("6 / 6");
   const enters = await countEnters(page);
-  await completeOneHold(page);
+  await holdTheButton(page);
   await expect.poll(() => enters.count, { message: "the hold reached /enter" }).toBeGreaterThanOrEqual(1);
   // The first request is still open: a second listener has had its turn by now.
   await page.waitForTimeout(2500);
