@@ -8,11 +8,12 @@
 # takes the combined score to STOP_AT (50) or past it: the
 # page holds that final frame and never loops back to 3-7.
 #
-# NOTHING HERE IS WRITTEN. Every Game is a fresh in-memory copy of the real one
-# and every Goal is a new record, all marked readonly!, so a save anywhere in
-# the render path raises instead of writing. The real Game row, the contest's
-# matchups and its leaderboard are never touched; the laptop's leaderboard
-# keeps its real numbers.
+# NOTHING HERE IS WRITTEN. Every Game is a fresh in-memory copy of the source
+# (on the laptop, LaptopFictionalShowcase's featured game, itself unsaved) and
+# every Goal is a new record, all marked readonly!, so a save anywhere in the
+# render path raises instead of writing. A copy answers its play-by-play and
+# its projections from memory (LaptopFictionalShowcase::NoPlays), so drawing a
+# frame reads nothing from the database.
 #
 # NO LABEL ON THE LAPTOP: no "Simulated preview" badge. The scores are still
 # never written anywhere.
