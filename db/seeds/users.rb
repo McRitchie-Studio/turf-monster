@@ -104,6 +104,10 @@ def seed_core_users!
       username = user.username
     end
 
+    # The roster is the seed's authority: a parked address saves here without a
+    # mailbox proof, and stays unverified until its first email sign-in.
+    user.seeding_parked_identity = true
+
     # Ensure fields are up to date on existing records
     user.assign_attributes(
       email: data[:email],
