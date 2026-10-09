@@ -125,7 +125,11 @@ decision log at the end.
   A paid entry with no recorded wallet refuses the grade; none is dropped.
 - **Sweeps.** `Entries::PaymentSweepJob` settles every entry whose payment is
   `submitted` from the chain, every two minutes (`Entry::Payment`,
-  `Entries::PaymentSettlement`). `Contests::SettlementSweepJob` does the same
+  `Entries::PaymentSettlement`). It also reads an abandoned row that still
+  holds the in-flight key (a clear that raced its payment): the row is made a
+  cart again at the slot its prepared wire names, then settled; one with no
+  such wire is left and named in the log (`cleared_unrestored=`).
+  `Contests::SettlementSweepJob` does the same
   for every `settle_contest` row left `submitted`, every two minutes
   (`Contests::SettlementReconciler`). Neither moves a row by its age alone. The
   other treasury rows (cancel, currency, revenue sweep) have no sweep.
