@@ -88,8 +88,17 @@ class Contests::SettlementReconcilerTest < ActiveJob::TestCase
     refute_match(/Nothing was paid/, @contest.reload.settlement_error.to_s)
   end
 
-  test "no status and a Settled account: the contest is settled under the row's signature, and no rewind" do
-    chain = Chain.new(contest_status: "Settled")
+  test "no status, a Settled account and an unreadable settle: nothing is recorded under an unverified signature" do
+    assert_no_enqueued_jobs(only: WinnerNotificationJob) { assert_equal :pending, lapsed!(Chain.new(contest_status: "Settled")).status }
+
+    assert_equal ["settlement_pending", nil], [@contest.reload.status, @contest.settlement_error]
+    assert_row_kept!
+    assert_equal 0, TransactionLog.where(source: @contest).count
+  end
+
+  test "no status and a Settled account: the contest is settled under the row's verified signature, and no rewind" do
+    chain = Chain.new(contest_status: "Settled",
+                      transactions: { SIGNATURE => settle_transaction_info(account: @contest.onchain_contest_id) })
 
     result = nil
     assert_enqueued_jobs(2, only: WinnerNotificationJob) { result = lapsed!(chain) }

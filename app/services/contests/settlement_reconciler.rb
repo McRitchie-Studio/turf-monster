@@ -74,7 +74,7 @@ module Contests
       end
     rescue Solana::TxVerifier::NotFound
       # A lagging node has no record of a signature another node confirmed.
-      result(:pending, "landed; the transaction is not readable yet")
+      result(:pending, "the settle transaction is not readable yet")
     rescue Solana::TxVerifier::VerificationError => e
       unverified(e)
     rescue Contest::Settlement::NotConfirmed => e
@@ -107,18 +107,14 @@ module Contests
     # No status: the row's signature is recorded as the settle. It is verified
     # when the transaction is readable; a readable transaction that is not
     # this contest's settle raises and is left for a person. An unreadable one
-    # is recorded unverified, and logged.
+    # is not a verdict (TxVerifier::NotFound): nothing is recorded; ask again.
     #
     # A failed status: this wire paid nothing, so another transaction settled
     # the contest. Nothing is recorded under this signature.
     def settle_from_account(signature, status)
       return settled_elsewhere(signature, status) if status
 
-      begin
-        verify!(signature)
-      rescue Solana::TxVerifier::NotFound
-        Rails.logger.warn("[settlement] #{@tx.slug} contest reads Settled at finalized; sig=#{signature} is not readable, recorded unverified")
-      end
+      verify!(signature)
       record_settled(signature)
     end
 
