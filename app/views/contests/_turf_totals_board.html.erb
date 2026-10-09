@@ -382,9 +382,9 @@ window.selectionBoard = function() {
         // ONE CONFIRM IN FLIGHT. confirmEntry() marks itself `submitting` only
         // after it has awaited the funding pre-check, so a second complete
         // arriving inside that wait passes its re-entry guard and both POST
-        // /enter. This flag is set synchronously, before anything is awaited,
-        // and clears when confirmEntry() settles; `submitting` covers whatever
-        // confirmEntry() leaves running after that.
+        // /enter. This flag covers that wait and nothing more: it is set here,
+        // synchronously, and clears when confirmEntry() takes `submitting` or
+        // settles without it. From there `submitting` is the guard, as before.
         if (board._confirmInFlight) return;
         board._confirmInFlight = true;
         // confirmEntry is async — a synchronous try/catch won't catch a
@@ -1824,7 +1824,7 @@ window.selectionBoard = function() {
       var useOnchainFlow = sess.isWeb3 && this.contestOnchain;
 
       this.setHoldLoading();
-      this.submitting = true;
+      this.submitting = true; this._confirmInFlight = false; // `submitting` is the guard from here
 
       var seedsPerLevel = cfg.seedsPerLevel;
 

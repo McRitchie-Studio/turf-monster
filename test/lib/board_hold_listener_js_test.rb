@@ -110,6 +110,25 @@ class BoardHoldListenerJsTest < ActiveSupport::TestCase
     assert_equal 1, out["afterThree"], "a complete while /enter is open sent nothing"
   end
 
+  # The wallet runner's onStranded frees the board (submitting = false) for a
+  # confirm whose request may never answer. The flag must not outlive that.
+  test "a board freed while its request is still open takes the next hold" do
+    out = run_js(<<~JS)
+      var board = newBoard();
+      fire('window:hold-confirm-entry');
+      await tick(); await tick();
+      var first = enters.length;            // /enter is open and never answers
+      board.submitting = false;             // the board is handed its controls back
+      fire('window:hold-confirm-entry');
+      await tick(); await tick();
+      return { first: first, afterFreed: enters.length };
+    JS
+
+    assert_nil out["error"], out.inspect
+    assert_equal 1, out["first"]
+    assert_equal 2, out["afterFreed"], "the hold after a stranded confirm reached /enter"
+  end
+
   test "the in-flight flag clears when a confirm settles, so the next hold works" do
     out = run_js(<<~JS)
       var board = newBoard();
