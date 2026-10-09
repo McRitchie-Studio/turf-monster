@@ -90,6 +90,10 @@ class LaptopScoreSimulation
     goals_assoc = game.association(:goals)
     goals_assoc.target = goals
     goals_assoc.loaded!
+    projections = game.association(:nfl_team_total_projections)
+    projections.target = []
+    projections.loaded!
+    game.extend(LaptopFictionalShowcase::NoPlays)
     game.readonly!
     game
   end

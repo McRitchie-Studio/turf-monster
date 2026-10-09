@@ -1,41 +1,28 @@
-<%# locals: (lobby:, showcase: nil, live_html: nil, sim: nil, sim_frames: [])
+<%# locals: (showcase: nil, live_html: nil, sim: nil, sim_frames: [])
 
-    A CSS laptop (screen bezel, hinge, a thin base) showing the contests lobby,
-    live: one row per contest from NextContest.lobby, drawn with the lobby
-    table's own helpers (contest_status_badge, contest_prize_cell, dollars), so
-    the names, status badges, prizes and field sizes are the real ones, and
-    never a locked, cancelled or settled contest.
+    A CSS laptop (screen bezel, hinge, a thin base) showing a contest's live
+    page: LaptopFictionalShowcase's FICTIONAL contest, rendered by
+    LaptopLiveSnapshot (pages/_laptop_live) and scaled from a 1280 x 800 canvas
+    (0.33125). Never a real contest or player, and the same on every date.
 
     MOSTLY SEEN, PARTLY COVERED. /turf-monster-v2 sets the laptop behind the
     phone, the phone's right third over its left bezel, and lets it run off
     the hero's right edge, which clips it (overflow-hidden on the hero
-    section). So the screen is laid out for that sliver: the app bar and heading
-    from the top-left (above the phone), then narrow stacked rows indented past
-    the phone's overlap (pl-[5.5rem], header included), so every line sits in
-    the part that shows. The full lobby table would put everything but the
-    contest name off the visible edge.
+    section).
 
     DECORATIVE AND INERT. aria-hidden takes it out of the accessibility tree,
-    and `inert` takes the real table's links and row clicks out of the tab
-    order and the pointer path. The figure's caption carries the text
-    alternative.
-
-    THE LIVE PAGE FIRST. With a contest being played or just finished
-    (NextContest.live_showcase), the screen draws its live page,
-    pages/_laptop_live, scaled from a 1280 x 800 canvas (0.33125). The lobby rows
-    below are the fallback when there is none.
+    and `inert` takes the snapshot's links out of the tab order and the
+    pointer path. The figure's caption carries the text alternative.
 
     ITS FEATURED GAME IS SIMULATED (LaptopScoreSimulation): it opens at 3-7 and
     pages/_laptop_score_sim plays a touchdown every ten seconds through the
     live page's own script.
 
-    EMPTY IS A STATE, NOT A BLANK. With fewer than lobby's limit of real
-    contests, a row for the next drop (NextSlateDrop) follows the table,
-    labelled with its date (or "Contests coming soon" once that date passes),
-    so the visible corner of the screen is never empty. %>
+    With no snapshot (a template render with no controller), the screen is
+    left blank. %>
 <div class="w-[28rem]" aria-hidden="true" inert data-test="laptop-mock">
   <div class="rounded-t-2xl bg-neutral-800 p-3 shadow-[0_24px_64px_-12px_rgb(0_0_0_/_0.35)] ring-1 ring-white/10">
-    <div class="aspect-[16/10] overflow-hidden rounded-md bg-page text-body" data-test="laptop-lobby">
+    <div class="aspect-[16/10] overflow-hidden rounded-md bg-page text-body" data-test="laptop-screen">
       <% if showcase && live_html %>
         <%# The canvas: the live page at a 1280 x 800 desktop size (the screen's
             16:10), scaled to the screen's width (28rem less the 0.75rem bezels
@@ -49,43 +36,6 @@
             <%= render "pages/laptop_score_sim", contest: showcase.contest, sim: sim, frames: sim_frames %>
           <% end %>
         </div>
-      <% else %>
-      <div class="flex items-center gap-4 border-b border-subtle py-3 pl-[5.5rem] pr-5">
-        <p class="text-base font-extrabold text-heading">Turf <span class="tm-wordmark">Monster</span></p>
-        <p class="text-xs font-semibold text-heading">Contests</p>
-        <p class="text-xs text-muted">Rules</p>
-      </div>
-      <div class="py-4 pl-[5.5rem] pr-5">
-        <p class="text-lg font-bold text-heading mb-3">Contests</p>
-        <div class="space-y-3" data-test="laptop-lobby-rows">
-          <% lobby.contests.each do |contest| %>
-            <% badge = contest_status_badge(contest) %>
-            <% prize = contest_prize_cell(contest) %>
-            <div class="card overflow-hidden px-2.5 py-2 w-40" data-test="laptop-lobby-row">
-              <div class="-mx-2.5 -mt-2 mb-2 h-6" style="background: linear-gradient(135deg, var(--color-primary-700), var(--color-primary-900))"></div>
-              <p class="text-xs font-semibold text-heading truncate"><%= contest.name %></p>
-              <div class="mt-1 flex items-center gap-2 text-xs">
-                <span class="badge text-[10px] whitespace-nowrap <%= badge[:classes] %>"><%= badge[:label] %></span>
-                <span class="font-mono <%= prize[:classes] %>"><%= dollars_short(prize[:amount]) %></span>
-                <span class="text-muted font-mono"><%= lobby.entry_counts[contest.id] || 0 %>/<%= contest.max_entries %></span>
-              </div>
-              <% if contest.locks_at %>
-                <p class="mt-1 text-[10px] text-muted">Locks <%= contest.locks_at.in_time_zone(NextSlateDrop::ZONE).strftime("%b %-d, %-l:%M %p") %></p>
-              <% end %>
-            </div>
-          <% end %>
-          <% if lobby.contests.size < NextContest::LOBBY_LIMIT %>
-            <div class="card overflow-hidden px-2.5 py-2 w-40" data-test="laptop-lobby-next-drop">
-              <div class="-mx-2.5 -mt-2 mb-2 h-6 bg-violet/60"></div>
-              <p class="text-xs font-semibold text-heading truncate">NFL 2026 <%= NextSlateDrop::LABEL %></p>
-              <p class="mt-1 text-[10px] text-muted">The next three-week slate</p>
-              <div class="mt-1 flex items-center gap-2 text-xs">
-                <span class="badge text-[10px] whitespace-nowrap bg-violet/15 text-violet-ink border border-violet/30"><%= NextSlateDrop.dropped? ? "Contests coming soon" : "Coming #{NextSlateDrop.drops_at.strftime("%b %-d")}" %></span>
-              </div>
-            </div>
-          <% end %>
-        </div>
-      </div>
       <% end %>
     </div>
   </div>
