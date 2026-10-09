@@ -38,7 +38,7 @@ module LaptopFictionalShowcase
   CONTEST_ID = -1
 
   # A fixed Sunday that only anchors the kickoffs. The laptop prints none of it
-  # but the weekday and the time (LaptopLiveSnapshot::TIME_FORMATS "kickoff").
+  # but the weekday and the time (LaptopLiveSnapshot::KICKOFF_FORMAT).
   REFERENCE_SUNDAY = Time.utc(2025, 1, 5).freeze
   # The contest locked at the first kickoff of that Sunday: long past on any
   # date the page will be served, so the contest reads as live.
