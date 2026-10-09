@@ -127,10 +127,10 @@ class MagicLinksController < ApplicationController
   def sign_in_existing(user, result)
     reset_prior_session!
     # The click proves the mailbox, and the parked claim reads that proof, so
-    # the stamp lands first. rescue_and_log so a User validation failing here
-    # leaves a row in ErrorLog to attribute it to.
+    # the stamp lands first. update_column: it now runs before the session, so a
+    # row that a validation added since refuses must still be able to sign in.
     rescue_and_log(target: user) do
-      user.update!(email_verified_at: Time.current) if user.email_verified_at.blank?
+      user.update_column(:email_verified_at, Time.current) if user.email_verified_at.blank?
     end
     user.claim_parked_username!
     set_app_session(user)

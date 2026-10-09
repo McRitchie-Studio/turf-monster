@@ -136,6 +136,17 @@ class ParkedRoleAccountUpdateTest < ActionDispatch::IntegrationTest
     assert_equal %w[admin turf], [ house.role, house.username ]
   end
 
+  test "an unverified row a current validation refuses still signs in by magic link" do
+    user = User.create!(email: "grandfathered@example.com")
+    user.update_columns(username: "x") # shorter than today's rule allows
+    refute user.valid?
+
+    post magic_link_consume_path(token: Studio::Link.create_magic_link(email: user.email).token)
+
+    assert_equal user.id, session[:turf_user_id]
+    assert user.reload.email_verified_at.present?
+  end
+
   test "a parked email that signs up by magic link claims its role" do
     post magic_link_consume_path(token: Studio::Link.create_magic_link(email: HOUSE).token)
 
