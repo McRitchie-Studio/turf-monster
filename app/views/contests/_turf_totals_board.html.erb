@@ -261,7 +261,7 @@ window.selectionBoard = function() {
       var teardown = function () { board.teardownListeners(); };
       board._teardown = teardown;
       window.__turfBoardTeardown = teardown;
-      listen(document, 'turbo:before-cache', teardown);
+      listen(document, 'turbo:before-cache', function () { var nav = window.Turbo && window.Turbo.navigator; if (!nav || nav.currentVisit) teardown(); }); // no visit in flight: Turbo cached and rendered nothing (a fragment change), so this board stays and keeps listening
 
       var handleTokenSignal = function (data) {
         if (!data || data.source !== 'tt-tokens') return;

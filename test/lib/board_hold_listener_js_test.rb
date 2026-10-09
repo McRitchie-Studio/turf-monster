@@ -74,6 +74,24 @@ class BoardHoldListenerJsTest < ActiveSupport::TestCase
     assert_equal 0, out["beforeCache"]
   end
 
+  # Turbo also caches on a history move it renders nothing for (a fragment
+  # change). The board is still on the page, so its hold must still answer.
+  test "a cache with no Turbo visit in flight leaves the board listening" do
+    out = run_js(<<~JS)
+      newBoard();
+      window.Turbo = { navigator: {} };
+      fire('document:turbo:before-cache');
+      var stayed = #{census_js};
+      window.Turbo.navigator.currentVisit = {};
+      fire('document:turbo:before-cache');
+      return { stayed: stayed, left: #{census_js} };
+    JS
+
+    assert_nil out["error"], out.inspect
+    BOARD_EVENTS.each { |key| assert_equal 1, out["stayed"][key], "#{key} was dropped by a cache that rendered nothing" }
+    BOARD_EVENTS.each { |key| assert_equal 0, out["left"][key], "#{key} survived a real visit's cache" }
+  end
+
   test "one hold after a revisit sends one enter request" do
     out = run_js(<<~JS)
       newBoard();
