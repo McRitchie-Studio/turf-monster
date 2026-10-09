@@ -73,7 +73,7 @@ Current authentication identity lives directly on `users`:
 
 ```ruby
 has_one_attached :avatar
-validates :email, uniqueness: true, allow_nil: true
+include VerifiedEmailIdentity # email uniqueness without regard to case, on change
 validates :web2_solana_address, uniqueness: true, allow_nil: true
 validates :web3_solana_address, uniqueness: true, allow_nil: true
 validates :username, length: { in: 3..30 },
@@ -86,6 +86,8 @@ validate :has_authentication_method
 Important invariants:
 
 - `email` is nullable; wallet-only users may not have one.
+- `email` is stripped and downcased on write and unique without regard to case (`VerifiedEmailIdentity`). The rule is checked when the address changes, so a row that already collides by case still saves. The database index is still exact-match: a unique index on `LOWER(email)` is owed once `bin/rails users:email_case_collisions` reads zero on production.
+- `email_verified_at` belongs to one address: writing a new address without its own stamp clears it.
 - Email format uses `User.valid_email?`, shared by model validation and magic-link request handling.
 - `has_authentication_method` requires at least one of email, Google `(provider, uid)`, or Solana wallet identity.
 - `display_name` falls back through username, name, email prefix, truncated wallet address, then `"anon"`.
@@ -103,8 +105,8 @@ Routes:
 - `POST /magic_link/:token` - authoritative consume; signs in an existing user or creates a new one.
 
 The consume step proves email ownership. Existing users with blank
-`email_verified_at` are stamped verified on consume. New users are built from
-the email in the token, pass through `Studio.configure_new_user`, get the normal
+`email_verified_at` are stamped verified on consume, before the parked claim
+runs. New users are built verified from the email in the token, pass through `Studio.configure_new_user`, get the normal
 managed-wallet callbacks, then receive a session through `set_app_session`.
 
 Magic-link session setup hard-resets any prior browser session first. This
@@ -132,6 +134,10 @@ then:
 If Google collides with a wallet account that has not verified email ownership,
 the controller stores a short-lived pending Google identity and asks the user to
 prove wallet ownership before linking.
+
+Linking Google to a signed-in account, or completing a pending link, stamps
+`email_verified_at` only when Google's address is the account's own
+(`User#email_matches?`). The link itself lands either way.
 
 ## Solana Wallet Auth
 
@@ -1144,6 +1150,39 @@ Edit flow:
   matching `session_token`.
 
 Seeded operator account: `alex@mcritchie.studio`.
+
+### Parked roles
+
+`User::PARKED_IDENTITIES` parks a username, name and role for known operator
+identities. Every sign-in path calls `User#claim_parked_identity!`, which grants
+the parked row on proof only (`VerifiedEmailIdentity#proven_parked_identity`):
+
+- the account's wallet is the parked wallet, or
+- the account's email is verified and equals the parked address exactly.
+
+An unverified or case-variant email grants nothing. `User.parked_identity_for`
+is a roster lookup and proves nothing about its caller.
+
+| Sign-in method | How the email becomes verified |
+|----------------|--------------------------------|
+| Magic link | The consume stamps it: at build for a new account, before the claim for an existing one |
+| Google sign-up | Created verified; `GoogleOauthValidator` has checked the ID token |
+| Google sign-in, existing email row | Links only a row that is already verified |
+| Google link from `/account` or a pending link | Stamped only when Google's address is the account's own |
+| Wallet | Never; a wallet match is its own proof |
+| Email typed into `/account` | Unverified until `EmailVerificationsController#verify` consumes its link |
+
+The seed writes roles directly and stamps no verification. A claim that proves
+nothing changes nothing, so a seeded row keeps its role.
+
+Two read-only reports, for the operator:
+
+```bash
+bin/rails users:email_case_collisions   # counts only
+bin/rails users:parked_role_audit       # usernames only
+```
+
+No account is demoted automatically.
 
 ## SSO Satellite Role - Removed 2026-05-24
 

@@ -13,7 +13,8 @@ class FrozenParkedIdentityTest < ActiveSupport::TestCase
 
   setup do
     @parked = User.parked_identity_for(email: PARKED_EMAIL)
-    @user = User.create!(email: PARKED_EMAIL, name: "Mack McRitchie", username: "mack-drifted-#{SecureRandom.hex(2)}")
+    @user = User.create!(email: PARKED_EMAIL, email_verified_at: Time.current, name: "Mack McRitchie",
+                         username: "mack-drifted-#{SecureRandom.hex(2)}")
     # create claims the parked username when it is free; drift it off on purpose.
     @user.update_column(:username, "mack-drifted-#{SecureRandom.hex(2)}")
     @drifted = @user.reload.username

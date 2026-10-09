@@ -101,7 +101,7 @@ sequenceDiagram
     alt Existing user
         BE->>DB: Stamp email_verified_at if blank
     else New user
-        BE->>DB: INSERT users(email)
+        BE->>DB: INSERT users(email, email_verified_at)
         BE->>DB: callbacks create username + managed wallet
     end
     BE->>BE: reset_session + set_app_session(user)
