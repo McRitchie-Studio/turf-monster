@@ -26,8 +26,9 @@ module Contests
   #                          for a rebuild; the reason is written on the
   #                          contest, which stays settlement_pending
   #                                                       (:failed, :expired)
-  #   Settled, no status   → the contest is settled under the row's signature
-  #                          and the row confirmed                   (:settled)
+  #   Settled, no status   → the row's signature is verified, then the contest
+  #                          settled and the row confirmed           (:settled)
+  #                          not readable yet: the reason is written (:pending)
   #   Settled, failed      → another transaction paid. The row keeps its
   #   signature              signature; a person looks            (:unverified)
   #   absent, any other    → nothing changes; ask again                (:held)
@@ -116,6 +117,13 @@ module Contests
 
       verify!(signature)
       record_settled(signature)
+    rescue Solana::TxVerifier::NotFound
+      @contest.record_settlement_failure!(
+        "The contest account reads Settled on chain, so its winners are paid, but the settle transaction " \
+        "#{signature} cannot be read on chain yet, so nothing is recorded under it. It is not re-sent. If this " \
+        "persists, another transaction settled the contest: find it in the contest account's history."
+      )
+      result(:pending, "the contest account reads Settled; the settle transaction is not readable yet")
     end
 
     def verify!(signature)

@@ -91,7 +91,9 @@ class Contests::SettlementReconcilerTest < ActiveJob::TestCase
   test "no status, a Settled account and an unreadable settle: nothing is recorded under an unverified signature" do
     assert_no_enqueued_jobs(only: WinnerNotificationJob) { assert_equal :pending, lapsed!(Chain.new(contest_status: "Settled")).status }
 
-    assert_equal ["settlement_pending", nil], [@contest.reload.status, @contest.settlement_error]
+    assert_equal "settlement_pending", @contest.reload.status
+    assert_match "cannot be read on chain yet", @contest.settlement_error
+    refute_nothing_was_paid!
     assert_row_kept!
     assert_equal 0, TransactionLog.where(source: @contest).count
   end
