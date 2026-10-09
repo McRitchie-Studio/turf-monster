@@ -312,12 +312,12 @@ class Entries::OnchainReconcilerTest < ActiveSupport::TestCase
     assert entry.reload.abandoned?
   end
 
-  # THE CEILING, PINNED. Healing runs through Entry#confirm! → assert_enterable!,
-  # whose first gate is "Contest is not open". So a strand survives only while the
-  # contest does — the rehearsal's Step 4 locks and settles it — and this is the
-  # property the clear_cart comment in QaRehearsal::EntryFlow tells operators
-  # about. Reaching the row and converging it are different things.
-  test "does not converge an abandoned strand once the contest is no longer open" do
+  # THE CEILING, PINNED. Activation runs Entry#assert_enterable!, whose first
+  # gate is "Contest is not open". A strand whose ticket the chain shows on a
+  # closed contest is a PAID entry an app gate refuses: the one verdict holds it
+  # as `landed` (it never fails and never lapses, and waits for a person). It is
+  # not activated, and it is no longer left as an abandoned row nothing reads.
+  test "a strand on a contest that is no longer open is held as landed, not activated" do
     entry = abandoned_strand(signature: "settled-strand-sig")
     pda0 = wallet_pda(0)
     vault = probing_vault(pda: pda0, signature: "recovered-settled-sig")
@@ -328,8 +328,10 @@ class Entries::OnchainReconcilerTest < ActiveSupport::TestCase
       outcome = Entries::OnchainReconciler.reconcile_entry(entry, vault: vault)
     end
 
-    assert_equal :error, outcome
-    assert entry.reload.abandoned?, "a settled contest's strand must not be activated"
+    assert_equal :skipped, outcome
+    assert_equal ["cart", "landed", "contest_not_open", "recovered-settled-sig"],
+                 entry.reload.values_at(:status, :payment_state, :payment_refusal_code, :payment_signature),
+                 "a settled contest's strand must not be activated; the payment is kept on the row"
     log = ErrorLog.where(target: entry).order(:id).last
     assert log, "an unconvergeable strand must leave an ErrorLog — there is money on-chain for it"
     assert_match "Contest is not open", log.message

@@ -167,6 +167,7 @@ module Entries
       rail = @entry.payment_rail || (@entry.wallet_address == @entry.user.web3_solana_address ? "phantom" : "managed")
       @entry.transition_payment!("submitted", payment_rail: rail, payment_attempt_token: SecureRandom.hex(12),
                                               payment_submitted_at: @entry.payment_submitted_at || @now)
+      @token = @entry.payment_attempt_token # the attempt just begun is the one this verdict judges
       activate(signature, pda)
     rescue ActiveRecord::RecordNotUnique, Entry::Payment::IllegalTransition
       result(:pending, :other_payment_in_flight)
