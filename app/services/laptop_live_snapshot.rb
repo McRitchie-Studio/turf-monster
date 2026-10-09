@@ -271,8 +271,8 @@ class LaptopLiveSnapshot
   # leaderboard.
   SCROLLED_NAV_CLASSES = "shadow-lg border-b border-subtle is-scrolled".freeze
 
-  #
-  # The header then gives up data-navbar-root: the laptop is on every visit to
+  # #collapse_navbar writes that state onto the snapshot's header, which then
+  # gives up data-navbar-root: the laptop is on every visit to
   # /turf-monster-v2 (and "/"), and the tests and browser specs find THE page's
   # navbar by that attribute, so a second one in the hero would answer for it.
   def collapse_navbar(doc)
