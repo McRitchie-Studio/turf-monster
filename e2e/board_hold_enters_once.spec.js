@@ -34,7 +34,6 @@ async function censusListeners(page) {
   await page.addInitScript(() => {
     const live = new Map(); // "target:type" -> Set of callbacks
     window.__listenerCensus = (key) => (live.get(key) ? live.get(key).size : 0);
-    window.__listenerCensusAll = () => Object.fromEntries([...live].map(([k, set]) => [k, set.size]));
     for (const [name, target] of [["window", window], ["document", document]]) {
       const add = target.addEventListener.bind(target);
       const remove = target.removeEventListener.bind(target);
@@ -89,7 +88,11 @@ async function signedInBoard(page) {
 async function countEnters(page) {
   const seen = { count: 0, release: null };
   const gate = new Promise((resolve) => (seen.release = resolve));
-  await page.route("**/contests/*/check_funding", (route) => route.fulfill(json(200, { fundable: true, reason: null, method: "token" })));
+  await page.route("**/contests/*/check_funding", async (route) => {
+    // Slow enough that the pre-check is still open when the hold completes.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await route.fulfill(json(200, { fundable: true, reason: null, method: "token" })).catch(() => {});
+  });
   await page.route("**/contests/*/enter", async (route) => {
     seen.count += 1;
     await gate;
@@ -121,12 +124,9 @@ test("after a Turbo visit away and Back, one hold sends exactly one POST /enter"
   await signedInBoard(page);
   await holdOneToken(page);
   expect(await page.evaluate(() => window.__listenerCensus("window:hold-confirm-entry")), "a fresh board listens once").toBe(1);
-  const CENSUS_BEFORE = await page.evaluate(() => window.__listenerCensusAll());
 
   await leaveAndComeBack(page);
   await holdOneToken(page);
-  const CENSUS_AFTER = await page.evaluate(() => window.__listenerCensusAll());
-  for (const k of Object.keys(CENSUS_AFTER)) if (CENSUS_AFTER[k] !== (CENSUS_BEFORE[k] || 0)) console.log("CENSUS", k, CENSUS_BEFORE[k] || 0, "->", CENSUS_AFTER[k]);
 
   // Soft, so a leak reports its listener count AND its request count together.
   expect
@@ -145,17 +145,24 @@ test("after a Turbo visit away and Back, one hold sends exactly one POST /enter"
   enters.release();
 });
 
+// THE WINDOW THIS CLOSES IS A MANAGED WALLET'S. A hold START fires the funding
+// pre-check, which only a web2 session runs, and confirmEntry() waits on that
+// answer BEFORE it marks itself submitting. A second complete arriving inside
+// the wait finds nothing to wait for and posts; the first then wakes and posts
+// too. The lane signs in through the Phantom mock, so the session is told it is
+// web2 for this one page: the board reads the mode live from the store.
+//
+// CONTROL (same run as above): without the in-flight flag on the listener this
+// reads 2 requests.
 test("a second confirm while the first is still in flight sends nothing", async ({ page }) => {
   await signedInBoard(page);
   await holdOneToken(page);
 
   const enters = await countEnters(page);
-  // A real hold starts the funding pre-check, and confirmEntry() waits on it
-  // BEFORE it marks itself submitting: that wait is the window a second
-  // complete used to walk through. Two completes in one tick, then a third once
-  // the request is open: the shapes a double press and an early-action-plus-
-  // success pair both take.
+  // Two completes in one tick, then a third once the request is open: the
+  // shapes a double press and an early-action-plus-success pair both take.
   await page.evaluate(() => {
+    Alpine.store("session").mode = "web2";
     window.dispatchEvent(new CustomEvent("hold-funding-check"));
     window.dispatchEvent(new CustomEvent("hold-confirm-entry"));
     window.dispatchEvent(new CustomEvent("hold-confirm-entry"));
