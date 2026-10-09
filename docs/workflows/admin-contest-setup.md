@@ -123,8 +123,8 @@ The contest test actions (Fill, Next Game / Simulate, Next 5 / 20, All / Jump, a
 Two-stage hold-to-confirm followed by the Phantom direct-entry signing flow:
 
 1. **Toggle 6 selections** on the matchup board — `POST /contests/:id/toggle_selection` per click (`ContestsController#toggle_selection` — `app/controllers/contests_controller.rb:1518-1545`). Each call `find_or_create_by!`s the cart entry (`:1530`) and toggles a `Selection` row (`:1533`).
-2. **Hold-to-confirm** triggers `confirmEntry()` in `app/views/contests/_turf_totals_board.html.erb:1708-2136`:
-   - It branches on `useOnchainFlow = sess.isWeb3 && this.contestOnchain` (`:1772`, taken at `:1786`). Admin = web3 = always the on-chain branch.
+2. **Hold-to-confirm** triggers `confirmEntry()` in `app/views/contests/_turf_totals_board.html.erb:1760-2188`:
+   - It branches on `useOnchainFlow = sess.isWeb3 && this.contestOnchain` (`:1824`, taken at `:1838`). Admin = web3 = always the on-chain branch.
    - There is no client-side wrong-wallet throw on this path any more; the binding is server-side (see the failure modes below).
 3. **`POST /contests/:id/prepare_entry`** — `ContestsController#prepare_entry` (`app/controllers/contests_controller.rb:1002-1185`):
    - Requires `onchain_session?` (`:1023`) — the admin's Phantom-auth session has it from step 1.
