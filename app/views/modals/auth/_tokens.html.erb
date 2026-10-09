@@ -153,9 +153,9 @@
               title_key: "(props.mintedCount === 1 ? 'Entry Token Minted' : 'Entry Tokens Minted')" do %>
           You now have <span class="font-bold text-primary font-mono" x-text="props.mintedBalance"></span> available. Hold to confirm your entry.
         <% end %>
-        <%# In-modal Hold to Confirm. Dispatches the same hold-confirm-entry
-            window event as the board's hold buttons; selectionBoard's
-            listener calls confirmEntry(), which detects the
+        <%# In-modal Hold to Confirm. The board hears this button's
+            hold-button:success by its hold_id (selectionBoard's init) and
+            calls confirmEntry(), which detects the
             auth-modal/tokens-minted context via $store.modals and, on
             success, calls resolveEntry() — swapping this wizard for the
             shared onchain-tx "Entry Confirmed" resolution card. %>
@@ -164,8 +164,7 @@
             hold_text: "Almost there...",
             success_text: "Submitting…",
             duration: 2000,
-            hold_id: "tokens-modal",
-            on_success: "window.dispatchEvent(new CustomEvent('hold-confirm-entry'))" %>
+            hold_id: "tokens-modal" %>
         <button @click="$store.modals.close()"
                 class="block mx-auto mt-3 text-sm text-secondary hover:text-heading transition">
           I'll confirm later
