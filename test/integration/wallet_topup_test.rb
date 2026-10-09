@@ -274,30 +274,24 @@ class WalletTopupTest < ActionDispatch::IntegrationTest
   # client wiring at render level; the live hold-window race is a tracked
   # Playwright e2e gap (same precedent as the on-chain success-modal coverage).
 
-  test "both board hold buttons fire the funding pre-check on hold-start" do
+  test "both board hold buttons are the ones whose hold-start opens the funding pre-check" do
     get contest_path(contests(:one))
     assert_response :success
     body = response.body
-    # The shared hold_button renders on_hold_start as data-on-hold-start, and
-    # both the desktop + mobile board buttons dispatch the hold-funding-check
-    # window event (scope-independent, like hold-confirm-entry). The attribute
-    # value's single quotes are HTML-escaped on render (&#39;), exactly like the
-    # sibling data-on-success.
-    assert_equal 2, body.scan("data-on-hold-start=").size,
-                 "exactly the desktop + mobile board hold buttons carry on_hold_start"
-    assert_includes body,
-                    %(data-on-hold-start="window.dispatchEvent(new CustomEvent(&#39;hold-funding-check&#39;))"),
-                    "the board hold buttons must dispatch hold-funding-check on hold-start"
+    # The engine's hold button dispatches hold-button:start when a hold begins,
+    # and the board answers it for the hold_ids it names. The pre-check running
+    # on that event is test/lib/board_hold_listener_js_test.rb.
+    assert_equal %w[desktop mobile], body.scan(/<button class="hold-btn"\s+data-hold-id="([^"]*)"/).flatten.first(2)
+    assert_includes body, "var BOARD_HOLDS = ['desktop', 'mobile']"
+    assert_equal 0, body.scan("data-on-hold-start=").size, "no hold button carries a string hook"
   end
 
-  test "the board listens for hold-funding-check and kicks off beginFundingCheck" do
+  test "the board listens for the hold start and kicks off beginFundingCheck" do
     get contest_path(contests(:one))
     assert_response :success
     body = response.body
-    assert_includes body, "listen(window, 'hold-funding-check', function () {",
-                     "the board must register a hold-funding-check listener"
-    assert_match(/hold-funding-check.*\n.*board\.beginFundingCheck\(\)/, body,
-                 "the listener must call beginFundingCheck()")
+    assert_match(/listen\(document, 'hold-button:start', function \(e\) \{ if \(onBoard\(e\)\) \{ try \{ board\.beginFundingCheck\(\); \}/, body,
+                 "the hold-start listener must call beginFundingCheck()")
   end
 
   test "beginFundingCheck is web2-scoped and POSTs the authoritative check_funding endpoint" do

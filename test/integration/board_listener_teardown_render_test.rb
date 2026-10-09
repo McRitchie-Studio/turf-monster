@@ -53,6 +53,6 @@ class BoardListenerTeardownRenderTest < ActionDispatch::IntegrationTest
 
   test "the markup the hold buttons and the root carry is the markup they carried" do
     assert_includes @html, %(@turbo:before-cache.window="persistCartToConfig()")
-    assert_includes @html, %(data-on-success="window.dispatchEvent(new CustomEvent(&#39;hold-confirm-entry&#39;))")
+    assert_equal %w[desktop mobile], @html.scan(/<button class="hold-btn"\s+data-hold-id="([^"]*)"/).flatten.first(2)
   end
 end
