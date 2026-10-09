@@ -126,7 +126,9 @@ class MagicLinksController < ApplicationController
   # re-establish the identity they already had.
   def sign_in_existing(user, result)
     reset_prior_session!
-    # The click proves the mailbox, and the parked claim reads that proof.
+    # The click proves the mailbox, and the parked claim reads that proof, so
+    # the stamp lands first. rescue_and_log so a User validation failing here
+    # leaves a row in ErrorLog to attribute it to.
     rescue_and_log(target: user) do
       user.update!(email_verified_at: Time.current) if user.email_verified_at.blank?
     end
@@ -172,10 +174,8 @@ class MagicLinksController < ApplicationController
     end
 
     reset_prior_session!
-    # Verified at build: the click proves the mailbox, and a parked identity is
-    # claimed on create only by a verified address.
     user = User.new(email: result.email,
-                    email_verified_at: Time.current,
+                    email_verified_at: Time.current, # the click proves the mailbox; a parked claim reads it on create
                     age_attested_at: (Time.current if age_attestation_required?),
                     reference: signup_reference,
                     **experiment_attribution)

@@ -90,6 +90,40 @@ class ParkedRoleAccountUpdateTest < ActionDispatch::IntegrationTest
     assert user.reload.email_verified_at.present?
   end
 
+  # A Google sign-in that collides with an unverified wallet account stashes the
+  # link until the wallet signs.
+  def stash_google_link_for(user)
+    OmniAuth.config.mock_auth[:google_oauth2] = OmniAuth::AuthHash.new(
+      provider: "google_oauth2", uid: "g-#{SecureRandom.hex(4)}",
+      info: { email: user.email, name: user.name }
+    )
+    get "/auth/google_oauth2/callback"
+    assert_redirected_to link_wallet_path
+  end
+
+  test "a pending Google link verifies the address it was stashed for" do
+    sam = users(:sam)
+    stash_google_link_for(sam)
+
+    log_in_as_onchain(sam)
+
+    assert_equal "google_oauth2", sam.reload.provider
+    assert sam.email_verified_at.present?
+  end
+
+  test "a pending Google link does not verify an address changed since the stash" do
+    sam = users(:sam)
+    stash_google_link_for(sam)
+    sam.update_columns(email: HOUSE)
+
+    log_in_as_onchain(sam)
+
+    sam.reload
+    assert_equal "google_oauth2", sam.provider
+    assert_nil sam.email_verified_at
+    refute sam.admin?
+  end
+
   test "a seeded parked row signs in by magic link and keeps its role" do
     house = seeded_house
     assert_nil house.email_verified_at

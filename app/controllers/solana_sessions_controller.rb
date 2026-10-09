@@ -211,6 +211,8 @@ class SolanaSessionsController < ApplicationController
     # the Google link it would complete is an identity write, and does not.
     return false if user.frozen?
 
+    # Google vouches for the stashed address only, so the stamp lands when
+    # that address is still this account's.
     link = { provider: pending["provider"], uid: pending["uid"] }
     link[:email_verified_at] = Time.current if user.email_verified_at.blank? && user.email_matches?(pending["email"])
     user.update!(link)

@@ -93,9 +93,7 @@ class User < ApplicationRecord
   belongs_to :inviter, class_name: "User", optional: true, foreign_key: :invited_by_id
   has_many :invitees, class_name: "User", foreign_key: :invited_by_id
 
-  # Case-insensitive, and only when the address changes: a row that already
-  # collides by case still saves its other fields.
-  validates :email, uniqueness: { case_sensitive: false }, allow_nil: true, if: :will_save_change_to_email?
+  include VerifiedEmailIdentity # email uniqueness and normalisation; the proof a parked claim needs
   # Email format = URI::MailTo structure + a real dotted TLD (see User.valid_email?),
   # so dotless / 1-letter-TLD addresses can't be saved. Scoped to email changes so
   # it never blocks an unrelated save of a grandfathered record.
@@ -110,7 +108,6 @@ class User < ApplicationRecord
 
   before_validation :ensure_username, on: :create
   before_save :set_name_parts, if: -> { name_changed? }
-  before_save :clear_stale_email_verification
   before_create :set_initial_session_token  # OPSEC-045
   # Sluggable's before_save builds "<base>-<id>" — but on CREATE the id does not
   # exist yet, so every fresh row lands with a DANGLING "<base>-". Until now the
@@ -163,8 +160,6 @@ class User < ApplicationRecord
     str.present? && str.match?(URI::MailTo::EMAIL_REGEXP) && str.match?(/\.[a-zA-Z]{2,}\z/)
   end
 
-  # A roster lookup, not a grant: it proves nothing about the caller. The grant
-  # is #proven_parked_identity.
   def self.parked_identity_for(email: nil, wallet: nil)
     normalized_email = email.to_s.strip.downcase.presence
     normalized_wallet = wallet.to_s.strip.presence
@@ -276,17 +271,6 @@ class User < ApplicationRecord
 
   def admin?
     role == "admin"
-  end
-
-  # True when `other` is this account's address, ignoring case and padding.
-  def email_matches?(other)
-    email.present? && email.strip.casecmp?(other.to_s.strip)
-  end
-
-  # Stored addresses are stripped and downcased, so two rows cannot differ by
-  # case alone.
-  def email=(value)
-    super(value.is_a?(String) ? value.strip.downcase : value)
   end
 
   def inviter_slug=(slug)
@@ -794,26 +778,6 @@ class User < ApplicationRecord
     candidate = (1..5).lazy.map { Studio::UsernameGenerator.generate.to_s }
                       .find { |n| n.length.between?(3, 30) && !User.reserved_username?(n) }
     self.username = (candidate || Studio::UsernameGenerator.generate.to_s)[0, 30]
-  end
-
-  # The roster row this account has proven it owns: by wallet, or by a verified
-  # email equal to the parked address. An unverified or case-variant email
-  # proves nothing, so it grants nothing.
-  def proven_parked_identity
-    by_wallet = User.parked_identity_for(wallet: web3_solana_address.presence || web2_solana_address)
-    return by_wallet if by_wallet
-    return nil if email.blank? || email_verified_at.blank?
-
-    PARKED_IDENTITIES.find { |identity| identity[:email] == email }
-  end
-
-  # Verification belongs to one address. A new address written without its own
-  # stamp is unverified.
-  def clear_stale_email_verification
-    return unless will_save_change_to_email? && !will_save_change_to_email_verified_at?
-    return if email_in_database.to_s.strip.casecmp?(email.to_s)
-
-    self.email_verified_at = nil
   end
 
   def assign_parked_identity

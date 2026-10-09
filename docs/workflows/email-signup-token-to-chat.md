@@ -57,14 +57,14 @@
 5. **Consumes the magic link** — the emailed URL first hits the INERT `GET /magic_link/:token`, routed to `magic_links#confirm` (`config/routes.rb:251`); the human confirmation form then POSTs to `POST /magic_link/:token`, routed to `magic_links#consume` (`:253`).
    - `MagicLinksController#confirm` (`app/controllers/magic_links_controller.rb:68-85`) never burns the token: it previews the link and renders the confirmation only while the link is still live (`:84`).
    - `MagicLinksController#consume` (`:95-98`) is the only place the token is burned, through `Studio::LinkConsumption#consume_magic_link` (`studio-engine: app/controllers/concerns/studio/link_consumption.rb`) at `:97`. Winning the atomic burn IS the proof the link was live.
-   - If the user does not exist, `MagicLinksController#sign_up_new` (`:166-241`) builds `User.new(email: result.email, …)` at `:177-179` and saves at `:182`.
+   - If the user does not exist, `MagicLinksController#sign_up_new` (`:166-241`) builds `User.new(email: result.email, …)` at `:177-181` and saves at `:184`.
    - `user.save!` triggers the shared spine on `User` (see [[referral-google-tokens-to-chat]] for the equivalent flow on the Google path):
      - `before_validation :ensure_username, on: :create` (`app/models/user.rb:109`) runs `User#ensure_username` (`:766-781`), which fills `username` from `Studio::UsernameGenerator.generate` (`:778-780`).
      - `before_create :set_initial_session_token` (`:111`) runs `User#set_initial_session_token` (`:536-538`), writing `users.session_token` for the OPSEC-045 cookie binding.
      - `after_create :generate_managed_wallet!` (`:126`) runs `User#generate_managed_wallet!` (`:580-608`): `Solana::Keypair.generate` (local ed25519, **no RPC**) at `:596`, then the encrypted keypair is written to `web2_solana_address` + `encrypted_web2_solana_private_key` at `:597-600`. It early-returns for admins (`:595`, OPSEC-044) and for every signup while `AppFlags.web3_only_onboarding?` is on (`:589`).
      - `after_commit :enqueue_onchain_account_setup, on: :create` (`:130`) runs `User#enqueue_onchain_account_setup` (`:822-824`), which enqueues `CreateOnchainUserAccountJob`. Async — the user is logged in before the PDA settles.
    - `set_app_session(user)` at `app/controllers/magic_links_controller.rb:186` writes `session[:turf_user_id]` and `session[:session_token]` and clears any stale `session[:onchain]` (`app/controllers/application_controller.rb:39-53`).
-   - Consuming the link proves email ownership, so `email_verified_at` is stamped at `app/controllers/magic_links_controller.rb:185`.
+   - Consuming the link proves email ownership, so `email_verified_at` is set in the build at `app/controllers/magic_links_controller.rb:178`, where a parked claim on create can read it.
 
 6. **Buy 1 token via Stripe** — `TokensController#buy` (`app/controllers/tokens_controller.rb:7-16`) renders `app/views/tokens/buy.html.erb` with `StripePurchase.available_packs` (`:8`).
    - Pack catalog: the frozen `PACKS` constant (`app/models/stripe_purchase.rb:15-22`) — `"single"` is 1 token at `19_00` cents, the `"trio"` bundle is 3 at `49_00`, and both share one checkout path with a different `pack_id`. `"test_trio"` ($5) is hidden unless `AppFlags.test_scaffolding?` is on, which is what `StripePurchase.available_packs` decides (`:41-43`).
@@ -117,7 +117,7 @@
 
 ## Data touched
 
-- `users` (insert) — `email`, `email_verified_at`, `username`, `web2_solana_address`, `encrypted_web2_solana_private_key`, `session_token`, optionally `reference` — all set by `MagicLinksController#sign_up_new` (`app/controllers/magic_links_controller.rb:177-179`).
+- `users` (insert) — `email`, `email_verified_at`, `username`, `web2_solana_address`, `encrypted_web2_solana_private_key`, `session_token`, optionally `reference` — all set by `MagicLinksController#sign_up_new` (`app/controllers/magic_links_controller.rb:177-181`).
 - `magic_links` (insert + consume) — the one-time email sign-in row, owned by the gem: `Studio::Link#create_magic_link` (`studio-engine: app/models/studio/link.rb`).
 - `stripe_purchases` (insert + update) — `stripe_session_id`, `quantity`, `price_cents`, `status` (pending → minted), `mint_tx_signatures`, `minted_at`; the row is created by `TokenPurchaseJob#perform` (`app/jobs/token_purchase_job.rb:95-101`).
 - `transaction_logs` (insert) — one row for the token purchase from `TokenPurchaseJob#perform` (`app/jobs/token_purchase_job.rb:151-159`), one for the entry-fee debit from `Entry#confirm!` (`app/models/entry.rb:209-211`).

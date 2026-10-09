@@ -68,7 +68,8 @@ class OmniauthCallbacksController < ApplicationController
         end
       else
         rescue_and_log(target: current_user) do
-          # Google vouches for its own address only.
+          # Google vouches for its own address only, so the stamp lands when
+          # that address is this account's.
           link = { provider: auth.provider, uid: auth.uid }
           link[:email_verified_at] = Time.current if current_user.email_verified_at.blank? && current_user.email_matches?(auth.info.email)
           current_user.update!(link)
