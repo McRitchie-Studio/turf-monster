@@ -39,8 +39,8 @@ class ContestsEnterDuplicateRequestTest < ActionDispatch::IntegrationTest
   PENDING_SENTENCE = /still confirming.*not be charged twice/i
 
   setup do
-    @season_before = SeasonConfig.current.current_season_id
     @high_water = high_water_marks
+    @season_before = SeasonConfig.first&.current_season_id
     @contest = make_onchain!(contests(:one))
     @user = make_managed!(users(:sam))
     @vault = HeldVault.new(tokens: [], usdc: 100.0)
@@ -54,13 +54,13 @@ class ContestsEnterDuplicateRequestTest < ActionDispatch::IntegrationTest
   # fixture tables are reloaded for the next test, and the rest return to the
   # ids they held at setup.
   teardown do
-    SeasonConfig.current.update_columns(current_season_id: @season_before)
     connection = ActiveRecord::Base.connection
     connection.disable_referential_integrity do
       @high_water.each do |table, max_id|
         connection.execute("DELETE FROM #{connection.quote_table_name(table)} WHERE id > #{max_id.to_i}")
       end
     end
+    SeasonConfig.first&.update_columns(current_season_id: @season_before) # the one row this test edits in place
   end
 
   def high_water_marks
