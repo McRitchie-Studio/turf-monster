@@ -30,6 +30,10 @@ class SignerIsolationTest < ActiveSupport::TestCase
   QA_SECRET = secret(QA)
   STRANGER_SECRET = secret(STRANGER)
 
+  # The PUBLIC address config/solana_signers.yml files for qa (1Password
+  # `solana.turf.system.devnet`). No test holds, or could hold, its secret.
+  COMMITTED_QA_WALLET = "2eGs8G3wzhEeNQQU2Q86BmmA2xTpDbMMae3Y1bvpZfx9".freeze
+
   def registry(mode: "warn", qa_wallet: nil)
     GUARD::Registry.new(
       "mode" => mode,
@@ -173,11 +177,48 @@ class SignerIsolationTest < ActiveSupport::TestCase
     committed = GUARD::Registry.load
     assert_equal "warn", committed.mode, "shipping in enforce would freeze every production deploy until the ceremony"
     assert_equal "8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd", committed.system_wallet("production")
-    assert_nil committed.system_wallet("qa"), "QA has no key of its own until Mr. McRitchie runs the ceremony"
+    assert_equal COMMITTED_QA_WALLET, committed.system_wallet("qa")
+    refute_equal committed.system_wallet("production"), committed.system_wallet("qa"),
+                 "QA's filed wallet must be a key production does not hold"
+    assert_nil committed.system_wallet("development")
     assert_equal "production", committed.environment_for(network: "mainnet-beta", deployed: true)
     assert_equal "qa", committed.environment_for(network: "devnet", deployed: true)
     assert_equal "development", committed.environment_for(network: "devnet", deployed: false)
     assert_equal "qa", committed.environment_for_app("turf-monster-qa")
+  end
+
+  # QA's wallet is filed AHEAD of the config flip. These two pin what the
+  # committed file then makes the guard say: any key but the filed one is a
+  # mismatch against that exact address (never "unfiled" again), and the only
+  # key that passes block mode for qa is the one that derives it.
+  test "the committed registry judges qa against its filed wallet, and block mode refuses any other key" do
+    verdict = GUARD.check(env: { "SOLANA_ADMIN_KEY" => STRANGER_SECRET }, environment: "qa",
+                          registry: GUARD::Registry.load, mode_values: ["enforce"])
+
+    assert verdict.refuse?
+    assert_equal %i[mismatch], verdict.findings.map(&:kind)
+    assert_equal COMMITTED_QA_WALLET, verdict.expected
+    assert_includes verdict.report, "its filed system wallet is #{COMMITTED_QA_WALLET}"
+    refute_includes verdict.report, STRANGER_SECRET
+  end
+
+  test "block mode passes for qa exactly when its key derives the filed wallet" do
+    data = YAML.safe_load(File.read(GUARD::REGISTRY_PATH))
+    assert_equal COMMITTED_QA_WALLET, data.dig("environments", "qa", "system_wallet")
+    # The committed file with a test key standing where QA's real one is filed:
+    # same shape, same production entry, same mode source.
+    data["environments"]["qa"]["system_wallet"] = QA.to_base58
+    stand_in = GUARD::Registry.new(data)
+
+    passing = GUARD.check(env: { "SOLANA_ADMIN_KEY" => QA_SECRET }, environment: "qa",
+                          registry: stand_in, mode_values: ["enforce"])
+    assert passing.ok?, passing.report
+    assert_equal "enforce", passing.mode
+    refute passing.refuse?
+
+    refused = GUARD.check(env: { "SOLANA_ADMIN_KEY" => STRANGER_SECRET }, environment: "qa",
+                          registry: stand_in, mode_values: ["enforce"])
+    assert refused.refuse?
   end
 
   test "a registry filing one wallet for two environments is refused" do
