@@ -32,6 +32,89 @@ class TokenPurchaseJobTest < ActiveJob::TestCase
       seq = @starting_sequence + @mint_calls.length - 1
       { signature: "sig_#{seq}_#{SecureRandom.hex(2)}", pda: "pda-seq-#{seq}", sequence: seq }
     end
+
+    # No token account on chain for any ref: every mint is a first mint.
+    def minted_entry_token_signature(_source_ref) = nil
+  end
+
+  # THE CHAIN'S BOOKS FOR A MINT. The token account is created by `init`, so a
+  # source_ref mints ONCE: a second send of it is refused (custom program error
+  # 0x0) and mints nothing. `lose_confirmation_of: n` makes the n-th mint LAND
+  # and then raise, once: the transaction is on chain and the job never saw its
+  # signature. `sends` counts wires that left; `minted` is what the chain holds.
+  class MintLedgerVault < FakeVault
+    attr_reader :minted
+
+    def initialize(lose_confirmation_of: nil)
+      super()
+      @minted = {}
+      @lose_confirmation_of = lose_confirmation_of
+    end
+
+    def minted_entry_token_signature(source_ref) = @minted[source_ref]
+
+    def mint_entry_token(wallet_address:, source:, source_ref:, **_opts)
+      @mint_calls << source_ref
+      if @minted.key?(source_ref)
+        raise Solana::Client::RpcError, "Transaction simulation failed: Error processing Instruction 0: custom program error: 0x0"
+      end
+
+      @minted[source_ref] = "landed-sig-#{@minted.size}"
+      if @lose_confirmation_of == @minted.size - 1
+        @lose_confirmation_of = nil
+        raise Solana::Client::RpcError, "Transaction confirmation timeout"
+      end
+      { signature: @minted[source_ref], pda: "pda-#{source_ref}" }
+    end
+  end
+
+  # ── Idempotent under ApplicationJob's retry_on ───────────────────────────
+  #
+  # retry_on re-runs perform after ANY raise, including one that follows a mint
+  # that landed. The row holds no signature for that mint, so the resume point
+  # read from the row alone names it again. These run the real retry
+  # (perform_enqueued_jobs performs the retries retry_on enqueues).
+
+  test "retry_on after a mint that landed and lost its confirmation: each token is sent once and the order completes" do
+    vault = MintLedgerVault.new(lose_confirmation_of: 1)
+
+    Solana::Vault.stub :new, vault do
+      perform_enqueued_jobs do
+        TokenPurchaseJob.perform_later(user_id: @user.id, pack_id: "trio", wallet_address: @wallet, stripe_session_id: @sid)
+      end
+    end
+
+    purchase = StripePurchase.for_session(@sid).first
+    refs = (0..2).map { |i| "stripe:#{purchase.id}:#{i}" }
+    assert_equal refs.to_h { |ref| [ref, 1] }, vault.mint_calls.tally, "one send per token across the retry"
+    assert_equal refs, vault.minted.keys, "three tokens on chain, one per ref"
+    assert_equal "minted", purchase.status
+    assert_equal vault.minted.values, purchase.tx_signatures, "the landed mint's own signature is the one recorded"
+    assert_equal 1, TransactionLog.where("metadata @> ?", { stripe_session_id: @sid }.to_json).count
+  end
+
+  test "CONTROL: with no fault the job sends each token once and reads nothing back" do
+    vault = MintLedgerVault.new
+
+    Solana::Vault.stub :new, vault do
+      perform_enqueued_jobs do
+        TokenPurchaseJob.perform_later(user_id: @user.id, pack_id: "trio", wallet_address: @wallet, stripe_session_id: @sid)
+      end
+    end
+
+    assert_equal 3, vault.mint_calls.length
+    assert_equal "minted", StripePurchase.for_session(@sid).first.status
+  end
+
+  test "a re-delivered job after the order is minted sends nothing" do
+    vault = MintLedgerVault.new
+    Solana::Vault.stub :new, vault do
+      perform_enqueued_jobs do
+        2.times { TokenPurchaseJob.perform_later(user_id: @user.id, pack_id: "trio", wallet_address: @wallet, stripe_session_id: @sid) }
+      end
+    end
+
+    assert_equal 3, vault.mint_calls.length, "the second delivery mints nothing"
   end
 
   setup do
