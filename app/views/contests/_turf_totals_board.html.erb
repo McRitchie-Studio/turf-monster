@@ -239,6 +239,30 @@ window.selectionBoard = function() {
       // forms): a BroadcastChannel (modern, opener-independent) and the
       // classic window message event (legacy fallback).
       var board = this;
+
+      // ONE BOARD LISTENS AT A TIME. window and document outlive a Turbo visit
+      // and this component does not: every board Alpine builds, from a fresh
+      // render or from the snapshot Turbo restores on Back, runs init() again.
+      // So each listener below is registered through listen(), which records it
+      // for teardownListeners(), and three things call that: Alpine's destroy()
+      // when the board's element leaves the page, turbo:before-cache when Turbo
+      // is about to replace it, and the NEXT board's init(), through the
+      // teardown this one leaves on window. The last is the one that holds when
+      // the first two do not run: a board never shares the page with the board
+      // before it, so one hold reaches confirmEntry() once.
+      if (typeof window.__turfBoardTeardown === 'function') {
+        try { window.__turfBoardTeardown(); } catch (_) {}
+      }
+      board._listeners = [];
+      var listen = function (target, type, handler) {
+        target.addEventListener(type, handler);
+        board._listeners.push([target, type, handler]);
+      };
+      var teardown = function () { board.teardownListeners(); };
+      board._teardown = teardown;
+      window.__turfBoardTeardown = teardown;
+      listen(document, 'turbo:before-cache', function () { var nav = window.Turbo && window.Turbo.navigator; if (!nav || nav.currentVisit) teardown(); }); // no visit in flight: Turbo cached and rendered nothing (a fragment change), so this board stays and keeps listening
+
       var handleTokenSignal = function (data) {
         if (!data || data.source !== 'tt-tokens') return;
         var modals = Alpine.store('modals');
@@ -285,7 +309,7 @@ window.selectionBoard = function() {
         }
       };
 
-      window.addEventListener('message', function (e) {
+      listen(window, 'message', function (e) {
         if (e.origin !== window.location.origin) {
           if (e.data && e.data.source === 'tt-tokens') {
             console.warn('[tokens] board: dropped postMessage from wrong origin', e.origin);
@@ -320,7 +344,7 @@ window.selectionBoard = function() {
       // this page). Advance the wizard to tokens-confirming and poll
       // /tokens/status by order_id; everything downstream (minted state,
       // nav fanout, hold-to-confirm) is the shared path.
-      window.addEventListener('paypal-order-captured', function (e) {
+      listen(window, 'paypal-order-captured', function (e) {
         var orderId = e.detail && e.detail.orderId;
         if (!orderId) return;
         var modals = Alpine.store('modals');
@@ -354,14 +378,23 @@ window.selectionBoard = function() {
       // d.confirmEntry() through el.closest('[x-data]') (that resolves
       // to the auth wizard's data, not the board's), so we route both
       // the in-board AND in-modal holds through this single channel.
-      window.addEventListener('hold-confirm-entry', function () {
+      listen(window, 'hold-confirm-entry', function () {
+        // ONE CONFIRM IN FLIGHT. confirmEntry() marks itself `submitting` only
+        // after it has awaited the funding pre-check, so a second complete
+        // arriving inside that wait passes its re-entry guard and both POST
+        // /enter. This flag covers that wait and nothing more: it is set here,
+        // synchronously, and clears when confirmEntry() takes `submitting` or
+        // settles without it. From there `submitting` is the guard, as before.
+        if (board._confirmInFlight) return;
+        board._confirmInFlight = true;
         // confirmEntry is async — a synchronous try/catch won't catch a
         // rejected promise. Tail with .catch so a failure in the entry
         // submission surfaces in the console instead of silently
         // freezing the hold button at "Almost there…".
         Promise.resolve()
           .then(function () { return board.confirmEntry(); })
-          .catch(function (e) { console.error('[hold-confirm-entry] confirmEntry rejected:', e); });
+          .catch(function (e) { console.error('[hold-confirm-entry] confirmEntry rejected:', e); })
+          .then(function () { board._confirmInFlight = false; });
       });
 
       // Hold-START funding pre-check (2026-06-13). The shared hold_button
@@ -371,7 +404,7 @@ window.selectionBoard = function() {
       // off a FRESH authoritative server balance read in PARALLEL with the
       // ~2s hold; confirmEntry() awaits the resolved verdict at hold-complete
       // (see the funding-gate there). Read-only — never touches the chain.
-      window.addEventListener('hold-funding-check', function () {
+      listen(window, 'hold-funding-check', function () {
         try { board.beginFundingCheck(); }
         catch (e) { console.error('[hold-funding-check] beginFundingCheck threw:', e); }
       });
@@ -532,6 +565,25 @@ window.selectionBoard = function() {
         var held = this;
         setTimeout(function () { held.pollEntryPayment(cfg.pendingPayment.entry, cfg.pendingPayment); }, 200);
       }
+    },
+
+    // Alpine calls destroy() when this component's element leaves the page.
+    destroy() { this.teardownListeners(); },
+
+    // Remove every window and document listener init() registered, and close
+    // the tokens channel it opened. Safe to call twice: the list empties as it
+    // goes. See ONE BOARD LISTENS AT A TIME in init().
+    teardownListeners() {
+      var list = this._listeners || [];
+      this._listeners = [];
+      list.forEach(function (l) {
+        try { l[0].removeEventListener(l[1], l[2]); } catch (_) {}
+      });
+      if (this._tokensChannel) {
+        try { this._tokensChannel.close(); } catch (_) {}
+        this._tokensChannel = null;
+      }
+      if (this._teardown && window.__turfBoardTeardown === this._teardown) window.__turfBoardTeardown = null;
     },
 
     // `copy` lets an in-page caller open the poll with the server's own words —
@@ -1772,7 +1824,7 @@ window.selectionBoard = function() {
       var useOnchainFlow = sess.isWeb3 && this.contestOnchain;
 
       this.setHoldLoading();
-      this.submitting = true;
+      this.submitting = true; this._confirmInFlight = false; // `submitting` is the guard from here
 
       var seedsPerLevel = cfg.seedsPerLevel;
 

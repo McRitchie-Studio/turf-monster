@@ -294,7 +294,7 @@ class WalletTopupTest < ActionDispatch::IntegrationTest
     get contest_path(contests(:one))
     assert_response :success
     body = response.body
-    assert_includes body, "window.addEventListener('hold-funding-check', function () {",
+    assert_includes body, "listen(window, 'hold-funding-check', function () {",
                      "the board must register a hold-funding-check listener"
     assert_match(/hold-funding-check.*\n.*board\.beginFundingCheck\(\)/, body,
                  "the listener must call beginFundingCheck()")
