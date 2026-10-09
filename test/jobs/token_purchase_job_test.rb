@@ -536,6 +536,8 @@ class TokenPurchaseJobTest < ActiveJob::TestCase
 
     def list_entry_tokens(_wallet, **_opts) = []
 
+    def minted_entry_token_signature(_source_ref) = nil
+
     def mint_entry_token(wallet_address:, source:, source_ref:, **_opts)
       @mint_calls << source_ref
       raise @error

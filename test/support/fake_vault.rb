@@ -242,6 +242,9 @@ class FakeVault
     { signature: "sig_#{seq}_#{SecureRandom.hex(2)}", pda: "pda-seq-#{seq}", sequence: seq }
   end
 
+  # No token account on chain for any ref: every mint is a first mint.
+  def minted_entry_token_signature(_source_ref) = nil
+
   # Voids a token the way the program does — and REFUSES the way the program
   # refuses. A double(-generous) burn that accepted an already-consumed token
   # would certify a controller that never filters, and the operator would find
