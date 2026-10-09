@@ -315,12 +315,13 @@ class PendingTransaction < ApplicationRecord
   def note_settle_refused!(error, vault: nil)
     return unless settlement_contest
 
-    message = case settle_rewind_hold(vault)
-              when nil then self.class.settle_refused_message(error)
-              when :contest_settled then self.class.settle_refused_settled_message(error)
-              else self.class.settle_refused_unread_message(error)
-              end
-    note_settlement_failure!(message)
+    note_settlement_failure!(
+      case settle_rewind_hold(vault)
+      when nil then self.class.settle_refused_message(error)
+      when :contest_settled then self.class.settle_refused_settled_message(error)
+      else self.class.settle_refused_unread_message(error)
+      end
+    )
   end
 
   # Every vault signer recorded against this transaction, oldest schema first.

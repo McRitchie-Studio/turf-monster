@@ -38,7 +38,7 @@ class Contests::SettlementSweepJobTest < ActiveJob::TestCase
     assert_equal ["settlement_pending", nil], [@contest.reload.status, @contest.settlement_error]
     assert_equal "submitted", tx.reload.status
 
-    assert_equal 1, sweep(Chain.new(statuses: { SIGNATURE => failed_status }))[:failed]
+    assert_equal 1, sweep(Chain.new(statuses: { SIGNATURE => failed_status }, contest_status: "Open"))[:failed]
     assert_equal "settlement_pending", @contest.reload.status
     assert_match "landed and failed on chain", @contest.settlement_error
     assert_equal "pending", tx.reload.status, "visible in the cosign queue for a rebuild"
