@@ -62,7 +62,7 @@ class SettlementPendingLifecycleTest < ActionDispatch::IntegrationTest
   test "a settle that failed on chain stays visible for retry: the reason shows on both pages and the row rebuilds" do
     grade
     tx = broadcast_settlement!(@contest.reload, signature: "LifecycleFailedSig#{SecureRandom.hex(8)}")
-    chain = Chain.new(statuses: { tx.tx_signature => failed_status(6047) })
+    chain = Chain.new(statuses: { tx.tx_signature => failed_status(6047) }, contest_status: "Open")
 
     Solana::Vault.stub(:new, chain) { Contests::SettlementSweepJob.perform_now }
 
