@@ -38,12 +38,25 @@ class AdminWeekBoardRenderTest < ActionDispatch::IntegrationTest
     JSON.parse(css_select("[data-test='studio-board']").first["x-data"][/studioBoard\((.*)\)\z/m, 1])
   end
 
-  # THE FACTORY, ONCE, AT PAGE LEVEL. A <script> inside the board component
-  # template would be cloned by the component and never run, so the board would
-  # render and simply not drag — silently, with no error anywhere.
+  # THE FACTORY REACHES THE PAGE, wherever the bundled engine keeps it. Without
+  # it the board renders and simply does not drag, silently, with no error
+  # anywhere.
+  #   - An engine that ships the studio/board module publishes the factory from
+  #     its boot (studio/alpine_shims), so the page has to import that boot, and
+  #     the board has to name the controller that makes its zones draggable.
+  #   - An engine that does not renders the factory inline, from the
+  #     studio/board_assets partial this page renders.
   test "the studioBoard factory ships on the page" do
     assert_response :success
-    assert_match(/window\.studioBoard\s*=/, response.body)
+
+    if Studio::Engine.root.join("app/javascript/studio/board.js").exist?
+      shims = Studio::Engine.root.join("app/javascript/studio/alpine_shims.js").read
+      assert_match(/window\.studioBoard\s*=/, shims)
+      assert_select "head script[type='module']", text: /import "studio\/application"/
+      assert_select "[data-test='studio-board'][data-studio-controller~='board']", count: 1
+    else
+      assert_match(/window\.studioBoard\s*=/, response.body)
+    end
   end
 
   test "the reorder endpoint points at this week" do
