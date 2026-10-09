@@ -9,7 +9,6 @@ class AdminClaimUsernamesTaskTest < ActiveSupport::TestCase
   XAN_WALLET = "8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd".freeze
   ALEX_WALLET     = "7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr".freeze
   MASON_WALLET    = "CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR".freeze
-  TURF_WALLET     = "BLSBw8fXHzZc5pbaYCKMpMSsrtXBTbWXpUPVzMrXx9oo".freeze
 
   setup do
     Rails.application.load_tasks unless Rake::Task.task_defined?("admin:claim_usernames")
@@ -33,8 +32,9 @@ class AdminClaimUsernamesTaskTest < ActiveSupport::TestCase
                           username: "team-auto", web3_solana_address: XAN_WALLET)
     @mason = User.create!(email: "mason-task@mcritchie.studio", name: "Mason",
                           username: "mason", web3_solana_address: MASON_WALLET)
+    # The house account parks no wallet, so this wallet-keyed task skips it.
     @house = User.create!(email: User::TURF_HOUSE_EMAIL, name: "Turf Monster", role: "admin",
-                          username: "turf", web3_solana_address: TURF_WALLET)
+                          username: "turf")
   end
 
   def run_task
@@ -56,9 +56,8 @@ class AdminClaimUsernamesTaskTest < ActiveSupport::TestCase
 
     assert_match(/CLAIMED\s+#{parked("alex@mcritchie.studio")}/, out)
     assert_match(/CLAIMED\s+#{parked("team@mcritchie.studio")}/, out)
-    assert_match(/already claimed/, out)
     assert_match(/On-chain set_username still owed/, out)
-    assert_match(/v0\.25 admin init path/, out)            # house account's path
+    refute_match(/v0\.25 admin init path/, out)           # the house account is not claimed by wallet
     assert_match(/owner signs via \/account/, out)         # Phantom-owned rows
   end
 
@@ -84,6 +83,7 @@ class AdminClaimUsernamesTaskTest < ActiveSupport::TestCase
     @task.reenable
     out = run_task
     refute_match(/CLAIMED/, out) # uppercase CLAIMED only appears on a write
+    assert_match(/already claimed/, out)
     assert_equal parked("alex@mcritchie.studio"), @alex.reload.username
   end
 

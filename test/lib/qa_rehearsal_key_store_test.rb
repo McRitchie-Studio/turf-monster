@@ -81,21 +81,27 @@ class QaRehearsalKeyStoreTest < ActiveSupport::TestCase
 
   test "every cast member reads from the vault this service account can open" do
     assert_equal "studio-agents", Store::VAULT
-    assert_equal %w[mason mack turf turf-admin], Store::ITEMS.keys
+    assert_equal %w[mason mack turf], Store::ITEMS.keys
   end
 
   # --- Addressing: by title, never by id -------------------------------
 
-  # THE REGRESSION TEST FOR THE OUTAGE. turf-admin was pinned to an item id;
-  # the item was recreated under a new title, the id died with the old object,
-  # and the lookup failed outright with a bare not-found.
-  test "turf-admin is addressed by its unique title" do
-    item = Store::ITEMS.fetch("turf-admin")
+  # The admin item is archived, and `op item get` does not read the archive. A
+  # cast member filed against it fails every read.
+  ARCHIVED_ADMIN_ITEM = "solana.turf.admin"
 
-    assert_equal "solana.turf.admin", item.title
-    assert_nil item.id
-    assert_equal "solana.turf.admin", item.locator,
-                 "the title is unique in studio-agents; an id pin would die on the next re-file"
+  test "no cast member names the archived admin item" do
+    refute_includes Store::ITEMS.values.map(&:title), ARCHIVED_ADMIN_ITEM
+    refute_includes Store::ITEMS.values.map(&:locator), ARCHIVED_ADMIN_ITEM
+  end
+
+  # No agent-readable key signs in as an admin, so the rehearsal files none.
+  test "the rehearsal files no admin actor" do
+    refute_includes Store::ITEMS.keys, "turf-admin"
+
+    store = Store.new(runner: ->(_item) { flunk "read 1Password" })
+    error = assert_raises(Store::MissingKeyError) { store.keypair("turf-admin") }
+    assert_match(/no filed key for "turf-admin"/, error.message)
   end
 
   # NO SLUG MAY CARRY AN ID PIN, and the reason is stronger than "the last one
@@ -115,7 +121,7 @@ class QaRehearsalKeyStoreTest < ActiveSupport::TestCase
 
   # --- The field labels ------------------------------------------------
 
-  # The hyphenated filing is what all three solana.turf.* items use. Before
+  # The solana.turf.* items file hyphenated labels. Before
   # ADDRESS_FIELDS became a list this returned a keypair with the cross-check
   # silently skipped.
   test "a hyphenated filing is read, addresses included" do
@@ -123,8 +129,8 @@ class QaRehearsalKeyStoreTest < ActiveSupport::TestCase
     store = store_for({ "private-key" => secret_base58, "wallet-address" => keypair.to_base58 },
                       seen: seen)
 
-    assert_equal keypair.to_base58, store.address("turf-admin")
-    assert_equal "solana.turf.admin", seen.first.locator
+    assert_equal keypair.to_base58, store.address("turf")
+    assert_equal "phantom.turf", seen.first.locator
   end
 
   test "the older spaced filing is still read" do
@@ -139,7 +145,7 @@ class QaRehearsalKeyStoreTest < ActiveSupport::TestCase
   test "a Solana-CLI byte array is decoded as well as base58" do
     store = store_for({ "private-key" => secret_json, "wallet-address" => keypair.to_base58 })
 
-    assert_equal keypair.to_base58, store.address("turf-admin")
+    assert_equal keypair.to_base58, store.address("turf")
   end
 
   # THE CONTROL FOR THE THREE ABOVE. Reading the hyphenated item is only worth
@@ -151,7 +157,7 @@ class QaRehearsalKeyStoreTest < ActiveSupport::TestCase
     other = Solana::Keypair.from_bytes(Digest::SHA256.digest("a different wallet entirely"))
     store = store_for({ "private-key" => secret_base58, "wallet-address" => other.to_base58 })
 
-    error = assert_raises(Store::KeyMismatchError) { store.keypair("turf-admin") }
+    error = assert_raises(Store::KeyMismatchError) { store.keypair("turf") }
     assert_match other.to_base58, error.message
     assert_match keypair.to_base58, error.message
   end
@@ -162,7 +168,7 @@ class QaRehearsalKeyStoreTest < ActiveSupport::TestCase
   test "a missing address field fails instead of skipping the cross-check" do
     store = store_for({ "private-key" => secret_base58 })
 
-    error = assert_raises(Store::MissingKeyError) { store.keypair("turf-admin") }
+    error = assert_raises(Store::MissingKeyError) { store.keypair("turf") }
     assert_match(/cross-check cannot run/, error.message)
     assert_match(/ADDRESS_FIELDS/, error.message)
   end
@@ -180,7 +186,7 @@ class QaRehearsalKeyStoreTest < ActiveSupport::TestCase
     store = store_for({ "devnet-private-key" => secret_base58,
                         "devnet-wallet-address" => keypair.to_base58 })
 
-    assert_raises(Store::MissingKeyError) { store.keypair("turf-admin") }
+    assert_raises(Store::MissingKeyError) { store.keypair("turf") }
   end
 
   # --- Unknown cast ----------------------------------------------------
@@ -189,7 +195,7 @@ class QaRehearsalKeyStoreTest < ActiveSupport::TestCase
     error = assert_raises(Store::MissingKeyError) { Store.new(runner: ->(_i) { {} }).keypair("alex") }
 
     assert_match(/no filed key for "alex"/, error.message)
-    assert_match(/turf-admin/, error.message)
+    assert_match(/mason, mack, turf\)/, error.message)
   end
 
   # --- The op boundary (integration) -----------------------------------
@@ -213,11 +219,11 @@ class QaRehearsalKeyStoreTest < ActiveSupport::TestCase
     }.to_json
 
     result = stub_op(stdout: body, ok: true, argv: argv) do
-      Store.new.keypair("turf-admin")
+      Store.new.keypair("turf")
     end
 
     assert_equal keypair.to_base58, result.to_base58
-    assert_equal %w[op item get solana.turf.admin --vault studio-agents --format json], argv
+    assert_equal %w[op item get phantom.turf --vault studio-agents --format json], argv
     refute_includes argv, DEAD_ID
   end
 
@@ -226,11 +232,11 @@ class QaRehearsalKeyStoreTest < ActiveSupport::TestCase
   # op failure it reads like a missing item or a throttle and sends the reader
   # to the wrong fix.
   test "a colliding title raises an error naming the pin as the remedy" do
-    error = stub_op(stderr: '[ERROR] More than one item matches "solana.turf.admin"') do
-      assert_raises(Store::AmbiguousItemError) { Store.new.keypair("turf-admin") }
+    error = stub_op(stderr: '[ERROR] More than one item matches "phantom.turf"') do
+      assert_raises(Store::AmbiguousItemError) { Store.new.keypair("turf") }
     end
 
-    assert_match(/solana\.turf\.admin/, error.message)
+    assert_match(/phantom\.turf/, error.message)
     assert_match(/Pin the one this cast member means by id/, error.message)
     refute_match(/op read failed/, error.message,
                  "an ambiguity reported as a generic read failure sends the reader to the wrong remedy")
@@ -241,10 +247,10 @@ class QaRehearsalKeyStoreTest < ActiveSupport::TestCase
   # MissingKeyError carrying 1Password's own words.
   test "an item that no longer exists surfaces as a missing key, not an ambiguity" do
     error = stub_op(stderr: "[ERROR] \"#{DEAD_ID}\" isn't an item in the studio-agents vault") do
-      assert_raises(Store::MissingKeyError) { Store.new.keypair("turf-admin") }
+      assert_raises(Store::MissingKeyError) { Store.new.keypair("turf") }
     end
 
-    assert_match(/op read failed for solana\.turf\.admin/, error.message)
+    assert_match(/op read failed for phantom\.turf/, error.message)
     assert_match(/isn't an item/, error.message)
   end
 

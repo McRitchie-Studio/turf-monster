@@ -11,7 +11,7 @@ module Solana
   #   2. THIS — the Squads V4 multisig holding the BPFLoaderUpgradeable upgrade
   #      authority for PROGRAM_ID. Lives in the Squads program. Changed through
   #      Squads' own config transactions and its own web UI.
-  #   3. `KeyStore::ITEMS["turf-admin"]` — a 1Password FILING. Not on chain at
+  #   3. `KeyStore::ITEMS` — a 1Password FILING. Not on chain at
   #      all, and never evidence about either of the above.
   #
   # So never write "the multisig" unqualified anywhere this class is rendered.

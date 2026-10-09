@@ -407,24 +407,14 @@ module Solana
     #      identical on mainnet and devnet. The literal below matched that
     #      measurement on that date.
     #   2. THE SQUADS V4 MULTISIG holds the program UPGRADE authority and is a
-    #      different account entirely. TWO config ceremonies on 2026-09-15 moved
-    #      it, five minutes apart — devnet executed 09:41:25 MDT, mainnet
-    #      09:46:51-55 MDT. It was never one transaction across both clusters,
-    #      and writing it as one is how the per-cluster differences below got
-    #      lost. BOTH ceremonies removed CytJ… and 8K81…. A later devnet config
-    #      transaction, #18 at 14:02:10 MDT, re-seated 8K81… on devnet only,
-    #      adding 2eGs8G3w… and removing 9gACbz… in the same step. Re-read at
-    #      `finalized` 2026-09-16, each cluster reads threshold 3 of FIVE
-    #      members, all mask 7:
-    #        devnet  7nRuVw3V…: 2eGs8G3w…, 3Qj4v9…, 7ZDJ…, 8K81…, BLSBw8…
-    #        mainnet 4H3fP3ot…: 7auwTL…, 3Qj4v9…, 7ZDJ…, 9gACbz…, BLSBw8…
-    #      It changed nothing in (1) — and that divergence is the proof these
-    #      are separate authorities rather than two views of one. Before that
-    #      day they happened to agree, which is exactly why the conflation kept
-    #      surviving review.
-    #   3. KeyStore::ITEMS["turf-admin"] is a 1PASSWORD FILING — which wallet an
-    #      agent rehearsal signs the admin HTTP surface as. It moved to
-    #      solana.turf.admin (BLSBw8fX…) the same day. A re-file is not an
+    #      different account entirely, one per cluster. Each reads threshold 3
+    #      of FIVE members, all mask 7:
+    #        devnet  7nRuVw3V…: 2eGs8G3w…, 3Qj4v9…, 4bKNSqkr…, 7ZDJ…, 8K81…
+    #        mainnet 4H3fP3ot…: 7auwTL…, 3Qj4v9…, 4bKNSqkr…, 7ZDJ…, 9gACbz…
+    #      A change here changes nothing in (1): these are separate authorities,
+    #      not two views of one. Solana::Squads reads the live set.
+    #   3. KeyStore::ITEMS is a 1PASSWORD FILING — which wallets an agent
+    #      rehearsal signs as. It files no admin actor. A re-file is not an
     #      on-chain event and is never evidence of one.
     #
     # WHAT THE TWO SETS MEAN RELATIVE TO EACH OTHER. Item (2) above already
@@ -433,8 +423,8 @@ module Solana
     # not restated here. Two corrections of one defect, arriving from two
     # directions, is how a file comes to disagree with itself.
     #
-    # MEMBERSHIP CONVERGING IS NOT AUTHORITY MERGING. The VaultState TARGET set
-    # and the mainnet Squad's membership now name the same five wallets. That is
+    # MEMBERSHIP OVERLAPPING IS NOT AUTHORITY MERGING. The VaultState TARGET set
+    # and the mainnet Squad's membership share wallets. That is
     # a coincidence of rosters, not of powers: they are separate accounts,
     # changed by different transactions, and one never implies the other. The
     # LIVE VaultState set is still the three in (1) — the target is a plan, and
