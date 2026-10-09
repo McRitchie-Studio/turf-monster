@@ -5,7 +5,14 @@ class TransactionLog < ApplicationRecord
   belongs_to :source, polymorphic: true, optional: true
 
   validates :transaction_type, presence: true
-  validates :amount_cents, presence: true, numericality: { greater_than: 0 }
+  # A payout row is a POINTER: it names the settle signature that paid a winner
+  # (`onchain_tx`) and carries no amount, because the chain is the record of
+  # what moved (Contest::Settlement#mark_settled!). Every other type states
+  # its amount.
+  POINTER_TYPES = %w[payout].freeze
+  validates :amount_cents, presence: true, unless: :pointer?
+  validates :amount_cents, numericality: { greater_than: 0 }, allow_nil: true
+  validates :onchain_tx, presence: true, if: :pointer?
   validates :direction, presence: true, inclusion: { in: %w[credit debit] }
   # `needs_review` is the distinct terminal state Deposits::OnchainReconciler
   # assigns to a stranded deposit whose on-chain transfer it could NOT confirm
@@ -52,8 +59,14 @@ class TransactionLog < ApplicationRecord
     direction == "debit"
   end
 
+  # A row with an on-chain signature in place of an amount.
+  def pointer?
+    amount_cents.nil? && POINTER_TYPES.include?(transaction_type)
+  end
+
+  # Nil for a pointer row, which has no amount to show.
   def amount_dollars
-    amount_cents / 100.0
+    amount_cents && amount_cents / 100.0
   end
 
   def balance_after_dollars

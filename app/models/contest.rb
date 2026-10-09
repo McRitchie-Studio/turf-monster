@@ -93,10 +93,10 @@ class Contest < ApplicationRecord
   validates :slate, presence: true, if: :turf_totals?
 
   # v0.17: locking is DERIVED from the on-chain lock_timestamp (mirrored to
-  # starts_at), not a status. A contest stays `open` right up to `settled`;
-  # `locked?` below computes the gate. The on-chain Contest PDA keeps a vestigial
+  # starts_at), not a status. A contest stays `open` until it is graded
+  # (Contest::Settlement); `locked?` below computes the gate. The on-chain Contest PDA keeps a vestigial
   # `Locked` enum slot, but nothing sets it. (Pre-v0.17 had a `locked` status.)
-  enum :status, { pending: "pending", open: "open", settled: "settled" }
+  enum :status, { pending: "pending", open: "open", settlement_pending: "settlement_pending", settled: "settled" }
   # Turf Totals is the one game the app runs. A row a retired game type wrote
   # reads `game_type` as nil and renders read-only (#retired_format?).
   enum :game_type, { turf_totals: "turf_totals" }
@@ -161,7 +161,7 @@ class Contest < ApplicationRecord
   # act on. This method decides BOTH which contests are in it and what order
   # they sit in, so the page and its tests read one definition.
   #
-  # WHAT IS IN IT: the live board. A `settled` contest is finished — it belongs
+  # WHAT IS IN IT: the live board. A graded contest is finished — it belongs
   # in My Contests (where its result is the point) and in the All Contests
   # table, never in the rail that exists to advertise what is playable. A
   # CANCELLED contest is excluded for the same reason and is NOT the same test:
@@ -187,7 +187,7 @@ class Contest < ApplicationRecord
   # N+1 the single load exists to prevent.
   def self.featured_order(contests)
     contests
-      .reject { |contest| contest.settled? || contest.cancelled? }
+      .reject { |contest| contest.graded? || contest.cancelled? }
       .sort_by { |contest| [contest.coming_soon? ? 1 : 0, -contest.created_at.to_i] }
   end
 
@@ -223,7 +223,7 @@ class Contest < ApplicationRecord
   def self.featured
     SeasonConfig.main_contest_explicit ||
       where(status: :open, coming_soon: false).order(created_at: :desc).first ||
-      where(status: [:open, :settled], coming_soon: false).order(created_at: :desc).first
+      where(status: LISTED_STATUSES, coming_soon: false).order(created_at: :desc).first
   end
 
   # ─── Multi-week span ────────────────────────────────────────────────
@@ -584,7 +584,7 @@ class Contest < ApplicationRecord
       # First, before any write: with_lock has just reloaded the row, so this
       # reads the cancel flag as it stands under the lock.
       raise CancelledContestError, CANCELLED_GRADE_MESSAGE if cancelled?
-      raise "Contest is already settled" if settled?
+      raise(settled? ? "Contest is already settled" : SETTLEMENT_PENDING_GRADE_MESSAGE) if graded?
       # v0.19 (#6): the program rejects settle until the lock (or conclusion)
       # has passed — entries must be provably closed before grading. Gate here,
       # before any off-chain grading, so we don't grade in the DB then fail the
@@ -606,18 +606,18 @@ class Contest < ApplicationRecord
       # entries are paid than the payout table has places.
       split = PayoutSplit.call(ranked.map(&:score), payouts)
       ranked.zip(split).each do |entry, (rank, share)|
-        if share > 0
-          TransactionLog.record!(user: entry.user, type: "payout", amount_cents: share, direction: "credit", source: self, description: "Payout rank ##{rank} for #{name}")
-        end
+        # The rank and prize are the settlement PROPOSAL. No ledger row is
+        # written here: a payout row is a pointer to the settle signature, and
+        # Contest::Settlement#mark_settled! writes it when that confirms.
         entry.update!(rank: rank, payout_cents: share)
       end
 
       # The settle transaction is built and queued BEFORE the contest reads as
-      # settled. A build that raises (an RPC failure, or a transaction too large
+      # graded. A build that raises (an RPC failure, or a transaction too large
       # for one packet) rolls back this whole lock, so the contest stays
-      # gradable and nothing reads as settled without a settlement queued.
+      # gradable. With a settlement owed the contest ends settlement_pending.
       settle_onchain! if onchain?
-      update!(status: "settled")
+      update!(status: settlement_owed? ? "settlement_pending" : "settled")
     end
   end
 
@@ -672,7 +672,7 @@ class Contest < ApplicationRecord
 
   def jump!
     raise CancelledContestError, CANCELLED_GRADE_MESSAGE if cancelled?
-    raise "Contest is already settled" if settled?
+    raise "Contest is already settled" if graded?
 
     transaction do
       # Simulate all pending games
@@ -762,7 +762,7 @@ class Contest < ApplicationRecord
   end
 
   def simulate_next_game!
-    raise "Contest is already settled" if settled?
+    raise "Contest is already settled" if graded?
 
     # Find next unplayed game (by kickoff_at)
     matchup = matchups.pending.includes(:game).select { |m| m.game.present? }
@@ -927,8 +927,8 @@ class Contest < ApplicationRecord
   # (enqueues a background job per emailable winner; skips wallet-only winners;
   # idempotent on repeat calls via each entry's winner_notified_at flag).
   #
-  # Trigger: Admin::PendingTransactionsController#confirm calls this once a
-  # settle_contest tx confirms and onchain_settled flips true. Also callable
+  # Trigger: Contest::Settlement#mark_settled!, once the settle_contest
+  # transaction is confirmed on chain and the contest reads settled. Callable
   # standalone from the console to (re-)notify an already-settled contest.
   def notify_winners!
     Contests::WinnerNotifier.call(self)
@@ -964,9 +964,9 @@ class Contest < ApplicationRecord
   # Derived lock state (v0.17). The authoritative lock lives on-chain
   # (enter_contest rejects once Clock time >= lock_timestamp); this mirrors it
   # from #locks_at for UI + advisory pre-checks. No lock = manual-only → never
-  # derived-locked. A settled contest reads locked.
+  # derived-locked. A graded contest reads locked.
   def locked?
-    return true if settled?
+    return true if graded?
 
     at = locks_at
     at.present? && Time.current >= at
@@ -976,15 +976,15 @@ class Contest < ApplicationRecord
   # (enter is gated by lock; the conclusion gates set_contest_lock_time and
   # marks "results final"). nil concludes_at = no conclusion scheduled.
   def concluded?
-    return true if settled?
+    return true if graded?
     concludes_at.present? && Time.current >= concludes_at
   end
 
-  # The contest is live (in-progress) once it has locked but not yet settled —
+  # The contest is live (in-progress) once it has locked but is not yet graded —
   # entries are closed and games are being played. The /contests/:id/live page
   # and its real-time broadcasts key off this.
   def live?
-    locked? && !settled?
+    locked? && !graded?
   end
 
   # Has ANY game on this contest's slate started? The contest URL routes a
@@ -1257,4 +1257,8 @@ class Contest < ApplicationRecord
     errors.add(:base, "Payout table has #{ranks} paid ranks; one settlement pays at most #{MAX_PAID_RANKS}")
   end
   private :payout_table_settles
+
+  # The settlement lifecycle (settlement_pending, #mark_settled!, #graded?).
+  # Included at the foot: docs/workflows cites this file by line.
+  include Settlement
 end

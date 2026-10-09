@@ -7,9 +7,13 @@ module Api
     module Operations
       class ListContests < Base
         LISTED_STATUSES = %w[open settled].freeze
+        # The API's `settled` is "graded: ranks and prizes are final" (the
+        # guide's lifecycle table), which is two statuses here: a contest is
+        # settlement_pending from grading until its payout confirms on chain.
+        STATUS_ROWS = { "open" => %w[open], "settled" => Contest::Settlement::GRADED_STATUSES }.freeze
 
         def call
-          scope = Contest.where(status: listed_statuses)
+          scope = Contest.where(status: listed_statuses.flat_map { |status| STATUS_ROWS.fetch(status) })
           contests = scope.includes(:slate).order(created_at: :desc, id: :desc)
                           .limit(page_limit).offset(page_offset).to_a
 

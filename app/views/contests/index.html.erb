@@ -139,7 +139,7 @@
       <%# Empty state: every contest in the list is settled, so the table
           renders no visible rows with the toggle OFF. Show a subtle note
           (revealed away once settled are shown). %>
-      <% if @contests.all?(&:settled?) %>
+      <% if @contests.all?(&:graded?) %>
         <p x-show="!showSettled" class="text-secondary mt-3">No open contests right now.</p>
       <% end %>
     <% else %>

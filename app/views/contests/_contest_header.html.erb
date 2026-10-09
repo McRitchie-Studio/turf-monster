@@ -73,7 +73,7 @@
                   class: "block px-4 py-2 text-sm text-secondary hover:text-heading hover:bg-surface-alt transition" %>
             <%# A retired-format contest refuses grade, lock and conclude (ContestsController#refuse_retired_format), so it offers none of them. %>
             <% unless @contest.retired_format? %>
-            <% if @contest.locked? && !@contest.settled? %>
+            <% if @contest.locked? && !@contest.graded? %>
               <%= button_to "Grade", grade_contest_path(@contest), method: :post,
                     form_class: "block",
                     class: "block w-full text-left px-4 py-2 text-sm text-body hover:bg-surface-alt transition" %>
@@ -86,7 +86,7 @@
                 Lock in 60s
               </button>
             <% end %>
-            <% unless @contest.concluded? || @contest.settled? %>
+            <% unless @contest.concluded? || @contest.graded? %>
               <%# Testing aid: schedule the conclusion 60s out (Phantom-signed). %>
               <button type="button"
                       onclick="concludeContestViaPhantom('<%= @contest.slug %>', 60)"
@@ -103,14 +103,16 @@
 
   <%# Start countdown lives in the Row 3 meta grid below. Only the conclusion
       countdown floats free up here. %>
-  <% if @contest.concludes_at.present? && !@contest.settled? %>
+  <% if @contest.concludes_at.present? && !@contest.graded? %>
     <div class="flex flex-wrap items-center gap-2 mt-2">
       <%= render "contests/timestamp_countdown", target: @contest.concludes_at, label: "Concludes in", done_label: "🏁 Concluded", tone: "orange" %>
     </div>
   <% end %>
 
+  <%= render "contests/settlement_notice", contest: @contest if @contest.settlement_pending? %>
+
   <%
-    show_start = @contest.starts_in_at.present? && !@contest.settled?
+    show_start = @contest.starts_in_at.present? && !@contest.graded?
     # Row 3's grammar matches Row 2's: bold VALUE first, muted label after
     # ("Weeks 1-3 NFL", the same shape as "$500 Prizes"), inline at EVERY width
     # and on one baseline so the 10px label sits on the 12px value's.

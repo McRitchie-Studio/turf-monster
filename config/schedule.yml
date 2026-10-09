@@ -158,3 +158,17 @@ error_log_cleanup:
     (studio-engine) defaults to. Runs with no arguments so the job's own default
     stays the single source of the retention.
   queue: default
+
+contest_settlement_sweep:
+  cron: "1-59/2 * * * *"   # every 2 minutes, on the odd minute (entry_payment_sweep takes the even)
+  class: Contests::SettlementSweepJob
+  active_job: true
+  description: >-
+    Settle every settle_contest transaction left `submitted` from the chain
+    (Contests::SettlementReconciler): a confirmed signature marks its contest
+    settled and tells the winners; one that failed on chain or can no longer
+    land returns to the cosign queue with the reason on the contest, which
+    stays settlement_pending; an unreadable chain leaves the row for the next
+    run. Reads only, so a retried run can send nothing. No row moves by age
+    alone. One indexed query and no RPC when nothing is submitted.
+  queue: default

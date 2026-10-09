@@ -22,15 +22,19 @@
 # SIGNER_ISOLATION=enforce, in the target app's config or the deploying shell,
 # also turns enforcement on. Either source can ESCALATE to enforce; neither can
 # relax it. Flip this to enforce only after the QA ceremony below has run and
-# `qa.system_wallet` is filled in, or every production deploy will refuse.
+# one bin/deploy pre-flight prints OK for BOTH apps, or every production deploy
+# will refuse. A filed `qa.system_wallet` alone is not that proof.
 #
 # ── the ceremony this file is waiting on ─────────────────────────────────────
 #
 # turf-monster-qa and turf-monster-mainnet carry the SAME SOLANA_ADMIN_KEY
-# (compared by hash 2026-09-25). QA's system wallet is therefore null until
-# Mr. McRitchie runs docs/qa-signing-key-rotation.md, which generates
-# the QA key, seats it on the devnet VaultState, points turf-monster-qa at it,
-# and then fills in `qa.system_wallet` here.
+# (compared by hash 2026-09-25). `qa.system_wallet` below names the key QA is
+# MEANT to hold. It is filed ahead of the config flip on purpose: until
+# Mr. McRitchie signs the devnet signer change in
+# docs/qa-signing-key-rotation.md and turf-monster-qa is
+# pointed at that key, the guard reports two findings for qa (it holds
+# production's wallet, and its key is not its filed wallet). They clear together,
+# on the day QA's SOLANA_ADMIN_KEY derives the filed key, with no further PR.
 #
 # ── resolving "this environment" ─────────────────────────────────────────────
 #
@@ -56,9 +60,13 @@ environments:
     network: devnet
     deployed: true
     heroku_app: turf-monster-qa
-    # null until the QA ceremony runs. Today QA holds production's key, which is
+    # 1Password `solana.turf.system.devnet` (vault studio-agents): the devnet
+    # server key, which no app loads yet. Its stored secret derives this
+    # address (task turf-qa-gets-own-signer; public key only). It is
+    # NOT yet a devnet VaultState signer, so QA cannot be pointed at it until
+    # the ceremony seats it. Today QA still holds production's key, which is
     # exactly the finding the guard reports.
-    system_wallet: null
+    system_wallet: 2eGs8G3wzhEeNQQU2Q86BmmA2xTpDbMMae3Y1bvpZfx9
 
   development:
     network: devnet

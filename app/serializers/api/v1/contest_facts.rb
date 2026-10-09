@@ -76,7 +76,7 @@ module Api
 
       # Contest#locked?
       def locked?(contest)
-        return true if contest.settled?
+        return true if contest.graded?
 
         at = locks_at(contest)
         at.present? && @now >= at
@@ -84,7 +84,7 @@ module Api
 
       # Contest#live?
       def live?(contest)
-        locked?(contest) && !contest.settled?
+        locked?(contest) && !contest.graded?
       end
 
       # One word for where the contest is in its life. `open` takes entries (see
@@ -92,7 +92,7 @@ module Api
       # games being played, `settled` is graded and final. A cancelled contest
       # keeps whichever of these it had and is flagged separately.
       def phase(contest)
-        return "settled" if contest.settled?
+        return "settled" if contest.graded?
 
         locked?(contest) ? "live" : "open"
       end

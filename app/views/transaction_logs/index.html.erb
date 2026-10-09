@@ -63,7 +63,7 @@
               <span class="text-xs font-mono px-2 py-0.5 rounded bg-surface-alt text-secondary"><%= txn.transaction_type %></span>
             </td>
             <td class="px-4 py-3 text-sm font-mono text-right font-bold <%= txn.credit? ? 'text-primary' : 'text-red-400' %>">
-              <%= txn.credit? ? '+' : '-' %><%= dollars(txn.amount_dollars) %>
+              <%= ledger_amount(txn) %>
             </td>
             <td class="px-4 py-3 text-sm font-mono text-right text-muted">
               <%= txn.balance_after_cents ? dollars(txn.balance_after_dollars) : '—' %>

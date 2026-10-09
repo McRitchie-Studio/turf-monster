@@ -296,7 +296,7 @@ Open and settled contests, newest first. A contest that is still being created
 | `game_type` | `turf_totals`, or `null` for a retired format |
 | `supported` | `false` for a retired-format contest: see [Retired-format contests](#retired-format-contests) |
 | `sport` | `nfl` (American football) or `fifa` (World Cup soccer) |
-| `status` | The stored status: `open` or `settled` (`pending` only for an admin key reading one contest). A contest stays `open` after it locks, so read `phase` instead. |
+| `status` | The stored status: `open`, `settlement_pending` (graded, the payout transaction not yet confirmed on chain) or `settled` (`pending` only for an admin key reading one contest). A contest stays `open` after it locks, so read `phase` instead. |
 | `phase` | `open`: before the lock. `live`: locked, games being played, not graded. `settled`: graded and final. |
 | `locked` | `true` once the lock time has passed. No entry can be made or changed. |
 | `live` | `locked` and not yet `settled` |

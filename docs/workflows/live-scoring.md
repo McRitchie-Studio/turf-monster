@@ -116,9 +116,9 @@ holds the board overnight (rung 3) and Monday night football takes it at 8:15
 Monday morning, twelve hours before its kickoff (rung 2).
 
 **The order is a tiebreak, never an override.** The `focus_rank` column on `games`
-(`db/schema.rb:442`) is a position in ONE list covering the whole week — unique per
+(`db/schema.rb:443`) is a position in ONE list covering the whole week — unique per
 season slot (year + season type + week) through the partial index
-`index_games_on_focus_rank_per_slot` (`db/schema.rb:462`), and validated as a positive
+`index_games_on_focus_rank_per_slot` (`db/schema.rb:463`), and validated as a positive
 integer on `Game` (`app/models/game.rb:46`). `Live::FocusGame.best_ranked` reads it
 (`app/services/live/focus_game.rb:112`) only WITHIN the set a rung has already made
 eligible, which is what stops the marquee game of the week from sitting on the board
@@ -179,7 +179,7 @@ and a bad minute must not end a watch.
 
 **It is idempotent.** Every scoring event is keyed on ESPN's own play id
 (`external_id`) under the unique partial index
-`index_goals_on_external_id_when_present` (`db/schema.rb:483`), and
+`index_goals_on_external_id_when_present` (`db/schema.rb:484`), and
 `Nfl::LiveScores::PollCycle#sync_scoring_plays` indexes what it already holds by that
 id before writing (`app/services/nfl/live_scores/poll_cycle.rb:480-481`) — so a second
 identical cycle writes nothing and an interrupted one resumes by being run again.
@@ -376,15 +376,16 @@ These are guards with reproductions behind them, not defensive padding.
   (`app/services/nfl/live_scores/poll_cycle.rb:224-232`) reports that case, so the
   trade is visible in the watch log rather than silent.
 
-  It reads `Contest#status`, never `onchain_settled`: `grade!` queues the
-  settle transaction through `Contest#settle_onchain!` and then writes `settled`
-  (`app/models/contest.rb:897-899`), so a graded, paid-out contest routinely reads
-  `onchain_settled` false.
+  It reads `Contest#status`, never `onchain_settled`, and it reads GRADED, not
+  paid: `grade!` queues the settle transaction through `Contest#settle_onchain!`
+  (`app/models/contest.rb:897-899`) and leaves the contest `settlement_pending`
+  until that transaction confirms, and the ranks are final in both states. A
+  `settlement_pending` contest is refused exactly as a `settled` one is.
 - **It will not un-complete a finished game.** A stale scoreboard row would
   otherwise re-open a settled game and re-fire the FINAL broadcast.
 - **It will not store an id-less play.** `play["id"].to_s` yields `""`, which the
   unique index `index_goals_on_external_id_when_present` covers with its
-  `WHERE external_id IS NOT NULL` predicate (`db/schema.rb:483`) — so a second id-less
+  `WHERE external_id IS NOT NULL` predicate (`db/schema.rb:484`) — so a second id-less
   play anywhere in the league would collide across games.
 
 ## The studio recap push

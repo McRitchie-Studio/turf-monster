@@ -51,7 +51,7 @@ class ContestsController < ApplicationController
   # All three read the SAME loaded array, so the page stays the handful of
   # queries below however many bands render it.
   def index
-    @contests = Contest.where(status: [:open, :settled])
+    @contests = Contest.listed
                        .includes(:slate).with_attached_contest_image
                        .order(created_at: :desc).to_a
     # One grouped query for confirmed entry counts — avoids a per-card / per-row
@@ -97,7 +97,7 @@ class ContestsController < ApplicationController
   private :load_my_contest_totals
 
   def my
-    @contests = Contest.where(status: [:open, :settled]).order(created_at: :desc)
+    @contests = Contest.listed.order(created_at: :desc)
     if logged_in?
       @my_entries = current_user.entries.confirmed.includes(:contest, selections: { slate_matchup: [:team, :opponent_team] }).group_by(&:contest_id)
     else
@@ -1582,7 +1582,7 @@ class ContestsController < ApplicationController
       @contest.grade!
 
       respond_to do |format|
-        format.html { redirect_to @contest, notice: "Contest graded and settled!" }
+        format.html { redirect_to @contest, notice: @contest.grade_notice }
         format.json {
           render json: {
             success: true,
@@ -1683,7 +1683,7 @@ class ContestsController < ApplicationController
     rescue_and_log(target: @contest) do
       raise "Contest is not onchain" unless @contest.onchain_verified?
       raise "Phantom wallet required" unless current_user.phantom_wallet?
-      raise "Contest already concluded — lock time can't change" if @contest.settled?
+      raise "Contest already concluded — lock time can't change" if @contest.graded?
 
       lock_ts = requested_lock_timestamp
 
