@@ -390,6 +390,38 @@ class Entry
       false # a newer cart holds the slot
     end
 
+    # A LIVE ROW'S OWN SEND (Entry#enter_onchain!) asks first whether its
+    # pinned ticket is already there: an earlier send that landed. True when
+    # nothing may be sent: the ticket exists (its creating signature is
+    # recorded once the chain names it) or is arriving. An unreadable chain
+    # raises, and nothing is sent.
+    def record_landed_onchain_entry!(vault)
+      state, signature = Entries::PaymentSettlement.pinned_ticket(self, vault: vault)
+      return false if state == :absent
+
+      update!(onchain_entry_id: payment_entry_pda(vault), onchain_tx_signature: signature) if signature
+      true
+    end
+
+    # A DRAFT ROW WHOSE TICKET THE CHAIN SHOWS (Entries::OnchainReconciler) is
+    # pinned to that ticket and made a cart, so the one verdict can judge it.
+    # Only a draft, cart or cleared, and only where the row's own wallet and
+    # slot are blank or already these: a pin is never moved here. True when
+    # the row is a cart pinned to `wallet` and `slot`.
+    def adopt_found_ticket!(wallet:, slot:)
+      with_lock(requires_new: true) do
+        next false unless (cart? || abandoned?) && payment_state == "draft"
+        next false if wallet_address.present? && wallet_address != wallet
+        next false if !entry_number.nil? && entry_number != slot
+
+        update!(status: "cart", wallet_address: wallet, entry_number: slot)
+        true
+      end
+    rescue ActiveRecord::RecordNotUnique
+      reload
+      false # another live row holds the slot
+    end
+
     private
 
     # The slot whose ticket address this payment's prepared wire names.
