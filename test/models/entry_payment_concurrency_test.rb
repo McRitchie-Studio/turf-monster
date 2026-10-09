@@ -145,4 +145,33 @@ class EntryPaymentConcurrencyTest < ActiveSupport::TestCase
     refute entry.release_unsent_attempt!(entry.payment_attempt_token, :too_late), "a signed row is never 'nothing was sent'"
     assert_equal "submitted", entry.reload.payment_state
   end
+
+  # Clear Picks loaded the cart as a draft; a charge then takes the row and has
+  # not committed. The clear waits on the row lock and reads what the charge wrote.
+  test "a clear that meets a charge holding the row waits for it, then keeps the cart, slot and key" do
+    entry = pinned_cart
+    clearing = Entry.find(entry.id)
+    charged = Concurrent::CountDownLatch.new(1)
+    release = Concurrent::CountDownLatch.new(1)
+    charge = Thread.new do
+      ActiveRecord::Base.connection_pool.with_connection do
+        Entry.transaction do
+          Entry.find(entry.id).begin_charge!(rail: "managed")
+          charged.count_down
+          release.wait(5)
+        end
+      end
+    end
+    assert charged.wait(5)
+    clear = Thread.new { ActiveRecord::Base.connection_pool.with_connection { clearing.abandon_draft_cart! } }
+    sleep 0.5
+    assert clear.alive?, "the clear is waiting on the charge's row lock"
+    release.count_down
+
+    assert_equal false, clear.value
+    assert_equal ["cart", "submitted", 0], entry.reload.values_at(:status, :payment_state, :entry_number)
+  ensure
+    release&.count_down
+    [charge, clear].compact.each { |thread| thread.join(10) }
+  end
 end

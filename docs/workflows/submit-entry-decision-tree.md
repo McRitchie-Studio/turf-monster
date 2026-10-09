@@ -436,7 +436,11 @@ and every such case except #6 self-heals automatically.
   fresh cart cannot wire a second payment while the first confirms. And
   `#clear_picks` itself answers the same 409 while the cart's own signed
   submit is pending, so the paying cart keeps the `entry_number` its PDA is
-  derived from. Should an abandoned strand arise anyway, recovery answers
+  derived from. The clear itself runs under the entry's row lock with the
+  draft state in its UPDATE (`Entry::Payment#abandon_draft_cart!`), so a
+  payment that begins mid-request keeps the cart and the clear answers 409.
+  Should an abandoned strand arise anyway, `Entries::PaymentSweepJob` restores
+  it to a cart at the slot its prepared wire names, recovery answers
   "processing" on the nil slot and `Entries::OnchainReconciler` probes every
   slot for it.
 - **Safety**: `ContestsController#recover_pending_entry` double-checks ownership —
