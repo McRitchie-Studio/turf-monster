@@ -494,11 +494,11 @@ on 2026-09-16, membership and config-transaction history on both clusters:
 unchanged.
 
 **The two clusters do not carry the same five.** Three seats are shared
-(`3Qj4v9…`, `7ZDJ…`, `BLSBw8…`); the other two differ:
+(`3Qj4v9…`, `7ZDJ…`, and the governance seat `4bKNSqkr…`, which replaced `BLSBw8…` on 2026-10-09); the other two differ:
 
 | | devnet `7nRuVw3V…` | mainnet `4H3fP3ot…` |
 |---|---|---|
-| shared | `3Qj4v9…`, `7ZDJ…`, `BLSBw8…` | `3Qj4v9…`, `7ZDJ…`, `BLSBw8…` |
+| shared | `3Qj4v9…`, `7ZDJ…`, `4bKNSqkr…` | `3Qj4v9…`, `7ZDJ…`, `4bKNSqkr…` |
 | cluster-only | `2eGs8G3w…` (`solana.turf.system.devnet`), `8K81…` (Xan) | `7auwTLSv…` (`solana.turf.system`), `9gACbz…` |
 
 Two facts are easy to get wrong, and both were written down wrong before.

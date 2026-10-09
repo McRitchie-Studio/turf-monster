@@ -14,10 +14,8 @@ CORE_USERS = User::PARKED_IDENTITIES.map(&:dup).freeze
 # `encrypted_web2_solana_private_key` on an account whose USDC stays on-chain.
 # The same trap sits on `username`.
 #
-# Every parked identity happens to carry a wallet today, which is exactly why
-# this is extracted and tested directly rather than left inline: the roster no
-# longer demonstrates the case the guard exists for, and the next identity added
-# may not have one.
+# The house account parks no wallet, so the roster exercises this guard on every
+# run. It is extracted so the guard is tested directly.
 def find_seed_user(data)
   User.find_by(email: data[:email]) ||
     (data[:wallet].present? ? User.find_by(web3_solana_address: data[:wallet]) : nil) ||
@@ -114,7 +112,8 @@ def seed_core_users!
       role: data[:role] || "user"
     )
 
-    # Set Phantom wallet address (real wallets, not managed)
+    # Set the Phantom wallet (real wallets, not managed). An identity that parks
+    # none has its wallet cleared: that is how a re-seed revokes one.
     user.assign_attributes(
       web3_solana_address: data[:wallet],
       web2_solana_address: nil,

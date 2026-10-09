@@ -40,7 +40,7 @@ class User < ApplicationRecord
     # (`alex@turfmonster.media` still exists as the SUPPORT and marketing FROM
     # address — see ApplicationMailer::MARKETING_FROM and the pages/ views. Only
     # the seeded user was retired.)
-    { email: TURF_HOUSE_EMAIL,         name: "Turf Monster",    username: "turf",      role: "admin", wallet: "BLSBw8fXHzZc5pbaYCKMpMSsrtXBTbWXpUPVzMrXx9oo" }
+    { email: TURF_HOUSE_EMAIL,         name: "Turf Monster",    username: "turf",      role: "admin", wallet: nil } # NO WALLET: email sign-in only, so no wallet signature reaches this admin row
   ].freeze
 
   # SEATS THE ROSTER HAS RETIRED, email => the role their row keeps, and the only
@@ -246,8 +246,8 @@ class User < ApplicationRecord
     find_by(web3_solana_address: address)
   end
 
-  # The "Turf Monster" house account (seeded admin, tied to the solana.turf.admin
-  # wallet). It's the display author for system chat announcements — e.g. the
+  # The "Turf Monster" house account (seeded admin, holds no wallet).
+  # It's the display author for system chat announcements — e.g. the
   # "<name> joined the contest" line, which is posted as a reactable bubble FROM
   # Turf Monster. Returns nil only in an unseeded DB (callers fall back). Not
   # memoized: the test suite recreates users, so a process-level cache would go

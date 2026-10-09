@@ -63,11 +63,14 @@ module TurfMonster
                         "that is the Xan identity the server signs with, so re-seed " \
                         "the app rather than letting another admin stand in"
 
-      # The admin drives the HTTP admin surface. turf-5 is an admin account with
-      # a filed key, so the driver can hold its session. It cannot PLAY —
-      # its username is the reserved prefix "turf" and the program refuses to
-      # register that UserAccount — but admin actions never touch a UserAccount.
+      # The admin actor drives the HTTP admin surface, signed in by wallet. It
+      # has NO FILED KEY: no agent-readable wallet signs in as an admin account
+      # (see KeyStore::ITEMS). Only the agent co-sign needs it, and #conclude
+      # refuses that path while the key store files none.
       ADMIN_ACTOR = "turf-admin"
+      AGENT_COSIGN_REFUSED = "--cosign agent cannot run: it confirms the settle as an admin signed in by " \
+                             "wallet, and the rehearsal files no admin key. Run " \
+                             "`bin/qa-contest-rehearsal conclude --cosign link` and co-sign in Phantom."
 
       # Mason and Mack, and the two exclusions are not preferences:
       #
@@ -85,8 +88,7 @@ module TurfMonster
       #     turf-5 admin account. turf-5's username is the reserved prefix
       #     "turf" and it has no UserAccount, so the program refuses to
       #     register it; phantom.turf already has one, which sidesteps the
-      #     whole question. turf-5 stays on as ADMIN_ACTOR, where no
-      #     UserAccount is needed.
+      #     whole question.
       DEFAULT_CAST = %w[mason mack turf].freeze
 
       attr_reader :app, :host, :cast, :io
@@ -540,7 +542,11 @@ module TurfMonster
       # moved "here" long after it moved again, which is how a reader ends up
       # looking for it in the wrong step. The call below stays as a backstop for
       # a run that concludes without a step 3.
-      def conclude(cosign: :agent)
+      def conclude(cosign: :link)
+        # Before the lock, the grade and any broadcast: a settle that pays and
+        # is never confirmed is the state this refusal exists to prevent.
+        raise StepError, AGENT_COSIGN_REFUSED if cosign != :link && !KeyStore::ITEMS.key?(ADMIN_ACTOR)
+
         guard!
         data = manifest.read
         slug = data.fetch("contest_slug")

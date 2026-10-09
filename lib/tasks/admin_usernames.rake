@@ -20,10 +20,8 @@ namespace :admin do
   desc "Idempotently claim parked kickoff usernames in the DB by wallet (DRY_RUN=1 to preview)"
   task claim_usernames: :environment do
     # KEYED BY WALLET, so an identity without one has nothing for this task to
-    # claim and is skipped rather than fetched. Every parked identity carries a
-    # wallet as of 2026-09-04 (the email-only alex@turfmonster.media admin that
-    # `fetch` used to raise KeyError on — taking the whole task down — was
-    # retired), so keep the guard for the next one that does not.
+    # claim and is skipped rather than fetched. The house account parks no
+    # wallet and is skipped here.
     kickoff = User::PARKED_IDENTITIES.each_with_object({}) do |identity, claims|
       wallet = identity[:wallet]
       next if wallet.blank?

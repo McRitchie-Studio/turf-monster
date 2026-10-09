@@ -11,7 +11,8 @@
 #
 # Options:
 #   --cast mason,mack       who plays (default: mason,mack)
-#   --cosign agent|link     step 4: agent key, or a link you sign (default: agent)
+#   --cosign link|agent     step 4: a link you sign (default). `agent` is refused:
+#                           the rehearsal files no admin key to confirm with
 #   --no-reset              step 3: keep the scores already recorded
 #
 # DEVNET ONLY. Every step runs NetworkGuard before it loads a key, and the
@@ -25,12 +26,12 @@
 require_relative "../config/environment"
 require "optparse"
 
-options = { cast: nil, cosign: :agent, reset: true, pace: 0 }
+options = { cast: nil, cosign: :link, reset: true, pace: 0 }
 
 parser = OptionParser.new do |o|
   o.banner = "Usage: bin/qa-contest-rehearsal <create|enter|play|conclude|close|status> [options]"
   o.on("--cast LIST", "Comma-separated cast (default: mason,mack)") { |v| options[:cast] = v.split(",").map(&:strip) }
-  o.on("--cosign MODE", "agent (default) or link") { |v| options[:cosign] = v.to_sym }
+  o.on("--cosign MODE", "link (default); agent is refused") { |v| options[:cosign] = v.to_sym }
   o.on("--no-reset", "Step 3: do not clear existing scores first") { options[:reset] = false }
   o.on("--pace SECONDS", "Step 3: replay scoring plays this far apart, so you can watch") { |v| options[:pace] = v.to_i }
   o.on("-h", "--help") { puts o; exit 0 }

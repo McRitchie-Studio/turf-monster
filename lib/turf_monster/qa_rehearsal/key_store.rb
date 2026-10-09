@@ -83,12 +83,12 @@ module TurfMonster
       #
       # PINNED BY TITLE, NOT BY ID -- and the id pin this replaces is why.
       #
-      # Until 2026-09-15 "turf-admin" was pinned to item id
+      # Until 2026-09-15 one cast member was pinned to item id
       # mczgzinhh42mlltd6h4yvladhi, because two items then shared the title
       # "agent.turf.solana" and a title read failed with "More than one item
       # matches". Mr. McRitchie then RECREATED the turf keys under unique,
       # role-specific titles -- and a recreated item gets a NEW id, so the pin
-      # resolved to an item that no longer existed and every turf-admin read
+      # resolved to an item that no longer existed and every read of it
       # failed outright. An id is only unambiguous while the OBJECT survives;
       # it does not survive a re-file, which is the act that keeps happening.
       #
@@ -111,29 +111,23 @@ module TurfMonster
       # Ids are recorded here as PROVENANCE only -- never passed to `op` -- so a
       # reader whose title read comes back empty can find the item without
       # listing the vault:
-      #   solana.turf.admin          2xrfvfho2txchqtem565wmmmfu  BLSBw8fX…
       #   solana.turf.system         hvt5htkgjqsilq5blv3uztqie4  7auwTLSv…  server, MAINNET
       #   solana.turf.system.devnet  luzehmyewswpnbgytyawc25sdy  2eGs8G3w…  server, DEVNET/QA
       #
-      # ONLY THE FIRST IS FILED BELOW. The two system items are the SERVER's
+      # NEITHER IS FILED BELOW. The two system items are the SERVER's
       # operational keys, reached through SOLANA_ADMIN_KEY on the dyno; this
       # rehearsal never signs as them, so adding them here would widen what a
       # rehearsal can move for no gain.
       #
-      # "turf-admin" (solana.turf.admin, BLSBw8fX) is the turf-5 ADMIN account.
-      # It drives the admin HTTP surface and cannot play: its username is the
-      # reserved prefix "turf" and it has no on-chain UserAccount, so the
-      # program refuses to register it (6020 UsernameReserved). The wallet is
-      # unchanged across the re-file -- the item moved, the identity did not.
+      # THERE IS NO ADMIN ACTOR. No key in this vault signs in as an admin
+      # account, and none should: an agent-readable admin wallet is an admin
+      # login for every reader of the vault. The house account holds no wallet,
+      # and the archived item solana.turf.admin is not read. Driver refuses the
+      # agent co-sign, the one step that needs an admin session.
       #
-      # THE DEVNET PAIR NO LONGER RIDES ALONG. The old pinned item also carried
-      # devnet-wallet-address / devnet-private-key (2eGs8G3w…), a DIFFERENT
-      # wallet, so SECRET_FIELDS and ADDRESS_FIELDS had to avoid those labels or
-      # the rehearsal would sign as an account the app has never heard of. That
-      # wallet is now its own item (solana.turf.system.devnet) and
-      # solana.turf.admin files exactly one pair -- verified 2026-09-15. The
-      # label lists still exclude the devnet spellings, which now costs nothing
-      # and keeps the guarantee if the pair is ever recombined.
+      # THE DEVNET PAIR IS ITS OWN ITEM (solana.turf.system.devnet, 2eGs8G3w…).
+      # SECRET_FIELDS and ADDRESS_FIELDS exclude the devnet-* spellings, so a
+      # recombined item cannot sign as the wrong wallet.
       #
       # "turf" (phantom.turf, 39QTL1dd) is the PLAYER. Its UserAccount already
       # exists, which is the whole reason it works -- ensure_user_account
@@ -141,8 +135,7 @@ module TurfMonster
       ITEMS = {
         "mason"      => Item.new(title: "agent.mason.solana"),
         "mack"       => Item.new(title: "agent.mack.solana"),
-        "turf"       => Item.new(title: "phantom.turf"),
-        "turf-admin" => Item.new(title: "solana.turf.admin")
+        "turf"       => Item.new(title: "phantom.turf")
       }.freeze
 
       def initialize(runner: nil)
