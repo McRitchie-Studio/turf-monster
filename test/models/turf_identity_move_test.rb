@@ -169,8 +169,9 @@ class TurfIdentityMoveTest < ActiveSupport::TestCase
   # migration keys on LOWER(email); the seed has to agree or a mixed-case row
   # keeps admin in every database a re-seed owns.
   test "the seed retires the seat whatever case its address was stored in" do
-    seat = User.create!(name: "Alex McRitchie", email: "Alex@TurfMonster.media", username: "alexturf")
-    seat.update_column(:role, "admin")
+    seat = User.create!(name: "Alex McRitchie", email: "alex@turfmonster.media", username: "alexturf")
+    # update_columns: a new write stores the address downcased.
+    seat.update_columns(role: "admin", email: "Alex@TurfMonster.media")
 
     run_seed
 

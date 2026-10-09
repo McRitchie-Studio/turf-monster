@@ -127,8 +127,8 @@ class UserTest < ActiveSupport::TestCase
     assert_equal User.parked_identity_for(email: "alex@mcritchie.studio").fetch(:name), user.name
   end
 
-  test "new email account claims parked username before generating a random one" do
-    user = User.create!(email: "team@mcritchie.studio")
+  test "new verified email account claims parked username before generating a random one" do
+    user = User.create!(email: "team@mcritchie.studio", email_verified_at: Time.current)
 
     assert_equal User.parked_username_for(email: "team@mcritchie.studio"), user.username
     assert_equal "admin", user.role
