@@ -239,6 +239,26 @@ class Entries::ManagedEntryPaymentTest < ActiveSupport::TestCase
     assert_equal %w[draft not_sent], unsent.reload.values_at(:payment_state, :payment_refusal_code)
   end
 
+  test "an unsigned release never releases a row that was signed after the settlement read it" do
+    unsent = @contest.entries.create!(user: make_managed!(users(:jordan)), status: :cart)
+    on_chain(@vault) { unsent.pin_payment_slot!(unsent.user.web2_solana_address, @vault) }
+    unsent.begin_charge!(rail: "managed")
+    # The sending request records its signature between the settlement's read
+    # of the row and its release.
+    reads = @vault.client.method(:get_account_info)
+    signed = false
+    @vault.client.define_singleton_method(:get_account_info) do |*args, **opts|
+      signed ||= Entry.find(unsent.id).record_payment_attempt!(signature: "late-sig", last_valid_block_height: 1_150).present?
+      reads.call(*args, **opts)
+    end
+
+    outcome = settle(unsent, now: 31.seconds.from_now)
+
+    refute outcome.released?, "a signed row is not released as not_sent"
+    assert outcome.pending?
+    assert_equal ["submitted", "late-sig", nil], unsent.reload.values_at(:payment_state, :payment_signature, :payment_refusal_code)
+  end
+
   test "a retry of a cart whose first payment landed finds the ticket, confirms, and does not pay again" do
     on_chain(@vault) { @entry.pin_payment_slot!(@user.web2_solana_address, @vault) }
     @vault.send(:land!, @user.web2_solana_address, @contest.slug, 0, :usdc) { nil } # landed; the app never learned

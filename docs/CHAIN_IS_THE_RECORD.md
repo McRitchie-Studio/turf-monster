@@ -127,7 +127,11 @@ decision log at the end.
   `submitted` from the chain, every two minutes (`Entry::Payment`,
   `Entries::PaymentSettlement`). `Contests::SettlementSweepJob` does the same
   for every `settle_contest` row left `submitted`, every two minutes
-  (`Contests::SettlementReconciler`). Neither moves a row by its age alone. The
+  (`Contests::SettlementReconciler`). Neither moves a row by its age alone. A
+  settle row returns to the cosign queue only when its contest account reads
+  Open or Locked at `finalized` (`PendingTransaction#settle_rewind_hold`): a
+  Settled account settles the contest, and an absent, unreadable or
+  otherwise-read account changes nothing. The
   other treasury rows (cancel, currency, revenue sweep) have no sweep.
   `Entries::OnchainReconcileJob` heals one stranded entry when enqueued; it is
   not on `config/schedule.yml`.

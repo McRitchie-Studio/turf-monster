@@ -3,7 +3,8 @@ module Contests
   # Every settle_contest transaction left `submitted` is settled from the
   # chain by Contests::SettlementReconciler: a confirmed signature settles its
   # contest; one that failed or can no longer land returns to the cosign queue
-  # with the reason on the contest; an unreadable chain leaves the row for the
+  # with the reason on the contest, and only when the contest account reads
+  # Open or Locked at `finalized`; an unreadable chain leaves the row for the
   # next run. It only reads the chain, so a retried run sends nothing.
   #
   # NO ROW IS MOVED BY ITS AGE. The age of a broadcast only separates "not

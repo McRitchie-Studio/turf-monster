@@ -130,6 +130,21 @@ class Admin::PendingTransactionsBroadcastRecordTest < ActionDispatch::Integratio
     assert_match "refused before it was sent (Pre-flight simulation failed: SettlementOverflow)", @contest.settlement_error
   end
 
+  test "a pre-flight refusal on a contest that reads Settled never says Nothing was paid" do
+    tx = ptx
+    vault = FakeVault.new(broadcast_raises: "Pre-flight simulation failed: ContestAlreadySettled")
+    vault.define_singleton_method(:read_contest) { |_slug, commitment: nil| { status: "Settled", commitment: commitment } }
+
+    with_vault(vault, verifier: ->(**) { true }) { broadcast(tx) }
+
+    assert_response :unprocessable_entity
+    assert tx.reload.pending?, "nothing left the server"
+    @contest.reload
+    assert_equal "settlement_pending", @contest.status
+    assert_match "reads Settled on chain", @contest.settlement_error
+    refute_match(/Nothing was paid/, @contest.settlement_error)
+  end
+
   test "an AMBIGUOUS failure after the send keeps the row claimed and unsigned" do
     tx = ptx
     # NOT a PreflightRejected: a fault raised once the bytes may already have
@@ -310,6 +325,44 @@ class Admin::PendingTransactionsBroadcastRecordTest < ActionDispatch::Integratio
     assert_equal "settlement_pending", @contest.reload.status
     assert_match "expired", @contest.settlement_error
     assert_nil tx.broadcast_at, "and the next attempt gets its own anchor"
+  end
+
+  test "reconcile never frees a lapsed row whose contest reads Settled, and says the winners are paid" do
+    tx = ptx
+    vault = FakeVault.new(broadcast_raises: RuntimeError.new("connection reset while sending"))
+    with_vault(vault, verifier: ->(**) { true }) { broadcast(tx) }
+    tx.reload.update_columns(broadcast_at: (OnchainSendVerdict::BLOCKHASH_LAPSE + 1.minute).ago)
+
+    reads = []
+    settled = FakeVault.new
+    settled.define_singleton_method(:read_contest) { |_slug, commitment: nil| reads << commitment; { status: "Settled" } }
+    Solana::Vault.stub :new, settled do
+      post reconcile_admin_pending_transaction_path(slug: tx.slug), as: :json
+    end
+
+    assert_response :success
+    assert_equal ["finalized"], reads
+    assert_equal ["submitted", "FAKE_SIG_SIGNED_WIRE"], [tx.reload.status, tx.tx_signature]
+    assert_nil @contest.reload.settlement_error
+    assert_match(/reads Settled on chain/, JSON.parse(response.body)["message"])
+  end
+
+  test "reconcile never frees a lapsed row whose contest account cannot be read" do
+    tx = ptx
+    vault = FakeVault.new(broadcast_raises: RuntimeError.new("connection reset while sending"))
+    with_vault(vault, verifier: ->(**) { true }) { broadcast(tx) }
+    tx.reload.update_columns(broadcast_at: (OnchainSendVerdict::BLOCKHASH_LAPSE + 1.minute).ago)
+
+    unreadable = FakeVault.new
+    unreadable.define_singleton_method(:read_contest) { |*, **| raise Solana::Client::RpcError, "429 Too Many Requests" }
+    Solana::Vault.stub :new, unreadable do
+      post reconcile_admin_pending_transaction_path(slug: tx.slug), as: :json
+    end
+
+    assert_response :success
+    assert_equal ["submitted", "FAKE_SIG_SIGNED_WIRE"], [tx.reload.status, tx.tx_signature]
+    assert_nil @contest.reload.settlement_error
+    assert_match(/could not be read as Open or Locked/, JSON.parse(response.body)["message"])
   end
 
   # THE TRAP INSIDE THE DOOR. An absent status means "in flight" as well as
