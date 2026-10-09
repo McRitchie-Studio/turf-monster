@@ -284,6 +284,10 @@ class ActionDispatch::IntegrationTest
   def log_in_as(user)
     raise ArgumentError, "log_in_as requires a user with an email (use log_in_as_onchain for wallet users)" if user.email.blank?
     verified_before = user.email_verified_at
+    # The helper signs in; it does not test the mailbox proof. A fixture on a
+    # parked address that a test gave a wallet or Google link would be refused
+    # one (User#accept_mailbox_proof!), so it arrives already verified.
+    user.update_column(:email_verified_at, Time.current) if user.unproven_parked_holder?
     token = Studio::Link.create_magic_link(email: user.email).token
     post magic_link_consume_path(token: token)
     user.update_column(:email_verified_at, verified_before) if user.reload.email_verified_at != verified_before

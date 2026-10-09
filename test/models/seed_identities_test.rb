@@ -122,7 +122,7 @@ class SeedIdentitiesTest < ActiveSupport::TestCase
   # pre-swap state by hand.
   test "the seed swaps two usernames on a database that already holds the old pair" do
     alex = users(:alex) # the fixture already sits on alex@mcritchie.studio
-    team = User.create!(email: "team@mcritchie.studio", name: "Team McRitchie", role: "admin")
+    team = User.create!(email: "team@mcritchie.studio", name: "Team McRitchie", role: "admin", seeding_parked_identity: true)
     # Order matters: `ensure_username` mints team@'s PARKED name on create, which
     # is now "mcritchie" — so free it before handing it to alex, or this setup
     # trips the unique index before the seed ever runs.
@@ -148,7 +148,7 @@ class SeedIdentitiesTest < ActiveSupport::TestCase
   # matching row at all legitimately ADOPTS the row holding its parked username —
   # that is the idempotency this seed is built on, not the trap.
   test "the seed keeps a username a stranger holds instead of failing the run" do
-    mason = User.create!(email: "mason@mcritchie.studio", name: "Mason McRitchie", role: "user")
+    mason = User.create!(email: "mason@mcritchie.studio", name: "Mason McRitchie", role: "user", seeding_parked_identity: true)
     mason.update_column(:username, "mason_existing")
     stranger = User.create!(email: "stranger@example.com", name: "Stranger", role: "user")
     stranger.update_column(:username, "mason")
@@ -169,7 +169,7 @@ class SeedIdentitiesTest < ActiveSupport::TestCase
   # agree with it.
   test "the swap frees a username a parked row holds in another case" do
     alex = users(:alex)
-    team = User.create!(email: "team@mcritchie.studio", name: "Team McRitchie", role: "admin")
+    team = User.create!(email: "team@mcritchie.studio", name: "Team McRitchie", role: "admin", seeding_parked_identity: true)
     team.update_column(:username, "Alex")
     alex.update_column(:username, "mcritchie")
 
@@ -181,7 +181,7 @@ class SeedIdentitiesTest < ActiveSupport::TestCase
   end
 
   test "a stranger holding a wanted username in another case is reported, not raised" do
-    mason = User.create!(email: "mason@mcritchie.studio", name: "Mason McRitchie", role: "user")
+    mason = User.create!(email: "mason@mcritchie.studio", name: "Mason McRitchie", role: "user", seeding_parked_identity: true)
     mason.update_column(:username, "mason_existing")
     stranger = User.create!(email: "stranger@example.com", name: "Stranger", role: "user")
     stranger.update_column(:username, "Mason")
