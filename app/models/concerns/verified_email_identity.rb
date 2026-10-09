@@ -57,9 +57,11 @@ module VerifiedEmailIdentity
     true
   end
 
-  # Holds a parked address with neither proof: no stamp, no parked wallet.
+  # Holds a parked address with neither proof: no stamp, and not that
+  # identity's wallet.
   def unproven_parked_holder?
-    email_verified_at.blank? && User.parked_identity_for(email: email).present? && !holds_parked_wallet?
+    identity = User.parked_identity_for(email: email)
+    identity.present? && email_verified_at.blank? && !holds_wallet_of?(identity)
   end
 
   # A way into this row that the mailbox does not control.
@@ -69,14 +71,16 @@ module VerifiedEmailIdentity
 
   private
 
-  def holds_parked_wallet?
-    User.parked_identity_for(wallet: web3_solana_address.presence || web2_solana_address).present?
+  # The wallet #proven_parked_identity reads, matched to one roster row.
+  def holds_wallet_of?(identity)
+    identity[:wallet].present? && identity[:wallet] == (web3_solana_address.presence || web2_solana_address)
   end
 
   # The message a held address gets, so the reply does not single the roster out.
   def parked_email_carries_its_proof
-    return unless User.parked_identity_for(email: email)
-    return if seeding_parked_identity || holds_parked_wallet?
+    identity = User.parked_identity_for(email: email)
+    return unless identity
+    return if seeding_parked_identity || holds_wallet_of?(identity)
     return if email_verified_at.present? && !stale_email_verification?
 
     errors.add(:email, :taken) unless errors.of_kind?(:email, :taken)

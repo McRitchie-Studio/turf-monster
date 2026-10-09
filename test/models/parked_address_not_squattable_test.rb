@@ -70,6 +70,18 @@ class ParkedAddressNotSquattableTest < ActiveSupport::TestCase
     assert_nil user.email_verified_at
   end
 
+  test "one identity's wallet does not carry another identity's address" do
+    mason = User::PARKED_IDENTITIES.find { |identity| identity[:username] == "mason" }
+    row = User.create!(web3_solana_address: mason[:wallet])
+    assert_equal mason[:email], row.email
+
+    row.update_columns(email: nil)
+    refute row.update(email: HOUSE)
+    row.update_columns(email: HOUSE)
+    refute row.reload.accept_mailbox_proof!
+    assert_equal mason[:role], row.tap(&:claim_parked_identity!).reload.role
+  end
+
   test "the seed writes every parked identity, unverified" do
     silence_warnings { load Rails.root.join("db/seeds/users.rb") }
     capture_io { seed_core_users! }
