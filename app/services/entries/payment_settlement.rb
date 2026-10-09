@@ -117,9 +117,15 @@ module Entries
 
     # Why it paid nothing: the hint the sending request left, else what the
     # chain itself showed.
+    # An unsigned release asserts the row is still unsigned in its UPDATE: a
+    # signature recorded since the read means a wire may be out.
     def release(status)
       code = @entry.payment_refusal_code.presence || release_code(status)
-      @entry.release_payment!(code)
+      if @entry.payment_signature.blank?
+        return result(:pending) unless @entry.release_unsent_attempt!(@entry.payment_attempt_token, code)
+      else
+        @entry.release_payment!(code)
+      end
       close_wire("failed")
       Rails.logger.info("[entry-payment] released entry=#{@entry.id} code=#{code}")
       result(:released, code)

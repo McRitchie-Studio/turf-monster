@@ -148,6 +148,8 @@ class PendingTransaction < ApplicationRecord
   #      or could not be run, so `client.send_transaction` was never called.
   #      Nothing left this server.
   #   2. `#send_verdict` returned :never_landed or :failed — the CHAIN says so.
+  #      For a settle row the contest account must also read Open or Locked
+  #      at `finalized` (`#settle_rewind_hold`).
   #
   # A failure of the SEND is not a proof and never rewinds. See
   # `#reconcile_broadcast!` for why the exception object cannot be read as one.
@@ -200,14 +202,26 @@ class PendingTransaction < ApplicationRecord
   #                   refuses anything carrying meta.err — which is why the
   #                   door is here and not on `#confirm`.
   #   :never_landed — absent from a history-searched lookup, past the blockhash
-  #                   window. Verified-dead. Rewound.
+  #                   window. Rewound.
   #   :ambiguous    — still landable, or the RPC is lagging. NOTHING CHANGES.
   #                   The row stays claimed and un-rebuildable, which is the
   #                   entire point: a rewind here is a double-send.
   #
+  # A settle_contest row rewinds on neither verdict until its contest account
+  # allows it (#settle_rewind_hold), which answers in the verdict's place:
+  #
+  #   :contest_settled — the account reads Settled. NOTHING CHANGES here; the
+  #                      caller settles the contest.
+  #   :rewind_held     — the account is absent, reads anything else, or could
+  #                      not be read. NOTHING CHANGES.
+  #
   # Returns the verdict so the caller can tell the operator what it did.
-  def reconcile_broadcast!(status, now: Time.current)
+  def reconcile_broadcast!(status, now: Time.current, vault: nil)
     verdict = send_verdict(status, now: now)
+    return verdict unless %i[failed never_landed].include?(verdict)
+
+    held = settle_rewind_hold(vault)
+    return held if held
 
     signature = tx_signature
     case verdict
@@ -222,6 +236,36 @@ class PendingTransaction < ApplicationRecord
     end
 
     verdict
+  end
+
+  # ── THE CONTEST ACCOUNT DECIDES A SETTLE REWIND ─────────────────────────
+  #
+  # A signature with no status is not proof that a settle never landed. The
+  # contest account is read at `finalized`, and only Open or Locked says
+  # nothing was paid.
+  REWINDABLE_CONTEST_STATUSES = %w[Open Locked].freeze
+  SETTLE_ACCOUNT_COMMITMENT = "finalized".freeze
+
+  # What stops this row's rewind, or nil when nothing does: a row that is not
+  # a settle, or a settle whose contest account reads Open or Locked.
+  # :contest_settled when it reads Settled. :rewind_held when the account is
+  # absent, reads any other status, or the read raises: a failed read permits
+  # nothing.
+  def settle_rewind_hold(vault = nil)
+    contest = settlement_contest
+    return nil unless contest
+
+    onchain = (vault || Solana::Vault.new).read_contest(contest.slug, commitment: SETTLE_ACCOUNT_COMMITMENT)
+    state = onchain && onchain[:status]
+    return nil if REWINDABLE_CONTEST_STATUSES.include?(state)
+
+    Rails.logger.warn("[treasury][reconcile] #{slug} not rewound: contest #{contest.slug} reads " \
+                      "#{state.inspect} at #{SETTLE_ACCOUNT_COMMITMENT}")
+    state == "Settled" ? :contest_settled : :rewind_held
+  rescue StandardError => e
+    Rails.logger.warn("[treasury][reconcile] #{slug} not rewound: contest account unreadable " \
+                      "#{e.class}: #{e.message.to_s[0, 140]}")
+    :rewind_held
   end
 
   # ── A SETTLE THAT DID NOT PAY SAYS SO ON ITS CONTEST ────────────────────
@@ -246,6 +290,17 @@ class PendingTransaction < ApplicationRecord
     "The settle transaction was refused before it was sent (#{error.to_s.truncate(200)}). #{SETTLE_RETRY}"
   end
 
+  def self.settle_refused_settled_message(error)
+    "The settle transaction was refused before it was sent (#{error.to_s.truncate(200)}). The contest account " \
+      "reads Settled on chain: its winners are paid. Do not rebuild it; confirm the contest with the " \
+      "transaction that settled it."
+  end
+
+  def self.settle_refused_unread_message(error)
+    "The settle transaction was refused before it was sent (#{error.to_s.truncate(200)}). The contest account " \
+      "could not be read as Open or Locked, so whether it paid is not known. Read the contest account before rebuilding."
+  end
+
   # The contest this row settles, or nil for every other kind of row.
   def settlement_contest
     target if tx_type == Contest::Settlement::SETTLE_TX_TYPE && target.is_a?(Contest)
@@ -253,6 +308,19 @@ class PendingTransaction < ApplicationRecord
 
   def note_settlement_failure!(reason)
     settlement_contest&.record_settlement_failure!(reason)
+  end
+
+  # The reason for a settle the simulation refused. "Nothing was paid" is
+  # written only when the contest account says so (#settle_rewind_hold).
+  def note_settle_refused!(error, vault: nil)
+    return unless settlement_contest
+
+    message = case settle_rewind_hold(vault)
+              when nil then self.class.settle_refused_message(error)
+              when :contest_settled then self.class.settle_refused_settled_message(error)
+              else self.class.settle_refused_unread_message(error)
+              end
+    note_settlement_failure!(message)
   end
 
   # Every vault signer recorded against this transaction, oldest schema first.

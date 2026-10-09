@@ -208,7 +208,7 @@ module Admin
           # Solana::Vault#simulate_and_broadcast. Such a row keeps its claim and
           # its signature, and #reconcile asks the chain instead of guessing.
           @tx.rewind_broadcast!(signature)
-          @tx.note_settlement_failure!(PendingTransaction.settle_refused_message(e.message))
+          @tx.note_settle_refused!(e.message, vault: vault)
           raise
         end
 
@@ -256,10 +256,11 @@ module Admin
         # searchTransactionHistory: true — a plain getTransaction at `confirmed`
         # returns nothing for a merely unindexed transaction, which would read
         # as "never landed" and rewind a row that is still on its way.
-        status = Solana::Vault.new.client.confirm_transaction(signature).dig("value", 0)
+        vault = Solana::Vault.new
+        status = vault.client.confirm_transaction(signature).dig("value", 0)
 
         notice =
-          case @tx.reconcile_broadcast!(status)
+          case @tx.reconcile_broadcast!(status, vault: vault)
           when :landed
             "This transaction LANDED on chain (#{signature}). Confirm it with its signer set " \
             "to record the authorisation; it will not be re-broadcast."
@@ -269,6 +270,12 @@ module Admin
           when :never_landed
             "This transaction never landed and its blockhash window has lapsed, so it can " \
             "never land. The row is pending again and can be rebuilt."
+          when :contest_settled
+            "The contest account reads Settled on chain, so its winners are paid. The row keeps " \
+            "its signature (#{signature}) and is not rebuilt; the settlement sweep records it."
+          when :rewind_held
+            "The contest account could not be read as Open or Locked, so nothing is known to be " \
+            "unpaid. The row keeps its signature and is not rebuilt; reconcile again shortly."
           else
             "Still unresolved — the transaction may yet land, so the row stays claimed. " \
             "Do not re-send it; reconcile again shortly."

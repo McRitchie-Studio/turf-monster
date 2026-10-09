@@ -13,14 +13,26 @@ module Contests
   #                         contest account reads Settled, then the contest is
   #                         settled (Contest::Settlement#mark_settled!) and
   #                         the row confirmed                        (:settled)
-  #   landed with an error → nothing was paid. The row returns to `pending` for
-  #                          a rebuild; the reason is written on the contest,
-  #                          which stays settlement_pending           (:failed)
-  #   never landed, and    → the same, with the expiry as the reason (:expired)
-  #   its blockhash lapsed
-  #   anything else        → nothing changes; ask again              (:pending)
-  #   the chain cannot be  → nothing changes; ask again           (:unreadable)
+  #   anything else that   → nothing changes; ask again              (:pending)
+  #   can still land
+  #   the status cannot be → nothing changes; ask again           (:unreadable)
   #   read
+  #
+  # A signature that failed, or has no status past its blockhash window, is
+  # NOT proof that nothing was paid. The contest account, read at `finalized`
+  # (PendingTransaction#settle_rewind_hold), decides:
+  #
+  #   Open or Locked       → nothing was paid. The row returns to `pending`
+  #                          for a rebuild; the reason is written on the
+  #                          contest, which stays settlement_pending
+  #                                                       (:failed, :expired)
+  #   Settled, no status   → the contest is settled under the row's signature
+  #                          and the row confirmed                   (:settled)
+  #   Settled, failed      → another transaction paid. The row keeps its
+  #   signature              signature; a person looks            (:unverified)
+  #   absent, any other    → nothing changes; ask again                (:held)
+  #   status, or the read
+  #   fails
   #
   # A transaction that landed but is NOT this contest's settle is left
   # `submitted` with the reason on the contest (:unverified). It is never
@@ -52,10 +64,12 @@ module Contests
       # "nothing" for a transaction that is merely unindexed.
       status = @vault.client.confirm_transaction(signature).dig("value", 0)
 
-      case @tx.reconcile_broadcast!(status, now: @now)
+      case @tx.reconcile_broadcast!(status, now: @now, vault: @vault)
       when :landed then settle(signature)
       when :failed then result(:failed, @contest.reload.settlement_error)
       when :never_landed then result(:expired, @contest.reload.settlement_error)
+      when :contest_settled then settle_from_account(signature, status)
+      when :rewind_held then result(:held, "the contest account does not read Open, Locked or Settled at finalized")
       else result(:pending)
       end
     rescue Solana::TxVerifier::NotFound
@@ -81,10 +95,39 @@ module Contests
     # that writes THIS contest's account. Who signed is read off the
     # transaction itself, not claimed by anyone.
     def settle(signature)
-      Solana::TxVerifier.verify!(signature: signature, instruction_name: INSTRUCTION,
-                                 writable_pubkey: contest_account, client: @vault.client)
+      verify!(signature)
       return result(:pending, "landed; the contest account does not read Settled yet") unless chain_reads_settled?
 
+      record_settled(signature)
+    end
+
+    # The contest account reads Settled at `finalized`, so its winners are
+    # paid, though the signature's status does not read landed.
+    #
+    # No status: the row's signature is recorded as the settle. It is verified
+    # when the transaction is readable; a readable transaction that is not
+    # this contest's settle raises and is left for a person. An unreadable one
+    # is recorded unverified, and logged.
+    #
+    # A failed status: this wire paid nothing, so another transaction settled
+    # the contest. Nothing is recorded under this signature.
+    def settle_from_account(signature, status)
+      return settled_elsewhere(signature, status) if status
+
+      begin
+        verify!(signature)
+      rescue Solana::TxVerifier::NotFound
+        Rails.logger.warn("[settlement] #{@tx.slug} contest reads Settled at finalized; sig=#{signature} is not readable, recorded unverified")
+      end
+      record_settled(signature)
+    end
+
+    def verify!(signature)
+      Solana::TxVerifier.verify!(signature: signature, instruction_name: INSTRUCTION,
+                                 writable_pubkey: contest_account, client: @vault.client)
+    end
+
+    def record_settled(signature)
       cosigners = chain_cosigners(signature)
       Rails.logger.warn("[settlement] #{@tx.slug} landed with no configured vault cosigner among its signers") if cosigners.empty?
 
@@ -92,6 +135,14 @@ module Contests
       @tx.update!(status: "confirmed", cosigner_address: cosigners.first, cosigner_addresses: cosigners)
       Rails.logger.info("[settlement] settled #{@contest.slug} sig=#{signature}")
       result(:settled)
+    end
+
+    def settled_elsewhere(signature, status)
+      reason = "The contest account reads Settled on chain, so its winners are paid, but the settle transaction " \
+               "#{signature} failed on chain (#{status['err'].inspect.truncate(120)}). It is not re-sent and the " \
+               "contest is not marked settled; find the transaction that settled it and confirm it by hand."
+      @contest.record_settlement_failure!(reason)
+      result(:unverified, reason)
     end
 
     def unverified(error)
@@ -107,7 +158,7 @@ module Contests
     # An absent account was closed after it settled or was cancelled, which
     # this read cannot tell apart; the verified settle above already can.
     def chain_reads_settled?
-      onchain = @vault.read_contest(@contest.slug)
+      onchain = @vault.read_contest(@contest.slug, commitment: "confirmed")
       onchain.nil? || onchain[:status] == "Settled"
     end
 
