@@ -241,15 +241,32 @@ async function answerEnters(page) {
   return seen;
 }
 
-// Put the page back to a cart ready to hold: every card the refusal opened is closed.
+// Put the page back to a cart ready to hold. The refusal is waited for first:
+// its card paints after the request answers, and closing ahead of it leaves the
+// card to open over the button. Then every card is closed, and the button must
+// be the element under the pointer before the next press.
 async function dismissRefusal(page) {
-  await page.evaluate(() => {
-    const solana = Alpine.store("solanaModal");
-    if (solana && solana.visible) solana.close();
-    const modals = Alpine.store("modals");
-    for (let i = 0; i < 5 && modals && modals.current(); i++) modals.close();
-  });
-  await expect(page.locator('.hold-btn[data-hold-id="desktop"]')).not.toHaveClass(/process|loading|success|error/);
+  const refusal = page.getByText("Stopped by the spec.").first();
+  await expect(refusal, "the board said why the entry stopped").toBeVisible();
+  await expect
+    .poll(
+      async () => {
+        await page.evaluate(() => {
+          const solana = Alpine.store("solanaModal");
+          if (solana && solana.visible) solana.close();
+          const modals = Alpine.store("modals");
+          for (let i = 0; i < 5 && modals && modals.current(); i++) modals.close();
+        });
+        return page.evaluate(() => {
+          const button = document.querySelector('.hold-btn[data-hold-id="desktop"]');
+          const box = button.getBoundingClientRect();
+          const top = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+          return !!top && button.contains(top) && !/process|loading|success|error/.test(button.className);
+        });
+      },
+      { message: "the cart's button is clear to press again", timeout: 15000, intervals: [300, 500, 1000] }
+    )
+    .toBe(true);
 }
 
 test("a hold released after it completes sends one POST /enter, and a second hold one more", async ({ page }) => {
