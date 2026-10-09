@@ -28,6 +28,11 @@ module Solana
                            writable_pubkey: address, client: client)
       rescue TxVerifier::VerificationError # NotFound too: a transaction that cannot be read is not chosen
         false
+      rescue Client::RpcError => e
+        # -32015: a versioned transaction, which this client's getTransaction
+        # refuses. Not chosen, like any other it cannot read; raising would let
+        # one sent to the address before the entry hide the entry for good.
+        e.code == -32_015 ? false : raise
       end
     end
   end
