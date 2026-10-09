@@ -82,7 +82,9 @@ class LaptopLiveRenderTest < ActionDispatch::IntegrationTest
     lit = chips.select { |c| c["class"].to_s.split.include?("tt-chip-focused") }.map { |c| c["data-game-slug"] }.uniq
     assert_equal [LaptopFictionalShowcase::FOCUS_SLUG], lit
     assert_includes live.to_html, ".tt-chip-focused", "the live page's chip styles are included"
-    assert_match(/--nav-p: 1/, live.at_css("header[data-navbar-root]")["style"], "the collapsed navbar")
+    navbar = live.at_css('header[data-test="laptop-navbar"]')
+    assert_match(/--nav-p: 1/, navbar["style"], "the collapsed navbar")
+    assert_empty live.css("[data-navbar-root]"), "the page's own navbar is the only navbar root"
   end
 
   # THE LINK UNDER THE LAPTOP: real, focusable, outside the inert laptop, to

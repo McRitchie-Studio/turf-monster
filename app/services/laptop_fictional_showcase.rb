@@ -134,9 +134,9 @@ module LaptopFictionalShowcase
       home = teams.fetch(spec[:home])
       status = { active: "in_progress", upcoming: "scheduled", completed: "completed" }.fetch(spec[:phase])
       detail = case spec[:phase]
-               when :active then "#{spec[:clock]} - #{spec[:period].ordinalize}"
-               when :completed then "Final"
-               end
+      when :active then "#{spec[:clock]} - #{spec[:period].ordinalize}"
+      when :completed then "Final"
+      end
       slug = spec[:away] == "SF" ? FOCUS_SLUG : "showcase-#{spec[:away].downcase}-at-#{spec[:home].downcase}"
       game = Game.new(slug: slug, away_team_slug: away.slug, home_team_slug: home.slug, status: status,
                       away_score: spec[:away_score], home_score: spec[:home_score],

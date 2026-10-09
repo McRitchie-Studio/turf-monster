@@ -271,12 +271,18 @@ class LaptopLiveSnapshot
   # leaderboard.
   SCROLLED_NAV_CLASSES = "shadow-lg border-b border-subtle is-scrolled".freeze
 
+  #
+  # The header then gives up data-navbar-root: the laptop is on every visit to
+  # /turf-monster-v2 (and "/"), and the tests and browser specs find THE page's
+  # navbar by that attribute, so a second one in the hero would answer for it.
   def collapse_navbar(doc)
     header = doc.at_css("header[data-navbar-root]")
     return unless header
 
     header["style"] = "--nav-p: 1; #{header['style']}".strip
     header["class"] = [header["class"], SCROLLED_NAV_CLASSES].compact.join(" ")
+    header.remove_attribute("data-navbar-root")
+    header["data-test"] = "laptop-navbar"
   end
 
   # THE STRIP MID-ROTATION. On the live page the strip overflows, so its
