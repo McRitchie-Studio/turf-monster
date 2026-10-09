@@ -27,8 +27,8 @@ class Selection < ApplicationRecord
 
   # The points #compute_points! would write, without writing them: nil when
   # there is nothing to score yet (no week with goals, or no multiplier). The
-  # one formula, shared with the hero laptop's showcase entrants
-  # (LaptopShowcaseEntrants), which score unsaved, in-memory picks with it.
+  # one formula: the hero laptop's scripted board (LaptopShowcaseEntrants::Script)
+  # writes out its single-week branch for its in-memory picks.
   def computed_points
     contest = entry.contest
 

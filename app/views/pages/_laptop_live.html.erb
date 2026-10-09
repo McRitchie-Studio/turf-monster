@@ -38,10 +38,9 @@
       <%= render "contests/live_games", **showcase.games, contest: contest %>
     </div>
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start mb-8">
-      <%# The board carries the live page's id only for the SCRIPTED showcase
-          (LaptopShowcaseEntrants::Script, no real entries): then the driver
-          swaps in each frame's board and the live script re-ranks it. A real
-          contest's board has no id and is never moved. %>
+      <%# The board carries the live page's id when it is SCRIPTED
+          (LaptopShowcaseEntrants::Script, Mason and Turf): then the driver
+          swaps in each frame's board and the live script re-ranks it. %>
       <div <% if board_wired %>id="contest_<%= contest.id %>_leaderboard" <% end %>class="lg:col-start-2 lg:row-start-1" data-test="laptop-live-leaderboard">
         <%= render "contests/turf_totals_leaderboard", compact: true, viewer: nil, contest: contest,
                    entries: showcase.entries, matchups: showcase.matchups, onchain_contest: nil %>

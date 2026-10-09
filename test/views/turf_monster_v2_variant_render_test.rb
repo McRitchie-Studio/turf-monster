@@ -12,8 +12,7 @@ class TurfMonsterV2VariantRenderTest < ActionView::TestCase
     @experiment = create_page_experiment
     @teams = {}
     @next_contest = NextContest.pick
-    @lobby = NextContest.lobby
-    @live_showcase = nil
+    @laptop_showcase = nil
   end
 
   def render_page(variant_key, bot: false)

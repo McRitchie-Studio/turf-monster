@@ -192,24 +192,26 @@
       <figure class="flex flex-col items-center xl:items-start" data-test="v2-hero-figure">
         <div class="relative">
           <div class="hidden xl:block absolute z-0 left-[178px] -top-14 origin-top-left scale-110 [filter:drop-shadow(0_28px_48px_rgb(0_0_0/0.3))]" data-test="laptop-anchor">
-            <%= render "pages/laptop_lobby", lobby: @lobby, showcase: @live_showcase, live_html: @laptop_live_html,
+            <%= render "pages/laptop_lobby", showcase: @laptop_showcase, live_html: @laptop_live_html,
                        sim: @laptop_sim, sim_frames: @laptop_sim_frames || [] %>
-            <%# A REAL LINK UNDER THE LAPTOP, outside its aria-hidden/inert box, to
-                the live page of the contest the snapshot shows: "Watch updates
-                live" while it is being played (with the live page's red dot,
-                which stops pulsing under reduced motion), "See the latest
-                results" once it has finished. No contest, no link. %>
-            <% if @live_showcase %>
+            <%# A REAL LINK UNDER THE LAPTOP, outside its aria-hidden/inert box.
+                The laptop shows a FICTIONAL contest, so the link does not open
+                that: it opens the live page of the latest REAL NFL contest
+                (NextContest.live_contest), "Watch updates live" while it is
+                being played (with the live page's red dot, which stops pulsing
+                under reduced motion), "See the latest results" once it has
+                finished. No contest, no link. %>
+            <% if @watch_contest %>
               <%# Right-aligned in the part of the laptop the hero shows: from xl
                   the hero is a fixed 1248px (max-w-7xl), so the laptop's left
                   sits at a fixed x and its visible width is fixed too. 369px
                   (unscaled, inside the 1.1 scale) ends the link 24px inside the
                   hero's right clip and starts it well clear of the phone. %>
               <div class="w-[369px] pt-3 text-right">
-                <%= link_to live_contest_path(@live_showcase.contest),
+                <%= link_to live_contest_path(@watch_contest),
                       class: "inline-flex items-center gap-1.5 text-xs font-semibold text-white/80 hover:text-white underline-offset-2 hover:underline",
                       data: { test: "v2-watch-live", cta: "watch_live" } do %>
-                  <% if @live_showcase.live? %>
+                  <% if @watch_contest.live? %>
                     <span class="h-2 w-2 rounded-full bg-red-500 motion-safe:animate-pulse" aria-hidden="true"></span>
                     Watch updates live
                   <% else %>
@@ -241,7 +243,7 @@
             --phone-x/--phone-y. The hero's xl bottom padding is what makes room
             for it below the shifted phone (see the section). %>
         <figcaption class="relative z-10 mt-4 w-[18rem] text-center text-xs text-white/70 xl:translate-x-[var(--phone-x)] xl:translate-y-[var(--phone-y)]">
-          Pick Six Teams per Entry<span class="sr-only">. Behind the phone, a laptop shows the live contests lobby.</span>
+          Pick Six Teams per Entry<span class="sr-only">. Behind the phone, a laptop shows a sample contest being played live.</span>
         </figcaption>
       </figure>
     </div>

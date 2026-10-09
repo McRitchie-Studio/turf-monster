@@ -63,11 +63,13 @@ class PagesController < ApplicationController
   # its success or error state from it on the first paint.
   #
   # @next_contest is the page's one call to action (NextContest): a link to
-  # the next contest still open to enter, or the notify-me modal. @lobby is
-  # what the hero's laptop shows: a contest's live page when one is being
-  # played or just finished (@live_showcase), else the lobby rows. On the live
-  # page its featured game is simulated (@laptop_sim, LaptopScoreSimulation),
-  # and @laptop_sim_frames are the later frames the page's script plays.
+  # the next contest still open to enter, or the notify-me modal. The hero's
+  # laptop shows a FICTIONAL contest's live page (LaptopFictionalShowcase, the
+  # same on every date and never a real contest or player): its featured game
+  # is simulated (@laptop_sim, LaptopScoreSimulation), and @laptop_sim_frames
+  # are the later frames the page's script plays. @watch_contest is the REAL
+  # contest the "Watch updates live" link under the laptop opens
+  # (NextContest.live_contest), independent of the laptop.
   #
   # @page_variant is the A/B variant this visitor sees when an experiment runs
   # on this page (PageExperimentTracking), whose copy overrides the defaults
@@ -78,17 +80,16 @@ class PagesController < ApplicationController
     @teams = Team.where(slug: slugs).index_by(&:slug)
     @drop_signup_status = flash[:drop_signup]
     @next_contest = NextContest.pick
-    @lobby = NextContest.lobby
-    @live_showcase = NextContest.live_showcase
-    return unless @live_showcase
+    @watch_contest = NextContest.live_contest
+    @laptop_showcase = LaptopFictionalShowcase.build
 
     # The rendered snapshot and its frames come from Rails.cache
-    # (LaptopSnapshotCache): the same for every viewer, keyed on what they
-    # draw, at most a minute old. The simulation object is cheap, in-memory and
-    # read by the view, so it is built on every request.
+    # (LaptopSnapshotCache): the same for every viewer and every date. The
+    # simulation object is cheap, in-memory and read by the view, so it is
+    # built on every request.
     host = request.host_with_port
-    snapshot = LaptopLiveSnapshot.new(@live_showcase, host: host, https: request.ssl?)
-    cached = LaptopSnapshotCache.fetch(@live_showcase, host: host, https: request.ssl?) do
+    snapshot = LaptopLiveSnapshot.new(@laptop_showcase, host: host, https: request.ssl?)
+    cached = LaptopSnapshotCache.fetch(host: host, https: request.ssl?) do
       { html: snapshot.render.to_str, frames: snapshot.frames }
     end
     @laptop_live_html = cached[:html].html_safe # rubocop:disable Rails/OutputSafety -- LaptopLiveSnapshot's own render

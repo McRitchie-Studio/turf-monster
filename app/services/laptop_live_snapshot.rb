@@ -2,6 +2,13 @@
 # SIGNED-OUT visitor sees /contests/<slug>/live, rendered from the live page's
 # own partials (pages/_laptop_live composes them).
 #
+# THE CONTEST IS FICTIONAL. It renders LaptopFictionalShowcase: a made-up
+# contest ("Turf Monster Showcase") on a made-up slate, built from unsaved
+# in-memory records, so no real contest, game or player ever reaches the
+# laptop and the render is the same bytes on any date. The only database reads
+# a render makes are the signed-out navbar's own (its geo setting and the
+# no-session user lookup), none of them contest data.
+#
 # SIGNED OUT BY CONSTRUCTION. It renders through ContestsController.renderer,
 # a request with no session, so every current_user / logged_in? read inside
 # the real navbar, leaderboard and chat partials resolves to a guest: no
@@ -16,28 +23,22 @@
 # subscription; the caller also marks it x-ignore, aria-hidden and inert.
 #
 # THE FEATURED GAME IS SIMULATED. The game the live page opens on is drawn
-# from LaptopScoreSimulation's opening frame (3-7, in progress), not from its
-# row, and #frames renders every later frame of that simulation through the
-# same partials and the same clean-up, for the page's own score script to swap
-# in. Nothing is written.
+# from LaptopScoreSimulation's opening frame (3-7, in progress), and #frames
+# renders every later frame of that simulation through the same partials and
+# the same clean-up, for the page's own score script to swap in. Nothing is
+# written.
 #
-# TIMES IN MOUNTAIN. The live page prints kickoffs in UTC and lets its script
-# rewrite them in the reader's zone; the snapshot runs no script, so it
-# rewrites them here, in NextSlateDrop::ZONE (the zone this page already
-# states its drop time in), in the same formats the live script uses. The
-# laptop's copy of that script still re-formats them in the reader's zone once
-# it runs, exactly as /live does for a signed-out visitor.
+# KICKOFFS AS A WEEKDAY AND A TIME. The live page prints kickoffs in UTC and
+# lets its script rewrite them in the reader's zone. Here every kickoff is
+# written once, in NextSlateDrop::ZONE, as "Sun 2:25 PM", and handed to the
+# page as plain text the script does not touch; a time that would print a
+# calendar date ("Jan 5", "Sun, Jan 5") is removed, so the laptop never shows a
+# date that could go stale.
 #
-# SHOWCASE ENTRANTS. A contest with fewer than three real entries gains
-# Mason, turf and mack on the laptop's board only (LaptopShowcaseEntrants):
-# unsaved, readonly records drawn by the real leaderboard partial, with their
-# avatar images swapped in after the render (#showcase_avatars).
-#
-# NAMES. A player with no username would be labelled by User#display_name's
-# fallbacks, an email prefix or a truncated wallet. Those users are relabelled
-# "Player N" (N = their rank) in the leaderboard and "A player" in the chat
-# (join lines and reaction titles), on the in-memory records only, before
-# rendering; nothing is saved.
+# THE BOARD (LaptopShowcaseEntrants::Script): Mason and Turf, unsaved,
+# readonly records drawn by the real leaderboard partial, with their avatar
+# images swapped in after the render (#showcase_avatars). Every simulated
+# touchdown swaps the lead.
 class LaptopLiveSnapshot
   GEO_STATE = "CO".freeze
   STRIPPED = "script, turbo-cable-stream-source".freeze
@@ -53,12 +54,10 @@ class LaptopLiveSnapshot
     "expanded" => false, "!expanded" => true, "$store.devMode" => false
   }.freeze
 
-  # The formats contests/_live_script's formatKickoffs writes, per data-role.
-  TIME_FORMATS = {
-    "kickoff" => "%a %-l:%M %p",
-    "kickoff-date" => "%b %-d",
-    "played-on" => "%a, %b %-d"
-  }.freeze
+  # The one time format the laptop prints: the weekday and the clock time,
+  # never a date. contests/_live_script's formatKickoffs also writes a date for
+  # "kickoff-date" and "played-on"; those nodes are dropped (#localize_times).
+  KICKOFF_FORMAT = "%a %-l:%M %p".freeze
 
   def self.render(showcase, host:, https:)
     new(showcase, host: host, https: https).render
@@ -79,8 +78,7 @@ class LaptopLiveSnapshot
   # the board, and a cached page (LaptopSnapshotCache) builds this object for
   # its #simulation alone.
   def render
-    @showcase = script ? @showcase.with(entries: script.entries_at(0)) : LaptopShowcaseEntrants.fill(@showcase)
-    anonymize!
+    @showcase = @showcase.with(entries: script ? script.entries_at(0) : [])
     doc = clean(renderer.render(partial: "pages/laptop_live", locals: { showcase: @showcase, board_wired: !script.nil? }))
     showcase_avatars(doc)
     script_pill_points(doc)
@@ -115,9 +113,9 @@ class LaptopLiveSnapshot
     end
   end
 
-  # The scripted showcase board (LaptopShowcaseEntrants::Script), or nil: only
-  # when the contest has no real entries and the featured game is simulated.
-  # Built from the showcase as loaded, before #render swaps its entries.
+  # The scripted showcase board (LaptopShowcaseEntrants::Script), or nil when
+  # the showcase has no featured game to simulate. Built from the showcase as
+  # loaded, before #render swaps its entries.
   def script
     return @script if defined?(@script)
 
@@ -234,18 +232,27 @@ class LaptopLiveSnapshot
     doc.to_html
   end
 
+  # Every <time> becomes plain text: a kickoff is written as its weekday and
+  # time in NextSlateDrop::ZONE, and anything else (a date) is removed. The
+  # datetime and data-role go with it, so the live script under the laptop
+  # (formatKickoffs) finds nothing to rewrite in the reader's zone, and the
+  # laptop reads the same everywhere.
   def localize_times(doc)
     zone = Time.find_zone!(NextSlateDrop::ZONE)
-    doc.css("time[datetime][data-role]").each do |node|
-      format = TIME_FORMATS[node["data-role"]]
-      next unless format
-
+    doc.css("time").each do |node|
       at = begin
-        Time.iso8601(node["datetime"])
+        Time.iso8601(node["datetime"].to_s)
       rescue ArgumentError
-        next # keep the server's fallback text
+        nil
       end
-      node.content = at.in_time_zone(zone).strftime(format)
+      if node["data-role"] == "kickoff" && at
+        span = Nokogiri::XML::Node.new("span", doc.document)
+        span["class"] = node["class"] if node["class"]
+        span.content = at.in_time_zone(zone).strftime(KICKOFF_FORMAT)
+        node.replace(span)
+      else
+        node.remove
+      end
     end
   end
 
@@ -264,12 +271,18 @@ class LaptopLiveSnapshot
   # leaderboard.
   SCROLLED_NAV_CLASSES = "shadow-lg border-b border-subtle is-scrolled".freeze
 
+  # #collapse_navbar writes that state onto the snapshot's header, which then
+  # gives up data-navbar-root: the laptop is on every visit to
+  # /turf-monster-v2 (and "/"), and the tests and browser specs find THE page's
+  # navbar by that attribute, so a second one in the hero would answer for it.
   def collapse_navbar(doc)
     header = doc.at_css("header[data-navbar-root]")
     return unless header
 
     header["style"] = "--nav-p: 1; #{header['style']}".strip
     header["class"] = [header["class"], SCROLLED_NAV_CLASSES].compact.join(" ")
+    header.remove_attribute("data-navbar-root")
+    header["data-test"] = "laptop-navbar"
   end
 
   # THE STRIP MID-ROTATION. On the live page the strip overflows, so its
@@ -320,26 +333,6 @@ class LaptopLiveSnapshot
       else
         node["style"] = "display: none; #{node['style']}".strip
       end
-    end
-  end
-
-  def anonymize!
-    @showcase.entries.each_with_index do |entry, i|
-      user = entry.user
-      next if user.nil? || user.username.present?
-
-      user.username = "Player #{i + 1}"
-    end
-    @showcase.messages.each do |message|
-      user = message.user
-      if user && user.username.blank?
-        was = user.display_name
-        user.username = "A player"
-        # The join line baked the old label into its text when it was posted.
-        message.body = message.body.to_s.sub(was, user.username)
-      end
-      # The reaction pills title themselves with each reactor's name.
-      message.reactions.each { |r| r.user.username = "A player" if r.user && r.user.username.blank? }
     end
   end
 end

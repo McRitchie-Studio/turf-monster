@@ -67,6 +67,7 @@ class LaptopSnapshotCacheIntegrationTest < ActionDispatch::IntegrationTest
     [signed_in, guest].each do |html|
       refute_includes html, @viewer.username
       refute_includes html, @viewer.email
+      refute_includes html, @entrant.username, "the laptop is fictional: no real entrant either"
     end
     cached = @store.read(snapshot_keys.first)
     refute_includes cached[:html], @viewer.username

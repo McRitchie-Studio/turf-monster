@@ -64,46 +64,15 @@ class NextContestTest < ActiveSupport::TestCase
     assert NextContest.pick.modal?
   end
 
-  test "the lobby holds enterable contests only, open before coming soon, capped" do
-    contest("locked", starts_at: 1.hour.ago)
-    soon = contest("soon", starts_at: 4.days.from_now, coming_soon: true)
-    open = contest("open", starts_at: 3.days.from_now)
-    lobby = NextContest.lobby
-    assert_equal [open, soon], lobby.contests
-    assert_equal({}, lobby.entry_counts)
-    5.times { |i| contest("more-#{i}", starts_at: (i + 5).days.from_now) }
-    assert_equal NextContest::LOBBY_LIMIT, NextContest.lobby.contests.size
-  end
-
-  # The comment on .lobby says a cancelled contest is never shown. A cancelled
-  # contest keeps status "open" (Contest#cancelled? reads onchain_cancelled),
-  # so Contest.open alone let it through, and it also took a slot from the
-  # SQL limit an enterable contest needed.
-  test "the lobby never shows a cancelled contest, and one does not take a slot" do
-    open = contest("open", starts_at: 3.days.from_now)
-    dead = contest("cancelled", starts_at: 2.days.from_now)
-    dead.update_column(:onchain_cancelled, true)
-    lobby = NextContest.lobby
-    assert_equal [open], lobby.contests
-    refute_includes lobby.contests, dead
-
-    # Fill the newest-first window with cancelled contests: the older
-    # enterable one must still be found.
-    (NextContest::LOBBY_LIMIT * 4).times do |i|
-      contest("dead-#{i}", starts_at: (i + 4).days.from_now).update_column(:onchain_cancelled, true)
-    end
-    assert_equal [open], NextContest.lobby(limit: 1).contests
-  end
-
-  test "the live showcase prefers a contest being played, then the latest finished, then nil" do
-    assert_nil NextContest.live_showcase
+  # The "Watch updates live" link under the hero laptop.
+  test "the live contest prefers a contest being played, then the latest finished, then nil" do
+    assert_nil NextContest.live_contest
     finished = contest("finished", starts_at: 20.days.ago, status: "settled")
-    assert_equal finished, NextContest.live_showcase.contest
+    assert_equal finished, NextContest.live_contest
     playing = contest("playing", starts_at: 1.day.ago)
-    showcase = NextContest.live_showcase
-    assert_equal playing, showcase.contest
-    assert showcase.live?
+    assert_equal playing, NextContest.live_contest
+    assert NextContest.live_contest.live?
     contest("soccer-live", starts_at: 1.hour.ago, slate: slates(:one))
-    assert_equal playing, NextContest.live_showcase.contest, "NFL only"
+    assert_equal playing, NextContest.live_contest, "NFL only"
   end
 end

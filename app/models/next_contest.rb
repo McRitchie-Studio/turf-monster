@@ -26,71 +26,19 @@ module NextContest
     Pick.new(contest: candidates.min_by { |c| [c.locks_at ? 0 : 1, c.locks_at || now, c.id] })
   end
 
-  # The laptop on /turf-monster-v2's hero: the contests lobby, live. Up to
-  # `limit` contests a visitor could act on, in the lobby's own order
-  # (Contest.featured_order: open first, then coming soon, newest first), plus
-  # their confirmed entry counts in ONE grouped query, so the real
-  # contests/_contest_card can draw them with no per-card query.
-  #
-  # Same rule as .pick about doors: a contest whose lock has passed, or that is
-  # cancelled or settled, is never shown, since the lobby card would present it
-  # as enterable. A coming-soon contest IS shown; its card carries the
-  # "Coming Soon" sash. Any sport, because it is the whole lobby.
-  Lobby = Data.define(:contests, :entry_counts) do
-    def empty? = contests.empty?
-  end
-
-  LOBBY_LIMIT = 3
-
-  def self.lobby(limit: LOBBY_LIMIT, now: Time.current)
-    # Cancelled is filtered in SQL, before the limit: a cancelled contest keeps
-    # status "open" (Contest#cancelled? reads onchain_cancelled), and a row
-    # dropped after the limit would also cost an enterable contest its slot.
-    recent = Contest.open.where(onchain_cancelled: false)
-                    .includes(:slate).with_attached_contest_image
-                    .order(created_at: :desc).limit(limit * 4).to_a
-    shown = Contest.featured_order(recent.select { |c| enterable_at?(c, now) }).first(limit)
-    counts = shown.empty? ? {} : Entry.confirmed.where(contest_id: shown.map(&:id)).group(:contest_id).count
-    Lobby.new(contests: shown, entry_counts: counts)
-  end
-
-  # The laptop on /turf-monster-v2's hero shows a contest's LIVE page: the NFL
-  # contest being played right now (locked, not settled), else the one that
-  # finished most recently. nil when there is neither; the laptop then falls
-  # back to the lobby list.
-  #
-  # Everything the snapshot draws, loaded here with the live page's own
-  # preloads (ContestsController#load_contest_board_data) so the view issues no
-  # per-row query: the games in their three phases and the one the page opens
-  # on, the ranked matchups and entries the real leaderboard partial reads, and
-  # the chat's SYSTEM lines only ("joined the contest"), selected by the
-  # `system` column, never by matching text. A player-typed message is never
-  # loaded, so it cannot be drawn.
-  LiveShowcase = Data.define(:contest, :games, :focus_slug, :matchups, :entries, :messages) do
-    def live? = contest.live?
-  end
-
-  def self.live_showcase(now: Time.current)
+  # The "Watch updates live" link under /turf-monster-v2's hero laptop: the
+  # NFL contest being played right now (locked, not settled), else the one that
+  # finished most recently. nil when there is neither, and the page draws no
+  # link. Only the link reads it: the laptop itself shows a FICTIONAL contest
+  # (LaptopFictionalShowcase), never this one.
+  def self.live_contest
     nfl = Contest.listed.where(coming_soon: false)
                  .joins(:slate).where(slates: { sport: "nfl" })
                  .includes(:slate).to_a
                  .reject(&:cancelled?).select(&:turf_totals?)
     playing  = nfl.select(&:live?).max_by { |c| c.locks_at || c.created_at }
     finished = nfl.select(&:concluded?).max_by { |c| c.concludes_at || c.locks_at || c.created_at }
-    contest = playing || finished
-    return nil unless contest
-
-    games = contest.games_by_phase(now)
-    focus = (games[:active].first || games[:upcoming].first || games[:completed].first)&.slug
-    matchups = contest.matchups.ranked.includes(:team, :opponent_team, :game).to_a
-    entries = contest.entries.where(status: [:active, :complete])
-                     .includes(:user, selections: { slate_matchup: [:team, :game] })
-                     .order(score: :desc).to_a
-    messages = Message.visible.system_messages.where(contest: contest)
-                      .includes(user: { avatar_attachment: :blob }, reactions: :user)
-                      .order(created_at: :desc, id: :desc).limit(20).to_a
-    LiveShowcase.new(contest: contest, games: games, focus_slug: focus, matchups: matchups,
-                     entries: entries, messages: messages)
+    playing || finished
   end
 
   def self.enterable_at?(contest, now)

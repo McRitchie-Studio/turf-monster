@@ -161,12 +161,13 @@ class TurfMonsterV2PageTest < ActionDispatch::IntegrationTest
     assert step.css(%(a[href="#{getting_started_path}"])).any?
   end
 
-  test "the laptop lobby is decorative and inert, with a caption alternative" do
+  test "the laptop is decorative and inert, with a caption alternative" do
     get turf_monster_v2_path
     laptop = page_node.css('[data-test="laptop-mock"]').first
     assert_equal "true", laptop["aria-hidden"]
-    assert laptop.key?("inert"), "the real lobby rows inside must not be focusable"
-    assert_includes page_node.css('[data-test="v2-hero-figure"] figcaption').text, "a laptop shows the live contests lobby"
+    assert laptop.key?("inert"), "the snapshot's links inside must not be focusable"
+    assert_includes page_node.css('[data-test="v2-hero-figure"] figcaption').text,
+                    "a laptop shows a sample contest being played live"
   end
 
   # The hold button's fizz that escapes the phone: a real fizz layer outside
