@@ -10,17 +10,26 @@ module SettlementScenario
 
   # The slice of Solana::Vault the reconciler uses.
   class Chain
-    attr_reader :client
+    attr_reader :client, :contest_reads
 
-    # `contest_status:` is what the contest account reads; nil is a closed account.
-    def initialize(statuses: {}, transactions: {}, status_raises: nil, contest_status: "Settled")
+    # `contest_status:` is what the contest account reads; nil is a closed
+    # account. `contest_raises:` makes the account read fail. `contest_reads`
+    # holds the commitment of every account read.
+    def initialize(statuses: {}, transactions: {}, status_raises: nil, contest_status: "Settled", contest_raises: nil)
       @client = FakeSolanaClient.new(statuses, transactions: transactions, status_raises: status_raises)
       @contest_status = contest_status
+      @contest_raises = contest_raises
+      @contest_reads = []
     end
 
     def contest_pda(slug) = ["cpda-#{slug}", 254]
 
-    def read_contest(_slug) = @contest_status && { status: @contest_status }
+    def read_contest(_slug, commitment: "confirmed")
+      @contest_reads << commitment
+      raise Solana::Client::RpcError, @contest_raises if @contest_raises
+
+      @contest_status && { status: @contest_status }
+    end
   end
 
   def settlement_contest(name: "Settlement sweep")

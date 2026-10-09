@@ -11,6 +11,7 @@ require "minitest/mock"
 # runs the same contest down the path the rule does not cover.
 class ContestSettlementTest < ActiveSupport::TestCase
   SIGNATURE = "SettleSig1111111111111111111111111111111111111111111111111111111".freeze
+  FAILED = { "err" => { "InstructionError" => [0, { "Custom" => 6047 }] }, "confirmationStatus" => "finalized" }.freeze
 
   setup do
     @contest = Contest.create!(name: "Settlement state #{SecureRandom.hex(3)}", slate: slates(:one),
@@ -165,8 +166,7 @@ class ContestSettlementTest < ActiveSupport::TestCase
   test "landed_failure_keeps_pending_with_reason: a settle that failed on chain returns to the queue" do
     tx = broadcast_settle
 
-    verdict = tx.reconcile_broadcast!({ "err" => { "InstructionError" => [0, { "Custom" => 6047 }] },
-                                        "confirmationStatus" => "finalized" })
+    verdict = tx.reconcile_broadcast!(FAILED, vault: account("Open"))
 
     assert_equal :failed, verdict
     @contest.reload
@@ -179,15 +179,86 @@ class ContestSettlementTest < ActiveSupport::TestCase
     assert_equal 0, TransactionLog.where(source: @contest).count
   end
 
-  test "an expired settle (never landed, blockhash lapsed) returns to the queue with its reason" do
+  test "an expired settle (no status, blockhash lapsed, account Open at finalized) returns to the queue with its reason" do
     tx = broadcast_settle(broadcast_at: 10.minutes.ago)
+    chain = account("Open")
 
-    assert_equal :never_landed, tx.reconcile_broadcast!(nil)
+    assert_equal :never_landed, tx.reconcile_broadcast!(nil, vault: chain)
 
+    assert_equal ["finalized"], chain.contest_reads
     @contest.reload
     assert_equal "settlement_pending", @contest.status
     assert_match "expired", @contest.settlement_error
     assert_equal "pending", tx.reload.status
+  end
+
+  # ── the contest account decides every settle rewind ──────────────────────
+
+  [nil, FAILED].each do |status|
+    test "a Settled account keeps the row whatever the signature reads (#{status ? 'failed' : 'no status'})" do
+      tx = broadcast_settle(broadcast_at: 10.minutes.ago)
+      chain = account("Settled")
+
+      assert_equal :contest_settled, tx.reconcile_broadcast!(status, vault: chain)
+
+      assert_equal ["finalized"], chain.contest_reads
+      assert_equal ["submitted", SIGNATURE], [tx.reload.status, tx.tx_signature]
+      assert_nil @contest.reload.settlement_error, "Nothing was paid is never written on a Settled account"
+    end
+
+    test "an account read that fails keeps the row (#{status ? 'failed' : 'no status'})" do
+      tx = broadcast_settle(broadcast_at: 10.minutes.ago)
+
+      assert_equal :rewind_held, tx.reconcile_broadcast!(status, vault: account(raises: "429 Too Many Requests"))
+
+      assert_equal ["submitted", SIGNATURE], [tx.reload.status, tx.tx_signature]
+      assert_nil @contest.reload.settlement_error
+    end
+  end
+
+  [nil, "Cancelled"].each do |onchain|
+    test "an account that reads #{onchain.inspect} keeps the row" do
+      tx = broadcast_settle(broadcast_at: 10.minutes.ago)
+
+      assert_equal :rewind_held, tx.reconcile_broadcast!(nil, vault: account(onchain))
+
+      assert_equal ["submitted", SIGNATURE], [tx.reload.status, tx.tx_signature]
+      assert_nil @contest.reload.settlement_error
+    end
+  end
+
+  test "a Locked account at finalized allows the rewind" do
+    tx = broadcast_settle(broadcast_at: 10.minutes.ago)
+
+    assert_equal :never_landed, tx.reconcile_broadcast!(nil, vault: account("Locked"))
+
+    assert_equal ["pending", nil], [tx.reload.status, tx.tx_signature]
+  end
+
+  test "a refused settle says Nothing was paid only when the account reads Open or Locked" do
+    tx = broadcast_settle
+
+    tx.note_settle_refused!("ContestAlreadySettled", vault: account("Settled"))
+    assert_match "reads Settled on chain", @contest.reload.settlement_error
+    refute_match(/Nothing was paid/, @contest.settlement_error)
+
+    tx.note_settle_refused!("boom", vault: account(raises: "timeout"))
+    assert_match "could not be read", @contest.reload.settlement_error
+    refute_match(/Nothing was paid/, @contest.settlement_error)
+
+    tx.note_settle_refused!("SettlementOverflow", vault: account("Open"))
+    assert_match "refused before it was sent (SettlementOverflow)", @contest.reload.settlement_error
+    assert_match "Nothing was paid", @contest.settlement_error
+  end
+
+  test "control: a settle that may still land is left alone without an account read" do
+    tx = broadcast_settle(broadcast_at: 30.seconds.ago)
+    chain = account("Settled")
+
+    assert_equal :ambiguous, tx.reconcile_broadcast!(nil, vault: chain)
+
+    assert_empty chain.contest_reads
+    assert_equal ["submitted", SIGNATURE], [tx.reload.status, tx.tx_signature]
   end
 
   test "control: a settle that may still land is left alone, with no reason written" do
@@ -208,8 +279,11 @@ class ContestSettlementTest < ActiveSupport::TestCase
                                         status: "submitted", tx_signature: "CancelSig#{SecureRandom.hex(8)}",
                                         broadcast_at: 1.minute.ago)
 
-    assert_equal :failed, cancel.reconcile_broadcast!({ "err" => "boom", "confirmationStatus" => "finalized" })
+    chain = account("Settled")
+    assert_equal :failed, cancel.reconcile_broadcast!({ "err" => "boom", "confirmationStatus" => "finalized" }, vault: chain)
 
+    assert_empty chain.contest_reads, "only a settle row asks the contest account"
+    assert_equal "pending", cancel.reload.status
     assert_nil @contest.reload.settlement_error
   end
 
@@ -259,6 +333,11 @@ class ContestSettlementTest < ActiveSupport::TestCase
 
   # A graded on-chain contest whose settle was cosigned and broadcast, verdict
   # not in: the row is `submitted` under its signature.
+  # The contest account as the chain reads it; `raises:` fails the read.
+  def account(status = nil, raises: nil)
+    SettlementScenario::Chain.new(contest_status: status, contest_raises: raises)
+  end
+
   def broadcast_settle(broadcast_at: 1.minute.ago)
     make_onchain
     make_entry(score: 100.0)
