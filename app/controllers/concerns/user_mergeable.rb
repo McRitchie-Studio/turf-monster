@@ -14,7 +14,11 @@ module UserMergeable
       Entry.where(user_id: absorbed.id).update_all(user_id: survivor.id)
 
       # Fill in blank auth fields on survivor
-      survivor.email = absorbed.email if survivor.email.blank? && absorbed.email.present?
+      # The verified stamp travels with its address, never with the row.
+      if survivor.email.blank? && absorbed.email.present?
+        survivor.email = absorbed.email
+        survivor.email_verified_at = absorbed.email_verified_at
+      end
       survivor.name = absorbed.name if survivor.name.blank? && absorbed.name.present?
       if survivor.provider.blank? && absorbed.provider.present?
         survivor.provider = absorbed.provider

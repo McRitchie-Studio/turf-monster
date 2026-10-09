@@ -6,6 +6,8 @@ require "test_helper"
 class ParkedRoleVerifiedEmailTest < ActiveSupport::TestCase
   HOUSE   = User::TURF_HOUSE_EMAIL
   VARIANT = "Team@turfmonster.media".freeze
+  # The role every account starts with.
+  UNGRANTED = User.column_defaults.fetch("role")
   WALLET  = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM".freeze
 
   def wallet_account
@@ -29,7 +31,7 @@ class ParkedRoleVerifiedEmailTest < ActiveSupport::TestCase
 
     user.claim_parked_identity!
 
-    assert_equal "user", user.reload.role
+    assert_equal UNGRANTED, user.reload.role
     refute_equal "turf", user.username
   end
 
@@ -38,13 +40,13 @@ class ParkedRoleVerifiedEmailTest < ActiveSupport::TestCase
 
     user.claim_parked_identity!
 
-    assert_equal "user", user.reload.role
+    assert_equal UNGRANTED, user.reload.role
   end
 
-  test "a new account on an unverified parked email is created with role user" do
+  test "a new account on an unverified parked email is created with no parked role" do
     user = User.create!(email: HOUSE)
 
-    assert_equal "user", user.role
+    assert_equal UNGRANTED, user.role
     refute_equal "turf", user.username
   end
 
@@ -53,7 +55,7 @@ class ParkedRoleVerifiedEmailTest < ActiveSupport::TestCase
 
     user.claim_parked_identity!
 
-    assert_equal "user", user.reload.role
+    assert_equal UNGRANTED, user.reload.role
   end
 
   test "a verified parked email claims its role, name and username" do
@@ -145,7 +147,6 @@ class ParkedRoleVerifiedEmailTest < ActiveSupport::TestCase
   # The lock-out check. The seed writes roles directly and stamps no
   # verification, so a seeded row must keep its role through a claim.
   test "seeded parked rows keep their roles before and after a claim" do
-    User.delete_all
     silence_warnings { load Rails.root.join("db/seeds/users.rb") }
     capture_io { seed_core_users! }
     roster = User::PARKED_IDENTITIES.to_h { |identity| [ identity[:email], identity[:role] ] }

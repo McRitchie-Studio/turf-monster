@@ -126,6 +126,10 @@ class MagicLinksController < ApplicationController
   # re-establish the identity they already had.
   def sign_in_existing(user, result)
     reset_prior_session!
+    # The click proves the mailbox, and the parked claim reads that proof.
+    rescue_and_log(target: user) do
+      user.update!(email_verified_at: Time.current) if user.email_verified_at.blank?
+    end
     user.claim_parked_username!
     set_app_session(user)
     # BEFORE record_onboarding_state!, and that order is load-bearing: claiming a
@@ -141,12 +145,6 @@ class MagicLinksController < ApplicationController
     # about to open, and a toast underneath it would just talk over it.
     onboarding_steps = record_onboarding_state!(user)
     needs_wallet = onboarding_steps.any?
-    # rescue_and_log because the session is already established above: a User
-    # validation failing here would otherwise 500 a signed-in visitor with
-    # nothing in ErrorLog to attribute it to.
-    rescue_and_log(target: user) do
-      user.update!(email_verified_at: Time.current) if user.email_verified_at.blank?
-    end
     # Returning login: a quiet "welcome back" toast — no celebratory modal and no
     # token upsell (they already have an account). Land on the contest they came
     # from, else the featured contest. When wallet setup is due, the toast is
@@ -174,7 +172,10 @@ class MagicLinksController < ApplicationController
     end
 
     reset_prior_session!
+    # Verified at build: the click proves the mailbox, and a parked identity is
+    # claimed on create only by a verified address.
     user = User.new(email: result.email,
+                    email_verified_at: Time.current,
                     age_attested_at: (Time.current if age_attestation_required?),
                     reference: signup_reference,
                     **experiment_attribution)
@@ -182,7 +183,6 @@ class MagicLinksController < ApplicationController
     rescue_and_log(target: user) do
       user.save!
       cookies.delete(:reference)
-      user.update!(email_verified_at: Time.current)
       set_app_session(user)
       # Same seam and the same reason as sign_in_existing: the claim mints this
       # brand-new account's managed wallet (the after_create callback declined to,

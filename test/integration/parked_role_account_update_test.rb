@@ -6,6 +6,8 @@ require "test_helper"
 class ParkedRoleAccountUpdateTest < ActionDispatch::IntegrationTest
   HOUSE   = User::TURF_HOUSE_EMAIL
   VARIANT = "Team@turfmonster.media".freeze
+  # The role every account starts with.
+  UNGRANTED = User.column_defaults.fetch("role")
 
   def seeded_house
     User.create!(email: HOUSE, name: "Turf Monster", username: "turf", role: "admin")
@@ -39,7 +41,7 @@ class ParkedRoleAccountUpdateTest < ActionDispatch::IntegrationTest
     sign_in_again(user, key)
 
     user.reload
-    assert_equal "user", user.role
+    assert_equal UNGRANTED, user.role
     assert_nil user.email, "a case variant of a held address was saved"
     assert_equal %w[admin turf], [ house.reload.role, house.username ]
   end
@@ -54,7 +56,7 @@ class ParkedRoleAccountUpdateTest < ActionDispatch::IntegrationTest
     user.reload
     assert_equal HOUSE, user.email, "the first email saves normalised"
     assert_nil user.email_verified_at
-    assert_equal "user", user.role
+    assert_equal UNGRANTED, user.role
     refute_equal "turf", user.username
   end
 
@@ -72,7 +74,7 @@ class ParkedRoleAccountUpdateTest < ActionDispatch::IntegrationTest
     user.reload
     assert_equal "google_oauth2", user.provider, "the link itself still lands"
     assert_nil user.email_verified_at
-    assert_equal "user", user.role
+    assert_equal UNGRANTED, user.role
   end
 
   test "linking the Google account of the same address verifies it" do
