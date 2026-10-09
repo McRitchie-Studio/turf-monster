@@ -47,21 +47,31 @@ class BirthdayGateRegistrationTest < ActionDispatch::IntegrationTest
       "modals/_age_verify was deleted; a registration for its id resolves nothing"
   end
 
-  test "the engine factory ships at layout level, where a cloned script cannot" do
+  # THE FACTORY REACHES THE PAGE, wherever the bundled engine keeps it. The host
+  # mounts cards through <template x-if>, and a cloned <script> never runs, so a
+  # factory shipped INSIDE the card is defined only in markup that never
+  # executes: the card mounts against an undefined function and every binding
+  # on it silently no-ops.
+  #   - An engine that ships the studio/birthday module publishes the factory on
+  #     every page (studio/alpine_scopes), so the page has to import that module.
+  #   - An engine that does not renders the factory inline, from the
+  #     studio/birthday_assets partial the layout renders.
+  test "the engine factory reaches the page, where a cloned script cannot" do
     html = app_page
 
-    # The host mounts cards through <template x-if>, and a cloned <script> never
-    # runs — so a factory shipped INSIDE the card is defined only in markup that
-    # never executes. The card would mount against an undefined function and
-    # every binding on it would silently no-op.
-    # Assert the ASSIGNMENT, not the name. The name also appears in the tombstone
-    # comment left where this app's own factory used to live in
-    # shared/_alpine_factories — and that comment ships to the page, so a bare
-    # name match stayed green with the assets partial deleted outright. Caught by
-    # mutation; the same shape of trap as an ERB comment reasoning about the code
-    # it sits above.
-    assert_includes html, "window.birthdayModal = function",
-      "studio/_birthday_assets must render at layout level"
+    if Studio::Engine.root.join("app/javascript/studio/birthday.js").exist?
+      scopes = Studio::Engine.root.join("app/javascript/studio/alpine_scopes.js").read
+      assert_match(/^\s*birthdayModal: \(opts\) => birthdayModal\(opts\)/, scopes,
+        "the engine must publish the birthdayModal factory")
+      assert_select "head script[type='module']", text: /import "studio\/alpine_scopes"/
+    else
+      # Assert the ASSIGNMENT, not the name. The name also appears in the
+      # comment left where this app's own factory used to live in
+      # shared/_alpine_factories, and that comment ships to the page, so a bare
+      # name match stays green with the assets partial deleted outright.
+      assert_includes html, "window.birthdayModal = function",
+        "studio/_birthday_assets must render at layout level"
+    end
     assert_not_includes html, "window.ageVerifyModal = function",
       "this app's own factory was deleted with the fork"
   end
