@@ -374,3 +374,52 @@ test("the goal console records, removes and finalises through one card, and filt
   await expect(score).toHaveText("1 – 0");
   expect(sent.length).toBe(posts + 1);
 });
+
+test("each navbar preview resizes, fits its device and toggles Scrolled on its own", async ({ page }) => {
+  await loginAdmin(page);
+  await page.goto("/admin/navbar");
+  await lazyController(page, "navbar-preview");
+
+  const cards = page.locator('[data-controller="navbar-preview"]');
+  await expect(cards).toHaveCount(6);
+  const card = cards.first();
+  const other = cards.nth(1);
+  const label = card.locator('[data-navbar-preview-target="label"]');
+  const slider = card.locator('[data-navbar-preview-target="slider"]');
+  const frame = card.locator('[data-navbar-preview-target="frame"]');
+  const toggle = card.getByRole("button", { name: "Scrolled" });
+  await expect(label).toHaveText("390px");
+  await expect(frame).toHaveCSS("width", "390px");
+
+  await slider.focus();
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await expect(label).toHaveText("392px");
+  await expect(frame).toHaveCSS("width", "392px");
+  await slider.fill("350");
+  await expect(label).toHaveText("350px");
+  await expect(other.locator('[data-navbar-preview-target="label"]')).toHaveText("430px");
+
+  await toggle.click();
+  await expect(frame).toHaveClass(/is-scrolled-preview/);
+  await expect(toggle).toHaveClass(/bg-primary/);
+  expect(await frame.evaluate((el) => el.style.getPropertyValue("--nav-p"))).toBe("1");
+  await toggle.focus();
+  await page.keyboard.press("Enter");
+  await expect(frame).not.toHaveClass(/is-scrolled-preview/);
+  await expect(toggle).toHaveClass(/bg-surface-alt/);
+  await toggle.click();
+
+  await card.getByRole("button", { name: "iPhone 15 (390px)" }).click();
+  await expect(label).toHaveText("390px");
+  await expect(slider).toHaveValue("390");
+  await expect(frame).toHaveClass(/is-scrolled-preview/);
+
+  await slider.fill("360");
+  await leaveAndComeBack(page, "/admin/navbar");
+  await expect(label).toHaveText("390px");
+  await expect(slider).toHaveValue("390");
+  await expect(frame).not.toHaveClass(/is-scrolled-preview/);
+  await toggle.click();
+  await expect(frame).toHaveClass(/is-scrolled-preview/);
+});
