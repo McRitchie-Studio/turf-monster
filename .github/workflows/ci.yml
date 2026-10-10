@@ -354,17 +354,11 @@ jobs:
       RAILS_MASTER_KEY: ${{ secrets.RAILS_MASTER_KEY }}
       SOLANA_ADMIN_KEY: ${{ secrets.SOLANA_ADMIN_KEY }}
       SOLANA_RPC_URL: http://127.0.0.1:9
-      # AWS creds: DUMMY throwaway values (test storage is `:test` = Disk, so
-      # these never reach real S3). The active_storage_public_services
-      # initializer instantiates the `amazon_public` S3 clients at boot; with NO
-      # creds the AWS SDK falls through to an EC2 instance-metadata lookup that
-      # hangs on the runner (no metadata endpoint) — ×2 clients ×3 app boots in
-      # the webServer command, intermittently pushing boot past its 30s timeout
-      # (the shard-1 `Aws::InstanceProfileCredentials::TokenRetrivalError` flake).
-      # Supplying creds skips the metadata lookup, so boot is fast and stable.
-      AWS_ACCESS_KEY_ID: ci-e2e-dummy-not-a-real-secret
-      AWS_SECRET_ACCESS_KEY: ci-e2e-dummy-not-a-real-secret
-      AWS_REGION: us-east-1
+      # No storage variables on purpose: a test boot is keyless, so Active
+      # Storage is Disk and Studio::S3 holds lib/storage_backend.rb's placeholder
+      # endpoint and key pair. No AWS client is built at boot and none walks the
+      # SDK's credential chain (the instance-metadata lookup that used to hang
+      # here), which is what the dummy AWS_* values this block carried were for.
     services:
       postgres:
         image: public.ecr.aws/docker/library/postgres:17

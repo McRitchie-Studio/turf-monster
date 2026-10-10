@@ -211,8 +211,6 @@ At minimum, `.env` needs:
 - `SECRET_KEY_BASE`
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
-- `AWS_ACCESS_KEY_ID`
-- `AWS_SECRET_ACCESS_KEY`
 - `SOLANA_ADMIN_KEY`
 - `SOLANA_RPC_URL`
 - `MANAGED_WALLET_ENCRYPTION_KEY`
@@ -221,5 +219,27 @@ At minimum, `.env` needs:
 BROWSER-facing endpoint, and locally `SOLANA_RPC_URL` carries no credential, so
 the browser is handed the same URL. See "RPC endpoints — server vs browser" in
 `docs/SOLANA.md`.
+
+### Object storage (Cloudflare R2)
+
+Object storage is Cloudflare R2 and nothing else; AWS S3 was retired on
+2026-10-10. The rules live in `lib/storage_backend.rb` and `config/storage.yml`.
+
+- **No storage variable is required locally.** With none of `R2_ENDPOINT`,
+  `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` and `R2_PUBLIC_URL` set, uploads go
+  to local Disk and nothing reaches a bucket. Tests and CI always run this way.
+- **To use the dev bucket**, put all four (the dev pair, 1Password
+  `r2.turf-monster`) in the untracked `.env.development`; `bin/agent-worktree`
+  copies that file into new desks. Some but not all of the four raises at boot,
+  naming the missing variable.
+- **Production and QA require all four** and raise at boot, by name, without
+  them. `ACTIVE_STORAGE_BACKEND` and `STUDIO_S3_BACKEND` are optional: unset
+  means `r2`, and any other value raises.
+- **A delete is a move to `trash/`.** Purging or replacing an attachment copies
+  the object to `trash/<utc date>/<epoch ms>/<key>` before deleting it, and the
+  bucket's `expire-trash-3d` lifecycle rule removes the copy three days later.
+  Restore within the window with `rake studio:trash:restore[TRASH_KEY]`. A
+  process that is not real production is refused a delete on
+  `turf-monster-production`.
 
 Use McRitchie Studio's agent credential docs for current 1Password item names. Do not print secret values in terminal output or handoff notes.

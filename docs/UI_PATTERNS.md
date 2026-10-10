@@ -62,7 +62,7 @@ that already lives somewhere private.
 **1. Images uploaded AS og:images — public service.** The site identity's
 default image (`Studio::SiteIdentity#image`, set at `/admin/link_preview`) and
 `LandingPage`'s `og_image` use the `amazon_public` / `amazon_public_dev`
-services and are served as permanent S3 object URLs. `OgImageAttachable` owns
+services and are served as permanent URLs on the R2 bucket's public domain. `OgImageAttachable` owns
 the per-environment service choice; the engine reads it through
 `Studio.link_preview_image_service`, set in `config/initializers/studio.rb`. Do NOT put these on
 the private `amazon` services, whose `.url` is a signature that expires.

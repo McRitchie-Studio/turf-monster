@@ -272,9 +272,10 @@ Studio.configure do |config|
 
   config.s3_bucket_prefix = "turf-monster"
 
-  # Cloudflare R2 when STUDIO_S3_BACKEND=r2, AWS S3 otherwise (no settings, the
-  # engine's defaults). The switch and why it has no mirror stage:
-  # lib/storage_backend.rb.
+  # Studio::S3 is Cloudflare R2, always. In production (QA included) a missing
+  # R2_* variable raises HERE, at boot, naming the variable; a keyless test or
+  # development boot gets an endpoint that cannot resolve. lib/storage_backend.rb.
+  StorageBackend.verify!
   StorageBackend.studio_s3_settings.each { |name, value| config.public_send("#{name}=", value) }
 
   # ---- Geo (studio-engine >= 0.57 — see the gem's docs/GEO.md) -------------

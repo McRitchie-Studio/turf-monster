@@ -81,10 +81,11 @@ class Nflverse::SeedPlayers
   attr_reader :stats, :namesake_collisions
 
   # Whether Studio::S3, which caches the headshots, can sign a write: the R2 keys
-  # config/initializers/studio.rb sets under STUDIO_S3_BACKEND=r2, or on AWS the
-  # SDK's default chain, which on a dyno is AWS_ACCESS_KEY_ID.
-  def self.storage_credentials?(env = ENV)
-    Studio.s3_access_key_id.present? || env["AWS_ACCESS_KEY_ID"].present?
+  # config/initializers/studio.rb sets from R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY
+  # (lib/storage_backend.rb). A keyless test or development boot has none: it
+  # holds that module's placeholder pair, which signs nothing anywhere.
+  def self.storage_credentials?
+    Studio.s3_access_key_id.present? && Studio.s3_access_key_id != StorageBackend::UNCONFIGURED_KEY
   end
 
   def initialize(verbose: false, upload_headshots: true,
@@ -93,8 +94,8 @@ class Nflverse::SeedPlayers
     @verbose = verbose
     @upload_headshots = upload_headshots
     if @upload_headshots && !self.class.storage_credentials?
-      raise "No storage credentials — headshot caching needs R2 keys (STUDIO_S3_BACKEND=r2) or AWS_ACCESS_KEY_ID. " \
-            "Pass upload_headshots: false (or SKIP_HEADSHOTS=1) to opt out."
+      raise "No storage credentials — headshot caching needs the R2 keys (R2_ACCESS_KEY_ID and " \
+            "R2_SECRET_ACCESS_KEY). Pass upload_headshots: false (or SKIP_HEADSHOTS=1) to opt out."
     end
     @min_season = min_season.to_i
     @status_filter = status_filter.presence
@@ -561,7 +562,7 @@ class Nflverse::SeedPlayers
   end
 
   # Headshots land under the athlete's team folder so a trade reads clearly in
-  # S3; free agents share one folder rather than scattering at the root.
+  # the bucket; free agents share one folder rather than scattering at the root.
   def cache_headshot(athlete)
     folder = athlete.team_slug.presence || "free-agents"
     Studio::ImageCache.cache!(
