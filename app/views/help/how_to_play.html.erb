@@ -16,6 +16,10 @@
     </ol>
   </div>
 
+  <%# Without JavaScript no section can open, so every panel shows. The rule sits
+      in Tailwind's base layer: its [hidden] rule is !important there, and an
+      unlayered !important rule loses to a layered one. %>
+  <noscript><style>@layer base { [data-accordion-target="panel"][hidden] { display: block !important; } }</style></noscript>
   <div class="space-y-3" data-controller="accordion" data-action="turbo:before-cache@document->accordion#collapse">
     <div class="card overflow-hidden">
       <button type="button" data-action="accordion#toggle" data-accordion-key-param="picks" class="w-full flex items-center justify-between p-4 text-left">

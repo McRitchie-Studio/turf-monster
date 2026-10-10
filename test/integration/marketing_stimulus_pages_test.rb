@@ -30,6 +30,9 @@ class MarketingStimulusPagesTest < ActionDispatch::IntegrationTest
     assert_equal %w[picks turfScores scoring payouts], keys
     assert_equal keys, root.css('[data-accordion-target="panel"][hidden]').map { |panel| panel["data-key"] }
     assert_empty root.css('[data-accordion-target="icon"].rotate-180')
+    # A visitor without JavaScript still reads every section.
+    assert response.body.include?('<noscript><style>@layer base { [data-accordion-target="panel"][hidden] { display: block !important; } }</style></noscript>'),
+      "how to play lost the noscript rule that shows every panel without JavaScript"
   end
 
   test "the contract calculator carries the measured lamports and the default price" do
