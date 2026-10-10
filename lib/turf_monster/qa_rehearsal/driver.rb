@@ -681,8 +681,22 @@ module TurfMonster
         slug = data.fetch("contest_slug")
         say "Step 5 · reclaim rent on #{slug}"
 
-        result = remote.call(<<~RUBY)
+        result = remote.call(close_script(slug))
+
+        say "  closed: #{result.inspect}"
+        say_urls(slug)
+        hand_back(verify: "the contest reads settled and the rent came back")
+        result
+      end
+
+      # Closing sweeps the prize pool, so an unpaid contest is refused.
+      def close_script(slug)
+        <<~RUBY
           contest = Contest.find_by!(slug: #{slug.inspect})
+          unless contest.onchain_settled? || contest.cancelled?
+            refuse("contest " + contest.slug + " has not settled on chain, and closing sweeps its prize pool. " +
+                   "Co-sign the settle transaction on the Treasury page, then run close again.")
+          end
           out = { already_closed: contest.onchain_closed }
           unless contest.onchain_closed?
             sig = Solana::Vault.new.close_contest(contest.slug)
@@ -697,11 +711,6 @@ module TurfMonster
           end
           emit(**out)
         RUBY
-
-        say "  closed: #{result.inspect}"
-        say_urls(slug)
-        hand_back(verify: "the contest reads settled and the rent came back")
-        result
       end
 
       private

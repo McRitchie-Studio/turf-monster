@@ -167,4 +167,28 @@ class QaRehearsalSeedPreflightTest < ActiveSupport::TestCase
     assert_includes @io.string, "not in this app's SOLANA_MULTISIG_SIGNERS list",
                     "the test key is in no signer list, so the flag must print"
   end
+
+  test "close refuses a contest that has not settled, before any chain call" do
+    contest = contests(:one)
+    contest.update_columns(onchain_settled: false, onchain_cancelled: false, onchain_closed: false)
+
+    error = Solana::Vault.stub(:new, -> { flunk "close reached the vault on an unsettled contest" }) do
+      assert_raises(Refused) { @dyno.call(@driver.close_script(contest.slug)) }
+    end
+
+    assert_includes error.message, "has not settled on chain"
+    refute contest.reload.onchain_closed
+  end
+
+  test "close goes on to the vault once the contest has settled" do
+    contest = contests(:one)
+    contest.update_columns(onchain_settled: true, onchain_closed: false)
+    vault = Struct.new(:closed) { def close_contest(slug) = (self.closed = slug) && "sig-close" }.new
+
+    answer = Solana::Vault.stub(:new, vault) { @dyno.call(@driver.close_script(contest.slug)) }
+
+    assert_equal contest.slug, vault.closed
+    assert_equal "sig-close", answer["signature"]
+    assert contest.reload.onchain_closed
+  end
 end
