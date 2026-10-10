@@ -126,7 +126,7 @@ class ContractMeasurementsTest < ActionDispatch::IntegrationTest
       "Query it: solana rent #{pd_space}, or getMinimumBalanceForRentExemption."
 
     # The calculator's SOL totals must be built from the QUERIED minimums.
-    cfg = JSON.parse(body[%r{<script type="application/json" id="contract-page-config">(.*?)</script>}m, 1])
+    cfg = %w[perm float].to_h { |kind| [ "#{kind}_lamports", body[/data-cost-calculator-#{kind}-lamports-value="(\d+)"/, 1].to_i ] }
     assert_equal pd_min + program_min + tx_fee, cfg["perm_lamports"],
       "the permanent total must be the queried minimums plus deploy fees, nothing else"
     assert_equal cfg["perm_lamports"] + buffer_min, cfg["float_lamports"],

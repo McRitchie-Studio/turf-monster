@@ -1,24 +1,28 @@
 <% positions = @players.map(&:position).compact.uniq.sort %>
 
-<section x-data="cardListFilter({ selector: '[data-player-card]', filters: { position: 'all' } })">
+<section data-controller="card-filter" data-card-filter-selector-value="[data-player-card]" data-card-filter-noun-value="players"
+     data-card-filter-active-class="btn-primary" data-card-filter-inactive-class="btn-outline"
+     data-action="turbo:before-cache@document->card-filter#reset">
   <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
     <h2 class="text-2xl font-bold text-heading">Players</h2>
     <div class="flex items-center gap-3 w-full sm:w-auto">
       <input type="text"
-             x-model.debounce.300ms="search"
+             data-card-filter-target="search" data-action="input->card-filter#search"
              placeholder="Search players..."
              class="input-field text-sm !py-2 !px-3 w-full sm:w-64">
-      <span class="text-sm text-muted whitespace-nowrap" x-text="visibleCount + ' players'"></span>
+      <span class="text-sm text-muted whitespace-nowrap" data-card-filter-target="count"><%= @players.size %> players</span>
     </div>
   </div>
 
   <%# Position filter tabs %>
   <div class="flex flex-wrap gap-2 mb-6">
-    <button class="btn btn-sm" :class="filters.position === 'all' ? 'btn-primary' : 'btn-outline'" @click="filters.position = 'all'">All</button>
+    <button type="button" class="btn btn-sm btn-primary" aria-pressed="true"
+            data-card-filter-target="option" data-action="card-filter#choose"
+            data-card-filter-key-param="position" data-card-filter-value-param="all">All</button>
     <% positions.each do |pos| %>
-      <button class="btn btn-sm"
-              :class="filters.position === '<%= pos %>' ? 'btn-primary' : 'btn-outline'"
-              @click="filters.position = '<%= pos %>'">
+      <button type="button" class="btn btn-sm btn-outline" aria-pressed="false"
+              data-card-filter-target="option" data-action="card-filter#choose"
+              data-card-filter-key-param="position" data-card-filter-value-param="<%= pos %>">
         <%= pos %>
       </button>
     <% end %>

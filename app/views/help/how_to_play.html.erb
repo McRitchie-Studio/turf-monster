@@ -16,24 +16,24 @@
     </ol>
   </div>
 
-  <div x-data="{ open: null }" class="space-y-3">
+  <div class="space-y-3" data-controller="accordion" data-action="turbo:before-cache@document->accordion#collapse">
     <div class="card overflow-hidden">
-      <button @click="open = open === 'picks' ? null : 'picks'" class="w-full flex items-center justify-between p-4 text-left">
+      <button type="button" data-action="accordion#toggle" data-accordion-key-param="picks" class="w-full flex items-center justify-between p-4 text-left">
         <span class="text-heading font-bold">Picks</span>
-        <svg class="w-5 h-5 text-secondary transition-transform" :class="open === 'picks' && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+        <svg class="w-5 h-5 text-secondary transition-transform" data-accordion-target="icon" data-key="picks" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
       </button>
-      <div x-show="open === 'picks'" x-collapse class="px-4 pb-4 text-body">
+      <div class="px-4 pb-4 text-body" data-accordion-target="panel" data-key="picks" hidden>
         <p>Each contest shows a slate of team matchups. Tap a team to add it to your picks. Most contests require <strong>6 picks</strong>; short knockout slates require every available matchup.</p>
         <p class="mt-2">You can enter the same contest multiple times with different pick combinations.</p>
       </div>
     </div>
 
     <div class="card overflow-hidden">
-      <button @click="open = open === 'turfScores' ? null : 'turfScores'" class="w-full flex items-center justify-between p-4 text-left">
+      <button type="button" data-action="accordion#toggle" data-accordion-key-param="turfScores" class="w-full flex items-center justify-between p-4 text-left">
         <span class="text-heading font-bold">Turf Scores</span>
-        <svg class="w-5 h-5 text-secondary transition-transform" :class="open === 'turfScores' && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+        <svg class="w-5 h-5 text-secondary transition-transform" data-accordion-target="icon" data-key="turfScores" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
       </button>
-      <div x-show="open === 'turfScores'" x-collapse class="px-4 pb-4 text-body">
+      <div class="px-4 pb-4 text-body" data-accordion-target="panel" data-key="turfScores" hidden>
         <p>Every team gets a Turf Score based on their world ranking. The formula: <code class="bg-surface-alt px-1.5 py-0.5 rounded text-sm">1.0 + 2.0 &times; ln(rank) / ln(N)</code></p>
         <ul class="list-disc list-inside mt-2 space-y-1">
           <li><strong>Rank 1</strong> (best team) &rarr; x1.0 Turf Score</li>
@@ -45,11 +45,11 @@
     </div>
 
     <div class="card overflow-hidden">
-      <button @click="open = open === 'scoring' ? null : 'scoring'" class="w-full flex items-center justify-between p-4 text-left">
+      <button type="button" data-action="accordion#toggle" data-accordion-key-param="scoring" class="w-full flex items-center justify-between p-4 text-left">
         <span class="text-heading font-bold">Scoring</span>
-        <svg class="w-5 h-5 text-secondary transition-transform" :class="open === 'scoring' && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+        <svg class="w-5 h-5 text-secondary transition-transform" data-accordion-target="icon" data-key="scoring" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
       </button>
-      <div x-show="open === 'scoring'" x-collapse class="px-4 pb-4 text-body">
+      <div class="px-4 pb-4 text-body" data-accordion-target="panel" data-key="scoring" hidden>
         <p>For each pick:</p>
         <p class="my-2 text-heading font-mono font-bold text-center">Points = Goals Scored &times; Turf Score</p>
         <p>Your entry score is the sum of your selection scores. Entries are ranked by total score, highest first. Ties receive the same rank.</p>
@@ -57,11 +57,11 @@
     </div>
 
     <div class="card overflow-hidden">
-      <button @click="open = open === 'payouts' ? null : 'payouts'" class="w-full flex items-center justify-between p-4 text-left">
+      <button type="button" data-action="accordion#toggle" data-accordion-key-param="payouts" class="w-full flex items-center justify-between p-4 text-left">
         <span class="text-heading font-bold">Payouts</span>
-        <svg class="w-5 h-5 text-secondary transition-transform" :class="open === 'payouts' && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+        <svg class="w-5 h-5 text-secondary transition-transform" data-accordion-target="icon" data-key="payouts" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
       </button>
-      <div x-show="open === 'payouts'" x-collapse class="px-4 pb-4 text-body">
+      <div class="px-4 pb-4 text-body" data-accordion-target="panel" data-key="payouts" hidden>
         <p>Prizes are paid out based on your final rank in the contest. The payout structure depends on the contest format:</p>
         <ul class="list-disc list-inside mt-2 space-y-1">
           <li><strong>Small contests</strong> (3 entries max): 1st place wins $50</li>
