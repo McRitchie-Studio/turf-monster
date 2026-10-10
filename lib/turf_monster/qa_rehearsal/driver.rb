@@ -63,6 +63,9 @@ module TurfMonster
       CREATOR_MISSING = "no user on #{CREATOR_EMAIL} to create the rehearsal contest as. " \
                         "Nothing was written. Run #{SEED_COMMAND} to seed the parked " \
                         "roster on QA, then run create again."
+      SEED_BUILD_BEHIND = "the build on QA has a roster seed with no adoption check, so the seed did not " \
+                          "run. Nothing was written. Deploy a build that carries it, then run " \
+                          "#{SEED_COMMAND} again."
       SLATE_MISSING = "no slate named #{SLATE_NAME.inspect} on QA, so there is no board to " \
                       "rehearse on. Nothing was written."
 
@@ -129,7 +132,8 @@ module TurfMonster
       # --- Step 0 --------------------------------------------------------
       # Seed the parked roster on QA through the app's own seed
       # (db/seeds/users.rb). Run once per QA database; a re-run changes nothing.
-      # Only roster rows are written.
+      # Only roster rows and retired seats are written, and a row the seed
+      # cannot prove stops it before any write (seed_adoption_refusal).
       def seed_roster
         guard!
         say "Step 0 · seed the parked roster on #{app}"
@@ -148,12 +152,18 @@ module TurfMonster
         <<~RUBY
           load Rails.root.join("db/seeds/users.rb").to_s
           begin
-            seeded = seed_parked_identities!
+            seeded = seed_parked_identities!(proven_only: true)
             creator = User.find_by(email: #{CREATOR_EMAIL.inspect})
             emit(seeded: seeded.values.map(&:username), creator: creator&.username)
           rescue ActiveRecord::RecordInvalid => e
             refuse("the roster seed could not save " + e.record.class.name + " " + e.record.id.to_s + ": " +
                    e.record.errors.full_messages.to_sentence)
+          rescue ArgumentError => e
+            raise unless e.message.include?("proven_only")
+
+            refuse(#{SEED_BUILD_BEHIND.inspect})
+          rescue SeedAdoptionRefused => e
+            refuse(e.message + " Then run #{SEED_COMMAND} again.")
           end
         RUBY
       end

@@ -2,7 +2,8 @@
 # rehearsal's seed step (lib/turf_monster/qa_rehearsal/driver.rb).
 #
 # Returns a hash of User objects keyed by username string.
-# Adopts existing rows by email, wallet, or username for idempotency.
+# Adopts existing rows by email, wallet, or username for idempotency; the
+# rehearsal's seed step adopts only a row it can prove (seed_adoption_refusal).
 
 CORE_USERS = User::PARKED_IDENTITIES.map(&:dup).freeze
 
@@ -83,10 +84,49 @@ def retire_unparked_identities!(retired = User::RETIRED_IDENTITIES)
   end
 end
 
+# Raised by seed_parked_identities!(proven_only: true) before any write.
+class SeedAdoptionRefused < StandardError; end unless defined?(SeedAdoptionRefused)
+
+# Why a database that already holds people may not hand `data` the row
+# find_seed_user returns, or nil when it may. The rule is the mailbox proof's
+# (User#accept_mailbox_proof!, docs/AUTH.md "Parked roles"): a row is adopted
+# when it is new, holds the identity's wallet, or holds the address verified or
+# with no other credential. Rows are named by username, never by address.
+def seed_adoption_refusal(data)
+  user = find_seed_user(data)
+  return nil unless user.persisted?
+  return nil if data[:wallet].present? && user.web3_solana_address == data[:wallet]
+
+  label = user.username.presence || "user ##{user.id}"
+  unless user.email_matches?(data[:email])
+    return "#{label} holds only the username parked for #{data[:username]}, with no row on that identity's address or wallet"
+  end
+  return nil unless user.unproven_parked_holder? && user.credential_beside_email?
+
+  "#{label} holds the address parked for #{data[:username]} unverified beside another credential (a wallet, a Google link or an API key)"
+end
+
+def refuse_unproven_adoptions!(identities)
+  reasons = identities.filter_map { |data| seed_adoption_refusal(data) }
+  return if reasons.empty?
+
+  raise SeedAdoptionRefused,
+        "the roster seed would adopt #{reasons.size == 1 ? 'a row' : "#{reasons.size} rows"} it cannot prove: " \
+        "#{reasons.join('; ')}. Nothing was written. An operator resolves each in the database by hand " \
+        "(clear the other credential or the address; rename the username holder), then the seed runs again. " \
+        "bin/rails users:parked_role_audit lists unproven holders."
+end
+
 # The roster rows and the retired seats. No other row is written.
-def seed_parked_identities!
+#
+# proven_only: for a database that already holds people (the QA rehearsal's
+# seed step). It refuses, before any write, a row the mailbox proof would not
+# elevate, and ends the sessions of an unproven holder it gives a role or wallet. A fresh
+# database holds no row to adopt, so db/seeds.rb and e2e/seed.rb do not pass it.
+def seed_parked_identities!(proven_only: false)
   users = {}
 
+  refuse_unproven_adoptions!(CORE_USERS) if proven_only
   retire_unparked_identities!
   park_swapped_usernames!(CORE_USERS)
 
@@ -109,6 +149,7 @@ def seed_parked_identities!
     # The roster is the seed's authority: a parked address saves here without a
     # mailbox proof, and stays unverified until its first email sign-in.
     user.seeding_parked_identity = true
+    unproven = proven_only && user.persisted? && user.unproven_parked_holder?
 
     # Ensure fields are up to date on existing records
     user.assign_attributes(
@@ -125,6 +166,8 @@ def seed_parked_identities!
       web2_solana_address: nil,
       encrypted_web2_solana_private_key: nil
     )
+    # A session opened on an unproven row does not ride into a role or wallet.
+    user.regenerate_session_token! if unproven && (user.role_changed? || user.web3_solana_address_changed?)
     user.save!
 
     users[data[:username]] = user

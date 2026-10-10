@@ -246,13 +246,24 @@ class QaRehearsalSeedPreflightTest < ActiveSupport::TestCase
   end
 
   test "a roster row the seed cannot save is refused in a sentence" do
-    script = @driver.seed_script.sub("seeded = seed_parked_identities!",
+    script = @driver.seed_script.sub("seeded = seed_parked_identities!(proven_only: true)",
                                      "raise ActiveRecord::RecordInvalid, User.new.tap(&:valid?)")
     refute_equal @driver.seed_script, script
 
     error = assert_raises(Refused) { silence_warnings { @dyno.call(script) } }
 
     assert_match(/\Athe roster seed could not save User/, error.message)
+  end
+
+  test "a QA build whose seed has no adoption check is refused, not run unchecked" do
+    script = @driver.seed_script.sub("seeded = seed_parked_identities!(proven_only: true)",
+                                     'raise ArgumentError, "unknown keyword: :proven_only"')
+    refute_equal @driver.seed_script, script
+
+    error = assert_raises(Refused) { silence_warnings { @dyno.call(script) } }
+
+    assert_equal Driver::SEED_BUILD_BEHIND, error.message
+    assert_empty roster_rows.to_a
   end
 
   test "the roster seed writes no row the roster does not describe" do
