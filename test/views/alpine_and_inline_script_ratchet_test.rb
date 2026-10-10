@@ -21,7 +21,8 @@ require "yaml"
 #                       value, argument or modifier, and as a string key of a
 #                       helper's html options ("x-data": ...)
 #   x_bind              also the :attr="..." shorthand and its ":attr" string key
-#   x_on                also the @event="..." shorthand and its "@event" string key
+#   x_on                also the @event="..." shorthand and its "@event" string key,
+#                       except the JSON-LD keys in JSON_LD_KEYS ("@context": ...)
 #   x_other             x-ignore, x-collapse, x-teleport, x-id, x-modelable
 #   alpine_api          a reference to a member of the Alpine global
 #   inline_script       a <script> tag with no src that is not a JSON data block,
@@ -59,8 +60,12 @@ class AlpineAndInlineScriptRatchetTest < ActiveSupport::TestCase
     animationend transitionend
   ].freeze
 
+  JSON_LD_KEYS = %w[context type id graph value language list].freeze
+
   directive = ->(names) { /(?<![\w-])x-(?:#{names.join('|')})(?![\w-])/ }
-  shorthand = ->(sigil) { /(?<=\s)#{sigil}[a-z][\w.:-]*=["']|["']#{sigil}[a-z][\w.:-]*["']\s*(?:=>|:)/ }
+  shorthand = ->(sigil, not_keys = []) do
+    /(?<=\s)#{sigil}[a-z][\w.:-]*=["']|["']#{sigil}(?!(?:#{not_keys.join('|')})["'])[a-z][\w.:-]*["']\s*(?:=>|:)/
+  end
   handler = "on(?:#{HANDLER_EVENTS.join('|')})"
 
   PATTERNS = NAMED.to_h { |name| [ "x_#{name}", [ directive.call([ name ]) ] ] }.merge(
@@ -70,7 +75,7 @@ class AlpineAndInlineScriptRatchetTest < ActiveSupport::TestCase
     "inline_handler" => [ /(?<![\w.$-])#{handler}=|(?<![\w.$-])#{handler}:(?!:)|["']#{handler}["']\s*(?:=>|:)/ ]
   ).tap do |patterns|
     patterns["x_bind"] << shorthand.call(":")
-    patterns["x_on"] << shorthand.call("@")
+    patterns["x_on"] << shorthand.call("@", JSON_LD_KEYS)
   end.freeze
   KINDS = PATTERNS.keys.freeze
 
@@ -202,6 +207,8 @@ class AlpineAndInlineScriptRatchetTest < ActiveSupport::TestCase
     one.call("x_on", '<div @keydown.escape.window="close()">')
     one.call("x_on", '<%= form_with html: { "@turbo:submit-end" => "done()" } do %>')
     one.call("x_on", '<%= f.text_field :name, "@input": "check()" %>')
+    one.call("x_on", '<%= f.text_field :name, "@typed": "check()" %>')
+    one.call("x_bind", '<%= f.text_field :name, ":type": "kind", "@context" => "x" %>')
     one.call("alpine_api", "Alpine.store('session')", ".js")
     one.call("alpine_api", "store = 'window.Alpine.data'", ".rb")
     one.call("inline_script", "<script>\n  go();\n</script>")
@@ -229,6 +236,8 @@ class AlpineAndInlineScriptRatchetTest < ActiveSupport::TestCase
     none.call('<%= render "row", status: :class, key: ok ? :a : :b %>')
     none.call("<% @title = \"Lobby\" %>")
     none.call('<a href="mailto:team@example.com">team@example.com</a>')
+    none.call(%(<script type="application/ld+json">{ "@context": "https://schema.org", "@type": "WebSite" }</script>))
+    none.call('{ "@context" => "https://schema.org", "@id" => url }.to_json', ".rb")
     none.call("<style>@media (min-width: 640px) { a:hover { color: red } }</style>")
     none.call('<div class="translate-x-data overflow-x-auto" data-x-data-source="1">')
     none.call('headers: { "x-csrf-token" => token, "x-id-source" => 1 }', ".rb")
