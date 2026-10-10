@@ -132,7 +132,8 @@ class TurfStimulusTest < ActionDispatch::IntegrationTest
   test "a control whose state is in the markup resets before Turbo caches the page" do
     {
       "filter" => "reset", "show-more" => "collapse", "send-gate" => "reset",
-      "dev-score-tools" => "reset", "scoring-filter" => "reset", "game-scorer" => "reset"
+      "dev-score-tools" => "reset", "scoring-filter" => "reset", "game-scorer" => "reset",
+      "navbar-preview" => "reset"
     }.each do |identifier, method|
       # The 300 characters after the attribute hold the rest of the opening tag.
       roots = Dir[VIEWS].sort.flat_map { |file| File.read(file).scan(/data-controller="#{identifier}".{0,300}/m) }

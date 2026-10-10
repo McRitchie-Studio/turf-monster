@@ -3,15 +3,15 @@
 # the value to paste when one moves.
 ---
 admin:
-  x_data: 14
+  x_data: 13
   x_show: 16
   x_if: 8
   x_for: 5
-  x_model: 15
-  x_text: 63
+  x_model: 14
+  x_text: 62
   x_html: 0
-  x_bind: 26
-  x_on: 29
+  x_bind: 23
+  x_on: 27
   x_init: 2
   x_ref: 3
   x_cloak: 9

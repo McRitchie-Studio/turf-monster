@@ -30,6 +30,7 @@ export const LAZY = {
   "filter": () => import("controllers/filter_controller"),
   "game-scorer": () => import("controllers/game_scorer_controller"),
   "hub-actions": () => import("controllers/hub_actions_controller"),
+  "navbar-preview": () => import("controllers/navbar_preview_controller"),
   "scoring-filter": () => import("controllers/scoring_filter_controller"),
   "seeds-lab": () => import("controllers/seeds_lab_controller"),
   "send-gate": () => import("controllers/send_gate_controller"),

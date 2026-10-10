@@ -55,6 +55,26 @@ class AdminStimulusPagesTest < ActionDispatch::IntegrationTest
     assert_equal "Replay Level", root.at_css('button[data-action="hub-actions#replayLevel"]').text.strip
   end
 
+  test "each navbar preview starts at its device width, unscrolled, on the navbar-preview controller" do
+    get admin_navbar_path
+    assert_response :success
+    cards = css_select('[data-controller="navbar-preview"]')
+
+    assert_equal 6, cards.size
+    cards.each do |card|
+      assert_no_alpine card.at_css("div.flex")
+      width = card["data-navbar-preview-device-width-value"]
+      assert_includes %w[390 430 1032], width
+      assert_equal "#{width}px", card.at_css('[data-navbar-preview-target="label"]').text
+      assert_equal width, card.at_css('input[type="range"][data-navbar-preview-target="slider"]')["value"]
+      assert_equal "width: #{width}px; --nav-p: 0", card.at_css('[data-navbar-preview-target="frame"]')["style"]
+      refute_includes card.at_css('[data-navbar-preview-target="frame"]')["class"], "is-scrolled-preview"
+      toggle = card.at_css('button[data-action="navbar-preview#toggleScrolled"]')
+      assert_includes toggle["class"].split, "bg-surface-alt"
+      assert_equal "Scrolled", toggle.text.strip
+    end
+  end
+
   test "the drop announcement renders its Send disabled, with the count and the confirm on the gate" do
     DropSignup.create!(email: "gate@example.com", slate_key: NextSlateDrop::SLATE_KEY)
     travel_to(NextSlateDrop.drops_at - 1.day) do
