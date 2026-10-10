@@ -101,4 +101,34 @@ class QaRehearsalRemoteRunnerTest < ActiveSupport::TestCase
     assert_match(/def emit\(payload\)/, seen)
     assert_match(/emit\(ok: 1\)/, seen)
   end
+
+  test "a refusal comes back as its own sentence, with no transcript around it" do
+    out = <<~OUT
+      Running bin/rails runner on turf-monster-qa... up, run.1234
+      #{Runner::MARKER} {"refused":"the server key holds 0 devnet USDC"}
+    OUT
+
+    error = assert_raises(Runner::Refused) { runner_returning(out: out).call("refuse('x')") }
+
+    assert_equal "the server key holds 0 devnet USDC", error.message
+    assert_kind_of Runner::RemoteError, error
+  end
+
+  # The prepended helper is run as the dyno runs it: it answers on the marker
+  # line and ends the script there.
+  test "the prepended refuse helper answers once and stops the script" do
+    prelude = nil
+    executor = lambda do |argv|
+      prelude = argv.last
+      ["#{Runner::MARKER} {}", "", Status.new(0)]
+    end
+    Runner.new(app: "turf-monster-qa", executor: executor).call("refuse('no'); emit(reached: true)")
+
+    out, = capture_subprocess_io do
+      system(RbConfig.ruby, "-rjson", "-e", prelude)
+    end
+
+    assert_equal [%(#{Runner::MARKER} {"refused":"no"})], out.lines.map(&:strip)
+    assert_predicate $CHILD_STATUS, :success?
+  end
 end

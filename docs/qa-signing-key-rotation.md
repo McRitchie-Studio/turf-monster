@@ -20,9 +20,11 @@ transaction that current vault signers authorize. No agent signs or sends a
 transaction in any step below. An agent reads the QA key only through a pipe
 that prints its public half (step 3's proof, run 2026-10-08).
 
-**Do not start step 6 in the hours before a QA release that must settle a
-contest.** Option A evicts Mason, whose key `bin/qa-contest-rehearsal` uses to
-cosign settlement (step 1). Move that cosigner first, or settle by link.
+**The rehearsal settles by link.** `bin/qa-contest-rehearsal conclude` has the
+server sign and Mr. McRitchie co-sign in Phantom as `7ZDJ…`, who stays in the
+set, so evicting Mason (option A) does not stop a settle. Mason still enters as
+a player. What stops the rehearsal after step 8 is the USDC mint authority
+(step 4; `docs/qa-contest-rehearsal.md`).
 
 **Mainnet is untouched.** QA runs devnet, and each cluster's `VaultState` is its
 own account. Nothing here changes mainnet's signer set, mainnet's config, or
@@ -63,7 +65,7 @@ Read at turf-vault tag `v0.25.0`, `instructions/update_signers.rs`.
 
 | Option | New devnet set | Signed by | What it costs |
 |---|---|---|---|
-| **A. QA takes Mason's slot** (recommended on v0.25) | `8K81…`, `7ZDJ…`, QA | Xan + Alex. On `/admin/authorities` the QA server leads with its current key; you sign in Phantom | `bin/qa-contest-rehearsal` cosigns settlement as Mason, so its settle step stops working on devnet until its cosigner moves (a small follow-up). Mason's slot was already slated for retirement (turf-vault `docs/SIGNER_ROTATION.md`). QA never loses authority at any moment |
+| **A. QA takes Mason's slot** (recommended on v0.25) | `8K81…`, `7ZDJ…`, QA | Xan + Alex. On `/admin/authorities` the QA server leads with its current key; you sign in Phantom | Nothing for `bin/qa-contest-rehearsal`: it settles by link, co-signed by `7ZDJ…`. Mason's slot was already slated for retirement (turf-vault `docs/SIGNER_ROTATION.md`). QA never loses authority at any moment |
 | B. QA takes Xan's slot | QA, `7ZDJ…`, `CytJ…` | Alex + Mason, both as wallet signatures | QA can do nothing between the chain change and its config flip, because its current key has just been evicted. Local development also loses devnet vault authority: the primary checkout's `.env` derives `8K81…` (measured 2026-09-27, public key only) |
 | C. Wait for v0.26 on devnet, then append | `8K81…`, `7ZDJ…`, `CytJ…`, QA | all three current signers (`update_signers` needs 3 on v0.26) | Nothing breaks, but it waits on the devnet v0.26 upgrade, `init_governance`, and `SOLANA_VAULT_GOVERNANCE` on QA. That is a separate ceremony |
 
@@ -398,4 +400,5 @@ Rule: `lib/solana/signer_isolation.rb`. Tests:
 - **Mainnet governance.** Production keeps `8K81…`, which an agent can reach.
   The five-signer redesign (turf-vault `docs/SIGNER_ROTATION.md`) is what takes
   governance out of agent reach.
-- **The rehearsal cosigner** under option A, as noted in step 1.
+- **The USDC mint authority** (step 4). Until it is decided, the rehearsal's
+  `create` stops at the mint once QA signs as its own key.
