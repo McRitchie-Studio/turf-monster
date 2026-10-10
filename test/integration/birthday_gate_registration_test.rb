@@ -53,15 +53,15 @@ class BirthdayGateRegistrationTest < ActionDispatch::IntegrationTest
   # <template x-if>, and a cloned <script> never runs, so a factory shipped
   # INSIDE the card is defined only in markup that never executes: the card
   # mounts against an undefined function and every binding on it silently
-  # no-ops. The studio/birthday module holds the factory, so the page has to
-  # load it: every module on the way there is pinned by the page's importmap
-  # and served by this app.
+  # no-ops. studio/alpine_scopes publishes the factory from the studio/birthday
+  # module, so the page has to import it, and every module from there to the
+  # card's has to be pinned by the page's importmap and served by this app.
   test "the page loads the module that holds the birthdayModal factory" do
     html = app_page
 
     assert_not_includes html, "window.ageVerifyModal = function",
       "this app's own factory was deleted with the fork"
-    assert_includes page_modules(html), "studio/birthday"
+    assert_includes page_modules(html, from: "studio/alpine_scopes"), "studio/birthday"
   end
 
   test "every opener names the adopted id" do

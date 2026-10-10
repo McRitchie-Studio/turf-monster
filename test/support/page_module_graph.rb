@@ -4,7 +4,11 @@
 #
 #   get admin_nfl_week_path(slot)
 #   html = response.body
-#   assert_includes page_modules(html), "studio/board"
+#   assert_includes page_modules(html), "application"
+#   assert_includes page_modules(html, from: "studio/application"), "studio/board"
+#
+# `from:` names one module the page itself must import, and walks from there
+# alone: the modules that one import brings in.
 #
 # page_modules fails on an import the importmap does not pin and on a pinned
 # module this app does not serve: in a browser either one stops the whole graph
@@ -24,11 +28,16 @@ module PageModuleGraph
     JSON.parse(tag.text).fetch("imports")
   end
 
-  # Every specifier reachable from the page's module tags.
-  def page_modules(html)
+  # Every specifier reachable from the page's module tags, or from the one
+  # named `from`.
+  def page_modules(html, from: nil)
     imports = page_importmap(html)
     entries = Nokogiri::HTML(html).css('script[type="module"]').flat_map { |tag| static_imports(tag.text) }
     assert entries.any?, "the page imports no module"
+    if from
+      assert_includes entries, from, "no module tag on the page imports #{from.inspect}"
+      entries = [ from ]
+    end
 
     seen = []
     queue = entries.map { |name| [ name, "the page" ] }

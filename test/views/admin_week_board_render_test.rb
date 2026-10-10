@@ -41,15 +41,16 @@ class AdminWeekBoardRenderTest < ActionDispatch::IntegrationTest
   end
 
   # THE FACTORY REACHES THE PAGE. Without it the board renders and simply does
-  # not drag, silently, with no error anywhere. The studio/board module holds
-  # the factory, so the page has to load it: every module on the way there is
-  # pinned by the page's importmap and served by this app. The board names the
-  # controller that makes its zones draggable.
+  # not drag, silently, with no error anywhere. The engine's boot
+  # (studio/application) publishes the factory from the studio/board module,
+  # so the page has to import that boot, and every module from there to the
+  # board has to be pinned by the page's importmap and served by this app. The
+  # board names the controller that makes its zones draggable.
   test "the page loads the module that holds the studioBoard factory" do
     assert_response :success
     assert_select "[data-test='studio-board'][data-studio-controller~='board']", count: 1
 
-    assert_includes page_modules(response.body), "studio/board"
+    assert_includes page_modules(response.body, from: "studio/application"), "studio/board"
   end
 
   test "the reorder endpoint points at this week" do
