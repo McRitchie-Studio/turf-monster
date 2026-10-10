@@ -8,6 +8,16 @@ const { test, expect } = require("@playwright/test");
 // goto, and straight after a Turbo visit renders the page, with no wait on the
 // controller. A press that is lost fails the assertion that follows it.
 // Signed out throughout: these are visitor pages.
+//
+// Every controller and logic module answers 300 ms late, so the specs bite: a
+// preloaded module holds the page's load until it has run, while a lazy one is
+// fetched only after the page has loaded, and a press in that window is lost.
+test.beforeEach(async ({ page }) => {
+  await page.route(/\/assets\/(?:controllers|turf)\/[\w-]+\.js/, async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await route.continue();
+  });
+});
 
 // A Turbo visit that stays in this document, resolving once the new page's
 // `selector` has rendered (not merely the old one's).
@@ -272,7 +282,8 @@ test.describe("proof of reserves", () => {
     const chain = await fakeChain(page);
     await page.goto("/proof-of-reserves");
     await expect(refresh(page)).toBeDisabled();
-    await expect(refresh(page)).toHaveText("Refreshing…");
+    await expect(page.locator('[data-proof-of-reserves-target="busy"]')).toBeVisible();
+    await expect(page.locator('[data-proof-of-reserves-target="idle"]')).toBeHidden();
     await expect(row(page).locator('[data-field="status"]')).toHaveText("Loading…");
 
     chain.release();
