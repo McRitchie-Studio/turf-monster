@@ -82,7 +82,8 @@ class SettleNonceWireTest < ActiveSupport::TestCase
       assert_equal BLOCKHASH, wire.recent_blockhash_base58
       refute_equal ADVANCE_NONCE, wire.instructions.first[:data]
       refute result.key?(:nonce_value)
-      assert_equal DEFAULT_WIRE_SHA256.fetch(label), Digest::SHA256.hexdigest(Base64.strict_decode64(result[:serialized_tx]))
+      assert_equal DEFAULT_WIRE_SHA256.fetch(label), Digest::SHA256.hexdigest(Base64.strict_decode64(result[:serialized_tx])),
+                   anatomy(result[:serialized_tx])
     end
   end
 

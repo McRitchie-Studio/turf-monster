@@ -72,4 +72,13 @@ module SettleNonceFixture
   def key(bytes)
     Solana::Keypair.encode_base58(bytes)
   end
+
+  # What a wire is made of, for a digest mismatch's failure message.
+  def anatomy(wire_base64)
+    wire = Solana::WireMessage.parse_base64(wire_base64)
+    { keys: wire.account_keys.map { |k| key(k) }, blockhash: wire.recent_blockhash_base58,
+      header: [wire.num_required_signatures, wire.num_readonly_signed, wire.num_readonly_unsigned],
+      instructions: wire.instructions.map { |ix| [key(ix[:program_id]), ix[:account_indices], ix[:data].unpack1("H*")] },
+      signatures: wire.signatures.map { |sig| key(sig) } }.inspect
+  end
 end

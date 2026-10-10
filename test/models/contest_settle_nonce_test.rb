@@ -36,7 +36,7 @@ class ContestSettleNonceTest < ActiveSupport::TestCase
   test "off: the queued settle row is what origin/accepted queued" do
     row = queue_settle
 
-    assert_equal DEFAULT_ROW_SHA256, Digest::SHA256.hexdigest(Base64.strict_decode64(row.serialized_tx))
+    assert_equal DEFAULT_ROW_SHA256, Digest::SHA256.hexdigest(Base64.strict_decode64(row.serialized_tx)), anatomy(row.serialized_tx)
     assert_equal DEFAULT_METADATA, row.metadata
     refute row.nonce_anchored?
   end
