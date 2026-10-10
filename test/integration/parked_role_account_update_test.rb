@@ -10,7 +10,7 @@ class ParkedRoleAccountUpdateTest < ActionDispatch::IntegrationTest
   UNGRANTED = User.column_defaults.fetch("role")
 
   def seeded_house
-    User.create!(email: HOUSE, name: "Turf Monster", username: "turf", role: "admin")
+    User.create!(email: HOUSE, name: "Turf Monster", username: "turf", role: "admin", seeding_parked_identity: true)
   end
 
   # A wallet-only account, signed in over HTTP with a real signature.
@@ -46,16 +46,15 @@ class ParkedRoleAccountUpdateTest < ActionDispatch::IntegrationTest
     assert_equal %w[admin turf], [ house.reload.role, house.username ]
   end
 
-  test "an unheld parked email saves unverified and never elevates" do
+  test "an unheld parked email is refused and never elevates" do
     user, key = sign_in_wallet_account
 
     patch account_path, params: { user: { email: VARIANT } }
-    assert_redirected_to account_path
+    assert_response :unprocessable_entity
     sign_in_again(user, key)
 
     user.reload
-    assert_equal HOUSE, user.email, "the first email saves normalised"
-    assert_nil user.email_verified_at
+    assert_nil user.email, "a parked address was saved unverified"
     assert_equal UNGRANTED, user.role
     refute_equal "turf", user.username
   end

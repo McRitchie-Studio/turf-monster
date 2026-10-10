@@ -9,6 +9,11 @@
 #
 #   bin/rails users:email_case_collisions   # counts only
 #   bin/rails users:parked_role_audit       # usernames only
+#
+# parked_role_audit prints four lists: rows holding a parked role on an
+# unverified or inexact email, admin rows the roster does not describe, parked
+# identities no row holds, and rows holding a parked address unverified with
+# what a first email sign-in does to each (User#accept_mailbox_proof!).
 namespace :users do
   desc "Count emails that collide when compared without case (read-only, counts only)"
   task email_case_collisions: :environment do
@@ -21,7 +26,7 @@ namespace :users do
     puts addresses.zero? ? "  a unique index on LOWER(email) would build" : "  a unique index on LOWER(email) would fail until these are resolved"
   end
 
-  desc "List usernames holding a parked role on an unverified or inexact email (read-only)"
+  desc "List usernames to check against the parked roster: roles, unheld identities, unverified holders (read-only)"
   task parked_role_audit: :environment do
     roster = User::PARKED_IDENTITIES
     by_email = roster.index_by { |identity| identity[:email] }
@@ -51,6 +56,23 @@ namespace :users do
     puts "  a seeded row reads unverified until its first email sign-in" if flagged.any?
     puts "#{undescribed.size} admin #{undescribed.size == 1 ? 'row' : 'rows'} matching no parked identity"
     undescribed.each { |user| puts "  #{label.call(user)}" }
+
+    holders = User.where("LOWER(BTRIM(email)) IN (?)", by_email.keys).order(:id).to_a
+    unheld = roster.reject { |identity| holders.any? { |user| user.email.strip.downcase == identity[:email] } }
+    puts "#{unheld.size} parked #{unheld.size == 1 ? 'identity' : 'identities'} with no row on #{unheld.size == 1 ? 'its' : 'their'} address"
+    unheld.each { |identity| puts "  #{identity[:username]}" }
+
+    unverified = holders.select { |user| user.email_verified_at.blank? }
+    puts "#{unverified.size} #{unverified.size == 1 ? 'row holds' : 'rows hold'} a parked address unverified"
+    unverified.each do |user|
+      also = { "wallet" => user.web3_solana_address.present?, "Google" => user.provider.present? || user.uid.present?,
+               "API key" => user.api_keys.exists? }.select { |_, held| held }.keys
+      outcome = if !user.unproven_parked_holder? then "proven by the parked wallet"
+      elsif also.any? then "also holds #{also.to_sentence}: an email sign-in is refused until resolved"
+      else "no other credential: its sessions end at the first email sign-in"
+      end
+      puts "  #{label.call(user)} — role #{user.role}; #{outcome}"
+    end
   end
 
   desc "Clear the rotated-out wallet from any user row and end its sessions (idempotent)"

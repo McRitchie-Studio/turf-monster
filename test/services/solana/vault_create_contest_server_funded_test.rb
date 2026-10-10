@@ -73,8 +73,7 @@ class Solana::VaultCreateContestServerFundedTest < ActiveSupport::TestCase
   end
 
   def http_error(status)
-    klass = Solana::Client.const_defined?(:HttpError) ? Solana::Client::HttpError : Class.new(Solana::Client::RpcError)
-    klass.new("HTTP #{status} from RPC: upstream error", code: status)
+    Solana::Client::HttpError.new("HTTP #{status} from RPC: upstream error", code: status)
   end
 
   # ── Provably un-sent ──────────────────────────────────────────────────────

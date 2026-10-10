@@ -73,7 +73,43 @@ class UsersParkedRoleReportsTaskTest < ActiveSupport::TestCase
     assert_match(/^  case-variant — role admin; email is not an exact match; parked wallet does not match$/, out)
     assert_match(/^  seeded-team — role admin; email unverified; parked wallet matches$/, out)
     assert_match(/^1 admin row matching no parked identity\n  stray-admin$/, out)
-    refute_match(/#{users(:alex).username}|parked-email-no-role/, out)
+    refute_match(/#{users(:alex).username}|parked-email-no-role/, out[/\A.*?(?=^\d+ parked ident)/m])
+    assert_match(/^1 parked identity with no row on its address\n  mack$/, out)
+    assert_match(/^  parked-email-no-role — role viewer; also holds wallet: an email sign-in is refused until resolved$/, out)
+    refute_match(/@/, out, "the report prints an address")
+  end
+
+  test "parked_role_audit lists unheld identities and unverified holders, and writes nothing" do
+    users(:alex).update_columns(email_verified_at: Time.current)
+    team = User.parked_identity_for(email: "team@mcritchie.studio")
+    stored("seeded-team", team[:email], wallet: team[:wallet])
+    stored("holds-a-wallet", "Mason@mcritchie.studio", role: "viewer")
+    google = stored("holds-google", "mack@mcritchie.studio", role: "viewer")
+    google.update_columns(web3_solana_address: nil, provider: "google_oauth2", uid: "g-1")
+    ApiKey.mint!(user: google, name: "agent", geo_country: "US", geo_state: "CO", age_result: "passed")
+    stored("session-only", HOUSE, role: "viewer").update_columns(web3_solana_address: nil)
+
+    out = nil
+    assert_empty writes { out = run_task("users:parked_role_audit") }
+
+    assert_match(/^0 parked identities with no row on their address$/, out)
+    assert_match(/^4 rows hold a parked address unverified$/, out)
+    assert_match(/^  seeded-team — role admin; proven by the parked wallet$/, out)
+    assert_match(/^  holds-a-wallet — role viewer; also holds wallet: an email sign-in is refused until resolved$/, out)
+    assert_match(/^  holds-google — role viewer; also holds Google and API key: an email sign-in is refused until resolved$/, out)
+    assert_match(/^  session-only — role viewer; no other credential: its sessions end at the first email sign-in$/, out)
+    refute_match(/#{users(:alex).username}/, out.split("with no row").last)
+    refute_match(/@/, out, "the report prints an address")
+  end
+
+  test "parked_role_audit names the parked identities no row holds" do
+    users(:alex).update_columns(email: "fixture-alex@example.com", role: "viewer")
+    stored("the-house", HOUSE, verified: true)
+
+    out = run_task("users:parked_role_audit")
+
+    assert_match(/^4 parked identities with no row on their address\n  alex\n  mcritchie\n  mason\n  mack$/, out)
+    assert_match(/^0 rows hold a parked address unverified$/, out)
     refute_match(/@/, out, "the report prints an address")
   end
 

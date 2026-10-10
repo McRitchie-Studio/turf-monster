@@ -39,14 +39,10 @@ function dialog(page) {
   return page.getByRole("dialog");
 }
 
-// THE WRONG-WALLET ROUTE. Its SPELLING is the gem's and it moved: up to
-// solana-studio 0.6.0 a full-width "Use a different wallet" row, and from the
-// next release a quiet "Not your wallet?" link beside the address (operator
-// call). This app renders whichever its lock resolves, and the release sweep
-// bumps that lock without touching this file — so the locator accepts either
-// and the WALK, which is what this spec is actually for, stays pinned.
+// THE WRONG-WALLET ROUTE: solana-studio's quiet "Not your wallet?" link beside
+// the address.
 function pickerLink(page) {
-  return dialog(page).getByRole("button", { name: /Use a different wallet|Not your wallet\?/i });
+  return dialog(page).getByRole("button", { name: /Not your wallet\?/i });
 }
 
 async function currentModal(page) {

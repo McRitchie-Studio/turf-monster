@@ -76,12 +76,12 @@ class UserReservedUsernameTest < ActiveSupport::TestCase
   # --- User.turf stable-identity lookup ---
 
   test "User.turf finds the house account by TURF_HOUSE_EMAIL" do
-    house = User.create!(email: User::TURF_HOUSE_EMAIL, name: "Turf Monster", role: "admin", username: "turf")
+    house = User.create!(email: User::TURF_HOUSE_EMAIL, name: "Turf Monster", role: "admin", username: "turf", seeding_parked_identity: true)
     assert_equal house, User.turf
   end
 
   test "User.turf survives a username rename (email is the stable key)" do
-    house = User.create!(email: User::TURF_HOUSE_EMAIL, role: "admin", username: "turf")
+    house = User.create!(email: User::TURF_HOUSE_EMAIL, role: "admin", username: "turf", seeding_parked_identity: true)
     house.update!(username: "turf-monster") # admin-exempt from the reserved check
     assert_equal house, User.turf
   end

@@ -143,7 +143,8 @@ class MagicLinksControllerTest < ActionDispatch::IntegrationTest
   test "a link that returns to the sign-in page lands on the lobby, not /account" do
     existing = users(:alex)
     existing.update_columns(first_name: "Mr.", age_attested_at: 30.years.ago,
-                            web3_solana_address: "PhantomSigninReturn#{existing.id}")
+                            web3_solana_address: "PhantomSigninReturn#{existing.id}",
+                            email_verified_at: 1.day.ago) # a parked address: see User#accept_mailbox_proof!
     token = magic_token(email: existing.email, return_to: "/signin")
     post magic_link_consume_path(token: token)
 
@@ -189,7 +190,8 @@ class MagicLinksControllerTest < ActionDispatch::IntegrationTest
     # admin, who never gets a managed wallet (OPSEC-044), so without a linked
     # Phantom the chain would still have the wallet step to open.
     existing.update_columns(first_name: "Mr.", age_attested_at: 30.years.ago,
-                            web3_solana_address: "PhantomSettledToast#{existing.id}")
+                            web3_solana_address: "PhantomSettledToast#{existing.id}",
+                            email_verified_at: 1.day.ago) # a parked address: see User#accept_mailbox_proof!
     token = magic_token(email: existing.email, return_to: "/account")
     assert_no_difference "User.count" do
       post magic_link_consume_path(token: token)
