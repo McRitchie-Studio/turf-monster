@@ -105,10 +105,10 @@ Phantom must be installed in the browser or available via mobile deep link.
      `blurDismissed` gates the overlay (`:2309-2315`) — and the shared
      `render 'studio/hold_button'` appears (`:2488`).
 
-4. **Hold-to-Confirm fires.** The shared hold button dispatches the
-   `hold-confirm-entry` window event; the board's `init()` listener routes it
-   into `confirmEntry()` (`_turf_totals_board.html.erb:381-397`). One hold
-   sends one request: each board removes its window listeners when it leaves
+4. **Hold-to-Confirm fires.** The shared hold button dispatches its
+   `hold-button:success` event; the board's `init()` listener routes it
+   into `confirmEntry()` (`_turf_totals_board.html.erb:383-410`). One hold
+   sends one request: each board removes its document listeners when it leaves
    the page (Alpine teardown, the Turbo cache hook, or the next board's
    `init()`), so a Turbo visit away and Back leaves one listener, and the
    listener ignores a second event while a confirm is in flight.

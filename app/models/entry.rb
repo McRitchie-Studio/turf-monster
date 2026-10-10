@@ -343,30 +343,30 @@ class Entry < ApplicationRecord
 
   def enter_onchain!
     return unless contest.onchain? && user.solana_connected?
+    raise "enter_onchain! sends for a live entry only" unless active? || complete?
+
+    # THE SERVER SIGNS WITH THE MANAGED KEYPAIR, so the managed wallet is the
+    # wallet that enters. User#solana_address prefers web3, and would name a
+    # ticket this keypair cannot create. Phantom users go through
+    # ContestsController#prepare_entry → build_enter_contest.
+    wallet = user.web2_solana_address
+    keypair = user.solana_keypair
+    raise "enter_onchain! requires a managed wallet" if wallet.blank? || keypair.nil?
 
     vault = Solana::Vault.new
+    raise "entry #{id} is pinned to another wallet; its pin is not moved" if wallet_address.present? && wallet_address != wallet
+    # THE PIN, THEN THE TICKET. The wallet and slot are probed once and reused
+    # by every later call (Entry::Payment#pin_payment_slot!), so two sends for
+    # this row cannot both pay. A ticket already at the pin is an earlier send
+    # that landed: it is recorded and nothing is sent. A chain that cannot be
+    # read raises here, before any send.
+    pin_payment_slot!(wallet, vault)
+    return if record_landed_onchain_entry!(vault)
 
-    # Assign entry slot by probing the chain for a free index (see
-    # #assign_onchain_entry_number! — guards against orphaned-PDA collisions).
-    assign_onchain_entry_number!(user.solana_address, vault)
-
-    # Ensure user's onchain account exists before entering.
-    # v0.16 requires a valid username (>= 3 chars) at PDA creation.
-    vault.ensure_user_account(user.solana_address, username: user.username)
-
-    # v0.16: unified enter_contest requires the user's keypair to sign the
-    # SPL transfer from their ATA. This convenience method is only safe for
-    # managed wallets (server holds the keypair); Phantom users must go
-    # through ContestsController#prepare_entry → build_enter_contest path.
-    raise "enter_onchain! requires a managed wallet" unless user.solana_keypair
-
+    vault.ensure_user_account(wallet, username: user.username)
     result = vault.enter_contest(
-      user.solana_address,
-      contest.slug,
-      entry_number,
-      currency_idx: 0,
-      user_keypair: user.solana_keypair,
-      season_id: contest.season_id
+      wallet, contest.slug, entry_number,
+      currency_idx: 0, user_keypair: keypair, season_id: contest.season_id
     )
     update!(
       onchain_entry_id: result[:entry_pda],

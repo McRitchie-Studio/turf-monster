@@ -221,12 +221,17 @@ carry its own copy of all four; `adopt-engine-hold-button` deleted them. Render 
   `fizz_bind: "fizzPalette"`. Each pick owns one zone, so the fizz re-dresses itself
   as picks change. Pinned by `test/integration/hold_button_fizz_palette_test.rb`
   (server half) and `e2e/board_fizz_palette.spec.js` (the colours actually painting).
-- **The callbacks.** `guard`, `validate` / `validate_at`, `early_action`,
-  `on_hold_start` and `on_success` are this app's expressions, evaluated against the
-  board's Alpine scope.
+- **The answers.** No caller passes a JavaScript string local. The button
+  dispatches `hold-button:guard`, `:start`, `:validate`, `:early` and `:success`,
+  each carrying `detail.id` (its `hold_id`), and the board's `init()` answers them
+  on `document`: the cart's `desktop` and `mobile` buttons get all five, the token
+  modal's `tokens-modal` button only `:success`. `validate_at` and
+  `early_action_at` stay as locals. Pinned by
+  `test/integration/hold_button_event_hooks_test.rb` and
+  `test/lib/board_hold_listener_js_test.rb`.
 
 ### Hold Validation
-Optional mid-hold validation via `validate`/`validate_at` params. `validate` is a JS expression returning `Promise<boolean>`, called at `validate_at` ms (default 1000). If false, hold aborts. Both buttons use `validate: "d.runHoldValidations()"` which checks geo-blocking (fresh `GET /geo/check`) then login status.
+Mid-hold validation runs at `validate_at` ms (750 on the board). The board's `hold-button:validate` listener hands `runHoldValidations()` to `event.detail.waitUntil`; a false answer aborts the hold. It checks geo-blocking (fresh `GET /geo/check`), then login status, then the eligibility blocker.
 
 ### Nudge Animation
 JS-driven, big nudge at 3s then soft nudge every 10s. Resets on hold, soft-only after release. Engine-owned since 0.56.
@@ -802,14 +807,14 @@ which asserts the stack itself — the DOM cannot show you a buried card.
 2. **tokens-picker** — Stripe pack grid (via `_tokens.html.erb`). Click opens Stripe Checkout in a new tab. Sets step → `tokens-waiting`.
 3. **tokens-waiting** — Spinner + "Finish checkout in the new tab" message. No countdown; user returns manually.
 4. **tokens-confirming** — Processing card (spinner + "Confirming…"). Waits for the polling loop on `/tokens/status` to mark the purchase `minted`.
-5. **tokens-minted** — Success card: "Entry Token Minted" + balance display + in-modal Hold-to-Confirm button. The hold fires `'hold-confirm-entry'`; the board's listener detects auth-modal context and stays in the modal → step `tokens-submitted`.
+5. **tokens-minted** — Success card: "Entry Token Minted" + balance display + in-modal Hold-to-Confirm button. The hold fires `hold-button:success`; the board's listener detects auth-modal context and stays in the modal → step `tokens-submitted`.
 6. **tokens-submitted** — `entry_confirmed` card (seeds bar + explorer link + leaderboard CTA). Auto-redirects to the contest or fallback.
 7. **tokens-error** — Poll timed out or entry submission failed. Error card with "Refresh" button.
 8. **redirect** — geo-blocked only. `showRedirectModal` is this step's one opener and the board's `runHoldValidations` geo pre-check is its one caller, so the CTA is always "Location Restricted" → `/`. Not-logged-in and funds blockers open their own modals and never reach this step (see § Redirect Modal). The 5s drain belongs to `studio/modals/blocks/cta_redirect`; the board's `setInterval` + `props.countdown` loop is retired.
 
 **Stripe integration**: Pack cards trigger `POST /tokens/stripe_checkout` → opens checkout in a new tab → buyer returns to `/tokens/processing?session_id=…` → page polls `GET /tokens/status` every 500ms until `ready: true`. Backend: webhook → `TokenPurchaseJob` → mints incrementally via `Vault#mint_entry_token`. Job is idempotent — tracks `already_minted` count, resumes from the next index on retry. See § Entry Tokens (Web2) below.
 
-**In-modal hold-to-confirm**: The button in the `tokens-minted` step dispatches `'hold-confirm-entry'`. The board's listener routes confirmation through `ContestsController#enter` with the token path (consumes one token via `Vault#enter_contest_with_token` — no USDC charge). On success the modal stays open and swaps to `tokens-submitted`.
+**In-modal hold-to-confirm**: The button in the `tokens-minted` step (`hold_id: "tokens-modal"`) dispatches `hold-button:success`. The board's listener routes confirmation through `ContestsController#enter` with the token path (consumes one token via `Vault#enter_contest_with_token` — no USDC charge). On success the modal stays open and swaps to `tokens-submitted`.
 
 ## Real-time Chat (ActionCable)
 

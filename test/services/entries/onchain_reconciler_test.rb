@@ -312,12 +312,12 @@ class Entries::OnchainReconcilerTest < ActiveSupport::TestCase
     assert entry.reload.abandoned?
   end
 
-  # THE CEILING, PINNED. Healing runs through Entry#confirm! → assert_enterable!,
-  # whose first gate is "Contest is not open". So a strand survives only while the
-  # contest does — the rehearsal's Step 4 locks and settles it — and this is the
-  # property the clear_cart comment in QaRehearsal::EntryFlow tells operators
-  # about. Reaching the row and converging it are different things.
-  test "does not converge an abandoned strand once the contest is no longer open" do
+  # THE CEILING, PINNED. Activation runs Entry#assert_enterable!, whose first
+  # gate is "Contest is not open". A strand whose ticket the chain shows on a
+  # closed contest is a PAID entry an app gate refuses: the one verdict holds it
+  # as `landed` (it never fails and never lapses, and waits for a person). It is
+  # not activated, and it is no longer left as an abandoned row nothing reads.
+  test "a strand on a contest that is no longer open is held as landed, not activated" do
     entry = abandoned_strand(signature: "settled-strand-sig")
     pda0 = wallet_pda(0)
     vault = probing_vault(pda: pda0, signature: "recovered-settled-sig")
@@ -328,8 +328,10 @@ class Entries::OnchainReconcilerTest < ActiveSupport::TestCase
       outcome = Entries::OnchainReconciler.reconcile_entry(entry, vault: vault)
     end
 
-    assert_equal :error, outcome
-    assert entry.reload.abandoned?, "a settled contest's strand must not be activated"
+    assert_equal :skipped, outcome
+    assert_equal ["cart", "landed", "contest_not_open", "recovered-settled-sig"],
+                 entry.reload.values_at(:status, :payment_state, :payment_refusal_code, :payment_signature),
+                 "a settled contest's strand must not be activated; the payment is kept on the row"
     log = ErrorLog.where(target: entry).order(:id).last
     assert log, "an unconvergeable strand must leave an ErrorLog — there is money on-chain for it"
     assert_match "Contest is not open", log.message
@@ -496,5 +498,133 @@ class Entries::OnchainReconcilerTest < ActiveSupport::TestCase
     assert strand.reload.active?
     assert_equal "sweep-managed-sig", strand.onchain_tx_signature
     assert cleared.reload.abandoned?, "the sweep must still leave an ordinary cleared cart alone"
+  end
+
+  # --- Through the one verdict -------------------------------------------
+  #
+  # A row with no proof of its own is never activated by the reconciler. It is
+  # brought to a cart Entries::PaymentSettlement can read, and the verdict
+  # decides: which signature created the ticket, which rail's proof it owes.
+
+  def identity_b58(&block) = Solana::Keypair.stub(:encode_base58, ->(s) { s.to_s }, &block)
+  def ticket_at(wallet, slot) = "epda-#{@contest.slug}-#{wallet[0, 4]}-#{slot}"
+  def fee_logs = TransactionLog.where(source: @contest, transaction_type: "entry_fee").count
+
+  # A real ticket at `pda`, created by `signature`: an entry instruction that
+  # `signer` signed.
+  def paid_chain(pda, signature, signer:, statuses: {})
+    FakeVault.new(
+      account_infos: { pda => { "value" => { "owner" => Solana::Config::PROGRAM_ID } } },
+      signatures: { pda => [{ "signature" => signature, "err" => nil }] },
+      transactions: { signature => ChainFixtures.program_transaction("enter_contest", signer: signer, account: pda) },
+      signature_statuses: statuses
+    )
+  end
+
+  def phantom_user!
+    @user.update!(web2_solana_address: nil, encrypted_web2_solana_private_key: nil,
+                  web3_solana_address: "PhantomReconcile#{SecureRandom.hex(4)}")
+    @user.web3_solana_address
+  end
+
+  # A Phantom payment in flight: pinned, begun, its signature recorded.
+  def phantom_in_flight(signature)
+    wallet = phantom_user!
+    entry = cart_entry_with_picks(entry_number: 0, wallet_address: wallet)
+    entry.begin_charge!(rail: "phantom")
+    entry.record_payment_attempt!(signature: signature, last_valid_block_height: 1_150)
+    [entry, wallet]
+  end
+
+  LANDED = { "err" => nil, "confirmationStatus" => "finalized" }.freeze
+
+  test "a combo account's unpinned strand is found at the wallet that paid, and pinned there" do
+    @user.update!(web3_solana_address: "PhantomCombo#{SecureRandom.hex(4)}")
+    managed = @user.web2_solana_address
+    assert_not_equal managed, @user.solana_address, "CONTROL: solana_address names the other wallet"
+    entry = cart_entry_with_picks(entry_number: nil)
+    pda = ticket_at(managed, 0)
+
+    outcome = identity_b58 { Entries::OnchainReconciler.reconcile_entry(entry, vault: paid_chain(pda, "managed-pay-sig", signer: managed)) }
+
+    assert_equal :reconciled, outcome
+    assert_equal ["active", "confirmed", managed, 0, "managed-pay-sig", pda],
+                 entry.reload.values_at(:status, :payment_state, :wallet_address, :entry_number, :onchain_tx_signature, :onchain_entry_id)
+  end
+
+  test "a Phantom payment in flight is settled as a Phantom entry: wallet-signed, and no ledger debit" do
+    entry, wallet = phantom_in_flight("phantom-pay-sig")
+    pda = ticket_at(wallet, 0)
+    before = fee_logs
+
+    outcome = identity_b58 do
+      Entries::OnchainReconciler.reconcile_entry(entry, vault: paid_chain(pda, "phantom-pay-sig", signer: wallet,
+                                                                                statuses: { "phantom-pay-sig" => LANDED }))
+    end
+
+    assert_equal :reconciled, outcome
+    assert_equal ["active", "confirmed", "phantom-pay-sig"], entry.reload.values_at(:status, :payment_state, :onchain_tx_signature)
+    assert_equal before, fee_logs, "a Phantom entry paid from its own wallet; the managed ledger debit is not written for it"
+  end
+
+  test "a Phantom payment whose wire the pinned wallet did not sign is held as landed, never activated here" do
+    entry, wallet = phantom_in_flight("forged-sig")
+    pda = ticket_at(wallet, 0)
+    vault = paid_chain(pda, "forged-sig", signer: "SomeoneElse#{SecureRandom.hex(4)}", statuses: { "forged-sig" => LANDED })
+
+    outcome = identity_b58 { Entries::OnchainReconciler.reconcile_entry(entry, vault: vault) }
+
+    assert_equal :skipped, outcome
+    assert_equal %w[cart landed], entry.reload.values_at(:status, :payment_state)
+  end
+
+  test "a ticket whose history shows only dust activates nothing: the cart is pinned to it and waits" do
+    entry = cart_entry_with_picks(entry_number: nil)
+    wallet = @user.web2_solana_address
+    pda = ticket_at(wallet, 0)
+    vault = FakeVault.new(
+      account_infos: { pda => { "value" => { "owner" => Solana::Config::PROGRAM_ID } } },
+      signatures: { pda => [{ "signature" => "dust-sig", "err" => nil }] },
+      transactions: { "dust-sig" => ChainFixtures.dust_transfer(pda) }
+    )
+
+    outcome = identity_b58 { Entries::OnchainReconciler.reconcile_entry(entry, vault: vault) }
+
+    assert_equal :skipped, outcome
+    assert_equal ["cart", "draft", wallet, 0, nil],
+                 entry.reload.values_at(:status, :payment_state, :wallet_address, :entry_number, :onchain_tx_signature)
+  end
+
+  test "an abandoned strand comes back holding the slot its ticket is at" do
+    strand = abandoned_strand(signature: "strand-broadcast-sig")
+    wallet = @user.web2_solana_address
+    pda = ticket_at(wallet, 0)
+
+    outcome = identity_b58 { Entries::OnchainReconciler.reconcile_entry(strand, vault: paid_chain(pda, "strand-pay-sig", signer: wallet)) }
+
+    assert_equal :reconciled, outcome
+    assert_equal ["active", wallet, 0, "strand-pay-sig"],
+                 strand.reload.values_at(:status, :wallet_address, :entry_number, :onchain_tx_signature)
+  end
+
+  test "a row cleared under its payment is restored and settled, in reconcile_entry and in the sweep query" do
+    entry, wallet = phantom_in_flight("cleared-pay-sig")
+    Entry.where(id: entry.id).update_all(status: "abandoned") # the clear that raced the stamp; the slot is kept
+    pda = ticket_at(wallet, 0)
+    vault = paid_chain(pda, "cleared-pay-sig", signer: wallet, statuses: { "cleared-pay-sig" => LANDED })
+
+    stats = identity_b58 { Entries::OnchainReconciler.run(contest: @contest, vault: vault) }
+
+    assert_equal 1, stats[:reconciled]
+    assert_equal %w[active confirmed], entry.reload.values_at(:status, :payment_state)
+  end
+
+  test "CONTROL: a payment in flight with nothing on chain is left exactly as it is" do
+    entry, = phantom_in_flight("unseen-sig")
+
+    outcome = identity_b58 { Entries::OnchainReconciler.reconcile_entry(entry, vault: FakeVault.new) }
+
+    assert_equal :skipped, outcome
+    assert_equal ["cart", "submitted", "unseen-sig"], entry.reload.values_at(:status, :payment_state, :payment_signature)
   end
 end

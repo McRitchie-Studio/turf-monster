@@ -5,7 +5,7 @@
 > resets at each `##` heading. The number is bookkeeping; the SYMBOL beside it is
 > the claim, and `test/docs/workflow_citation_docs_test.rb` reddens when a
 > citation stops landing inside the definition its prose names.
-> That symbol check reaches **149 of the 178 citations** here. The other **29**
+> That symbol check reaches **150 of the 179 citations** here. The other **29**
 > sit in code with no enclosing definition the guard can derive, and they are not
 > all checked alike. **6 of those 29** are `config/routes.rb` entries, which get a
 > stricter check: each must OPEN on the line that carries its route, not merely
@@ -78,14 +78,14 @@
    - The `case event.type` dispatch routes `checkout.session.completed` to `Webhooks::StripeController#handle_checkout_completed` (`:34-35`, definition `:66-108`).
      - `StripeCheckoutValidator.new(stripe_session_id, kind: "tokens").call` re-fetches the session and validates `payment_status` / `livemode` / `kind` / `amount` (`:75`).
      - `TokenPurchaseJob.perform_later(...)` enqueues only after that (`:89-95`).
-   - `TokenPurchaseJob#perform` (`app/jobs/token_purchase_job.rb:36-177`):
+   - `TokenPurchaseJob#perform` (`app/jobs/token_purchase_job.rb:36-187`):
      - `Solana::Vault.ensure_program_id_live!` catches a stale Sidekiq `PROGRAM_ID` before any mint (`:56`).
      - Terminal short-circuit: a purchase already `minted` or `refunded` returns without minting (`:70-73`) — the OPSEC-009 idempotency stop.
      - Find-or-create the `StripePurchase` row (`:95-101`).
-     - `Solana::Vault#mint_entry_token` runs once per pack quantity (`:123-135`), with `source_ref` built as `"#{purchase_type}:#{purchase.id}:#{i}"` (`:124`) — the PURCHASE row id, NOT the Stripe session id.
-     - Each successful signature is persisted to `purchase.mint_tx_signatures` **inside the loop** (`:133`); partial-failure resume reads it back as `already_minted` (`:115-117`).
-     - `purchase.mark_minted!(signatures)` (`:138`) then `TransactionLog.record!` writes the audit row (`:151-159`).
-     - The rescue calls `purchase&.mark_failed_unless_minted!` (`:175`, definition `app/models/concerns/mintable_purchase.rb:36-40`, mixed into `StripePurchase` by the `include MintablePurchase` at `app/models/stripe_purchase.rb:7`) and re-raises so Sidekiq retries.
+     - `Solana::Vault#mint_entry_token` runs once per pack quantity (`:123-145`), with `source_ref` built as `"#{purchase_type}:#{purchase.id}:#{i}"` (`:124`) — the PURCHASE row id, NOT the Stripe session id.
+     - Each successful signature is persisted to `purchase.mint_tx_signatures` **inside the loop** (`:143`); partial-failure resume reads it back as `already_minted` (`:115-117`). Before each mint the loop asks `Solana::Vault#minted_entry_token_signature` (`:131`) whether that ref's token is already on chain, so a mint that landed without its signature reaching the row is read back, not sent again.
+     - `purchase.mark_minted!(signatures)` (`:148`) then `TransactionLog.record!` writes the audit row (`:161-169`).
+     - The rescue calls `purchase&.mark_failed_unless_minted!` (`:185`, definition `app/models/concerns/mintable_purchase.rb:36-40`, mixed into `StripePurchase` by the `include MintablePurchase` at `app/models/stripe_purchase.rb:7`) and re-raises so Sidekiq retries.
    - The browser polls `/tokens/status` from the processing page until the purchase reads `minted`; the endpoint is `TokensController#status` (`app/controllers/tokens_controller.rb:462-504`).
 
 8. **Back to root → the lobby** — the now signed-in user clicks the navbar "Turf Monster" home link → `GET /` → `PagesController#home` redirects them to `/contests`, the lobby.
@@ -120,7 +120,7 @@
 - `users` (insert) — `email`, `email_verified_at`, `username`, `web2_solana_address`, `encrypted_web2_solana_private_key`, `session_token`, optionally `reference` — all set by `MagicLinksController#sign_up_new` (`app/controllers/magic_links_controller.rb:177-181`).
 - `magic_links` (insert + consume) — the one-time email sign-in row, owned by the gem: `Studio::Link#create_magic_link` (`studio-engine: app/models/studio/link.rb`).
 - `stripe_purchases` (insert + update) — `stripe_session_id`, `quantity`, `price_cents`, `status` (pending → minted), `mint_tx_signatures`, `minted_at`; the row is created by `TokenPurchaseJob#perform` (`app/jobs/token_purchase_job.rb:95-101`).
-- `transaction_logs` (insert) — one row for the token purchase from `TokenPurchaseJob#perform` (`app/jobs/token_purchase_job.rb:151-159`), one for the entry-fee debit from `Entry#confirm!` (`app/models/entry.rb:209-211`).
+- `transaction_logs` (insert) — one row for the token purchase from `TokenPurchaseJob#perform` (`app/jobs/token_purchase_job.rb:161-169`), one for the entry-fee debit from `Entry#confirm!` (`app/models/entry.rb:209-211`).
 - `entries` (insert + update) — created `status: :cart` by `ContestsController#toggle_selection` (`app/controllers/contests_controller.rb:1530`), flipped to `:active` with `onchain_tx_signature` + `onchain_entry_id` by `Entry#confirm!` (`app/models/entry.rb:212`).
 - `selections` (insert × 6) — one per matchup tap, created inside `Entry#toggle_selection!` (`app/models/entry.rb:53`).
 - `messages` (insert) — `body`, `user_id`, `contest_id`, built in `MessagesController#create` (`app/controllers/messages_controller.rb:17`).
@@ -135,7 +135,7 @@
 - **Stripe webhook signature mismatch / bad JSON** — `Webhooks::StripeController#create` returns `head :bad_request` (`app/controllers/webhooks/stripe_controller.rb:15-20`). No `StripePurchase` row, no mint; Stripe retries the delivery on its own schedule. Watch for the `[tokens] webhook.bad_signature` log line.
 - **Test-mode event in production** — `Webhooks::StripeController#create` returns `head :ok` plus a warning log (`app/controllers/webhooks/stripe_controller.rb:29-32`); swallowed by design (OPSEC-033).
 - **`TokenPurchaseJob` crashes mid-mint** — the signatures already persisted to `stripe_purchases.mint_tx_signatures` set the resume offset on retry: `TokenPurchaseJob#perform` reads them back as `already_minted` (`app/jobs/token_purchase_job.rb:115-117`) and restarts the loop at that index (`:123`). Sidekiq retries with the same `stripe_session_id`. The operator watches `/admin/jobs` for stuck retries and the rescue's log lines (`:161-176`).
-- **Post-mint step raises (e.g. a `TransactionLog.record!` DB hiccup)** — `MintablePurchase#mark_failed_unless_minted!` refuses to downgrade a minted row (H8 audit; `app/models/concerns/mintable_purchase.rb:36-40`), so the audit stays accurate; `TokenPurchaseJob#perform` re-raises (`app/jobs/token_purchase_job.rb:176`) and Sidekiq retries the log write.
+- **Post-mint step raises (e.g. a `TransactionLog.record!` DB hiccup)** — `MintablePurchase#mark_failed_unless_minted!` refuses to downgrade a minted row (H8 audit; `app/models/concerns/mintable_purchase.rb:36-40`), so the audit stays accurate; `TokenPurchaseJob#perform` re-raises (`app/jobs/token_purchase_job.rb:186`) and Sidekiq retries the log write.
 - **Contest is full at `enter`** — `Entry#assert_enterable!` raises `"Contest is full"` (`app/models/entry.rb:157-158`), run as the pre-flight inside the contest `with_lock` that `ContestsController#enter` reaches through `Entries::ManagedEntry#call` (`app/services/entries/managed_entry.rb:125`), so the token is never consumed. The JSON 422 surfaces via the board toast.
 - **Wallet has no unconsumed entry token at `enter`** — `Entries::ManagedEntry#fund!` raises `"No entry tokens. Buy at /tokens/buy"` (`app/services/entries/managed_entry.rb:400`); the client surfaces a CTA.
 - **Lock time passed mid-build** — `Entry#assert_enterable!` raises `"Contest has locked — entries closed"` (H7 audit; `app/models/entry.rb:145-147`), and `Entry#toggle_selection!` raises the same message on the pick itself (`:46`).

@@ -6,7 +6,9 @@ require "json"
 # Shared by the unit tier (the partial's source) and the component tier (the
 # script as the contest page renders it).
 module BoardScriptHarness
-  BOARD_EVENTS = %w[window:hold-confirm-entry window:hold-funding-check window:message window:paypal-order-captured].freeze
+  # The hold button's events (studio/_hold_button), heard on document.
+  HOLD_EVENTS = %w[guard start validate early success].map { |name| "document:hold-button:#{name}" }.freeze
+  BOARD_EVENTS = (HOLD_EVENTS + %w[window:message window:paypal-order-captured]).freeze
 
   DEFAULT_CONFIG = {
     cartSelections: {}, cartSelectionOrder: [], matchupData: {}, firstMatchupIds: [],
@@ -20,8 +22,11 @@ module BoardScriptHarness
   end
 
   # `body` runs with: newBoard() (a board Alpine has built and init()ed),
-  # listening(key), fire(key), enters (every /enter request), funding (resolve
-  # the open pre-check), channels (every BroadcastChannel opened).
+  # listening(key), fire(key), hold(name, id) (one hold-button event, returned
+  # so its defaultPrevented and waited answers can be read), advance(ms) (the
+  # clock: setTimeout only runs through it), enters (every /enter request),
+  # fundingChecks (every pre-check request), funding (resolve the open
+  # pre-check), channels (every BroadcastChannel opened).
   def run_board_js(script_source, body, config: DEFAULT_CONFIG)
     script = <<~JS
       global.window = global;
@@ -42,6 +47,29 @@ module BoardScriptHarness
       global.listening = function (key) { return (handlers[key] || []).length; };
       // Copied before iterating: a handler may remove itself or its siblings.
       global.fire = function (key, event) { (handlers[key] || []).slice().forEach(function (cb) { cb(event || {}); }); };
+
+      // One event as the engine's hold button dispatches it: detail.id is the
+      // button's hold_id, and validate carries waitUntil.
+      global.hold = function (name, id, target) {
+        var event = {
+          detail: { id: id }, target: target || { isConnected: true }, defaultPrevented: false, answers: [],
+          preventDefault: function () { this.defaultPrevented = true; }
+        };
+        if (name === 'validate') event.detail.waitUntil = function (answer) { event.answers.push(answer); };
+        fire('document:hold-button:' + name, event);
+        return event;
+      };
+
+      // A clock the test moves. Nothing scheduled runs until advance() reaches it.
+      var clock = 0, timers = [];
+      global.setTimeout = function (fn, ms) { timers.push({ at: clock + (ms || 0), fn: fn }); return timers.length; };
+      global.clearTimeout = function () {};
+      global.advance = function (ms) {
+        clock += ms;
+        var due = timers.filter(function (t) { return t.at <= clock; });
+        timers = timers.filter(function (t) { return t.at > clock; });
+        due.forEach(function (t) { t.fn(); });
+      };
 
       var cfg = #{config.to_json};
       global.document = {
@@ -73,10 +101,12 @@ module BoardScriptHarness
       // The two requests a hold makes. The pre-check stays open until the test
       // resolves it; /enter never answers, so the entry stays in flight.
       var enters = [];
+      var fundingChecks = [];
       var fundingResolvers = [];
       global.funding = function (answer) { fundingResolvers.splice(0).forEach(function (r) { r(answer); }); };
       window.authedFetch = function (url) {
         if (/check_funding$/.test(url)) {
+          fundingChecks.push(url);
           return new Promise(function (resolve) {
             fundingResolvers.push(function (answer) { resolve({ ok: true, json: function () { return Promise.resolve(answer); } }); });
           });

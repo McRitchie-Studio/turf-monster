@@ -50,10 +50,25 @@ module Entries
       new(entry, vault: vault, now: now).call
     end
 
+    # THE PINNED TICKET OF A ROW THIS VERDICT DOES NOT MOVE (a live row's own
+    # send, Entry#enter_onchain!): [:present, its creating signature or nil],
+    # [:arriving] when it shows only at `confirmed`, [:absent] when neither
+    # commitment shows it. A read that fails raises; it is not an answer.
+    def self.pinned_ticket(entry, vault: Solana::Vault.new)
+      new(entry, vault: vault, now: Time.current).pinned_ticket
+    end
+
     def initialize(entry, vault:, now:)
       @entry = entry
       @vault = vault
       @now = now
+    end
+
+    def pinned_ticket
+      pda = @entry.payment_entry_pda(@vault)
+      return [:present, ticket_signature(pda)] if ticket?(pda)
+
+      [ticket_arriving?(pda) ? :arriving : :absent, nil]
     end
 
     def call
@@ -152,6 +167,7 @@ module Entries
       rail = @entry.payment_rail || (@entry.wallet_address == @entry.user.web3_solana_address ? "phantom" : "managed")
       @entry.transition_payment!("submitted", payment_rail: rail, payment_attempt_token: SecureRandom.hex(12),
                                               payment_submitted_at: @entry.payment_submitted_at || @now)
+      @token = @entry.payment_attempt_token # the attempt just begun is the one this verdict judges
       activate(signature, pda)
     rescue ActiveRecord::RecordNotUnique, Entry::Payment::IllegalTransition
       result(:pending, :other_payment_in_flight)
@@ -181,14 +197,16 @@ module Entries
     end
 
     # The transaction that created the ticket: the recorded attempt when it
-    # succeeded, else the oldest success on the address (an earlier attempt).
+    # succeeded, else the entry instruction in the address's history that the
+    # pinned wallet signed (an earlier attempt). Never a bare success on the
+    # address: lamports sent to it are one. nil: not known yet.
     def ticket_signature(pda)
       recorded = @entry.payment_signature.presence
       status = signature_status(recorded)
       return recorded if status && status["err"].nil?
 
-      history = @vault.client.send(:call, "getSignaturesForAddress", [pda, { "limit" => 20 }])
-      Array(history).reverse.find { |row| row && row["err"].nil? }&.dig("signature")
+      Solana::CreatingSignature.find(pda, instructions: INSTRUCTIONS, signer: @entry.wallet_address,
+                                          client: @vault.client, commitment: TICKET_COMMITMENT)
     end
 
     def activate(signature, pda)

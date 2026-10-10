@@ -205,6 +205,36 @@ class LevelUpTokenMintJobTest < ActiveJob::TestCase
     assert_equal 2, @user.reload.entry_tokens_granted_level
   end
 
+  # A grant that LANDS and then raises (a lost confirmation): the token is on
+  # chain and the job never saw its signature. The next run reads the chain
+  # before it mints, so nothing is sent again.
+  class LandsThenRaisesVault < FakeVault
+    def mint_entry_token(wallet_address:, source:, source_ref:, **opts)
+      result = super
+      @tokens << { pda: result[:pda], source_ref: source_ref, source: 0, consumed: false } # it is on chain
+      raise Solana::Client::RpcError, "Transaction confirmation timeout" if mint_calls.length == 1
+
+      result
+    end
+  end
+
+  test "a grant that landed and lost its confirmation is not sent again on the re-run" do
+    @user.update_columns(seeds: 100, level: 2)
+    vault = LandsThenRaisesVault.new(tokens: []).tap { |v| v.sync_balance_seeds = 100 }
+
+    run_sweep(vault)
+    assert_equal [ref_for(@user, 2)], vault.mint_calls, "CONTROL: the first run sent the grant"
+    assert_equal 1, @user.reload.entry_tokens_granted_level, "CONTROL: and never learned it landed"
+
+    run_sweep(vault)
+    Solana::Vault.stub(:ensure_program_id_live!, :live) do
+      Solana::Vault.stub(:new, vault) { perform_enqueued_jobs { LevelUpTokenMintJob.perform_later(user_id: @user.id) } }
+    end
+
+    assert_equal [ref_for(@user, 2)], vault.mint_calls, "one send across the sweep, its re-run and a targeted run"
+    assert_equal 2, @user.reload.entry_tokens_granted_level, "the re-run credits the token the chain shows"
+  end
+
   # --- the double-grant guard, end to end ---
 
   test "running the sweep twice never grants the same level twice" do

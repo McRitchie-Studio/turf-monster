@@ -23,9 +23,9 @@
 #     immediately. A crash on the next iteration leaves the prior signatures
 #     in the DB as the resume point.
 #   - On retry, we start the loop at `already_minted = tx_signatures.length`
-#     and continue to `quantity`. The DB row is the source of truth for
-#     resume — the on-chain PDA `init` constraint is a backstop that would
-#     catch any over-mint via Anchor error.
+#     and continue to `quantity`. The DB row is the resume point, and each
+#     ref's token account is read before its mint is sent (see the loop), so a
+#     landed, unrecorded mint is read back. `init` is the backstop under both.
 #   - Only the terminal states short-circuit the job: "minted" (work is done)
 #     and "refunded" (the money came back — never mint over it). "pending" /
 #     "captured" / "failed" rows are mid-recovery and must run through the
@@ -123,15 +123,25 @@ class TokenPurchaseJob < ApplicationJob # parked: FiatRailsParked, docs/FIAT_RAI
       (already_minted...quantity).each do |i|
         source_ref = "#{purchase_type}:#{purchase.id}:#{i}"
         Rails.logger.info "[tokens] job.mint #{i + 1}/#{quantity} source_ref=#{source_ref} program_id=#{Solana::Config::PROGRAM_ID[0,12]}..."
-        result = vault.mint_entry_token(
-          wallet_address: wallet_address,
-          source: purchase_type.to_sym,
-          source_ref: source_ref
-        )
-        signatures << result[:signature]
+        # THE CHAIN IS READ BEFORE THE SEND. A mint that landed and then raised
+        # (a lost confirmation, a failed write below) left no signature on the
+        # row, so the resume point names its ref again; sending it again can
+        # only fail on the token's `init`, on every retry. A token already
+        # there is read back with the signature that minted it.
+        signature = vault.minted_entry_token_signature(source_ref)
+        if signature
+          Rails.logger.info "[tokens] job.mint_found #{i + 1}/#{quantity} source_ref=#{source_ref} (minted by an earlier run)"
+        else
+          signature = vault.mint_entry_token(
+            wallet_address: wallet_address,
+            source: purchase_type.to_sym,
+            source_ref: source_ref
+          )[:signature]
+        end
+        signatures << signature
         # Persist incrementally — a crash on the next iteration won't lose this signature.
         purchase.update!(mint_tx_signatures: signatures.to_json)
-        Rails.logger.info "[tokens] job.mint_ok #{i + 1}/#{quantity} sig=#{result[:signature][0,16]}... pda=#{result[:pda]&.[](0,12)}..."
+        Rails.logger.info "[tokens] job.mint_ok #{i + 1}/#{quantity} sig=#{signature[0,16]}..."
       end
     end
 
