@@ -264,9 +264,9 @@ collection window is the ordinary ~60-90s. **No extra nonce accounts are needed
 — and the single production nonce must NOT be extended to these paths.** It
 serves no caller today: its last one, `build_create_contest`'s `admin_signs:
 true` branch, left the creator's slot for Phantom and was moved to a fresh
-blockhash when `prepare_onchain_contest` was retired (2026-10-07). It is kept for
-the server-signed settlement path; pointing Phantom flows at it would add
-contention to a resource that cannot help them anyway.
+blockhash when `prepare_onchain_contest` was retired (2026-10-07). Settlement
+does not use it either: the nonce-anchored settle has its own account per
+cluster (`config/settle_nonce.yml`, "Durable-nonce settlement" below).
 
 > A note for whoever reads this next: the comment in `#build_enter_contest` used
 > to end "the durable nonce remains for OPERATOR flows … where a slow human
@@ -877,8 +877,61 @@ not one this server produced.
 1. `Contest#grade!` scores and pays entries through `Contest::PayoutSplit` (never more paid entries than the contest's payout table has places, at most `Contest::MAX_PAID_RANKS`), then calls `settle_onchain!`, then marks the contest `settled`
 2. `settle_onchain!` pays each paid entry at `Entry#wallet_address`, the wallet that entered it (the one whose seeds derive its ContestEntry PDA, recorded by `Entry#record_entering_wallet` and backfilled by `bin/rails entries:backfill_wallet_address`), never `User#solana_address`; a paid entry with no recorded wallet raises `Contest::MissingPayoutWalletError` and grading refuses. It calls `Vault#build_settle_contest` → creates a `PendingTransaction` with the partially-signed TX (2-of-3). The builder measures the serialized wire and raises `Vault::SettleTooLargeError` past 1,232 bytes; any raise rolls the whole grade back, so a contest never reads `settled` without a queued settlement
 3. Admin visits `/admin/pending_transactions` (Treasury page)
-4. Clicks "Co-sign" → Phantom signs as the second signer → TX submitted to Solana
+4. Clicks "Co-sign" → Phantom signs as the second signer → TX submitted to Solana. A nonce-anchored row (a cluster with its settle nonce on) is cosigned with `bin/settle-nonce` instead (below)
 5. On-chain: per-winner SPL transfer `prize_pool` PDA → winner USDC ATA (PDA-signed by `VaultState` seeds); contest status → Settled
+
+### Durable-nonce settlement
+
+A settle can be built on a durable nonce so the cosigner signs whenever he gets
+to it and the signed bytes stay valid until the nonce advances. The decision and
+what is owed are in `docs/CHAIN_IS_THE_RECORD.md` section 5. It has no Phantom
+leg: Phantom puts Lighthouse ahead of `advanceNonceAccount`, which must be
+instruction 0, so the Treasury page refuses Co-sign and Rebuild on a nonce row.
+
+**Selection.** `config/settle_nonce.yml` names, per cluster, `enabled`, the
+`nonce_account`, and the `cosigner` (a vault signer and the nonce authority).
+`SETTLE_DURABLE_NONCE=1|0` overrides `enabled` for the cluster the app runs on.
+Both clusters are off, so every settle builds on a recent blockhash for Phantom.
+An enabled cluster with a blank or malformed key raises at grade, and the grade
+rolls back. On `v0.26` a nonce settle holds at most three paid entries in one
+transaction; a fourth is refused at build.
+
+**Operator steps (devnet).** The cosigner keypair is the 1Password item
+`solana.turf.settle-cosigner.devnet` (studio-agents): write its `credential` to a
+0600 file and pass the path. The offline commands load no Rails and call no RPC.
+
+```bash
+bin/settle-nonce show ptx-<id> --out settle.b64        # server: the row, its slots, its wire
+bin/settle-nonce describe --in settle.b64              # offline: check nonce, slots, message sha256
+bin/settle-nonce sign --in settle.b64 --keypair cosigner.json --out signed.b64
+bin/settle-nonce sign --in signed.b64 --keypair third.json --out signed.b64   # v0.26 third signer
+bin/settle-nonce submit ptx-<id> --in signed.b64       # server: checks, claims, broadcasts
+```
+
+- On `v0.26`, reserve the third slot first: `bin/settle-nonce rebuild ptx-<id>
+  --extra <vault signer>`. Rebuild also re-anchors a row whose nonce has advanced.
+- Submit refuses a wire whose message is not the row's, a slot that is not
+  validly signed, and a nonce that has advanced; nothing is sent. A preflight
+  refusal returns the claim. A sent settle is recorded by
+  `Contests::SettlementSweepJob`, or sooner by Reconcile on the Treasury page.
+- If a sent settle never lands and the row returns to pending, submit the same
+  signed file again while the nonce has not advanced.
+- One settle per nonce account is in flight at a time: when one lands, any other
+  row built on the same value needs a rebuild and new signatures.
+
+**Mainnet: off, and what Alex provides first.**
+1. A Ledger, and its pubkey seated as a mainnet `VaultState` signer through his
+   signer rotation.
+2. A mainnet nonce account whose authority is that Ledger, created by Alex
+   (`solana create-nonce-account <nonce keypair> 0.0015 --nonce-authority
+   <ledger pubkey> --keypair usb://ledger --url <mainnet RPC>`).
+3. A Ledger signer for the settle message. The Solana CLI has no command that
+   signs an arbitrary transaction message, so `bin/settle-nonce sign --keypair
+   usb://ledger` refuses by name. `bin/settle-nonce message` prints the message
+   bytes (base58) for a signer that can, and `bin/settle-nonce attach --pubkey
+   <ledger pubkey> --signature <base58>` verifies and adds the signature.
+4. The `mainnet-beta` entry in `config/settle_nonce.yml` filled and turned on by
+   a reviewed PR.
 
 > ⚠️ `grade!` marks the DB `settled` (writes `payout_cents` + TransactionLog credits) once the settle PT is queued, even if it is never cosigned — the sweeper deliberately skips treasury PTs, so no alert fires on an un-cosigned settle. Cosign promptly or winners stay unpaid on-chain.
 
