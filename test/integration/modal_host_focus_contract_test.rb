@@ -32,8 +32,7 @@ require "nokogiri"
 class ModalHostFocusContractTest < ActionDispatch::IntegrationTest
   def host_source = ResolvedModalHost.source
 
-  # The store's JavaScript: studio/modal_host.js on an engine that ships the
-  # store as a module, the same resolved partial on one that keeps it inline.
+  # The store's JavaScript: the engine's studio/modal_host module.
   def host_script = ResolvedModalHost.script
 
   # THE BACKDROP ELEMENT, parsed out of the RENDERED page.

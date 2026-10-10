@@ -8,6 +8,8 @@ require "test_helper"
 # is the endpoint it POSTs to, the reorder-only shape it asks for, and the CSS
 # counter that draws the position.
 class AdminWeekBoardRenderTest < ActionDispatch::IntegrationTest
+  include PageModuleGraph
+
   SLOT = "2026-2-4".freeze
 
   setup do
@@ -38,25 +40,17 @@ class AdminWeekBoardRenderTest < ActionDispatch::IntegrationTest
     JSON.parse(css_select("[data-test='studio-board']").first["x-data"][/studioBoard\((.*)\)\z/m, 1])
   end
 
-  # THE FACTORY REACHES THE PAGE, wherever the bundled engine keeps it. Without
-  # it the board renders and simply does not drag, silently, with no error
-  # anywhere.
-  #   - An engine that ships the studio/board module publishes the factory from
-  #     its boot (studio/alpine_shims), so the page has to import that boot, and
-  #     the board has to name the controller that makes its zones draggable.
-  #   - An engine that does not renders the factory inline, from the
-  #     studio/board_assets partial this page renders.
-  test "the studioBoard factory ships on the page" do
+  # THE FACTORY REACHES THE PAGE. Without it the board renders and simply does
+  # not drag, silently, with no error anywhere. The engine's boot
+  # (studio/application) publishes the factory from the studio/board module,
+  # so the page has to import that boot, and every module from there to the
+  # board has to be pinned by the page's importmap and served by this app. The
+  # board names the controller that makes its zones draggable.
+  test "the page loads the module that holds the studioBoard factory" do
     assert_response :success
+    assert_select "[data-test='studio-board'][data-studio-controller~='board']", count: 1
 
-    if Studio::Engine.root.join("app/javascript/studio/board.js").exist?
-      shims = Studio::Engine.root.join("app/javascript/studio/alpine_shims.js").read
-      assert_match(/window\.studioBoard\s*=/, shims)
-      assert_select "head script[type='module']", text: /import "studio\/application"/
-      assert_select "[data-test='studio-board'][data-studio-controller~='board']", count: 1
-    else
-      assert_match(/window\.studioBoard\s*=/, response.body)
-    end
+    assert_includes page_modules(response.body, from: "studio/application"), "studio/board"
   end
 
   test "the reorder endpoint points at this week" do

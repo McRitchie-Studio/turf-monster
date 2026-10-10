@@ -42,12 +42,9 @@ class ContestCreateOnchainRollbackTest < ActiveSupport::TestCase
 
   # The status the HttpError subclass carries. solana-studio's status-first
   # retry raises Solana::Client::HttpError (< RpcError) for a 429/5xx that
-  # outlived the retries; turf adopts it at the next lock bump. Until then the
-  # constant may not exist, so stand in a subclass of RpcError with the same
-  # shape — which is exactly what HttpError is.
+  # outlived the retries.
   def http_error(status)
-    klass = Solana::Client.const_defined?(:HttpError) ? Solana::Client::HttpError : Class.new(Solana::Client::RpcError)
-    klass.new("HTTP #{status} from RPC: upstream error", code: status)
+    Solana::Client::HttpError.new("HTTP #{status} from RPC: upstream error", code: status)
   end
 
   # FakeVault#contest_pda returns ["cpda-<slug>", 254]; identity-encode it so

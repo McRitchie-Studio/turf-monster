@@ -61,9 +61,10 @@ class Solana::WalletProviderTest < ActiveSupport::TestCase
     # The step-up modal paints its brand icon with <use href="#se-wallet-<key>">,
     # and studio-engine's _wallet_brand_sprite defines exactly these three
     # symbols. A key added here without artwork paints an empty box, which no
-    # markup assertion elsewhere would catch.
-    sprite = Rails.root.join("../../../studio-engine/app/views/studio/modals/blocks/_wallet_brand_sprite.html.erb")
-    skip "engine checkout not present" unless sprite.exist?
+    # markup assertion elsewhere would catch. Read from the locked gem: a
+    # sibling engine checkout exists only beside a desk, so the old path
+    # skipped this test in CI.
+    sprite = Studio::Engine.root.join("app/views/studio/modals/blocks/_wallet_brand_sprite.html.erb")
 
     source = sprite.read
     Solana::WalletProvider::KEYS.each do |key|

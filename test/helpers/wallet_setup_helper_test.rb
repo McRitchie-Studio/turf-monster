@@ -90,15 +90,8 @@ class WalletSetupHelperTest < ActionView::TestCase
     assert path.size.positive?, "public#{poster} is empty"
   end
 
-  # The guide CTA seam, unchanged by the video work but adjacent to it: whichever
-  # target resolves, it must be a real destination.
-  test "the guide URL resolves to a real destination either way" do
-    assert wallet_setup_guide_url.present?
-    if Rails.application.routes.url_helpers.respond_to?(:getting_started_path)
-      assert_not wallet_setup_guide_external?
-    else
-      assert_equal WalletSetupHelper::PHANTOM_GUIDE_URL, wallet_setup_guide_url
-      assert wallet_setup_guide_external?, "an off-site guide must open in a new tab"
-    end
+  test "the guide URL is the house guide, on this site" do
+    assert_equal getting_started_path, wallet_setup_guide_url
+    assert_not wallet_setup_guide_external?
   end
 end

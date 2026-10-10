@@ -49,47 +49,13 @@ class OnboardingControllerTest < ActionDispatch::IntegrationTest
   test "the name is trimmed and inner whitespace collapsed" do
     post onboarding_first_name_path, params: { first_name: "  Alex   James  " }, as: :json
     assert_response :success
-    # Assert the STORED FULL NAME, not `first_name`. Normalisation — trim and
-    # collapse — is what this test is about, and `name` is the column that holds
-    # the whole normalised answer under every engine version.
-    #
-    # `first_name` is NOT that column, and asserting it here pinned a bug rather
-    # than a behaviour: the engine wrote the whole typed string into first_name
-    # (so "Ada Lovelace" landed first_name="Ada Lovelace", last_name NULL, and
-    # never self-healed), which is exactly what made a 40-character first_name
-    # look correct. The engine now derives the halves — first_name here is
-    # "Alex", 4 characters — so the old assertion failed against the fix while
-    # the endpoint was behaving better, not worse.
-    #
-    # THE LENGTH CAP LEFT THIS FILE, on purpose (2026-09-06). It used to post a
-    # 90-character answer and assert the row came back exactly
-    # MAX_FIRST_NAME long — a CONSUMER pinning a PRODUCER's number, and it was
-    # pinning the defect: that constant is the PER-FIELD cap, and applying it to
-    # a whole typed answer is what cut "Bartholomew Fitzwilliam
-    # Montgomery-Smythe" down to "…Montgomery-Smyth". The engine now bounds a
-    # whole answer with Studio::FULL_NAME_MAX_LENGTH and REFUSES past it rather
-    # than truncating, and owns that contract in four tests of its own
-    # (studio-engine test/integration/onboarding_name_parts_test.rb). This app
-    # deleted its local controller, so the bound is not its to assert — what is
-    # still its own is that the route reaches the engine and normalises, which
-    # is what stays here. The fixture is deliberately short enough to behave
-    # identically under either engine version, so this file never deadlocks an
-    # engine release.
-    stored = @user.reload.name
-    assert_equal "Alex James", stored, "expected trimmed, collapsed whitespace"
-    # first_name still gets written, and is still the leading part of what was
-    # stored — true whether the engine writes the whole value or just the first
-    # half, so this keeps the column covered without pinning either shape.
-    #
-    # The presence guard is LOAD-BEARING, not decoration. `start_with?` alone is
-    # vacuous when first_name is blank — "anything".start_with?("") is true — so
-    # an engine that stopped writing first_name for a MULTI-WORD name would slip
-    # through, and a multi-word name is the exact shape the split exists to get
-    # right. Measured: without this line the file stays 10 runs / 0 failures
-    # while the writer drops first_name for every value containing a space.
-    assert @user.first_name.present?, "first_name should still be written"
-    assert stored.start_with?(@user.first_name),
-      "first_name #{@user.first_name.inspect} should lead the stored name #{stored.inspect}"
+    # `name` holds the whole normalised answer; the engine derives the halves
+    # from it. The length bound on a whole answer is the engine's own contract
+    # (Studio::FULL_NAME_MAX_LENGTH) and is asserted there, not here.
+    @user.reload
+    assert_equal "Alex James", @user.name, "expected trimmed, collapsed whitespace"
+    assert_equal "Alex", @user.first_name
+    assert_equal "James", @user.last_name
   end
 
   test "a blank name column is backfilled so display_name has something to show" do

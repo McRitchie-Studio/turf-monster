@@ -101,16 +101,8 @@ class QaRehearsalCreatorTest < ActiveSupport::TestCase
     creator.reload
     assert_equal creator.id, User.find_by(email: Driver::CREATOR_EMAIL).id,
                  "the address still finds the creator after the rename"
-    # studio-engine's Sluggable writes the slug once, at create, from the release
-    # that ships rename_slug! (task slugs-set-once-then-cascade); an older engine
-    # moved it on the swap. Both hold until the lock carries that release (task
-    # turf-slug-tests-both-engines). Either way the driver keys on the address.
-    if Sluggable.method_defined?(:rename_slug!)
-      assert_equal was, creator.slug, "the slug is written once, at create"
-    else
-      refute_equal was, creator.slug, "the slug did not move, so this test no longer covers the defect"
-      assert_equal "mcritchie-#{creator.id}", creator.slug
-      assert_nil User.find_by(slug: was), "the slug the driver used to key on now finds nobody"
-    end
+    # studio-engine's Sluggable writes the slug once, at create. The driver keys
+    # on the address.
+    assert_equal was, creator.slug, "the slug is written once, at create"
   end
 end
