@@ -5,8 +5,10 @@
 #
 # A bare or docker.io image resolves to Docker Hub, which meters anonymous pulls
 # per IP. Hosted runners share IPs, so the quota fails jobs at "Initialize
-# containers" with `toomanyrequests`. The mirror has no anonymous limit and needs
-# no credential.
+# containers" with `toomanyrequests`. The mirror needs no credential. It is not
+# unmetered: it throttles a burst by rate (`toomanyrequests: Rate exceeded`), and
+# the runner's own pull retry absorbed one six seconds later on this guard's first
+# run (38020971746, job `test`).
 #
 # Run directly:
 #   ruby -Itest test/lib/ci_service_images_test.rb
