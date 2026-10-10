@@ -33,8 +33,20 @@ module SettleNonceFixture
     client
   end
 
+  # The program id is fixed here, not read from SOLANA_PROGRAM_ID, so a pinned
+  # digest means the same bytes on every machine.
+  PROGRAM_ID = "EQGFJAcABtDb6VXtiijTjZ6cE2UqdvhnqJvoharJbpMJ".freeze
+  # Likewise the admin: CI sets SOLANA_ADMIN_KEY, so the fixture pins its own.
+  ADMIN = Solana::Keypair.from_bytes(Solana::Keypair::TEST_ADMIN_SEED)
+
+  def with_fixed_admin(&block)
+    Solana::Keypair.stub(:admin, ADMIN, &block)
+  end
+
   def vault
-    Solana::Vault.new(client: fake_client)
+    Solana::Vault.new(client: fake_client).tap do |v|
+      v.instance_variable_set(:@program_id, Solana::Keypair.decode_base58(PROGRAM_ID))
+    end
   end
 
   def durable_nonce(authority = COSIGNER.to_base58)
@@ -42,6 +54,10 @@ module SettleNonceFixture
   end
 
   def build(governance: false, nonce: nil, authority: COSIGNER.to_base58)
+    with_fixed_admin { build_unpinned(governance: governance, nonce: nonce, authority: authority) }
+  end
+
+  def build_unpinned(governance:, nonce:, authority:)
     Solana::Config.stub(:governance?, governance) do
       kwargs = { cosigner_pubkey: COSIGNER.to_base58, extra_cosigners: governance ? [THIRD.to_base58] : [] }
       kwargs[:durable_nonce] = durable_nonce(authority) if nonce

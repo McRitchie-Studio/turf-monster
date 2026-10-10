@@ -163,7 +163,7 @@ class SettleNonceTest < ActiveSupport::TestCase
                               contest_type: "standard", starts_at: 1.hour.ago, user: users(:alex), status: "open",
                               max_entries: 29)
     PendingTransaction.create!(tx_type: "settle_contest", serialized_tx: wire, target: contest,
-                               initiator_address: Solana::Keypair.admin.to_base58,
+                               initiator_address: ADMIN.to_base58,
                                metadata: { settlements: [], durable_nonce: { account: NONCE_ACCOUNT } }.to_json)
   end
 
@@ -190,7 +190,7 @@ class SettleNonceTest < ActiveSupport::TestCase
   test "submit refuses a different message, an empty slot, and a blockhash row, sending nothing" do
     wire = nonce_wire
     sent = []
-    other = Solana::SettleNonceSigner.sign(build(nonce: true, authority: Solana::Keypair.admin.to_base58)[:serialized_tx], COSIGNER)
+    other = Solana::SettleNonceSigner.sign(build(nonce: true, authority: ADMIN.to_base58)[:serialized_tx], COSIGNER)
 
     row = nonce_row(wire)
     submission = Solana::SettleNonceSubmission.new(row, vault: broadcasting_vault(sent))

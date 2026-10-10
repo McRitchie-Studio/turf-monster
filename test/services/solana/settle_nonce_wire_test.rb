@@ -46,21 +46,21 @@ class SettleNonceWireTest < ActiveSupport::TestCase
       wire = parse(build(governance: governance, nonce: true))
 
       assert_equal 3, wire.instructions.size
-      assert_equal Solana::Config::PROGRAM_ID, key(wire.instructions.last[:program_id])
+      assert_equal PROGRAM_ID, key(wire.instructions.last[:program_id])
       assert_equal Solana::Transaction.anchor_discriminator("settle_contest"), wire.instructions.last[:data].byteslice(0, 8)
-      assert_equal Solana::Keypair.admin.public_key_bytes, wire.fee_payer
+      assert_equal ADMIN.public_key_bytes, wire.fee_payer
       assert wire.signature_valid?(0), "the server signed as admin"
-      expected = [Solana::Keypair.admin.to_base58, COSIGNER.to_base58, *(governance ? [THIRD.to_base58] : [])]
+      expected = [ADMIN.to_base58, COSIGNER.to_base58, *(governance ? [THIRD.to_base58] : [])]
       assert_equal expected.sort, wire.signer_keys.map { |k| key(k) }.sort
       (1...wire.num_required_signatures).each { |i| assert wire.signature_slot_empty?(i), "slot #{i} waits for the CLI" }
     end
   end
 
   test "the admin may be the nonce authority; it adds no slot" do
-    wire = parse(build(nonce: true, authority: Solana::Keypair.admin.to_base58))
+    wire = parse(build(nonce: true, authority: ADMIN.to_base58))
 
     assert_equal 2, wire.num_required_signatures
-    assert_equal Solana::Keypair.admin.public_key_bytes, wire.instructions.first[:accounts].last
+    assert_equal ADMIN.public_key_bytes, wire.instructions.first[:accounts].last
   end
 
   test "an authority that does not sign the settle is refused before anything is built" do
@@ -100,9 +100,11 @@ class SettleNonceWireTest < ActiveSupport::TestCase
   end
 
   def nonce_settle(settlements, governance:)
-    Solana::Config.stub(:governance?, governance) do
-      vault.build_settle_contest("settle-nonce-contest", settlements, cosigner_pubkey: COSIGNER.to_base58,
-                                 extra_cosigners: governance ? [THIRD.to_base58] : [], durable_nonce: durable_nonce)
+    with_fixed_admin do
+      Solana::Config.stub(:governance?, governance) do
+        vault.build_settle_contest("settle-nonce-contest", settlements, cosigner_pubkey: COSIGNER.to_base58,
+                                   extra_cosigners: governance ? [THIRD.to_base58] : [], durable_nonce: durable_nonce)
+      end
     end
   end
 

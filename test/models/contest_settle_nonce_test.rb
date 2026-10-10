@@ -23,9 +23,11 @@ class ContestSettleNonceTest < ActiveSupport::TestCase
   end
 
   def queue_settle(settings: nil)
-    Solana::Config.stub(:governance?, false) do
-      Solana::Vault.stub(:new, vault) do
-        Solana::SettleNonce.stub(:current, settings) { @contest.settle_onchain! }
+    with_fixed_admin do
+      Solana::Config.stub(:governance?, false) do
+        Solana::Vault.stub(:new, vault) do
+          Solana::SettleNonce.stub(:current, settings) { @contest.settle_onchain! }
+        end
       end
     end
     PendingTransaction.where(target: @contest, tx_type: "settle_contest").sole
