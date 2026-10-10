@@ -1,0 +1,80 @@
+# One ceiling per surface and per kind: the true count, which only goes down.
+# alpine_and_inline_script_ratchet_test.rb says what each kind counts and prints
+# the value to paste when one moves.
+---
+admin:
+  x_data: 21
+  x_show: 26
+  x_if: 10
+  x_for: 11
+  x_model: 25
+  x_text: 93
+  x_html: 0
+  x_bind: 67
+  x_on: 48
+  x_init: 2
+  x_ref: 3
+  x_cloak: 13
+  x_transition: 0
+  x_effect: 1
+  x_other: 0
+  alpine_api: 13
+  inline_script: 14
+  inline_handler: 29
+entry:
+  x_data: 49
+  x_show: 91
+  x_if: 62
+  x_for: 1
+  x_model: 8
+  x_text: 72
+  x_html: 0
+  x_bind: 45
+  x_on: 106
+  x_init: 5
+  x_ref: 8
+  x_cloak: 35
+  x_transition: 7
+  x_effect: 0
+  x_other: 0
+  alpine_api: 75
+  inline_script: 22
+  inline_handler: 7
+board:
+  x_data: 26
+  x_show: 59
+  x_if: 9
+  x_for: 6
+  x_model: 8
+  x_text: 29
+  x_html: 0
+  x_bind: 75
+  x_on: 88
+  x_init: 2
+  x_ref: 8
+  x_cloak: 28
+  x_transition: 53
+  x_effect: 0
+  x_other: 0
+  alpine_api: 67
+  inline_script: 14
+  inline_handler: 13
+marketing:
+  x_data: 17
+  x_show: 27
+  x_if: 39
+  x_for: 4
+  x_model: 4
+  x_text: 48
+  x_html: 0
+  x_bind: 43
+  x_on: 34
+  x_init: 2
+  x_ref: 3
+  x_cloak: 8
+  x_transition: 12
+  x_effect: 0
+  x_other: 5
+  alpine_api: 29
+  inline_script: 12
+  inline_handler: 1
