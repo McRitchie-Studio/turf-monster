@@ -127,11 +127,11 @@ class MagicLinksController < ApplicationController
   def sign_in_existing(user, result)
     reset_prior_session!
     # The click proves the mailbox, and the parked claim reads that proof, so
-    # the stamp lands first. update_column: it now runs before the session, so a
-    # row that a validation added since refuses must still be able to sign in.
-    rescue_and_log(target: user) do
-      user.update_column(:email_verified_at, Time.current) if user.email_verified_at.blank?
-    end
+    # the stamp lands first. A refused proof signs nobody in
+    # (User#accept_mailbox_proof!).
+    accepted = rescue_and_log(target: user) { user.accept_mailbox_proof! }
+    return redirect_to link_login_path, alert: MAILBOX_PROOF_REFUSED unless accepted
+
     user.claim_parked_username!
     set_app_session(user)
     # BEFORE record_onboarding_state!, and that order is load-bearing: claiming a
@@ -540,6 +540,9 @@ class MagicLinksController < ApplicationController
 
     contests_path
   end
+
+  # Says nothing about why: the reason is the operator's (users:parked_role_audit).
+  MAILBOX_PROOF_REFUSED = "We couldn't sign you in with that link. Contact support and we'll sort it out.".freeze
 
   # OPSEC-048: FrozenAccountGuard refuses a frozen account every write but this.
   # At the foot of the class so docs/workflows' line citations above hold.

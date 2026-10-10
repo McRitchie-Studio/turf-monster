@@ -32,7 +32,7 @@ class UsersClearRotatedOutWalletTaskTest < ActiveSupport::TestCase
 
   test "clears the wallet, keeps the account, and ends its sessions" do
     house = User.create!(email: User::TURF_HOUSE_EMAIL, name: "Turf Monster", role: "admin",
-                         username: "turf", web3_solana_address: ROTATED)
+                         username: "turf", web3_solana_address: ROTATED, seeding_parked_identity: true)
     house.record_web3_authentication!(provider: "phantom")
     token = house.reload.session_token
     other = User.create!(email: "mason-task@mcritchie.studio", username: "mason", web3_solana_address: OTHER)
@@ -53,7 +53,7 @@ class UsersClearRotatedOutWalletTaskTest < ActiveSupport::TestCase
   end
 
   test "prints the count and usernames, never the address" do
-    User.create!(email: User::TURF_HOUSE_EMAIL, role: "admin", username: "turf", web3_solana_address: ROTATED)
+    User.create!(email: User::TURF_HOUSE_EMAIL, role: "admin", username: "turf", web3_solana_address: ROTATED, seeding_parked_identity: true)
 
     out = run_task
 
@@ -72,7 +72,7 @@ class UsersClearRotatedOutWalletTaskTest < ActiveSupport::TestCase
   end
 
   test "a second run finds nothing and writes nothing" do
-    User.create!(email: User::TURF_HOUSE_EMAIL, role: "admin", username: "turf", web3_solana_address: ROTATED)
+    User.create!(email: User::TURF_HOUSE_EMAIL, role: "admin", username: "turf", web3_solana_address: ROTATED, seeding_parked_identity: true)
     run_task
 
     out = nil

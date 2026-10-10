@@ -34,7 +34,7 @@ class AdminClaimUsernamesTaskTest < ActiveSupport::TestCase
                           username: "mason", web3_solana_address: MASON_WALLET)
     # The house account parks no wallet, so this wallet-keyed task skips it.
     @house = User.create!(email: User::TURF_HOUSE_EMAIL, name: "Turf Monster", role: "admin",
-                          username: "turf")
+                          username: "turf", seeding_parked_identity: true)
   end
 
   def run_task

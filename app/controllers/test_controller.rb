@@ -181,7 +181,9 @@ class TestController < ApplicationController
   def use_phantom_mock_admin
     human = User.find_by!(email: HUMAN_ADMIN_EMAIL)
     Rails.cache.write(ADMIN_WALLET_STASH_KEY, human.web3_solana_address, expires_in: 1.hour)
-    human.update!(web3_solana_address: PHANTOM_MOCK_WALLET)
+    # The mock wallet is not the roster's, so the fixture proves its mailbox too:
+    # unproven, the row is refused a magic link (User#accept_mailbox_proof!).
+    human.update!(web3_solana_address: PHANTOM_MOCK_WALLET, email_verified_at: human.email_verified_at || Time.current)
     render json: { ok: true, from: Rails.cache.read(ADMIN_WALLET_STASH_KEY), to: PHANTOM_MOCK_WALLET }
   end
 

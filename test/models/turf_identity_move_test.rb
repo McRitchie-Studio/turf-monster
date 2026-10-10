@@ -24,7 +24,7 @@ class TurfIdentityMoveTest < ActiveSupport::TestCase
   # "turf" is a RESERVED prefix in this app (mirrored from the on-chain list), so
   # a test row cannot be called the thing it represents.
   def house_row(email = OLD, username: "gridiron")
-    User.create!(name: "Turf Monster", email: email, username: username)
+    User.create!(name: "Turf Monster", email: email, username: username, seeding_parked_identity: true)
   end
 
   # A row shaped like one already in production: seeded under the roster in force

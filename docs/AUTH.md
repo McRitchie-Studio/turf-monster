@@ -88,6 +88,7 @@ Important invariants:
 - `email` is nullable; wallet-only users may not have one.
 - `email` is stripped and downcased on write and unique without regard to case (`VerifiedEmailIdentity`). The rule is checked when the address changes, so a row that already collides by case still saves. The database index is still exact-match: a unique index on `LOWER(email)` is owed once `bin/rails users:email_case_collisions` reads zero on production.
 - `email_verified_at` belongs to one address: writing a new address without its own stamp clears it.
+- A parked address (`User::PARKED_IDENTITIES`) saves only with its proof; see [Parked roles](#parked-roles).
 - Email format uses `User.valid_email?`, shared by model validation and magic-link request handling.
 - `has_authentication_method` requires at least one of email, Google `(provider, uid)`, or Solana wallet identity.
 - `display_name` falls back through username, name, email prefix, truncated wallet address, then `"anon"`.
@@ -106,7 +107,9 @@ Routes:
 
 The consume step proves email ownership. Existing users with blank
 `email_verified_at` are stamped verified on consume, before the parked claim
-runs. New users are built verified from the email in the token, pass through `Studio.configure_new_user`, get the normal
+runs (`User#accept_mailbox_proof!`). One row is refused the stamp and the
+sign-in: an unverified holder of a parked address that keeps another
+credential; see [Parked roles](#parked-roles). New users are built verified from the email in the token, pass through `Studio.configure_new_user`, get the normal
 managed-wallet callbacks, then receive a session through `set_app_session`.
 
 Magic-link session setup hard-resets any prior browser session first. This
@@ -1170,10 +1173,44 @@ is a roster lookup and proves nothing about its caller.
 | Google sign-in, existing email row | Links only a row that is already verified |
 | Google link from `/account` or a pending link | Stamped only when Google's address is the account's own |
 | Wallet | Never; a wallet match is its own proof |
-| Email typed into `/account` | Unverified until `EmailVerificationsController#verify` consumes its link |
+| Email typed into `/account` | Unverified until `EmailVerificationsController#verify` consumes its link; a parked address is refused |
 
 The seed writes roles directly and stamps no verification. A claim that proves
 nothing changes nothing, so a seeded row keeps its role.
+
+#### A parked address is not held unproven
+
+The model refuses to save a parked address without its proof
+(`VerifiedEmailIdentity#parked_email_carries_its_proof`), so every door that
+writes an email is covered at once. The address saves only when:
+
+- the same save sets `email_verified_at` (a magic-link sign-up, a Google sign-up), or
+- the row holds that identity's parked wallet (the wallet claim fills the address), or
+- the seed is the writer (`seeding_parked_identity`, set in `db/seeds/users.rb` and permitted by no controller).
+
+Anything else gets `Email has already been taken`, the reply a held address
+gets. The request doors that write an email, each with a test in
+`test/integration/parked_address_not_squattable_test.rb`: `POST /signup`, a
+first email on `PATCH /account`, `POST /account/email/confirm/:token`,
+`PATCH /profile`, `POST /profile/newsletter` and
+`POST /account/newsletter/subscribe`.
+
+A row stored before this rule can still hold a parked address unverified. A
+mailbox proof (a magic-link or verification-link click) is made by whoever
+reads the mailbox, who need not be whoever attached the row's session, wallet,
+Google link or API key. So `User#accept_mailbox_proof!` decides:
+
+| The unverified row on a parked address | The mailbox proof |
+|----------------------------------------|-------------------|
+| holds that identity's parked wallet | Stamps it, as for any row |
+| has no wallet, Google link or API key | Ends its live sessions, then stamps it |
+| has a wallet, Google link or API key | Refused: no stamp, no sign-in, no role |
+
+A refused row is the operator's to resolve: clear the credential or the address
+by hand, then sign in again. The rule cannot tell a seeded row from one a
+stranger wrote; it only makes the mailbox the one way in before it elevates. A
+seeded row that gained a wallet other than its parked one (the rotated-out
+wallet, until `users:clear_rotated_out_wallet` runs) is refused too.
 
 Two read-only reports, for the operator:
 
@@ -1181,6 +1218,11 @@ Two read-only reports, for the operator:
 bin/rails users:email_case_collisions   # counts only
 bin/rails users:parked_role_audit       # usernames only
 ```
+
+`users:parked_role_audit` prints four lists: rows holding a parked role on an
+unverified or inexact email, admin rows the roster does not describe, parked
+identities with no row on their address, and rows holding a parked address
+unverified with what a first email sign-in does to each.
 
 No account is demoted automatically.
 

@@ -47,6 +47,24 @@ class TestControllerTest < ActionDispatch::IntegrationTest
     assert_equal canonical, human.reload.web3_solana_address
   end
 
+  # The mock wallet is not the roster's, so the handoff also proves the mailbox:
+  # a parked address held unproven beside a foreign wallet is refused a magic
+  # link (User#accept_mailbox_proof!), and every e2e admin sign-in is one.
+  test "the human operator signs in by magic link while holding the mock wallet" do
+    silence_warnings { load Rails.root.join("db/seeds/users.rb") }
+    capture_io { seed_core_users! }
+    human = User.find_by!(email: TestController::HUMAN_ADMIN_EMAIL)
+    assert_nil human.email_verified_at, "precondition: the seed leaves the row unverified"
+
+    post "/test/use_phantom_mock_admin"
+    assert_response :success
+
+    post magic_link_consume_path(token: magic_token(email: human.email))
+
+    assert_equal human.id, session[:turf_user_id], "the e2e admin sign-in was refused"
+    assert human.reload.admin?
+  end
+
   # The endpoint is only correct if it lands on the account the ROSTER calls the
   # human. Pinning the email alone would pass with the roster pointing anywhere.
   test "the human operator is a parked admin, not just any row" do

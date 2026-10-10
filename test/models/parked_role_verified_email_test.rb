@@ -43,9 +43,10 @@ class ParkedRoleVerifiedEmailTest < ActiveSupport::TestCase
     assert_equal UNGRANTED, user.reload.role
   end
 
-  test "a new account on an unverified parked email is created with no parked role" do
-    user = User.create!(email: HOUSE)
+  test "a new account on an unverified parked email is refused" do
+    user = User.new(email: HOUSE)
 
+    refute user.save
     assert_equal UNGRANTED, user.role
     refute_equal "turf", user.username
   end

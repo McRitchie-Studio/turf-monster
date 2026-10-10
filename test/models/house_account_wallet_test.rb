@@ -43,7 +43,7 @@ class HouseAccountWalletTest < ActiveSupport::TestCase
 
   test "a re-seed takes the rotated-out wallet off a house row that holds it" do
     house = User.create!(email: User::TURF_HOUSE_EMAIL, name: "Turf Monster", role: "admin",
-                         username: "turf", web3_solana_address: ROTATED)
+                         username: "turf", web3_solana_address: ROTATED, seeding_parked_identity: true)
     seed!
 
     assert_nil house.reload.web3_solana_address

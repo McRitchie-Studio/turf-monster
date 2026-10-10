@@ -116,7 +116,7 @@ class FrozenAccountFollowupsTest < ActionDispatch::IntegrationTest
   # ── parked identity sign-in ──────────────────────────────────────────────
 
   test "a frozen parked identity with a drifted username signs in by magic link" do
-    user = User.create!(email: "mack@mcritchie.studio", name: "Mack McRitchie", username: "mack-x-#{SecureRandom.hex(2)}")
+    user = User.create!(email: "mack@mcritchie.studio", name: "Mack McRitchie", username: "mack-x-#{SecureRandom.hex(2)}", seeding_parked_identity: true)
     user.update_column(:username, "mack-drifted-#{SecureRandom.hex(2)}")
     drifted = user.reload.username
     user.freeze!(reason: "test", source: "console")

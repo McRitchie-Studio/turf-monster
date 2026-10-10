@@ -53,7 +53,8 @@ class EmailVerificationsController < ApplicationController
     # verification — the token is bound to the original email.
     raise "Token issued for a different email" unless user.email.to_s.downcase == payload[:email].to_s.downcase
 
-    user.update!(email_verified_at: Time.current) if user.email_verified_at.blank?
+    # The click may be made by someone other than whoever asked for the mail.
+    raise "Contact support to finish verifying this address" unless user.accept_mailbox_proof!
 
     # If the token carried a contest return path, send the user there to
     # finish the entry. The path comes from a signed token, but guard against
