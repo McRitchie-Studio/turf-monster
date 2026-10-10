@@ -319,8 +319,19 @@ async function routeHeadshots(page) {
   );
 }
 
+/**
+ * Wait until Turf's lazy Stimulus registry has registered `name`
+ * (app/javascript/turf_stimulus.js lists them on the root element). Until then
+ * the controller's actions do nothing, so call this after a goto and before
+ * the first press on a lazily registered control.
+ */
+async function lazyController(page, name) {
+  await page.locator(`html[data-lazy-controllers~="${name}"]`).waitFor({ state: "attached" });
+}
+
 module.exports = {
   login,
+  lazyController,
   seedRailContests,
   clearRailContests,
   OPERATOR_USERNAME,
