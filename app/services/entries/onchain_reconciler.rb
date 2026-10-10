@@ -10,13 +10,14 @@
 #
 # This service heals such rows. Two flavors, both idempotent:
 #
-#   - FAST path: the cart entry already carries `onchain_tx_signature` (the
-#     durable-capture write landed). We just re-run confirm! with the stored
-#     proof — no RPC needed.
-#   - PROBE path: a LEGACY strand (e.g. #133, stranded before the durable
-#     capture shipped) has no proof on the Rails row. We probe the chain for an
-#     Entry PDA at the wallet's slots, recover the consume signature from
-#     getSignaturesForAddress (oldest err:nil), and confirm! with it.
+#   - STORED PROOF: the row already carries `onchain_tx_signature` (the
+#     durable-capture write landed after the server saw the send confirmed).
+#     Entry#confirm! is re-run with that proof. No RPC.
+#   - NO PROOF ON THE ROW: the reconciler never activates it. It brings the row
+#     to a cart the one verdict can read and Entries::PaymentSettlement moves
+#     it (see #settle_from_chain): a payment in flight is settled as it stands;
+#     a row cleared under its payment is restored first; a draft whose ticket
+#     the chain shows is pinned to that ticket (Entry::Payment#adopt_found_ticket!).
 #
 # A strand does not always stay in `cart`. ContestsController#clear_picks
 # abandons the cart row, and it is the ONLY writer of `abandoned` — so every
@@ -29,15 +30,14 @@
 # decided by where its proof was written — the same fact that decides whether it
 # kept its slot:
 #
-#   - PHANTOM strand (#prepare_entry / #confirm_onchain_entry) → PROBE path. Its
+#   - PHANTOM strand (#prepare_entry / #confirm_onchain_entry) → the chain. Its
 #     signature is on the PendingTransaction rather than the entry, so
-#     Entry#release_slot_if_abandoned — which spares the slot only when the ENTRY
-#     carries a signature — nulls its entry_number on the way out. That nil is
-#     exactly what makes #find_onchain_entry scan every slot instead of one,
-#     which is what finds the PDA the released number no longer points at.
-#   - MANAGED strand (ContestsController#enter) → FAST path. The durable capture
-#     put the consume signature on the ENTRY, so release_slot_if_abandoned spares
-#     the slot and reconcile_entry credits the stored proof without an RPC.
+#     Entry#release_slot_if_abandoned (which spares the slot only when the ENTRY
+#     carries a signature) nulls its entry_number on the way out. That nil is
+#     what makes #find_ticket scan every slot instead of one.
+#   - MANAGED strand (ContestsController#enter) → stored proof. The durable
+#     capture put the consume signature on the ENTRY, so release_slot_if_abandoned
+#     spares the slot and the stored proof is credited without an RPC.
 #
 # The managed one was UNREACHABLE until `reach-managed-abandoned-strand`: it
 # writes no PendingTransaction at all, and a signed PendingTransaction was
@@ -46,8 +46,10 @@
 # admission (#reconcilable? and #reconcilable_entries), because they are separate
 # implementations of one rule.
 #
-# WHAT THIS SERVICE WILL NOT DO. It only ever PROMOTES a row toward `active`. It
-# never deletes one and never rewrites a status downward.
+# WHAT THIS SERVICE WILL NOT DO. It never deletes a row and never lowers a
+# status: a row moves toward `active` or is left. A payment_state moves only by
+# the one verdict, which can return a submitted row that provably paid nothing
+# to draft (Entry::Payment#payment_release_allowed?).
 #
 # That is a deliberate divergence from the contest-level sweeper being built for
 # stranded `pending` CONTEST rows (task `sweep-stranded-pending-contests`), which
@@ -109,36 +111,31 @@ module Entries
       contest = entry.contest
       return :skipped unless eligible?(contest)
 
-      wallet = entry.user&.solana_address
-      return :skipped if wallet.blank?
+      return :skipped if candidate_wallets(entry).empty?
 
       sig = entry.onchain_tx_signature.presence
-      pda = entry.onchain_entry_id.presence
-
       if sig.nil?
-        # Legacy strand — no proof on the Rails row. Ask the chain.
-        pda, sig = find_onchain_entry(contest, wallet, entry)
-        return :skipped if sig.nil?
+        return :skipped unless settle_from_chain(entry, contest) # the verdict announces the join itself
+      else
+        # Idempotency backstop: never credit a signature already bound to another
+        # entry (the DB unique index enforces this too — this gives a clean skip).
+        return :skipped if Entry.where.not(id: entry.id).exists?(onchain_tx_signature: sig)
+
+        # Judge the time gates as of when the chain accepted the payment — a spend
+        # that cleared seconds before a kickoff must still heal after it. No
+        # blockTime → judged now, the old answer (Entry#assert_enterable! as_of:).
+        entry.confirm!(tx_signature: sig, onchain_entry_id: entry.onchain_entry_id.presence,
+                       as_of: Solana::TxVerifier.block_time(sig, client: @vault.client))
+        begin
+          Message.announce_join!(contest: contest, user: entry.user)
+        rescue StandardError
+          # Chat announcement is best-effort — never fail a heal on it.
+        end
       end
-
-      # Idempotency backstop: never credit a signature already bound to another
-      # entry (the DB unique index enforces this too — this gives a clean skip).
-      return :skipped if Entry.where.not(id: entry.id).exists?(onchain_tx_signature: sig)
-
-      # Judge the time gates as of when the chain accepted the payment — a spend
-      # that cleared seconds before a kickoff must still heal after it. No
-      # blockTime → judged now, the old answer (Entry#assert_enterable! as_of:).
-      entry.confirm!(tx_signature: sig, onchain_entry_id: pda,
-                     as_of: Solana::TxVerifier.block_time(sig, client: @vault.client))
       Rails.logger.info(
         "[reconcile][healed] entry_id=#{entry.id} contest=#{contest.slug} " \
-        "user_id=#{entry.user_id} tx=#{sig.to_s.first(8)}..."
+        "user_id=#{entry.user_id} tx=#{entry.onchain_tx_signature.to_s.first(8)}..."
       )
-      begin
-        Message.announce_join!(contest: contest, user: entry.user)
-      rescue StandardError
-        # Chat announcement is best-effort — never fail a heal on it.
-      end
       :reconciled
     rescue StandardError => e
       # Attach which entry/contest failed to heal so the ErrorLog reads as
@@ -209,6 +206,7 @@ module Entries
     def reconcilable?(entry)
       return true if entry.cart?
       return false unless entry.abandoned?
+      return true if Entry::Payment::IN_FLIGHT.include?(entry.payment_state) # cleared under its payment: the row holds the key
 
       entry.onchain_tx_signature.present? || broadcast_proof?(entry)
     end
@@ -239,6 +237,7 @@ module Entries
       abandoned = contest.entries.where(status: :abandoned)
       contest.entries.where(status: :cart)
              .or(abandoned.where.not(onchain_tx_signature: [nil, ""]))
+             .or(abandoned.where(payment_state: Entry::Payment::IN_FLIGHT))
              .or(abandoned.where(id: broadcast_strand_ids(contest)))
     end
 
@@ -260,31 +259,61 @@ module Entries
       contest&.onchain? && contest.entry_fee_cents.to_i.positive?
     end
 
-    # Probe the chain for the wallet's Entry PDA in this contest and recover the
-    # consume signature. Prefers the entry's already-assigned slot; otherwise
-    # scans 0...max_entries_per_user. Skips a slot already claimed by another of
-    # this user's live entries. Returns [entry_pda_b58, signature] or [nil, nil].
-    def find_onchain_entry(contest, wallet, entry)
-      slots = entry.entry_number ? [entry.entry_number] : (0...contest.max_entries_per_user).to_a
-      slots.each do |n|
-        pda_b58 = Solana::Keypair.encode_base58(@vault.entry_pda(contest.slug, wallet, n).first)
-        next unless onchain_account_exists?(pda_b58)
-        next if contest.entries.where(user_id: entry.user_id, onchain_entry_id: pda_b58)
-                       .where.not(id: entry.id).exists?
-        sig = oldest_success_signature(pda_b58)
-        return [pda_b58, sig] if sig
-      end
-      [nil, nil]
+    # A ROW WITH NO PROOF OF ITS OWN IS NEVER ACTIVATED HERE. It is brought to a
+    # cart the one verdict can read, and Entries::PaymentSettlement decides:
+    # which transaction created the ticket (never a bare success on the
+    # address), which rail's proof the entry owes, and whether an app gate
+    # holds it as `landed`. True when the entry is live.
+    def settle_from_chain(entry, contest)
+      stage(entry, contest) && Entries::PaymentSettlement.call(entry, vault: @vault).confirmed?
     end
 
-    # Resilient existence check — mainnet RPC rate-limits on bursts, so a single
-    # transient error shouldn't read as "PDA absent" and silently skip a paid
-    # entry. One brief retry, then treat as absent.
+    # In flight, or a pinned draft: the verdict reads it as it stands. Cleared
+    # under its payment: a cart again, at its own slot. Any other draft: pinned
+    # to the ticket the chain shows, or left when it shows none.
+    def stage(entry, contest)
+      return entry.restore_cleared_payment!(@vault) if entry.abandoned? && Entry::Payment::IN_FLIGHT.include?(entry.payment_state)
+      return true if entry.payment_in_flight? || entry.payment_pinned_draft?
+
+      wallet, slot = find_ticket(contest, entry)
+      !slot.nil? && entry.adopt_found_ticket!(wallet: wallet, slot: slot)
+    end
+
+    # The wallets whose seeds could derive this row's ticket: the wallet it is
+    # pinned to, else both of the player's (User#solana_address prefers web3,
+    # which is not where a managed entry paid).
+    def candidate_wallets(entry)
+      return [entry.wallet_address] if entry.wallet_address.present?
+
+      [entry.user&.web2_solana_address, entry.user&.web3_solana_address].compact_blank.uniq
+    end
+
+    # The [wallet, slot] of a ticket on chain that no other entry row holds, or
+    # nil. The row's own wallet and slot narrow the search; a blank one is
+    # scanned.
+    def find_ticket(contest, entry)
+      slots = entry.entry_number ? [entry.entry_number] : (0...contest.max_entries_per_user).to_a
+      candidate_wallets(entry).each do |wallet|
+        slots.each do |slot|
+          pda_b58 = Solana::Keypair.encode_base58(@vault.entry_pda(contest.slug, wallet, slot).first)
+          next unless onchain_account_exists?(pda_b58)
+          next if Entry.where.not(id: entry.id).exists?(onchain_entry_id: pda_b58)
+
+          return [wallet, slot]
+        end
+      end
+      nil
+    end
+
+    # Read at `finalized`, the commitment the verdict requires of a ticket.
+    # Mainnet RPC rate-limits on bursts, so one brief retry. A read that still
+    # fails is logged and the slot is passed over: here that only ever leaves a
+    # row unhealed for the next run, never moves one.
     def onchain_account_exists?(pda_b58)
       attempts = 0
       begin
         attempts += 1
-        info = @vault.client.get_account_info(pda_b58)
+        info = @vault.client.get_account_info(pda_b58, commitment: Entries::PaymentSettlement::TICKET_COMMITMENT)
         info&.dig("value", "owner") == Solana::Config::PROGRAM_ID # a ticket is the PROGRAM's account; dust sent to the address is not one
       rescue StandardError => e
         if attempts < 2
@@ -294,19 +323,6 @@ module Entries
         Rails.logger.warn("[reconcile][rpc] get_account_info failed pda=#{pda_b58} #{e.message}")
         false
       end
-    end
-
-    # The Entry PDA's first successful signature is the enter_contest(_with_token)
-    # that created it (and consumed the token). getSignaturesForAddress returns
-    # newest-first, so reverse and take the oldest err:nil entry.
-    def oldest_success_signature(pda_b58)
-      result = @vault.client.send(:call, "getSignaturesForAddress", [pda_b58, { "limit" => 20 }])
-      return nil if result.blank?
-      hit = result.reverse.find { |s| s && s["err"].nil? }
-      hit && hit["signature"]
-    rescue StandardError => e
-      Rails.logger.warn("[reconcile][rpc] getSignaturesForAddress failed pda=#{pda_b58} #{e.message}")
-      nil
     end
   end
 end

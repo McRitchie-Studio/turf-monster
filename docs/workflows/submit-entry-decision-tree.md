@@ -436,7 +436,11 @@ and every such case except #6 self-heals automatically.
   fresh cart cannot wire a second payment while the first confirms. And
   `#clear_picks` itself answers the same 409 while the cart's own signed
   submit is pending, so the paying cart keeps the `entry_number` its PDA is
-  derived from. Should an abandoned strand arise anyway, recovery answers
+  derived from. The clear itself runs under the entry's row lock with the
+  draft state in its UPDATE (`Entry::Payment#abandon_draft_cart!`), so a
+  payment that begins mid-request keeps the cart and the clear answers 409.
+  Should an abandoned strand arise anyway, `Entries::PaymentSweepJob` restores
+  it to a cart at the slot its prepared wire names, recovery answers
   "processing" on the nil slot and `Entries::OnchainReconciler` probes every
   slot for it.
 - **Safety**: `ContestsController#recover_pending_entry` double-checks ownership —
@@ -451,16 +455,22 @@ and every such case except #6 self-heals automatically.
   eligible open contests via the `reconcile_onchain` task
   (`lib/tasks/entries.rake:33`) or `Entries::OnchainReconcileJob#perform` with no id
   (`app/jobs/entries/onchain_reconcile_job.rb:14-43`, sweep branch at `:27`), which
-  calls `Entries::OnchainReconciler.run` (`app/services/entries/onchain_reconciler.rb:84-98`).
+  calls `Entries::OnchainReconciler.run` (`app/services/entries/onchain_reconciler.rb:86-100`).
   Idempotent — never double-enters or double-charges.
-- **Heals**: `cart` entries (signature on the row → fast path; none → chain
-  probe), plus `abandoned` rows that can prove a broadcast → converge to
-  `active`, announce in chat on heal.
+- **Heals**: `cart` entries, plus `abandoned` rows that can prove a broadcast or
+  still hold a payment in flight → converge to `active`, announce in chat on
+  heal. A signature on the row is the fast path (`Entry#confirm!` with the
+  stored proof, no RPC). A row with none is never activated by the reconciler:
+  it is brought to a cart the one verdict can read (a draft is pinned to the
+  ticket the chain shows, `Entry::Payment#adopt_found_ticket!`) and
+  `Entries::PaymentSettlement` moves it, naming the creating signature only
+  from an entry instruction the pinned wallet signed. A paid ticket an app gate
+  refuses is held as `landed`.
 - **What proves a broadcast for an `abandoned` row** — one rule, two records,
   because there are two entry paths, both read by
   `Entries::OnchainReconciler.reconcilable?`
-  (`app/services/entries/onchain_reconciler.rb:209-214`) and its
-  `broadcast_proof?` (`:222-226`): the consume signature **on the ENTRY**
+  (`app/services/entries/onchain_reconciler.rb:206-212`) and its
+  `broadcast_proof?` (`:220-224`): the consume signature **on the ENTRY**
   (§2, the managed durable capture → fast path, slot spared) **or** a signed
   `PendingTransaction` targeting it (§3c, the Phantom path → chain probe, slot
   released). The managed half was added by `reach-managed-abandoned-strand`;

@@ -28,8 +28,9 @@ class FakeVault
                  account_info_raises: false, signatures: {},
                  send_raises: nil, season: { season_id: 1 }, season_raises: nil, seasons: nil,
                  broadcast_raises: nil, mint_window_remaining: nil,
-                 signature_for_wire_raises: nil, block_height: nil, status_raises: nil)
+                 signature_for_wire_raises: nil, block_height: nil, status_raises: nil, transactions: {})
     @fail_after = fail_after
+    @transactions = transactions             # signature => getTransaction payload (a nil value: the RPC has no record)
     @block_height = block_height             # getBlockHeight answer (nil → the read raises, like an unreachable node)
     @status_raises = status_raises           # getSignatureStatuses fault (a 429 on recovery's status read)
     @starting_sequence = starting_sequence
@@ -124,6 +125,7 @@ class FakeVault
                                      account_info_raises: @account_info_raises,
                                      signatures: @signatures,
                                      send_raises: @send_raises,
+                                     transactions: @transactions,
                                      block_height: @block_height,
                                      status_raises: @status_raises)
   end
@@ -239,6 +241,9 @@ class FakeVault
     seq = @starting_sequence + @mint_calls.length - 1
     { signature: "sig_#{seq}_#{SecureRandom.hex(2)}", pda: "pda-seq-#{seq}", sequence: seq }
   end
+
+  # No token account on chain for any ref: every mint is a first mint.
+  def minted_entry_token_signature(_source_ref) = nil
 
   # Voids a token the way the program does — and REFUSES the way the program
   # refuses. A double(-generous) burn that accepted an already-consumed token
@@ -1041,8 +1046,16 @@ class FakeSolanaClient
 
   # Cdp::OfframpSendsController#verify_reported_signature! (Phantom sent
   # report). nil (default) = "not found on-chain".
+  #
+  # A success listed in a seeded address history, with no payload of its own,
+  # answers the permissive shape config/initializers/test_solana_stubs.rb uses
+  # ("landed, contents not modelled"). Seed `transactions:` to model what the
+  # transaction carried (ChainFixtures), or a nil value for "no record".
   def get_transaction(signature, **_opts)
-    @transactions[signature]
+    return @transactions[signature] if @transactions.key?(signature)
+    return nil unless @signatures.values.flatten.any? { |row| row && row["signature"] == signature && row["err"].nil? }
+
+    { "meta" => { "err" => nil }, "transaction" => {} }
   end
 
   # ContestsController#insufficient_usdc_error reads value/uiAmount. A nil
@@ -1079,5 +1092,36 @@ class FakeSolanaClient
     when "getSignaturesForAddress"
       @signatures[params[0]] || []
     end
+  end
+end
+
+# getTransaction payloads, in the shape Solana::TxVerifier reads.
+module ChainFixtures
+  SYSTEM_PROGRAM = "11111111111111111111111111111111".freeze
+  # Encoded at load: tests stub Solana::Keypair.encode_base58 to the identity.
+  DISCRIMINATORS = %w[enter_contest enter_contest_with_token mint_entry_token].to_h do |name|
+    [name, Solana::Keypair.encode_base58(Solana::Transaction.anchor_discriminator(name))]
+  end.freeze
+
+  module_function
+
+  # A vault instruction signed by `signer` that writes `account`.
+  def program_transaction(instruction, signer:, account:)
+    payload([signer, account, Solana::Config::PROGRAM_ID], DISCRIMINATORS.fetch(instruction.to_s))
+  end
+
+  # Lamports sent to `account` by anyone: a success on the address that
+  # creates nothing.
+  def dust_transfer(account, from: "DustSender1111111111111111111111111111111111")
+    payload([from, account, SYSTEM_PROGRAM], "3Bxs4h24hBtQy9rw")
+  end
+
+  def payload(account_keys, data)
+    { "meta" => { "err" => nil },
+      "transaction" => { "message" => {
+        "header" => { "numRequiredSignatures" => 1, "numReadonlySignedAccounts" => 0, "numReadonlyUnsignedAccounts" => 1 },
+        "accountKeys" => account_keys,
+        "instructions" => [{ "programIdIndex" => 2, "accounts" => [0, 1], "data" => data }]
+      } } }
   end
 end

@@ -93,7 +93,7 @@ class User < ApplicationRecord
   belongs_to :inviter, class_name: "User", optional: true, foreign_key: :invited_by_id
   has_many :invitees, class_name: "User", foreign_key: :invited_by_id
 
-  validates :email, uniqueness: true, allow_nil: true
+  include VerifiedEmailIdentity # email uniqueness and normalisation; the proof a parked claim needs
   # Email format = URI::MailTo structure + a real dotted TLD (see User.valid_email?),
   # so dotless / 1-letter-TLD addresses can't be saved. Scoped to email changes so
   # it never blocks an unrelated save of a grandfathered record.
@@ -781,7 +781,7 @@ class User < ApplicationRecord
   end
 
   def assign_parked_identity
-    identity = User.parked_identity_for(email: email, wallet: web3_solana_address.presence || web2_solana_address)
+    identity = proven_parked_identity
     return false unless identity
 
     changed = false

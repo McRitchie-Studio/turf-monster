@@ -193,6 +193,63 @@ class ContestsEntryPaymentTest < ActionDispatch::IntegrationTest
   # --- BLOCKER 1: the Phantom release is no weaker than the rule it replaced -------
 
   # A Phantom wire stamped and sent `ago`, built to land by block 1,150.
+  # Runs once inside the next clear_picks, after it has loaded the cart and
+  # before it writes: the gap a second tab's payment can begin in.
+  module AfterCartLoad
+    mattr_accessor :hook
+
+    def rescue_and_log(**options, &block)
+      pending, AfterCartLoad.hook = AfterCartLoad.hook, nil
+      pending&.call
+      super
+    end
+  end
+  ContestsController.prepend(AfterCartLoad)
+
+  test "a payment that begins while clear picks holds the cart keeps it: 409, the slot and the in-flight key stay" do
+    chain { @entry.pin_payment_slot!(@user.web2_solana_address, @vault) }
+    AfterCartLoad.hook = lambda do
+      Entry.find(@entry.id).begin_charge!(rail: "managed").record_payment_attempt!(signature: "racing-sig", last_valid_block_height: 1_150)
+    end
+
+    chain { post clear_picks_contest_path(@contest), as: :json }
+
+    assert_nil AfterCartLoad.hook, "the race ran inside the request"
+    assert_response :conflict
+    assert_equal ["entry_pending", @entry.slug, false], body.values_at("code", "entry", "success")
+    assert_plain_sentence body["error"]
+    assert_equal ["cart", "submitted", 0, "racing-sig", 6],
+                 [*@entry.reload.values_at(:status, :payment_state, :entry_number, :payment_signature), @entry.selections.count]
+    assert_equal @entry, Entry.payment_in_flight_for(user: @user, contest: @contest)
+  ensure
+    AfterCartLoad.hook = nil
+  end
+
+  test "a duplicate hold that arrives after the first confirmed answers 409 with the reason as JSON, never a redirect" do
+    hold
+    assert_response :success
+    hold
+
+    assert_response :conflict
+    assert_equal "application/json", response.media_type
+    assert_equal ["entry_confirmed", false, contest_path(@contest)], body.values_at("code", "success", "redirect")
+    assert_match(/not charged again/i, body["error"])
+    assert_plain_sentence body["error"]
+    assert_equal [1, 1], [@vault.enter_calls.size, @vault.tickets.size]
+  end
+
+  test "a hold with no cart and no entry answers 409 with its reason as JSON; a page request is still redirected" do
+    @entry.destroy!
+    hold
+    assert_response :conflict
+    assert_equal ["no_cart", false], body.values_at("code", "success")
+    assert_plain_sentence body["error"]
+
+    chain { post enter_contest_path(@contest) }
+    assert_redirected_to contests_path
+    assert_empty @vault.enter_calls
+  end
+
   def phantom_in_flight(ago: 0.seconds)
     log_in_as_onchain(@user)
     @wallet = @user.reload.web3_solana_address

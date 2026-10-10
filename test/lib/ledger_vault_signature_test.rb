@@ -8,7 +8,7 @@ require "test_helper"
 # Positional names are free to differ; arity, kind and every keyword name are not.
 class LedgerVaultSignatureTest < ActiveSupport::TestCase
   ENTRY_PATH_METHODS = %i[
-    enter_contest_with_token enter_contest_with_usdc next_free_entry_index ensure_user_account
+    enter_contest enter_contest_with_token enter_contest_with_usdc next_free_entry_index ensure_user_account
     fetch_wallet_balances list_entry_tokens entry_pda sync_balance seeds_for_entry
   ].freeze
 

@@ -653,11 +653,11 @@ module Entries
       raise ChainUnavailable
     end
 
-    # The ticket's first successful signature is the enter_contest(_with_token)
-    # that created it (the rule Entries::OnchainReconciler#oldest_success_signature
-    # applies). getSignaturesForAddress answers newest first.
+    # The oldest success among the address's last 20, read as the entry that
+    # created the ticket. STILL THE OLD RULE: dust sent to the address is a
+    # success too, so use Solana::CreatingSignature (PaymentSettlement does).
     def creating_signature(vault, pda)
-      rows = vault.client.send(:call, "getSignaturesForAddress", [pda, { "limit" => 20 }]) # private in the gem, as in OnchainReconciler
+      rows = vault.client.send(:call, "getSignaturesForAddress", [pda, { "limit" => 20 }]) # private in the gem; answers newest first
       hit = Array(rows).reverse.find { |row| row && row["err"].nil? }
       hit && hit["signature"]
     end

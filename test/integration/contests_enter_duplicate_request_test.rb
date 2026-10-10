@@ -182,18 +182,16 @@ class ContestsEnterDuplicateRequestTest < ActionDispatch::IntegrationTest
     second_thread&.join(15)
   end
 
-  # Measured on 2026-10-09: the late duplicate finds no cart and answers 302 to
-  # /contests ("No cart entry found"), JSON request or not. That is not the
-  # in-flight case this file is about, so only what matters for money is pinned
-  # here: it claims no success and it charges nothing.
+  # The late duplicate finds no cart. It is told the entry is in, as JSON: 409
+  # with the reason, never a redirect. It claims no success and charges nothing.
   test "CONTROL: one request alone pays once, and a duplicate that arrives after it finished charges nothing" do
     first = chain { enter(@first) }
     assert_equal [200, true], [first[0], first[1]["success"]]
     assert_one_payment
 
     status, body = chain { enter(@second) }
-    assert_includes 300..499, status, "neither a second success nor a server error"
-    assert_nil body["success"]
+    assert_equal [409, "entry_confirmed", false], [status, body["code"], body["success"]]
+    assert_match(/not charged again/i, body["error"])
     assert_one_payment
   end
 end

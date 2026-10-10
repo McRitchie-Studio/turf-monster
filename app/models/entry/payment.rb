@@ -353,7 +353,93 @@ class Entry
       payment_attempt_scope(token).update_all(payment_refusal_code: code.to_s)
     end
 
+    # CLEAR PICKS: cart to abandoned, only while nothing is owed. The row is
+    # locked and re-read, and the UPDATE names the draft state itself, so a
+    # payment that began after this object was loaded keeps its cart, its slot
+    # and its key. True when the row is cleared, false when it is kept.
+    def abandon_draft_cart!
+      with_lock do
+        next abandoned? && payment_state == "draft" unless cart? && payment_state == "draft"
+
+        self.status = "abandoned"
+        release_slot_if_abandoned # Entry's slot rule; the write below runs no callbacks
+        cleared = self.class.where(id: id, status: "cart", payment_state: "draft")
+                      .update_all(status: "abandoned", entry_number: entry_number, updated_at: Time.current)
+        reload
+        cleared == 1
+      end
+    end
+
+    # A ROW CLEARED UNDER A PAYMENT (abandoned, still holding the in-flight
+    # key) becomes a cart again, so the one verdict can judge it. A released
+    # slot comes back only from the wire the server prepared for this payment,
+    # which names the ticket address. Without one nothing is guessed and the
+    # row is left for a person. True when the row is a cart.
+    def restore_cleared_payment!(vault = Solana::Vault.new(client: nil))
+      with_lock(requires_new: true) do
+        next cart? unless abandoned? && IN_FLIGHT.include?(payment_state)
+
+        slot = entry_number || prepared_wire_slot(vault)
+        next false if slot.nil?
+
+        update!(status: "cart", entry_number: slot)
+        true
+      end
+    rescue ActiveRecord::RecordNotUnique
+      reload
+      false # a newer cart holds the slot
+    end
+
+    # A LIVE ROW'S OWN SEND (Entry#enter_onchain!) asks first whether its
+    # pinned ticket is already there: an earlier send that landed. True when
+    # nothing may be sent: the ticket exists (its creating signature is
+    # recorded once the chain names it) or is arriving. An unreadable chain
+    # raises, and nothing is sent.
+    def record_landed_onchain_entry!(vault)
+      state, signature = Entries::PaymentSettlement.pinned_ticket(self, vault: vault)
+      return false if state == :absent
+
+      update!(onchain_entry_id: payment_entry_pda(vault), onchain_tx_signature: signature) if signature
+      true
+    end
+
+    # A DRAFT ROW WHOSE TICKET THE CHAIN SHOWS (Entries::OnchainReconciler) is
+    # pinned to that ticket and made a cart, so the one verdict can judge it.
+    # Only a draft, cart or cleared, and only where the row's own wallet and
+    # slot are blank or already these: a pin is never moved here. True when
+    # the row is a cart pinned to `wallet` and `slot`.
+    def adopt_found_ticket!(wallet:, slot:)
+      with_lock(requires_new: true) do
+        next false unless (cart? || abandoned?) && payment_state == "draft"
+        next false if wallet_address.present? && wallet_address != wallet
+        next false if !entry_number.nil? && entry_number != slot
+
+        update!(status: "cart", wallet_address: wallet, entry_number: slot)
+        true
+      end
+    rescue ActiveRecord::RecordNotUnique
+      reload
+      false # another live row holds the slot
+    end
+
     private
+
+    # The slot whose ticket address this payment's prepared wire names.
+    def prepared_wire_slot(vault)
+      return nil if wallet_address.blank? || payment_signature.blank?
+
+      wire = PendingTransaction.where(target: self, tx_type: "enter_contest", tx_signature: payment_signature).order(:id).last
+      meta = wire&.metadata
+      meta = JSON.parse(meta) if meta.is_a?(String)
+      pda = meta["entry_pda"].presence if meta.is_a?(Hash)
+      return nil if pda.nil?
+
+      (0...contest.max_entries_per_user).find do |slot|
+        Solana::Keypair.encode_base58(vault.entry_pda(contest.slug, wallet_address, slot).first) == pda
+      end
+    rescue JSON::ParserError
+      nil
+    end
 
     def confirm_payment_with_status
       return unless active? || complete?
@@ -369,8 +455,13 @@ class Entry
       errors.add(:base, IN_FLIGHT_MESSAGES.fetch(payment_state))
     end
 
+    # Asked of the row as it is now, locked until the delete commits: a payment
+    # that began after this object was loaded keeps its row.
     def keep_row_while_payment_in_flight
-      throw :abort if payment_in_flight? && !Thread.current[:entry_payment_guard_lifted]
+      return if Thread.current[:entry_payment_guard_lifted]
+
+      status, state = self.class.where(id: id).lock.pick(:status, :payment_state)
+      throw :abort if status == "cart" && IN_FLIGHT.include?(state)
     end
   end
 end

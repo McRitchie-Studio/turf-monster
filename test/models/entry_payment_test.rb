@@ -333,4 +333,102 @@ class EntryPaymentTest < ActiveSupport::TestCase
     other.update!(status: :abandoned)
     assert other.reload.abandoned?
   end
+
+  # --- a payment that begins after the row was loaded ---------------------------
+
+  test "a stamp that lands after clear_picks loaded the cart keeps the cart, its slot and the in-flight key" do
+    entry = pinned
+    loaded = Entry.find(entry.id) # what the clear request holds
+    submitted(Entry.find(entry.id)).record_payment_attempt!(signature: "racing-sig", last_valid_block_height: 1_150)
+
+    assert_equal false, loaded.abandon_draft_cart!
+    assert_equal ["cart", "submitted", 0, "racing-sig"],
+                 entry.reload.values_at(:status, :payment_state, :entry_number, :payment_signature)
+  end
+
+  test "a cart confirmed after it was loaded is not abandoned" do
+    entry = pinned
+    loaded = Entry.find(entry.id)
+    entry.update!(status: :active)
+
+    assert_equal false, loaded.abandon_draft_cart!
+    assert_equal %w[active confirmed], entry.reload.values_at(:status, :payment_state)
+  end
+
+  test "CONTROL: a draft cart clears and gives up its slot; one carrying an on-chain signature keeps it" do
+    plain = pinned
+    assert_equal true, plain.abandon_draft_cart!
+    assert_equal ["abandoned", "draft", nil], plain.reload.values_at(:status, :payment_state, :entry_number)
+    assert_equal true, plain.abandon_draft_cart!, "clearing twice is still cleared"
+
+    signed = pinned
+    signed.update_columns(onchain_tx_signature: "landed-sig")
+    assert_equal true, signed.abandon_draft_cart!
+    assert_equal ["abandoned", 0], signed.reload.values_at(:status, :entry_number)
+  end
+
+  test "a row deleted from a copy loaded before its payment began stays" do
+    entry = pinned
+    loaded = Entry.find(entry.id) # a pick tap or a logout holding the draft
+    submitted(Entry.find(entry.id))
+
+    assert_raises(ActiveRecord::RecordNotDestroyed) { loaded.destroy! }
+    assert_equal ["submitted", 6], [entry.reload.payment_state, entry.selections.count]
+  end
+
+  test "CONTROL: a draft cart is deleted, and an operator's reset still takes an in-flight row" do
+    draft = cart
+    draft.destroy!
+    held = submitted
+    Entry.lifting_payment_guard { held.destroy! }
+
+    assert_empty Entry.where(id: [draft.id, held.id])
+  end
+
+  # --- adopt_found_ticket!: a draft pinned to the ticket the chain shows ----------
+
+  test "a draft cart with no pin is pinned to the found ticket, and a cleared draft becomes a cart again" do
+    entry = cart
+    assert entry.adopt_found_ticket!(wallet: @wallet, slot: 2)
+    assert_equal ["cart", "draft", @wallet, 2], entry.reload.values_at(:status, :payment_state, :wallet_address, :entry_number)
+
+    other = make_managed!(users(:alex))
+    cleared = cart(user: other)
+    cleared.update!(status: :abandoned)
+    assert cleared.adopt_found_ticket!(wallet: other.web2_solana_address, slot: 0)
+    assert_equal ["cart", other.web2_solana_address, 0], cleared.reload.values_at(:status, :wallet_address, :entry_number)
+  end
+
+  test "adopt never touches a payment in flight, a live entry, or a row another session moved on" do
+    in_flight = submitted
+    stale = Entry.find(in_flight.id)
+    assert_not stale.adopt_found_ticket!(wallet: @wallet, slot: 3), "a submitted row keeps its pin"
+    assert_equal 0, in_flight.reload.entry_number
+
+    other = make_managed!(users(:alex))
+    racing = cart(user: other)
+    loaded = Entry.find(racing.id) # read before the other session's payment begins
+    on_chain(@vault) { racing.pin_payment_slot!(other.web2_solana_address, @vault) }
+    racing.begin_charge!(rail: "managed")
+    assert_not loaded.adopt_found_ticket!(wallet: other.web2_solana_address, slot: 4), "the row is re-read under its lock"
+    assert_equal ["submitted", 0], racing.reload.values_at(:payment_state, :entry_number)
+
+    racing.update_columns(status: "active", payment_state: "confirmed")
+    assert_not Entry.find(racing.id).adopt_found_ticket!(wallet: other.web2_solana_address, slot: 4)
+  end
+
+  test "adopt never moves a pin: another wallet or another slot on the row refuses" do
+    entry = pinned
+    assert_not entry.adopt_found_ticket!(wallet: "OtherWallet#{SecureRandom.hex(4)}", slot: 0)
+    assert_not entry.adopt_found_ticket!(wallet: @wallet, slot: 1)
+    assert_equal [@wallet, 0], entry.reload.values_at(:wallet_address, :entry_number)
+    assert entry.adopt_found_ticket!(wallet: @wallet, slot: 0), "CONTROL: the row's own pin is a no-op"
+  end
+
+  test "adopt answers false when another live row of the player holds the slot" do
+    pinned # holds slot 0
+    second = cart
+    assert_not second.adopt_found_ticket!(wallet: @wallet, slot: 0)
+    assert_equal ["cart", nil, nil], second.reload.values_at(:status, :wallet_address, :entry_number)
+  end
 end

@@ -24,6 +24,20 @@ class Entries::PaymentSweepJobTest < ActiveJob::TestCase
 
   def sweep = on_chain(@vault) { Entries::PaymentSweepJob.perform_now }
 
+  # The row an unlocked clear left when a payment began under it: abandoned,
+  # its slot released, the in-flight key still held. `wire:` is the prepared
+  # entry transaction that names the ticket address.
+  def cleared_under_payment(entry, wire: true)
+    if wire
+      PendingTransaction.create!(tx_type: "enter_contest", serialized_tx: "stx", status: "submitted",
+                                 tx_signature: entry.payment_signature, broadcast_at: entry.payment_submitted_at,
+                                 target: entry, initiator_address: entry.wallet_address,
+                                 metadata: { entry_pda: on_chain(@vault) { entry.payment_entry_pda(@vault) } }.to_json)
+    end
+    entry.update_columns(status: "abandoned", entry_number: nil)
+    entry
+  end
+
   test "a stale row whose wire has lapsed returns to draft with its picks; one that landed is confirmed" do
     lapsed = stamped(users(:sam), ago: 5.minutes)
     paid = stamped(users(:jordan), ago: 5.minutes, landed: true)
@@ -99,5 +113,47 @@ class Entries::PaymentSweepJobTest < ActiveJob::TestCase
     stamped(users(:sam), ago: 5.minutes)
     assert_empty Entry.payment_never_released_by_clock
     refute sweep.key?(:never_by_clock)
+  end
+
+  test "a row cleared under its payment is read: the paid one is confirmed, the lapsed one returns to draft at its slot" do
+    paid = cleared_under_payment(stamped(users(:sam), ago: 5.minutes, landed: true))
+    lapsed = cleared_under_payment(stamped(users(:jordan), ago: 5.minutes))
+    @vault.block_height = 1_151
+
+    assert_equal({ confirmed: 1, released: 1 }, sweep.to_h)
+    assert_equal ["active", "confirmed", 0], paid.reload.values_at(:status, :payment_state, :entry_number)
+    assert_equal ["cart", "draft", 0, 6], [*lapsed.reload.values_at(:status, :payment_state, :entry_number), lapsed.selections.count]
+    assert_nil Entry.payment_in_flight_for(user: users(:jordan), contest: @contest), "the player is no longer walled out"
+  end
+
+  test "a cleared row whose slot no wire names is left as it is and named in the log every run" do
+    lost = cleared_under_payment(stamped(users(:sam), ago: 5.minutes), wire: false)
+    @vault.block_height = 1_151
+
+    log = StringIO.new
+    previous = Rails.logger
+    Rails.logger = ActiveSupport::Logger.new(log)
+    stats = begin
+      sweep
+    ensure
+      Rails.logger = previous
+    end
+
+    assert_equal({ cleared_unrestored: 1 }, stats.to_h)
+    assert_equal ["abandoned", "submitted", nil], lost.reload.values_at(:status, :payment_state, :entry_number)
+    line = log.string.lines.grep(/\[entry-payment\]\[sweep\]/).last
+    assert_includes line, "cleared_unrestored=1"
+    assert_includes line, lost.slug
+  end
+
+  test "a cleared row whose slot a newer cart has taken is left, not forced" do
+    lost = cleared_under_payment(stamped(users(:sam), ago: 5.minutes))
+    newer = @contest.entries.create!(user: users(:sam), status: :cart)
+    newer.update_columns(entry_number: 0, wallet_address: lost.wallet_address)
+    @vault.block_height = 1_151
+
+    assert_equal 1, sweep[:cleared_unrestored]
+    assert_equal ["abandoned", nil], lost.reload.values_at(:status, :entry_number)
+    assert_equal ["cart", 0], newer.reload.values_at(:status, :entry_number)
   end
 end

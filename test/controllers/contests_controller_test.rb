@@ -129,13 +129,16 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     assert entry.reload.active?
   end
 
-  test "enter with JSON redirects when no cart entry" do
+  test "enter with JSON answers 409 with a reason when there is no cart entry" do
     log_in_as(@user)
 
     post enter_contest_path(@contest),
       headers: { "Accept" => "application/json" }
 
-    assert_response :redirect
+    assert_response :conflict
+    json = JSON.parse(response.body)
+    assert_equal ["no_cart", false], json.values_at("code", "success")
+    assert json["error"].present?
   end
 
   test "enter requires authentication" do
