@@ -279,49 +279,7 @@
   idl = (JSON.parse(File.read(Solana::Config::IDL_PATH)) rescue nil)
   idl_instruction_names = Array(idl && idl["instructions"]).map { |ix| ix["name"] }
   idl_error_codes = Array(idl && idl["errors"]).map { |e| e["code"] }.compact
-
-  # Only the calculator reads this, and only for the SOL-price-dependent
-  # figures; its lamport lines are static and render via inline ERB. Keep
-  # the JSON small to avoid bloating initial page HTML.
-  contract_page_config = {
-    perm_lamports:  perm_total_lamports,
-    float_lamports: total_float_lamports
-  }
 %>
-
-<script type="application/json" id="contract-page-config">
-<%= contract_page_config.to_json.html_safe %>
-</script>
-
-<%#
-  Inline Alpine factory. Lives here (not in shared/_alpine_factories)
-  because it has one render site and reads its config from the JSON
-  block above. Defined BEFORE Alpine processes x-data — importmap
-  modules load too late (see feedback_alpine_factory_importmap_timing).
-%>
-<script>
-  window.contractCostCalculator = function () {
-    var cfg = (function () {
-      var el = document.getElementById("contract-page-config");
-      return JSON.parse(el.textContent);
-    })();
-    return {
-      solPrice: 165,
-      // perm = ProgramData rent + Program-account rent + deploy TX fees.
-      get permSol()    { return cfg.perm_lamports  / 1e9; },
-      // buffer = a second account holding the binary, paid up-front
-      // during deploy and refunded once `close-buffer` runs.
-      get bufferSol()  { return cfg.float_lamports / 1e9 - cfg.perm_lamports / 1e9; },
-      // float = total SOL on hand at deploy time (perm + refundable buffer).
-      get floatSol()   { return cfg.float_lamports / 1e9; },
-      get permUsd()    { return this.permSol   * this.solPrice; },
-      get bufferUsd()  { return this.bufferSol * this.solPrice; },
-      get floatUsd()   { return this.floatSol  * this.solPrice; },
-      fmtSol(n)        { return Number(n).toFixed(3); },
-      fmtUsd(n)        { return "$" + Math.round(Number(n)).toLocaleString(); }
-    };
-  };
-</script>
 
 <div class="max-w-5xl mx-auto py-8 px-4 sm:px-6" data-test="contract-page">
 
@@ -376,7 +334,8 @@
              buffer_space: buffer_space, program_acct_space: program_acct_space, pd_rent_min: pd_rent_min,
              buffer_rent_min: buffer_rent_min, program_acct_min: program_acct_min,
              programdata_balance: programdata_balance, program_acct_balance: program_acct_balance,
-             funded_rate: funded_rate, current_rate: current_rate, measured: measured %>
+             funded_rate: funded_rate, current_rate: current_rate, measured: measured,
+             perm_lamports: perm_total_lamports, float_lamports: total_float_lamports %>
 
   <footer class="border-t border-subtle pt-6 mt-8 text-xs text-muted">
     <p class="mb-1 font-mono">turf-vault <%= prog_version %> &middot; Anchor 0.32.1 &middot; Rust 1.89.0</p>

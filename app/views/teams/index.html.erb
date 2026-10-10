@@ -1,28 +1,32 @@
 <%# Friendly names for the raw league codes; anything unmapped shows upcased. %>
 <% league_labels = { "nfl" => "NFL", "fifa" => "World Cup" } %>
 <% leagues = @teams.map(&:league).compact.uniq.sort %>
-<section x-data="cardListFilter({ selector: '[data-team-card]', filters: { league: 'all' } })">
+<section data-controller="card-filter" data-card-filter-selector-value="[data-team-card]" data-card-filter-noun-value="teams"
+     data-card-filter-active-class="btn-primary" data-card-filter-inactive-class="btn-outline"
+     data-action="turbo:before-cache@document->card-filter#reset">
   <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-6">
     <h2 class="text-2xl font-bold text-heading">Teams</h2>
     <div class="flex items-center gap-3 w-full sm:w-auto">
       <input type="text"
-             x-model.debounce.300ms="search"
+             data-card-filter-target="search" data-action="input->card-filter#search"
              placeholder="Search teams..."
              class="input-field text-sm !py-2 !px-3 w-full sm:w-64">
-      <span class="text-sm text-muted whitespace-nowrap" x-text="visibleCount + ' teams'"></span>
+      <span class="text-sm text-muted whitespace-nowrap" data-card-filter-target="count"><%= @teams.size %> teams</span>
     </div>
   </div>
 
-  <%# League filter tabs — reuse cardListFilter's exact-match `filters` map, so
+  <%# League filter tabs — card-filter's exact-match options, so
       "NFL" hides the World Cup national teams. Only shown when more than one
       league is present. %>
   <% if leagues.size > 1 %>
     <div class="flex flex-wrap gap-2 mb-6">
-      <button class="btn btn-sm" :class="filters.league === 'all' ? 'btn-primary' : 'btn-outline'" @click="filters.league = 'all'">All</button>
+      <button type="button" class="btn btn-sm btn-primary" aria-pressed="true"
+              data-card-filter-target="option" data-action="card-filter#choose"
+              data-card-filter-key-param="league" data-card-filter-value-param="all">All</button>
       <% leagues.each do |lg| %>
-        <button class="btn btn-sm"
-                :class="filters.league === '<%= lg %>' ? 'btn-primary' : 'btn-outline'"
-                @click="filters.league = '<%= lg %>'">
+        <button type="button" class="btn btn-sm btn-outline" aria-pressed="false"
+                data-card-filter-target="option" data-action="card-filter#choose"
+                data-card-filter-key-param="league" data-card-filter-value-param="<%= lg %>">
           <%= league_labels.fetch(lg, lg.upcase) %>
         </button>
       <% end %>
@@ -81,24 +85,22 @@
               A 2-column grid — Dark | Alt over Light | Grey, each cell 50% wide —
               of tight swatches; click any to copy its hex. %>
           <div class="px-3 py-2.5 grid grid-cols-2 gap-x-3 gap-y-2"
-               style="background-color: rgba(0, 0, 0, 0.45)" x-data="{ copied: null }">
+               style="background-color: rgba(0, 0, 0, 0.45)"
+               data-controller="swatch-copy" data-action="turbo:before-cache@document->swatch-copy#reset">
             <% color_sections.each do |label, hexes| %>
               <% swatches = hexes.select(&:present?).map(&:upcase).uniq %>
               <div class="flex items-center gap-2">
                 <span class="text-[8px] uppercase tracking-wider text-white/40 flex-shrink-0" style="min-width: 2.25rem"><%= label %></span>
                 <div class="flex items-center gap-1.5 min-h-[1rem]">
                   <% swatches.each do |hex| %>
-                    <button type="button"
-                            x-data="{ hover: false }"
-                            @mouseenter="hover = true" @mouseleave="hover = false"
-                            @click="navigator.clipboard.writeText('<%= hex %>'); copied = '<%= hex %>'; setTimeout(() => { if (copied === '<%= hex %>') copied = null }, 1100)"
+                    <button type="button" data-hex="<%= hex %>"
+                            data-action="mouseenter->swatch-copy#hover mouseleave->swatch-copy#unhover swatch-copy#copy"
                             class="relative w-4 h-4 rounded-full border border-white/30 transition hover:scale-125 focus:outline-none focus:ring-1 focus:ring-white/60"
                             style="background-color: <%= hex %>"
                             aria-label="Copy <%= hex %>">
-                      <span x-show="hover || copied === '<%= hex %>'" x-cloak
+                      <span data-swatch-copy-target="tip" hidden
                             class="absolute bottom-full right-full mb-0.5 mr-0.5 px-1.5 py-0.5 rounded-md text-white text-[9px] font-mono leading-none whitespace-nowrap pointer-events-none z-20 shadow-lg"
-                            style="background-color: rgba(55, 58, 64, 0.97)"
-                            x-text="copied === '<%= hex %>' ? 'Copied!' : '<%= hex %>'"><%= hex %></span>
+                            style="background-color: rgba(55, 58, 64, 0.97)"><%= hex %></span>
                     </button>
                   <% end %>
                 </div>

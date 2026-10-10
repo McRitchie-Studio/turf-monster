@@ -1,241 +1,29 @@
 <% content_for :title, "Proof of Reserves — Turf Monster" %>
 <% link_preview description: "Every contest's prize pool is a USDC vault on Solana. See it live, from chain." %>
 
-<script type="application/json" id="proof-of-reserves-config">
-<%= @page_config.to_json.html_safe %>
-</script>
-
-<script>
-  // Inline Alpine factory — the layout's `defer` script fires alpine:init
-  // before importmap modules execute, so any function used in x-data must
-  // be defined inline (see docs/UI_PATTERNS.md "Inline JS that stays inline").
-  window.proofOfReserves = function () {
-    var CFG_EL_ID = "proof-of-reserves-config";
-    var STATUS_NAMES = ["Open", "Locked", "Settled", "Cancelled"];
-    var USDC_DECIMALS = 6;
-    // Half a USDC cent of slack on the solvency check (covers Borsh→float rounding).
-    var SOLVENCY_FLOAT_SLACK = 0.005;
-
-    function readConfig() {
-      var el = document.getElementById(CFG_EL_ID);
-      if (!el) throw new Error("missing #" + CFG_EL_ID);
-      return JSON.parse(el.textContent);
-    }
-
-    function asView(data) {
-      var offset = data.byteOffset || 0;
-      var length = data.byteLength != null ? data.byteLength : data.length;
-      return new DataView(data.buffer, offset, length);
-    }
-
-    function readU32LE(dv, offset) { return dv.getUint32(offset, true); }
-
-    function readU64LE(dv, offset) {
-      var lo = BigInt(dv.getUint32(offset, true));
-      var hi = BigInt(dv.getUint32(offset + 4, true));
-      return (hi << 32n) | lo;
-    }
-
-    function lamportsToUsd(big) {
-      return Number(big) / Math.pow(10, USDC_DECIMALS);
-    }
-
-    // Layout (post 8-byte Anchor discriminator), from the turf-vault Contest
-    // struct (v0.18, config/turf_vault.idl.json):
-    //   contest_id [u8;32] | admin pk(32) | creator pk(32) | season_id u32
-    //   prize_pool u64 | entry_fee_by_currency [u64;16] | entry_fees [u64;16]
-    //   max_entries u32 | current_entries u32 | status u8 (ContestStatus enum)
-    //   payout_amounts Vec<u64> (u32 len + len*u64) | bump u8
-    //   lock_timestamp i64 | conclusion_timestamp i64 | _reserved [u8;16]
-    // USDC is currency index 0, so the entry fee / fees use slot [0].
-    function decodeContest(data) {
-      var dv = asView(data);
-      var o = 8;        // Anchor discriminator
-      o += 32;          // contest_id
-      o += 32;          // admin
-      o += 32;          // creator
-      var seasonId = readU32LE(dv, o); o += 4;
-      var prizePool = readU64LE(dv, o); o += 8;
-      var entryFee0 = readU64LE(dv, o); o += 8 * 16;  // entry_fee_by_currency[0], skip [u64;16]
-      o += 8 * 16;                                    // entry_fees [u64;16] — collected fees, operator-side, not a pool obligation
-      var maxEntries = readU32LE(dv, o); o += 4;
-      var currentEntries = readU32LE(dv, o); o += 4;
-      var statusByte = dv.getUint8(o); o += 1;
-      var payoutLen = readU32LE(dv, o); o += 4;
-      var payoutAmounts = [];
-      for (var i = 0; i < payoutLen; i++) {
-        payoutAmounts.push(readU64LE(dv, o));
-        o += 8;
-      }
-      // bump u8, lock/conclusion i64, _reserved [u8;16] follow — not needed here.
-      return {
-        // The guaranteed prize (BigInt lamports for the solvency math) is what
-        // the prize-pool token account must hold.
-        prizesLamports: prizePool,
-        maxEntries: maxEntries,
-        currentEntries: currentEntries,
-        status: STATUS_NAMES[statusByte] || "Unknown",
-        prizesUsd: lamportsToUsd(prizePool),
-        entryFeeUsd: lamportsToUsd(entryFee0),
-        payoutAmountsUsd: payoutAmounts.map(lamportsToUsd),
-        seasonId: seasonId
-      };
-    }
-
-    async function fetchContestAccount(conn, pdaB58) {
-      var pubkey = new solanaWeb3.PublicKey(pdaB58);
-      var info = await conn.getAccountInfo(pubkey, "confirmed");
-      if (!info) return null;
-      return decodeContest(info.data);
-    }
-
-    async function fetchTokenBalance(conn, pubkeyB58) {
-      var pubkey = new solanaWeb3.PublicKey(pubkeyB58);
-      var resp = await conn.getTokenAccountBalance(pubkey, "confirmed");
-      return {
-        amountLamports: BigInt(resp.value.amount),
-        amountUsd: Number(resp.value.uiAmount || 0)
-      };
-    }
-
-    var cfg = readConfig();
-    var connection = new solanaWeb3.Connection(cfg.rpc_url, "confirmed");
-
-    return {
-      cfg: cfg,
-      contests: cfg.contests.map(function (c) {
-        return Object.assign({}, c, { onchain: null, prizePoolUsd: null, prizePoolLamports: 0n, prizePoolError: null, error: null, loading: true });
-      }),
-      reservesUsd: null,
-      obligationsUsd: null,
-      bannerLoading: true,
-      bannerError: null,
-      lastFetchedAt: null,
-      refreshing: false,
-
-      explorer: function (kind, value) {
-        var q = this.cfg.network === "mainnet-beta" ? "" : "?cluster=" + this.cfg.network;
-        return "https://explorer.solana.com/" + kind + "/" + value + q;
-      },
-
-      fmtUsd: function (n) {
-        if (n === null || n === undefined) return "—";
-        return "$" + Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-      },
-
-      shortPubkey: function (pk) {
-        if (!pk) return "";
-        return pk.slice(0, 4) + "…" + pk.slice(-4);
-      },
-
-      statusTone: function (c) {
-        if (!c.onchain) return "muted";
-        if (c.onchain.status === "Open") return "ok";
-        if (c.onchain.status === "Locked") return "warn";
-        return "muted";
-      },
-
-      ordinal: function (n) {
-        var s = ["th", "st", "nd", "rd"];
-        var v = n % 100;
-        return n + (s[(v - 20) % 10] || s[v] || s[0]);
-      },
-
-      solvencyLabel: function () {
-        if (this.bannerLoading) return "Checking…";
-        if (this.bannerError) return "Error";
-        if (this.reservesUsd === null || this.obligationsUsd === null) return "Unknown";
-        return this.reservesUsd + SOLVENCY_FLOAT_SLACK >= this.obligationsUsd ? "Solvent" : "Undercollateralized";
-      },
-
-      solvencyTone: function () {
-        var l = this.solvencyLabel();
-        if (l === "Solvent") return "ok";
-        if (l === "Undercollateralized") return "warn";
-        return "muted";
-      },
-
-      // Does this contest's on-chain prize-pool balance cover its guaranteed prize?
-      poolCovers: function (c) {
-        if (!c.onchain || c.prizePoolUsd === null) return null;
-        return c.prizePoolUsd + SOLVENCY_FLOAT_SLACK >= c.onchain.prizesUsd;
-      },
-
-      fetchedAtLabel: function () {
-        if (!this.lastFetchedAt) return "";
-        return this.lastFetchedAt.toLocaleTimeString();
-      },
-
-      refresh: async function () {
-        var self = this;
-        self.refreshing = true;
-        self.bannerLoading = true;
-        self.bannerError = null;
-
-        // Per contest: decode the Contest PDA (obligation counters) AND read the
-        // real on-chain prize-pool token balance (the actual reserve).
-        var contestPromises = self.contests.map(async function (row, idx) {
-          self.contests[idx].loading = true;
-          self.contests[idx].error = null;
-          self.contests[idx].prizePoolError = null;
-          try {
-            var decoded = await fetchContestAccount(connection, row.contest_pda);
-            self.contests[idx].onchain = decoded;
-            if (!decoded) { self.contests[idx].error = "Account not found"; return; }
-            try {
-              var bal = await fetchTokenBalance(connection, row.prize_pool_pda);
-              self.contests[idx].prizePoolUsd = bal.amountUsd;
-              self.contests[idx].prizePoolLamports = bal.amountLamports;
-            } catch (e) {
-              // Not-yet-funded or settled+swept pool: read 0 rather than failing the row.
-              self.contests[idx].prizePoolUsd = 0;
-              self.contests[idx].prizePoolLamports = 0n;
-              self.contests[idx].prizePoolError = e.message || String(e);
-            }
-          } catch (e) {
-            self.contests[idx].error = e.message || String(e);
-          } finally {
-            self.contests[idx].loading = false;
-          }
-        });
-
-        await Promise.all(contestPromises);
-
-        // Solvency across open + locked contests: Σ on-chain prize-pool balances
-        // (reserves) vs Σ (prizes + entry_fees) the program owes (obligations).
-        var reservesLamports = 0n, obligationsLamports = 0n;
-        for (var i = 0; i < self.contests.length; i++) {
-          var c = self.contests[i];
-          if (!c.onchain || c.onchain.status === "Settled" || c.onchain.status === "Cancelled") continue;
-          reservesLamports += c.prizePoolLamports || 0n;       // actual on-chain prize-pool USDC
-          obligationsLamports += c.onchain.prizesLamports;     // guaranteed prize the pool must cover
-        }
-        // If nothing decoded at all, the RPC is likely down — surface it rather
-        // than implying a misleading "Solvent $0".
-        if (self.contests.length > 0 && !self.contests.some(function (c) { return c.onchain; })) {
-          self.bannerError = "Couldn't read any contest from chain — the RPC may be unavailable.";
-        }
-        self.reservesUsd = lamportsToUsd(reservesLamports);
-        self.obligationsUsd = lamportsToUsd(obligationsLamports);
-        self.lastFetchedAt = new Date();
-        self.bannerLoading = false;
-        self.refreshing = false;
-      },
-
-      init: function () {
-        this.refresh();
-      }
-    };
-  };
-</script>
-
-<div class="max-w-4xl mx-auto py-8 px-2" x-data="proofOfReserves()" x-init="init()">
+<%
+  cfg = @page_config
+  explorer = lambda do |kind, value|
+    "https://explorer.solana.com/#{kind}/#{value}#{cfg[:network] == 'mainnet-beta' ? '' : "?cluster=#{cfg[:network]}"}"
+  end
+  short_pubkey = ->(key) { key.present? ? "#{key[0, 4]}…#{key[-4..]}" : "" }
+  contests = cfg[:contests]
+%>
+<%# The proof-of-reserves controller reads the chain from the browser and
+    fills the banner and each contest's row. The server renders what is known
+    without the chain (the config, the links) and the loading state: Refresh
+    disabled and every row "Loading…", because connect starts a refresh. An
+    element whose colour follows a state carries each state's classes as
+    data-<state>-class, and the controller puts exactly one set on. %>
+<div class="max-w-4xl mx-auto py-8 px-2" data-test="proof-of-reserves"
+     data-controller="proof-of-reserves"
+     data-proof-of-reserves-rpc-url-value="<%= cfg[:rpc_url] %>">
 
   <!-- ========== HERO ========== -->
   <section class="text-center mb-10">
     <div class="mb-4 flex items-center justify-center gap-3">
       <span class="px-3 py-1 bg-primary-900/30 text-primary text-xs font-bold uppercase tracking-widest rounded-full border border-primary-700">
-        Live · <span x-text="cfg.network"></span>
+        Live · <span><%= cfg[:network] %></span>
       </span>
     </div>
     <h1 class="text-4xl md:text-5xl font-extrabold text-heading mb-3">
@@ -249,48 +37,44 @@
 
   <!-- ========== SOLVENCY BANNER ========== -->
   <section class="mb-10">
-    <div class="card border-2 p-6 shadow-lg"
-         :class="{ 'border-mint/60 shadow-mint/10': solvencyTone() === 'ok',
-                   'border-red-500/60 shadow-red-500/10': solvencyTone() === 'warn',
-                   'border-subtle': solvencyTone() === 'muted' }">
+    <div class="card border-2 p-6 shadow-lg border-subtle" data-proof-of-reserves-target="card"
+         data-ok-class="border-mint/60 shadow-mint/10" data-warn-class="border-red-500/60 shadow-red-500/10" data-muted-class="border-subtle">
       <div class="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <p class="text-xs uppercase tracking-widest text-muted mb-2">Vault solvency</p>
-          <p class="text-3xl md:text-4xl font-extrabold"
-             :class="{ 'text-mint': solvencyTone() === 'ok',
-                       'text-danger-ink': solvencyTone() === 'warn',
-                       'text-heading': solvencyTone() === 'muted' }"
-             x-text="solvencyLabel()"></p>
+          <p class="text-3xl md:text-4xl font-extrabold text-heading" data-proof-of-reserves-target="label"
+             data-ok-class="text-mint" data-warn-class="text-danger-ink" data-muted-class="text-heading">Checking…</p>
         </div>
-        <button @click="refresh()" :disabled="refreshing" class="btn btn-secondary text-sm">
-          <span x-show="!refreshing">Refresh</span>
-          <span x-show="refreshing">Refreshing…</span>
+        <button type="button" class="btn btn-secondary text-sm" disabled
+                data-proof-of-reserves-target="refresh" data-action="proof-of-reserves#refresh">
+          <span data-proof-of-reserves-target="idle" hidden>Refresh</span>
+          <span data-proof-of-reserves-target="busy">Refreshing…</span>
         </button>
       </div>
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
         <div class="bg-surface-alt rounded-xl p-4 border border-subtle">
           <p class="text-xs text-muted uppercase tracking-wider mb-1">USDC reserves (on-chain prize pools)</p>
-          <p class="font-mono text-2xl text-heading" x-text="fmtUsd(reservesUsd)"></p>
+          <p class="font-mono text-2xl text-heading" data-proof-of-reserves-target="reserves">—</p>
           <p class="text-xs text-muted mt-1">Summed across every open &amp; locked contest's prize-pool account</p>
         </div>
         <div class="bg-surface-alt rounded-xl p-4 border border-subtle">
           <p class="text-xs text-muted uppercase tracking-wider mb-1">Guaranteed prizes owed</p>
-          <p class="font-mono text-2xl text-heading" x-text="fmtUsd(obligationsUsd)"></p>
+          <p class="font-mono text-2xl text-heading" data-proof-of-reserves-target="obligations">—</p>
           <p class="text-xs text-muted mt-1">Across all open & locked contests</p>
         </div>
       </div>
 
-      <p class="text-xs text-muted mt-4" x-show="lastFetchedAt">
-        Last refreshed <span x-text="fetchedAtLabel()"></span>
+      <p class="text-xs text-muted mt-4" data-proof-of-reserves-target="fetched" hidden>
+        Last refreshed <span data-proof-of-reserves-target="fetchedAt"></span>
       </p>
       <%# POLITE, NOT ASSERTIVE. refresh() runs from init() as well as from the
           Refresh button, so this paragraph can fill while someone is still
           reading the page they just opened. role=status queues the sentence for
           the next pause instead of interrupting; the failure is informational
           and blocks nothing. Guard: test/views/error_live_regions_test.rb %>
-      <p x-show="bannerError" x-cloak role="status" aria-live="polite" aria-atomic="true"
-         class="text-xs text-danger-ink mt-4" x-text="bannerError"></p>
+      <p class="text-xs text-danger-ink mt-4" data-proof-of-reserves-target="bannerError" hidden
+         role="status" aria-live="polite" aria-atomic="true"></p>
     </div>
   </section>
 
@@ -301,13 +85,13 @@
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
         <div>
           <p class="text-heading font-semibold mb-1">1. Program ID</p>
-          <a :href="explorer('address', cfg.program_id)" target="_blank" rel="noopener"
-             class="font-mono text-xs text-violet-ink break-all hover:underline" x-text="cfg.program_id"></a>
+          <a href="<%= explorer.call("address", cfg[:program_id]) %>" target="_blank" rel="noopener"
+             class="font-mono text-xs text-violet-ink break-all hover:underline"><%= cfg[:program_id] %></a>
         </div>
         <div>
           <p class="text-heading font-semibold mb-1">2. USDC mint</p>
-          <a :href="explorer('address', cfg.usdc_mint)" target="_blank" rel="noopener"
-             class="font-mono text-xs text-violet-ink break-all hover:underline" x-text="cfg.usdc_mint"></a>
+          <a href="<%= explorer.call("address", cfg[:usdc_mint]) %>" target="_blank" rel="noopener"
+             class="font-mono text-xs text-violet-ink break-all hover:underline"><%= cfg[:usdc_mint] %></a>
         </div>
         <div>
           <p class="text-heading font-semibold mb-1">3. Per-contest prize pool</p>
@@ -316,7 +100,7 @@
         </div>
       </div>
       <p class="text-muted text-xs mt-5 leading-relaxed">
-        Your browser opens an RPC connection to <span class="font-mono text-secondary" x-text="cfg.rpc_url"></span>,
+        Your browser opens an RPC connection to <span class="font-mono text-secondary" data-test="proof-of-reserves-rpc-url"><%= cfg[:rpc_url] %></span>,
         reads each Contest PDA (seeds: <span class="font-mono text-secondary">[b"contest", sha256(slug)]</span>)
         and Borsh-decodes its prizes, entry count, and status, then reads that contest's prize-pool
         token account balance directly. The reserves figure above is the sum of those balances.
@@ -328,124 +112,120 @@
   <section class="mb-10">
     <p class="text-primary font-mono text-sm mb-2">Contests on-chain</p>
     <p class="text-secondary text-base mb-5">
-      <span x-text="contests.length"></span> active contest<span x-show="contests.length !== 1">s</span>.
+      <%= contests.size %> active contest<%= "s" unless contests.size == 1 %>.
       Each card shows the prize pool USDC currently reserved by the program, alongside Solana Explorer links for the contest, creator, admin, and create transaction.
     </p>
 
-    <template x-if="contests.length === 0">
+    <% if contests.empty? %>
       <div class="card border border-subtle p-8 text-center">
         <p class="text-muted">No on-chain contests right now. Check back after the next one opens.</p>
+      </div>
+    <% end %>
+
+    <%# One payout chip, cloned per payout and filled with textContent. %>
+    <template data-proof-of-reserves-target="payout">
+      <div class="bg-surface-alt rounded-lg px-3 py-1.5 border border-subtle text-xs">
+        <span class="text-muted" data-field="place"></span>
+        <span class="font-mono text-heading font-semibold ml-1" data-field="amount"></span>
       </div>
     </template>
 
     <div class="space-y-4">
-      <template x-for="c in contests" :key="c.slug">
-        <div class="card border border-subtle p-5">
+      <% contests.each do |c| %>
+        <div class="card border border-subtle p-5" data-proof-of-reserves-target="row"
+             data-contest-pda="<%= c[:contest_pda] %>" data-prize-pool-pda="<%= c[:prize_pool_pda] %>">
           <!-- Header row -->
           <div class="flex items-start justify-between gap-4 flex-wrap mb-5">
             <div class="flex-1 min-w-0">
-              <p class="text-heading font-bold text-lg truncate" x-text="c.name"></p>
-              <p class="text-muted text-xs mt-0.5" x-show="c.onchain">
-                Season <span class="font-mono" x-text="c.onchain && c.onchain.seasonId"></span>
+              <p class="text-heading font-bold text-lg truncate"><%= c[:name] %></p>
+              <p class="text-muted text-xs mt-0.5" data-field="season" hidden>
+                Season <span class="font-mono" data-field="seasonId"></span>
               </p>
             </div>
-            <span class="text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded-full"
-                  :class="{ 'bg-mint/20 text-mint border border-mint/30': statusTone(c) === 'ok',
-                            'bg-violet/20 text-violet-ink border border-violet/30': statusTone(c) === 'warn',
-                            'bg-muted/20 text-muted border border-subtle': statusTone(c) === 'muted' }"
-                  x-text="c.onchain ? c.onchain.status : (c.loading ? 'Loading…' : (c.error ? 'Error' : '—'))"></span>
+            <span class="text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-muted/20 text-muted border border-subtle"
+                  data-field="status" data-ok-class="bg-mint/20 text-mint border border-mint/30"
+                  data-warn-class="bg-violet/20 text-violet-ink border border-violet/30"
+                  data-muted-class="bg-muted/20 text-muted border border-subtle">Loading…</span>
           </div>
 
           <!-- Loading state -->
-          <template x-if="c.loading">
-            <div class="text-muted text-sm font-mono">Reading account…</div>
-          </template>
+          <div class="text-muted text-sm font-mono" data-field="loading">Reading account…</div>
 
           <!-- Error state -->
-          <template x-if="c.error">
-            <div class="text-danger-ink text-sm" x-text="c.error"></div>
-          </template>
+          <div class="text-danger-ink text-sm" data-field="error" hidden></div>
 
           <!-- Decoded state -->
-          <template x-if="c.onchain && !c.error">
-            <div>
-              <!-- Headline stats -->
-              <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm mb-5">
-                <div class="bg-surface-alt rounded-lg p-3 border border-mint/30">
-                  <p class="text-[10px] text-muted uppercase tracking-wider mb-1">Prize pool on-chain</p>
-                  <div class="flex items-center gap-1.5">
-                    <img src="/usdc-mark.svg" alt="USDC" class="w-5 h-5 flex-shrink-0">
-                    <p class="font-mono text-mint text-lg font-bold" x-text="fmtUsd(c.prizePoolUsd)"></p>
-                  </div>
-                  <p class="text-[10px] mt-0.5"
-                     :class="poolCovers(c) === false ? 'text-danger-ink' : 'text-muted'"
-                     x-text="poolCovers(c) === false ? 'Short of guaranteed prize' : 'Funds the guaranteed prize'"></p>
+          <div data-field="decoded" hidden>
+            <!-- Headline stats -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm mb-5">
+              <div class="bg-surface-alt rounded-lg p-3 border border-mint/30">
+                <p class="text-[10px] text-muted uppercase tracking-wider mb-1">Prize pool on-chain</p>
+                <div class="flex items-center gap-1.5">
+                  <img src="/usdc-mark.svg" alt="USDC" class="w-5 h-5 flex-shrink-0">
+                  <p class="font-mono text-mint text-lg font-bold" data-field="prizePool"></p>
                 </div>
-                <div class="bg-surface-alt rounded-lg p-3 border border-subtle">
-                  <p class="text-[10px] text-muted uppercase tracking-wider mb-1">Guaranteed prize</p>
-                  <p class="font-mono text-primary text-lg font-bold" x-text="fmtUsd(c.onchain.prizesUsd)"></p>
-                </div>
-                <div class="bg-surface-alt rounded-lg p-3 border border-subtle">
-                  <p class="text-[10px] text-muted uppercase tracking-wider mb-1">Entries</p>
-                  <p class="font-mono text-heading text-lg font-bold">
-                    <span x-text="c.onchain.currentEntries"></span>
-                    <span class="text-muted">/</span>
-                    <span x-text="c.onchain.maxEntries"></span>
-                  </p>
-                </div>
-                <div class="bg-surface-alt rounded-lg p-3 border border-subtle">
-                  <p class="text-[10px] text-muted uppercase tracking-wider mb-1">Entry fee</p>
-                  <p class="font-mono text-heading text-lg font-bold" x-text="fmtUsd(c.onchain.entryFeeUsd)"></p>
-                </div>
+                <p class="text-[10px] mt-0.5 text-muted" data-field="poolNote"
+                   data-covered-class="text-muted" data-short-class="text-danger-ink"></p>
               </div>
-
-              <!-- Payout breakdown -->
-              <div class="mb-5" x-show="c.onchain.payoutAmountsUsd.length > 0">
-                <p class="text-[10px] text-muted uppercase tracking-wider mb-2">Payouts</p>
-                <div class="flex flex-wrap gap-2">
-                  <template x-for="(amt, idx) in c.onchain.payoutAmountsUsd" :key="idx">
-                    <div class="bg-surface-alt rounded-lg px-3 py-1.5 border border-subtle text-xs">
-                      <span class="text-muted" x-text="ordinal(idx + 1)"></span>
-                      <span class="font-mono text-heading font-semibold ml-1" x-text="fmtUsd(amt)"></span>
-                    </div>
-                  </template>
-                </div>
+              <div class="bg-surface-alt rounded-lg p-3 border border-subtle">
+                <p class="text-[10px] text-muted uppercase tracking-wider mb-1">Guaranteed prize</p>
+                <p class="font-mono text-primary text-lg font-bold" data-field="prizes"></p>
               </div>
-
-              <!-- Solana links -->
-              <div>
-                <p class="text-[10px] text-muted uppercase tracking-wider mb-2">On-chain</p>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-1.5 text-xs">
-                  <a :href="explorer('address', c.contest_pda)" target="_blank" rel="noopener"
-                     class="flex items-center justify-between bg-surface-alt rounded px-3 py-2 border border-subtle hover:border-violet/50 group">
-                    <span class="text-muted">Contest PDA</span>
-                    <span class="font-mono text-violet-ink group-hover:underline inline-flex items-center gap-1.5">
-                      <span x-text="shortPubkey(c.contest_pda)"></span>
-                      <img src="/solana-mark.svg" alt="" class="w-3 h-3">
-                    </span>
-                  </a>
-                  <a :href="explorer('address', c.prize_pool_pda)" target="_blank" rel="noopener"
-                     class="flex items-center justify-between bg-surface-alt rounded px-3 py-2 border border-subtle hover:border-violet/50 group">
-                    <span class="text-muted">Prize pool</span>
-                    <span class="font-mono text-violet-ink group-hover:underline inline-flex items-center gap-1.5">
-                      <span x-text="shortPubkey(c.prize_pool_pda)"></span>
-                      <img src="/solana-mark.svg" alt="" class="w-3 h-3">
-                    </span>
-                  </a>
-                  <a x-show="c.create_tx_signature" :href="explorer('tx', c.create_tx_signature)" target="_blank" rel="noopener"
-                     class="flex items-center justify-between bg-surface-alt rounded px-3 py-2 border border-subtle hover:border-violet/50 group">
-                    <span class="text-muted">Created <span x-text="c.created_label"></span></span>
-                    <span class="font-mono text-violet-ink group-hover:underline inline-flex items-center gap-1.5">
-                      <span x-text="shortPubkey(c.create_tx_signature)"></span>
-                      <img src="/solana-mark.svg" alt="" class="w-3 h-3">
-                    </span>
-                  </a>
-                </div>
+              <div class="bg-surface-alt rounded-lg p-3 border border-subtle">
+                <p class="text-[10px] text-muted uppercase tracking-wider mb-1">Entries</p>
+                <p class="font-mono text-heading text-lg font-bold">
+                  <span data-field="currentEntries"></span>
+                  <span class="text-muted">/</span>
+                  <span data-field="maxEntries"></span>
+                </p>
+              </div>
+              <div class="bg-surface-alt rounded-lg p-3 border border-subtle">
+                <p class="text-[10px] text-muted uppercase tracking-wider mb-1">Entry fee</p>
+                <p class="font-mono text-heading text-lg font-bold" data-field="entryFee"></p>
               </div>
             </div>
-          </template>
+
+            <!-- Payout breakdown -->
+            <div class="mb-5" data-field="payouts" hidden>
+              <p class="text-[10px] text-muted uppercase tracking-wider mb-2">Payouts</p>
+              <div class="flex flex-wrap gap-2" data-field="payoutList"></div>
+            </div>
+
+            <!-- Solana links -->
+            <div>
+              <p class="text-[10px] text-muted uppercase tracking-wider mb-2">On-chain</p>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-1.5 text-xs">
+                <a href="<%= explorer.call("address", c[:contest_pda]) %>" target="_blank" rel="noopener"
+                   class="flex items-center justify-between bg-surface-alt rounded px-3 py-2 border border-subtle hover:border-violet/50 group">
+                  <span class="text-muted">Contest PDA</span>
+                  <span class="font-mono text-violet-ink group-hover:underline inline-flex items-center gap-1.5">
+                    <span><%= short_pubkey.call(c[:contest_pda]) %></span>
+                    <img src="/solana-mark.svg" alt="" class="w-3 h-3">
+                  </span>
+                </a>
+                <a href="<%= explorer.call("address", c[:prize_pool_pda]) %>" target="_blank" rel="noopener"
+                   class="flex items-center justify-between bg-surface-alt rounded px-3 py-2 border border-subtle hover:border-violet/50 group">
+                  <span class="text-muted">Prize pool</span>
+                  <span class="font-mono text-violet-ink group-hover:underline inline-flex items-center gap-1.5">
+                    <span><%= short_pubkey.call(c[:prize_pool_pda]) %></span>
+                    <img src="/solana-mark.svg" alt="" class="w-3 h-3">
+                  </span>
+                </a>
+                <% if c[:create_tx_signature].present? %>
+                  <a href="<%= explorer.call("tx", c[:create_tx_signature]) %>" target="_blank" rel="noopener"
+                     class="flex items-center justify-between bg-surface-alt rounded px-3 py-2 border border-subtle hover:border-violet/50 group">
+                    <span class="text-muted">Created <span><%= c[:created_label] %></span></span>
+                    <span class="font-mono text-violet-ink group-hover:underline inline-flex items-center gap-1.5">
+                      <span><%= short_pubkey.call(c[:create_tx_signature]) %></span>
+                      <img src="/solana-mark.svg" alt="" class="w-3 h-3">
+                    </span>
+                  </a>
+                <% end %>
+              </div>
+            </div>
+          </div>
         </div>
-      </template>
+      <% end %>
     </div>
   </section>
 

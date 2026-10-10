@@ -2,7 +2,7 @@
   SOL → USD cost calculator. Editable SOL price; recomputes the
   permanent + refundable + total-float costs in dollars. The lamport lines do
   not depend on the SOL price, so they render server-side from the measured
-  figures; Alpine only drives the SOL/USD totals.
+  figures; the controller drives only the SOL/USD totals.
 
   EVERY LAMPORT FIGURE HERE IS QUERIED, NOT MULTIPLIED. The *_min locals come
   from getMinimumBalanceForRentExemption at measured[:slot]; the *_balance
@@ -10,13 +10,16 @@
   priced at different rates, and this block keeps them apart.
     locals: deployed_file_bytes, programdata_space, buffer_space, program_acct_space,
             pd_rent_min, buffer_rent_min, program_acct_min, programdata_balance,
-            program_acct_balance, funded_rate, current_rate, measured
+            program_acct_balance, funded_rate, current_rate, measured,
+            perm_lamports, float_lamports
 
-  Alpine factory lives in the parent show.html.erb (window.contractCostCalculator)
-  because the factory MUST be defined inline before Alpine processes x-data
-  (importmap modules load too late — feedback_alpine_factory_importmap_timing).
+  The cost-calculator controller prices perm_lamports and float_lamports at
+  the typed SOL price. Its readouts show "--" until it connects.
 %>
-<section class="card p-6 sm:p-8 mb-6" x-data="contractCostCalculator()">
+<section class="card p-6 sm:p-8 mb-6" data-controller="cost-calculator"
+         data-cost-calculator-perm-lamports-value="<%= perm_lamports %>"
+         data-cost-calculator-float-lamports-value="<%= float_lamports %>"
+         data-action="turbo:before-cache@document->cost-calculator#reset">
   <div class="flex flex-col sm:flex-row sm:items-baseline sm:gap-4 mb-2">
     <h2 class="text-heading font-bold text-xl">Deploy-cost calculator</h2>
     <span class="text-[11px] font-mono text-muted uppercase tracking-wider">SOL &rarr; USD</span>
@@ -39,7 +42,8 @@
       <span>SOL price:</span>
       <span class="inline-flex items-center gap-1 bg-surface-alt rounded px-2 py-1 border border-subtle">
         <span class="text-muted">$</span>
-        <input type="number" min="1" max="10000" step="1" x-model.number="solPrice"
+        <input type="number" min="1" max="10000" step="1" value="165"
+               data-cost-calculator-target="price" data-action="input->cost-calculator#update"
                class="bg-transparent border-none outline-none w-20 font-mono text-heading tabular-nums text-sm">
       </span>
     </label>
@@ -47,10 +51,10 @@
       Deployed file: <strong class="text-heading tabular-nums"><%= number_with_delimiter(deployed_file_bytes) %></strong> bytes
     </span>
     <span class="font-mono text-secondary text-xs sm:text-sm">
-      SOL needed: <strong class="text-primary tabular-nums" x-text="fmtSol(floatSol)">--</strong>
+      SOL needed: <strong class="text-primary tabular-nums" data-cost-calculator-target="output" data-figure="floatSol">--</strong>
     </span>
     <span class="font-mono text-secondary text-xs sm:text-sm">
-      &asymp; <strong class="text-heading tabular-nums" x-text="fmtUsd(floatUsd)">--</strong>
+      &asymp; <strong class="text-heading tabular-nums" data-cost-calculator-target="output" data-figure="floatUsd">--</strong>
     </span>
   </div>
 
@@ -75,11 +79,11 @@
         </div>
         <div class="flex justify-between items-baseline gap-2 pt-2 mt-2 border-t border-subtle">
           <dt class="text-heading font-semibold">Permanent SOL at that slot's rate</dt>
-          <dd class="text-warning tabular-nums font-semibold whitespace-nowrap" x-text="'~' + fmtSol(permSol) + ' SOL'">--</dd>
+          <dd class="text-warning tabular-nums font-semibold whitespace-nowrap" data-cost-calculator-target="output" data-figure="permSol">--</dd>
         </div>
         <div class="flex justify-between items-baseline gap-2">
           <dt class="text-muted">&asymp; at current price</dt>
-          <dd class="text-heading tabular-nums whitespace-nowrap" x-text="'~' + fmtUsd(permUsd)">--</dd>
+          <dd class="text-heading tabular-nums whitespace-nowrap" data-cost-calculator-target="output" data-figure="permUsd">--</dd>
         </div>
         <div class="flex justify-between items-baseline gap-2 pt-2 mt-2 border-t border-subtle">
           <dt class="text-secondary">What this program's accounts hold today</dt>
@@ -106,15 +110,15 @@
         </div>
         <div class="flex justify-between items-baseline gap-2 pt-2 mt-2 border-t border-subtle">
           <dt class="text-heading font-semibold">Additional float during deploy</dt>
-          <dd class="text-mint tabular-nums font-semibold whitespace-nowrap" x-text="'~' + fmtSol(bufferSol) + ' SOL'">--</dd>
+          <dd class="text-mint tabular-nums font-semibold whitespace-nowrap" data-cost-calculator-target="output" data-figure="bufferSol">--</dd>
         </div>
         <div class="flex justify-between items-baseline gap-2">
           <dt class="text-muted">&asymp; at current price</dt>
-          <dd class="text-heading tabular-nums whitespace-nowrap" x-text="'~' + fmtUsd(bufferUsd)">--</dd>
+          <dd class="text-heading tabular-nums whitespace-nowrap" data-cost-calculator-target="output" data-figure="bufferUsd">--</dd>
         </div>
         <div class="flex justify-between items-baseline gap-2 pt-2 mt-2 border-t border-subtle">
           <dt class="text-secondary">Recommended balance before write-buffer</dt>
-          <dd class="text-primary tabular-nums font-semibold whitespace-nowrap" x-text="'~' + fmtSol(floatSol) + ' SOL'">--</dd>
+          <dd class="text-primary tabular-nums font-semibold whitespace-nowrap" data-cost-calculator-target="output" data-figure="floatSolApprox">--</dd>
         </div>
       </dl>
     </div>

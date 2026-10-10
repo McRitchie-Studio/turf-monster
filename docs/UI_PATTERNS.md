@@ -1007,11 +1007,13 @@ The app runs its own Stimulus application on Stimulus' own attributes (`data-con
 
 **Three ways a controller registers.** Pick by who presses it and when:
 
-1. **Lazy** (every admin and dev tool): listed in `LAZY` in `turf_stimulus.js`, and fetched the first time an element names it. No other page pays for it. Until it registers, its actions do nothing, so its markup must already be the initial state. The root element lists the registered ones in `data-lazy-controllers`; a spec waits on that with `lazyController(page, name)` (`e2e/helpers.js`) before its first press.
-2. **A page's own module tag** (page-specific, and pressed the moment the page loads): the view renders `javascript_import_module_tag` for a small module that registers the controller. `live/_dev_score_tools` imports `dev_tools` this way.
-3. **Static** (on every page, or pressed by a player at once): imported and registered in `turf_stimulus.js`, and listed in `every_page` in `config/importmap.rb` so it is preloaded. There is none yet.
+1. **Static** (every public page and the site shell): imported and registered in `turf_stimulus.js`, and listed with every module it imports in `every_page` in `config/importmap.rb`, so every page preloads it and it is connected before the page has loaded, on a full load and on a Turbo visit. The markup still renders the safe state (Refresh disabled while a read runs, panels closed). Each one has a spec in `e2e/marketing_stimulus_pages.spec.js` that presses at once after `goto` and after a Turbo visit, with no wait on the controller.
+2. **Lazy** (admin and dev tools only): listed in `LAZY` in `turf_stimulus.js`, and fetched the first time an element names it. No other page pays for it. Until it registers, its actions do nothing, and **a press made before then is dropped silently** (the controller and its `turf/` module are two serial fetches; measured under 150 ms of latency, presses at +50 and +150 ms were lost). That is tolerable for an operator, never for a visitor. Its markup must already be the initial state. The root element lists the registered ones in `data-lazy-controllers`; a spec waits on that with `lazyController(page, name)` (`e2e/helpers.js`) before its first press.
+3. **A page's own module tag** (admin only): the view renders `javascript_import_module_tag` for a small module that registers the controller. `live/_dev_score_tools` imports `dev_tools` this way. Its pin is `preload: false`, so on a Turbo visit the fetch starts after the new body renders, and an early press is lost the same way as a lazy one.
 
-`config/importmap.rb` pins every file under `controllers/` and `turf/`, and preloads only the static ones. A production page with no controller on it fetches one extra module, `turf_stimulus`.
+`config/importmap.rb` pins every file under `controllers/` and `turf/`, and preloads only the static ones. Every page fetches `turf_stimulus` and the static controllers and modules.
+
+**Shared state.** No controller shares state with another yet. When one must (the gear sidebar: its triggers sit in the navbar and the user nav, its panel at the layout root), the state stays on the one element that owns it, and other controls change it by an event: the trigger dispatches `turf:<name>` on `window`, the owner's root binds `turf:<name>@window->owner#action`, and the owner writes the result back (`aria-expanded` on each `[aria-controls]` that names it). Not outlets: an outlet ties the trigger to one owner element that must be connected first.
 
 **State.** Decide where it lives, then follow the matching rule:
 
@@ -1030,7 +1032,7 @@ The app runs its own Stimulus application on Stimulus' own attributes (`data-con
 | `@event` and inline `on<event>` | `data-action`, with `data-<name>-<param>-param` for the argument |
 | an inline `<script>` factory | the controller, with its logic in `app/javascript/turf` |
 
-Still Alpine until the engine changes: the `<body>` scope and its `dev-mode` class, and anything rendered inside the engine's modal host.
+Still Alpine until the engine changes: the `<body>` scope and its `dev-mode` class, `$store.sidebars` (the engine's link sidebar registers it), and anything rendered inside the engine's modal host, including a partial that is rendered both there and on a page.
 
 ## Alpine + ERB Constraints (critical — silent failures)
 
