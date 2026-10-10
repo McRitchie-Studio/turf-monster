@@ -270,10 +270,15 @@ class TestController < ApplicationController
   # skips it automatically — is FALSE here: Playwright boots the app in
   # DEVELOPMENT. Without the flag each of these would make a real RPC round
   # trip and the seeding call would hang or fail.
+  #
+  # `onchain: true` also gives each row a Contest PDA address (made up, never
+  # created on chain), so /proof-of-reserves lists it; its spec answers the
+  # browser's RPC reads itself.
   E2E_RAIL_SLUG_PREFIX = "e2e-rail-".freeze
 
   def seed_contests
     count = params[:count].to_i.clamp(1, 12)
+    onchain = ActiveModel::Type::Boolean.new.cast(params[:onchain])
     slate = Slate.order(:id).first
     return render json: { error: "no slate to hang a contest on" }, status: :unprocessable_entity if slate.nil?
 
@@ -293,7 +298,8 @@ class TestController < ApplicationController
         slate: slate,
         # Newest first inside the rail's open band, so the spec can name the
         # order it expects rather than discover it.
-        created_at: i.minutes.ago
+        created_at: i.minutes.ago,
+        onchain_contest_id: (Solana::Keypair.encode_base58(Digest::SHA256.digest("#{E2E_RAIL_SLUG_PREFIX}#{i}")) if onchain)
       ).tap { |c| c.skip_onchain_callback = true }.tap(&:save!)
     end
 
@@ -771,12 +777,15 @@ class TestController < ApplicationController
   # e2e/admin_drop_announcement.spec.js, which needs owed recipients without
   # driving the public form (whose state flips at the drop). Rows go through
   # DropSignup.register, the form's own write path; no confirmation is queued.
-  # Answers the list's announceable count after the write.
+  # Answers the list's announceable count after the write, and each row's
+  # unsubscribe token (e2e/marketing_stimulus_pages.spec.js opens the emailed
+  # unsubscribe page with one).
   def seed_drop_signups
-    Array(params[:emails]).first(20).each do |email|
+    signups = Array(params[:emails]).first(20).map do |email|
       DropSignup.register(email: email, slate_key: NextSlateDrop::SLATE_KEY, source: "e2e")
     end
-    render json: { ok: true, announceable: DropSignup.announceable(NextSlateDrop::SLATE_KEY).count }
+    render json: { ok: true, announceable: DropSignup.announceable(NextSlateDrop::SLATE_KEY).count,
+                   unsubscribe_tokens: signups.select(&:persisted?).map(&:unsubscribe_token) }
   end
 
   # Puts the /turf-monster-v2 headline experiment in its shipped shape and
