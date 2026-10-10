@@ -1178,6 +1178,11 @@ is a roster lookup and proves nothing about its caller.
 The seed writes roles directly and stamps no verification. A claim that proves
 nothing changes nothing, so a seeded row keeps its role.
 
+On a database that already holds people the seed runs as
+`seed_parked_identities!(proven_only: true)` (the QA rehearsal's `seed` step,
+`docs/qa-contest-rehearsal.md`). It then adopts a row only by the mailbox-proof
+rule below, and refuses a row matched by username alone.
+
 #### A parked address is not held unproven
 
 The model refuses to save a parked address without its proof

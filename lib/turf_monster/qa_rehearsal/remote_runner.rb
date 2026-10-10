@@ -20,6 +20,8 @@ module TurfMonster
     # grepping for exactly that prefix is the whole reason this reads reliably.
     class RemoteRunner
       class RemoteError < StandardError; end
+      # The script declined to go on and said why, in a sentence for the operator.
+      class Refused < RemoteError; end
 
       MARKER = "QA_REHEARSAL_JSON"
 
@@ -50,8 +52,10 @@ module TurfMonster
 
       # @param source [String] Ruby evaluated on the dyno. It is expected to
       #   call `emit(hash)` exactly once — the helper is prepended below so
-      #   every caller marks its answer the same way.
+      #   every caller marks its answer the same way. `refuse(message)` answers
+      #   and exits instead.
       # @return [Hash] whatever the snippet emitted
+      # @raise [Refused] when the snippet called `refuse`
       def call(source)
         if source.match?(SHELL_EXPANDABLE)
           raise RemoteError,
@@ -62,6 +66,10 @@ module TurfMonster
         script = <<~RUBY_SOURCE
           def emit(payload)
             puts "#{MARKER} " + payload.to_json
+          end
+          def refuse(message)
+            emit(refused: message)
+            exit
           end
           #{source}
         RUBY_SOURCE
@@ -79,7 +87,10 @@ module TurfMonster
                 "#{tail([err, out].compact.join("\n"))}"
         end
 
-        JSON.parse(line.sub(MARKER, "").strip)
+        answer = JSON.parse(line.sub(MARKER, "").strip)
+        raise Refused, answer["refused"] if answer.is_a?(Hash) && answer["refused"].present?
+
+        answer
       rescue JSON::ParserError => e
         raise RemoteError, "#{app} emitted an unparseable answer: #{e.message}"
       end

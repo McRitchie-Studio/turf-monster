@@ -31,9 +31,11 @@ class QaRehearsalCreatorTest < ActiveSupport::TestCase
 
     def initialize = (@scripts = [])
 
+    # Answers the preflight with its facts, then the create script.
     def call(source)
       @scripts << source
-      REMOTE_RESULT
+      REMOTE_RESULT.merge("creator" => "mcritchie", "slate" => Driver::SLATE_NAME, "signer_listed" => true,
+                          "signer_seated" => true)
     end
   end
 
@@ -51,7 +53,7 @@ class QaRehearsalCreatorTest < ActiveSupport::TestCase
     driver.instance_variable_set(:@remote, spy)
     driver.instance_variable_set(:@manifest, NullManifest.new)
     driver.create_contest
-    spy.scripts.fetch(0)
+    spy.scripts.fetch(1)
   end
 
   test "the generated script keys the creator on an address, never on a slug" do

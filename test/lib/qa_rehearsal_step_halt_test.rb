@@ -92,7 +92,7 @@ class QaRehearsalStepHaltTest < ActiveSupport::TestCase
   # green. Pin the count and the members, so a CLI refactor that breaks the
   # regex fails HERE rather than quietly switching the guard off.
   test "the step list really derived from the CLI" do
-    assert_equal %w[create_contest enter_cast play_preseason conclude close_contest],
+    assert_equal %w[seed_roster create_contest enter_cast play_preseason conclude close_contest],
                  STEP_METHODS,
                  "STEP_METHODS is scanned out of bin/qa-contest-rehearsal — an empty or " \
                  "partial list would make the halt scan pass while reading nothing"

@@ -3,6 +3,7 @@
 
 # The QA contest rehearsal, as five steps you run one at a time.
 #
+#   bin/qa-contest-rehearsal seed       # 0. once per QA database: the parked roster
 #   bin/qa-contest-rehearsal create     # 1. contest, on-chain, pool funded
 #   bin/qa-contest-rehearsal enter      # 2. the cast enters, as real players
 #   bin/qa-contest-rehearsal play --pace 3   # 3. replay preseason, watchable
@@ -10,15 +11,15 @@
 #   bin/qa-contest-rehearsal close      # 5. reclaim rent
 #
 # Options:
-#   --cast mason,mack       who plays (default: mason,mack)
+#   --cast mason,mack       who plays (default: mason,mack,turf)
 #   --cosign link|agent     step 4: a link you sign (default). `agent` is refused:
 #                           the rehearsal files no admin key to confirm with
 #   --no-reset              step 3: keep the scores already recorded
 #
 # DEVNET ONLY. Every step runs NetworkGuard before it loads a key, and the
 # guard refuses any app but turf-monster-qa running the devnet program. That
-# is not ceremony: the co-signing key is Mason's, and Mason is a signer on the
-# MAINNET vault too.
+# is not ceremony: the cast's keys are real wallets, and Mason's is a signer on
+# the MAINNET vault too.
 #
 # Steps share state through tmp/qa-rehearsal/current.json, so each one is
 # re-runnable on its own and `create` starts a fresh run.
@@ -29,8 +30,8 @@ require "optparse"
 options = { cast: nil, cosign: :link, reset: true, pace: 0 }
 
 parser = OptionParser.new do |o|
-  o.banner = "Usage: bin/qa-contest-rehearsal <create|enter|play|conclude|close|status> [options]"
-  o.on("--cast LIST", "Comma-separated cast (default: mason,mack)") { |v| options[:cast] = v.split(",").map(&:strip) }
+  o.banner = "Usage: bin/qa-contest-rehearsal <seed|create|enter|play|conclude|close|status> [options]"
+  o.on("--cast LIST", "Comma-separated cast (default: mason,mack,turf)") { |v| options[:cast] = v.split(",").map(&:strip) }
   o.on("--cosign MODE", "link (default); agent is refused") { |v| options[:cosign] = v.to_sym }
   o.on("--no-reset", "Step 3: do not clear existing scores first") { options[:reset] = false }
   o.on("--pace SECONDS", "Step 3: replay scoring plays this far apart, so you can watch") { |v| options[:pace] = v.to_i }
@@ -50,6 +51,7 @@ driver = TurfMonster::QaRehearsal::Driver.new(
 
 begin
   case step
+  when "seed"     then driver.seed_roster
   when "create"   then driver.create_contest
   when "enter"    then driver.enter_cast
   when "play"     then driver.play_preseason(reset: options[:reset], pace: options[:pace])
@@ -66,6 +68,10 @@ rescue TurfMonster::QaRehearsal::NetworkGuard::RefusedError => e
   # The refusal is the headline, not a stack trace behind it.
   warn e.message
   exit 2
+rescue TurfMonster::QaRehearsal::Driver::StepError, TurfMonster::QaRehearsal::RemoteRunner::Refused => e
+  # A stop the driver or the dyno explained: the sentence is the whole report.
+  warn "STOPPED — #{e.message}"
+  exit 1
 rescue StandardError => e
   warn "#{e.class}: #{e.message}"
   exit 1
