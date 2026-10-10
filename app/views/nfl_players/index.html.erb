@@ -26,13 +26,14 @@
   <% end %>
 
   <% if @athletes %>
-    <div x-data="cardListFilter({ selector: '[data-athlete-card]' })">
+    <div data-controller="card-filter" data-card-filter-selector-value="[data-athlete-card]" data-card-filter-noun-value="players"
+         data-action="turbo:before-cache@document->card-filter#reset">
       <div class="flex items-center gap-3 mb-4">
         <input type="text"
-               x-model.debounce.300ms="search"
+               data-card-filter-target="search" data-action="input->card-filter#search"
                placeholder="Search players..."
                class="input-field text-sm !py-2 !px-3 w-full sm:w-64">
-        <span class="text-sm text-muted whitespace-nowrap" x-text="visibleCount + ' players'"></span>
+        <span class="text-sm text-muted whitespace-nowrap" data-card-filter-target="count"><%= @athletes.size %> players</span>
       </div>
 
       <% if @athletes.empty? %>

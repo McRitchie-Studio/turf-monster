@@ -69,18 +69,14 @@ test.describe("browser-facing Solana RPC endpoint", () => {
   });
 
   // /proof-of-reserves is PUBLIC and prints the endpoint to the visitor as
-  // page text. The server ships that <span> EMPTY — Alpine fills it from the
-  // cfg binding after mount — so its rendered value exists nowhere in the
-  // response bytes and no assert_select / assert_match can ever observe it.
-  // This is the surface that leaked the key to unauthenticated visitors, and
-  // this is the only tier that can watch it resolve.
+  // page text. This is the surface that leaked the key to unauthenticated
+  // visitors, so this tier reads what the visitor is actually shown.
   test("proof-of-reserves renders its endpoint to the visitor at runtime", async ({ page }) => {
     await page.goto("/proof-of-reserves");
 
-    const shown = page.locator('span[x-text="cfg.rpc_url"]').first();
+    const shown = page.locator('[data-test="proof-of-reserves-rpc-url"]').first();
     await expect(shown).toBeVisible();
-    // Alpine has to populate it; an empty string here means the cfg binding
-    // never resolved and the page is telling the visitor nothing.
+    // An empty string here means the page is telling the visitor nothing.
     await expect(shown).not.toHaveText("");
 
     // Assert the PREDICATE, never the literal: a failure here must not print

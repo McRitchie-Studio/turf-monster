@@ -22,9 +22,11 @@ class TeamsIndexLeagueFilterTest < ActionDispatch::IntegrationTest
     assert_select "[data-team-card][data-league=?]", "fifa"
   end
 
-  test "the filter is wired into cardListFilter" do
+  test "the filter is wired into the card-filter controller, with All pressed" do
     get teams_path
-    assert_match(/cardListFilter\(\{ selector: '\[data-team-card\]', filters: \{ league: 'all' \} \}\)/, response.body)
-    assert_match(/filters\.league = 'nfl'/, response.body)
+    assert_select '[data-controller="card-filter"][data-card-filter-selector-value="[data-team-card]"]' do
+      assert_select 'button[data-card-filter-key-param="league"][data-card-filter-value-param="all"][aria-pressed="true"].btn-primary', text: "All"
+      assert_select 'button[data-card-filter-key-param="league"][data-card-filter-value-param="nfl"][aria-pressed="false"].btn-outline'
+    end
   end
 end

@@ -88,24 +88,30 @@ class ErrorLiveRegionsTest < ActiveSupport::TestCase
     VIEWS.join(path).read.gsub(/<%#.*?%>/m, "").gsub(/<!--.*?-->/m, "")
   end
 
+  # What writes a paragraph's sentence: an Alpine x-text expression, or the
+  # name of the Stimulus target a controller writes.
+  BINDING = /\bx-text="([^"]+)"|\bdata-[a-z-]+-target="([^"]+)"/
+
   # The opening tag of the paragraph that carries this binding to the user.
   def error_tag(path, binding_expr)
-    markup(path)[/<p\b[^>]*x-text="#{Regexp.escape(binding_expr)}"[^>]*>/m]
+    expr = Regexp.escape(binding_expr)
+    markup(path)[/<p\b[^>]*(?:x-text|data-[a-z-]+-target)="#{expr}"[^>]*>/m]
   end
 
   # A dynamic error paragraph is a <p> whose STATIC class paints it with the
-  # theme's danger ink and whose content is written by Alpine. The static-class
-  # half is what separates it from a tone binding — proof_of_reserves has two
-  # <p> tags that go danger-ink through a `:class` conditional, and they are
-  # status labels, not errors.
+  # theme's danger ink and whose content is written by Alpine or a Stimulus
+  # controller. The static-class half is what separates it from a tone
+  # binding: proof_of_reserves has two <p> tags its controller turns danger-ink
+  # by tone, and they are status labels, not errors.
   def self.discover
     found = []
     Dir.glob(VIEWS.join("**/*.html.erb")).sort.each do |file|
       src = File.read(file).gsub(/<%#.*?%>/m, "").gsub(/<!--.*?-->/m, "")
       src.scan(/<p\b[^>]*>/m) do |tag|
         static_class = tag[/(?<![:@])\bclass="([^"]*)"/, 1].to_s
-        next unless static_class.include?("text-danger-ink") && tag =~ /x-text=/
-        found << [Pathname.new(file).relative_path_from(VIEWS).to_s, tag[/x-text="([^"]+)"/, 1]]
+        binding = tag.match(BINDING)
+        next unless static_class.include?("text-danger-ink") && binding
+        found << [Pathname.new(file).relative_path_from(VIEWS).to_s, binding[1] || binding[2]]
       end
     end
     found
@@ -146,10 +152,16 @@ class ErrorLiveRegionsTest < ActiveSupport::TestCase
       # leaves the element mounted for the life of its surface; x-if inserts it
       # with its content already in place, which is the announcement that never
       # happens.
-      assert_includes tag, %(x-show="#{binding_expr}"),
-                      "#{path} (#{binding_expr}) must be HIDDEN before the error, not ABSENT"
-      assert_includes tag, "x-cloak",
-                      "#{path} (#{binding_expr}) must not flash before Alpine boots"
+      # A controller's region does the same with the hidden attribute.
+      if tag.include?("x-text=")
+        assert_includes tag, %(x-show="#{binding_expr}"),
+                        "#{path} (#{binding_expr}) must be HIDDEN before the error, not ABSENT"
+        assert_includes tag, "x-cloak",
+                        "#{path} (#{binding_expr}) must not flash before Alpine boots"
+      else
+        assert_match(/\shidden[\s>]/, tag,
+                     "#{path} (#{binding_expr}) must be HIDDEN before the error, not ABSENT")
+      end
 
       # And it must not be re-wrapped later. This is the exact regression these
       # five paragraphs are being brought back from.
@@ -161,7 +173,7 @@ class ErrorLiveRegionsTest < ActiveSupport::TestCase
   test "every region carries no text of its own" do
     SITES.each_key do |(path, binding_expr)|
       body = markup(path)[
-        /<p\b[^>]*x-text="#{Regexp.escape(binding_expr)}"[^>]*>(.*?)<\/p>/m, 1
+        /<p\b[^>]*(?:x-text|data-[a-z-]+-target)="#{Regexp.escape(binding_expr)}"[^>]*>(.*?)<\/p>/m, 1
       ]
 
       # An announced region that ships with placeholder copy announces the

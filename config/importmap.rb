@@ -28,7 +28,14 @@ pin "page_experiments"
 # import graph. Locals, not constants: this file is evaluated on every redraw.
 pin "turf_stimulus"
 pin "dev_tools", preload: false
-every_page = %w[]
+every_page = %w[
+  controllers/accordion_controller turf/accordion
+  controllers/auto_submit_controller
+  controllers/card_filter_controller turf/card_filter
+  controllers/cost_calculator_controller turf/cost_calculator
+  controllers/proof_of_reserves_controller turf/proof_of_reserves
+  controllers/swatch_copy_controller turf/swatch_copy
+]
 %w[controllers turf].each do |directory|
   Rails.root.glob("app/javascript/#{directory}/*.js").sort.each do |file|
     name = "#{directory}/#{file.basename('.js')}"

@@ -14,10 +14,14 @@
 //     root element lists the registered ones in data-lazy-controllers, which a
 //     test waits on before it presses. A controller whose module fails to load
 //     marks its elements data-controller-failed="<identifier>".
-//   - STATIC, for a controller on every page or one a player presses the
+//   - STATIC, for a controller on a public page, or one a player presses the
 //     moment a page loads: import it here and application.register it below.
-//     It is connected before the page has loaded. Add its module, and the
-//     modules it imports, to every_page in config/importmap.rb.
+//     Add its module, and the modules it imports, to every_page in
+//     config/importmap.rb, so every page preloads them and the controller is
+//     connected before the page has loaded, on a full load and on a Turbo
+//     visit alike. A lazy controller drops a press made before its module
+//     arrives; a static one never does. Its markup still renders the safe
+//     state, so nothing is pressable that would do the wrong thing.
 //   - A PAGE'S OWN MODULE TAG, for a page-specific controller that is pressed
 //     the moment its page loads: the view imports a small module that
 //     registers it (dev_tools, from live/_dev_score_tools), with
@@ -25,6 +29,12 @@
 //     loaded, and only that page fetches it.
 import { Application } from "@hotwired/stimulus"
 import { watchLazyControllers } from "studio/lazy_controllers"
+import AccordionController from "controllers/accordion_controller"
+import AutoSubmitController from "controllers/auto_submit_controller"
+import CardFilterController from "controllers/card_filter_controller"
+import CostCalculatorController from "controllers/cost_calculator_controller"
+import ProofOfReservesController from "controllers/proof_of_reserves_controller"
+import SwatchCopyController from "controllers/swatch_copy_controller"
 
 export const LAZY = {
   "filter": () => import("controllers/filter_controller"),
@@ -39,6 +49,13 @@ export const LAZY = {
 }
 
 export const application = Application.start()
+
+application.register("accordion", AccordionController)
+application.register("auto-submit", AutoSubmitController)
+application.register("card-filter", CardFilterController)
+application.register("cost-calculator", CostCalculatorController)
+application.register("proof-of-reserves", ProofOfReservesController)
+application.register("swatch-copy", SwatchCopyController)
 
 const registered = []
 

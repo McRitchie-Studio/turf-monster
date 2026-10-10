@@ -77,10 +77,14 @@ class RpcCredentialNotInBrowserTest < ActionDispatch::IntegrationTest
     body[/id="cosign-config"[^>]*\sdata-rpc-url="([^"]*)"/, 1]
   end
 
+  # The page hands the endpoint to its controller and prints it as text; both
+  # must be the same clean URL.
   def proof_of_reserves_rpc_url(body)
-    json = body[%r{<script type="application/json" id="proof-of-reserves-config">\s*(.*?)\s*</script>}m, 1]
-    assert json, "proof-of-reserves: the #proof-of-reserves-config JSON block is gone"
-    JSON.parse(json)["rpc_url"]
+    handed = body[/data-proof-of-reserves-rpc-url-value="([^"]*)"/, 1]
+    printed = body[%r{data-test="proof-of-reserves-rpc-url">([^<]*)<}, 1]
+    assert handed, "proof-of-reserves: the controller's rpc-url value is gone"
+    assert_equal handed, printed, "proof-of-reserves prints a different endpoint from the one it reads"
+    handed
   end
 
   # The two admin vault pages render the live VaultState. FakeVault's default
