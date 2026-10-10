@@ -1278,8 +1278,8 @@ module Solana
     # advance is no longer first and the transaction is rejected. That is the
     # 2026-06-11 finding recorded on `#simulate_and_broadcast`, and it makes
     # the nonce unusable for ANY Phantom-signed flow, not merely undesirable.
-    # No builder in this file passes `durable_nonce:` any more; the last one,
-    # `build_create_contest`'s admin-signed branch, dropped it (retire-nonce-contest-prepare).
+    # The one builder that takes `durable_nonce:` is `#build_settle_contest`,
+    # from Solana::SettleNonce, and no wallet signs that wire.
     #
     # The consequence is a ~60-90 second window, which is the right constraint
     # for an eviction: the operator is at the keyboard by definition. The page
@@ -2318,8 +2318,7 @@ module Solana
       #     #prepare_onchain_contest handed it to Phantom: a Phantom-signed
       #     create on the production nonce. That route is retired and the
       #     branch now takes a fresh blockhash, so `durable_nonce_config` has
-      #     NO caller; it stays for the server-signed settlement path that will
-      #     need its own nonce plumbing (settlement-uses-durable-nonce).
+      #     NO caller. Settlement reads its own nonce from Solana::SettleNonce.
       #   * And it could not be otherwise. Reason 1 above is not specific to
       #     entries: ANY Phantom-signed transaction can have Lighthouse guard
       #     instructions injected ahead of the advance, and a nonce transaction
@@ -2513,8 +2512,14 @@ module Solana
     end
 
     # Build a partially-signed settle_contest TX for multisig cosigning.
-    def build_settle_contest(contest_slug, settlements, cosigner_pubkey:, extra_cosigners: [])
+    #
+    # With `durable_nonce:` ({ pubkey:, authority: }, Solana::SettleNonce) the
+    # wire is nonce-anchored: advanceNonceAccount is instruction 0 and the
+    # nonce value is the recent blockhash. The authority must be one of the
+    # settle's own signers. No wallet may sign this wire (see #build_tx_unsigned).
+    def build_settle_contest(contest_slug, settlements, cosigner_pubkey:, extra_cosigners: [], durable_nonce: nil)
       extras = extra_cosigner_metas(extra_cosigners)
+      assert_nonce_authority_signs!(durable_nonce, [Keypair.admin.to_base58, cosigner_pubkey, *extra_cosigners])
       c_pda, _ = contest_pda(contest_slug)
       vault_pda, _ = vault_state_pda
       prize_pool_addr, _ = prize_pool_pda(contest_slug)
@@ -2534,7 +2539,7 @@ module Solana
 
       remaining = settle_remaining_accounts(contest_slug, settlements)
 
-      tx = build_tx(Keypair.admin)
+      tx = build_tx(Keypair.admin, durable_nonce: durable_nonce)
       tx.add_instruction(**compute_unit_limit_ix(SETTLE_COMPUTE_UNIT_LIMIT))
       tx.add_instruction(
         program_id: @program_id,
@@ -2554,7 +2559,22 @@ module Solana
         additional_signers: [cosigner_bytes, *extras.map { |m| m[:pubkey] }]
       )
       assert_settle_fits_one_packet!(serialized, settlements.length)
-      { serialized_tx: serialized, contest_slug: contest_slug }
+      result = { serialized_tx: serialized, contest_slug: contest_slug }
+      return result unless durable_nonce
+
+      result.merge(nonce_value: WireMessage.parse_base64(serialized).recent_blockhash_base58)
+    end
+
+    # The nonce authority signs advanceNonceAccount, so it must hold one of the
+    # settle's signer slots; any other key would add a slot nobody fills.
+    def assert_nonce_authority_signs!(durable_nonce, signers)
+      return unless durable_nonce
+
+      authority = durable_nonce.fetch(:authority).to_s
+      return if signers.map(&:to_s).include?(authority)
+
+      raise ArgumentError, "nonce authority #{authority} is not a signer of this settle " \
+                           "(signers: #{signers.join(', ')})"
     end
 
     # The serialized size of a built settle transaction, against the packet
@@ -4252,9 +4272,9 @@ module Solana
 
     # Opt-in durable-nonce config — SOLANA_DURABLE_NONCE_PUBKEY names the nonce
     # account; authority is the admin managed wallet. Returns nil (= default
-    # recent-blockhash) when unset. NO CALLER TODAY: it is kept for a
-    # SERVER-signed flow, the planned durable-nonce settlement. Never pass it to
-    # a builder whose wire a wallet signs (see #build_enter_contest).
+    # recent-blockhash) when unset. NO CALLER TODAY; settlement reads
+    # Solana::SettleNonce instead. Never pass it to a builder whose wire a
+    # wallet signs (see #build_enter_contest).
     def durable_nonce_config
       pubkey = ENV["SOLANA_DURABLE_NONCE_PUBKEY"].presence or return nil
       { pubkey: pubkey, authority: Keypair.admin.address }

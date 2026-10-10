@@ -39,7 +39,7 @@ decision log at the end.
 6. **Settlement uses a durable nonce.** Alex cosigns a settle transaction once;
    the server submits and retries those signed bytes until they land. The
    cosigner is decided: a Ledger through the Solana CLI on mainnet, a CLI keypair
-   on devnet (section 5). None of the nonce path is built.
+   on devnet (section 5). The nonce path is built and off on both clusters.
 
 ## 2. What exists today
 
@@ -198,7 +198,7 @@ and splits today; Alex confirms it in review.
 
 ## 5. Settlement execution: a durable nonce
 
-**Today.** Settle needs two of three signers. `Solana::Vault#build_settle_contest`
+**Today, on both clusters.** Settle needs two of three signers. `Solana::Vault#build_settle_contest`
 signs first as the server key (Xan, `8K81…`) on a fresh recent blockhash, and
 Alex's Phantom (`7ZDJ…`) cosigns at `/admin/pending_transactions`. The half-signed
 legacy transaction expires with its blockhash (about 60 to 90 seconds), and
@@ -214,19 +214,44 @@ until that nonce advances, so Alex signs once and the server resends the same
 bytes until they land.
 - **Trust.** Alex approves exact bytes. The server can send only those bytes; it
   cannot change a winner, an amount or an order without a new signature from him.
-- **The pieces that exist.** `solana-studio` has `Solana::NonceAccount` (parse a
-  nonce account, `initialized?`, `nonce`) and `Solana::SystemProgram`
-  (`create_account`, `initialize_nonce_account`, `advance_nonce_account`,
-  `withdraw_nonce_account`, `authorize_nonce_account`). In turf,
-  `Solana::Vault#build_tx` takes `durable_nonce:` and prepends the advance, and
-  `durable_nonce_config` reads one nonce account from
-  `SOLANA_DURABLE_NONCE_PUBKEY` with the server key as its authority.
-  It has no caller since 2026-10-07. Its last one was
-  `Solana::Vault#build_create_contest` on its `admin_signs: true` branch,
-  reached from `ContestsController#prepare_onchain_contest`: admin-first plus
-  Phantom cosign, the same shape settle has today. That route is retired and the
-  branch takes a fresh blockhash (retire-nonce-contest-prepare). No settle
-  builder passes a nonce.
+- **What is built.** `config/settle_nonce.yml` names, per cluster, a nonce
+  account and the CLI cosigner, who is also the nonce authority, and whether the
+  cluster is on (`SETTLE_DURABLE_NONCE` overrides). `Solana::SettleNonce` reads
+  it; an enabled cluster with a blank or malformed key raises rather than falling
+  back. When on, `Solana::Vault#build_settle_contest(durable_nonce:)` makes
+  `advanceNonceAccount` instruction 0 and the nonce value the recent blockhash,
+  and refuses an authority that does not sign the settle.
+  `Contest#settle_onchain!` queues the row with its nonce in `metadata`. The
+  Treasury page refuses Co-sign and Rebuild on such a row. `bin/settle-nonce`
+  signs offline from a Solana CLI keypair file, attaches a detached signature,
+  rebuilds on the nonce's current value, and submits through the same broadcast
+  claim the page uses, after checking the nonce has not advanced;
+  `Contests::SettlementSweepJob` records a landed settle. The steps are in
+  `docs/SOLANA.md`, "Durable-nonce settlement".
+- **Proven.** Unit tests pin instruction 0, the nonce blockhash, and the
+  blockhash wire byte for byte against `origin/accepted`. On localnet (the
+  turf-vault anchor suite) a nonce-anchored settle cosigned by two CLI keypair
+  files through `bin/settle-nonce sign` landed after its blockhash expired,
+  settled the contest, and the same bytes were refused on resend.
+- **Off on both clusters.** Devnet has its cosigner keypair
+  (`solana.turf.settle-cosigner.devnet`, studio-agents); it is not seated as a
+  devnet vault signer.
+- **Owed for mainnet.** A Ledger, its pubkey seated as a `VaultState` signer by
+  Alex's signer rotation, and a mainnet nonce account whose authority is that
+  Ledger. The Solana CLI has no command that signs an arbitrary transaction
+  message, so the Ledger's signature needs a signer tool that does
+  (`bin/settle-nonce message` prints the bytes, `attach` takes the signature).
+- **Owed for `v0.26`.** The advance costs 106 bytes. On `v0.25` four paid
+  entries fit one legacy transaction; on `v0.26` three fit and four are refused
+  at build, which rolls the grade back. A four-place `v0.26` settle needs a
+  versioned transaction with a lookup table before the nonce path can carry it.
+- **Not built.** An automatic resend loop: the operator resubmits the signed
+  file. One nonce account per settlement: one per cluster, so one settle is in
+  flight at a time; a second row built on the same value dies when the first
+  lands and is rebuilt.
+- **The earlier nonce.** `durable_nonce_config` reads
+  `SOLANA_DURABLE_NONCE_PUBKEY`, with the server key as authority, and has no
+  caller; the settle path does not use it.
 - **What does not carry over.** `Solana::Cosign` is built without a nonce, and
   `Solana::Cosign::Expectation` refuses a nonce advance among the instructions it
   compares. The settle path builds and verifies its own wire.
@@ -244,10 +269,11 @@ reject the transaction. The repo records this in the `Solana::Cosign` module
 header, the durable-nonce note in `Solana::Vault#build_enter_contest`, and
 `docs/SOLANA.md` (the 2026-06-11 mainnet incident). So (a) needs a signer that signs
 the message as built. Decided: on mainnet Alex cosigns with a Ledger through the
-Solana CLI; on devnet, with a CLI keypair. Not built: no settle transaction
-carries a nonce, and the cosigner key is not seated as a vault signer. Until both
-are done, settle runs as today. Whether Phantom also rewrites a transaction that
-already carries the server's signature is not verified (section 8).
+Solana CLI; on devnet, with a CLI keypair. The nonce path has no Phantom leg. It
+is off until a cluster's cosigner is seated as a vault signer and its entry is
+turned on; until then settle runs as today. Whether Phantom also rewrites a
+transaction that already carries the server's signature is not verified
+(section 8).
 
 **Considered and not chosen.**
 - **(b) Automatic settlement by two agent-held keys.** No human in the loop. A
@@ -301,22 +327,22 @@ Each is a task title; the ones marked built are in the code.
   that copy changed; it is Alex's call.
 - **Settle builder sends ranked entries**, after the vault upgrade.
 
-The durable-nonce settlement (section 5) is four more:
-- **Settlement holds its own nonce account**: one nonce account per settlement in
-  flight, created and initialised with the server key as authority, recorded on
-  the settle `PendingTransaction`, and withdrawn once the settlement is final.
-  The single `SOLANA_DURABLE_NONCE_PUBKEY` account stays with contest create.
-- **Settle advances the nonce first**: `build_settle_contest` anchors on that
-  account with `advanceNonceAccount` as instruction 0, and the verify step
-  refuses a returned wire with any instruction ahead of it. The packet check
+The durable-nonce settlement (section 5) has two built and two owed:
+- **Settle advances the nonce first** (built): `build_settle_contest` anchors on
+  the cluster's nonce account with `advanceNonceAccount` as instruction 0;
+  `bin/settle-nonce` refuses to sign or attach to a wire without it, and submit
+  refuses a wire whose message differs from the queued row's. The packet check
   (`assert_settle_fits_one_packet!`) counts the advance.
-- **Settlement retries until it lands**: a loop that resends the same signed
-  bytes and reads the signature's status before every resend; it stops on a
-  landed success, a landed failure, or a consumed nonce, and never rebuilds.
-- **Settlement handles a consumed nonce**: when the nonce account's value no
-  longer matches the signed bytes and the settle signature never landed, another
-  transaction used the nonce; the row goes to "needs a new cosign" and Rails
-  reads the contest from chain before asking for one.
+- **Settlement handles a consumed nonce** (built at submit): when the nonce
+  account's value no longer matches the signed bytes, submit refuses before the
+  claim and the operator rebuilds and signs again.
+- **Settlement holds its own nonce account** (owed): one nonce account per
+  settlement in flight, recorded on the settle `PendingTransaction` and withdrawn
+  once the settlement is final. Today each cluster has one, so one settle is in
+  flight at a time.
+- **Settlement retries until it lands** (owed): a loop that resends the same
+  signed bytes and reads the signature's status before every resend. Today the
+  operator resubmits the signed file.
 
 ## 8. Not verified
 
@@ -327,12 +353,13 @@ The durable-nonce settlement (section 5) is four more:
   This page relies on the repo's own record of the 2026-06-11 incident. If
   Phantom leaves a pre-signed wire's order intact, the prerequisite in section 5
   may not apply to it; that needs a devnet test before anyone relies on it.
-- That a CLI or hardware signer leaves instruction order intact. It is the
-  expected behaviour of a signer that signs the message bytes it is given, and it
-  is untested here.
-- Whether `SOLANA_DURABLE_NONCE_PUBKEY` is set in production. Nothing reads it
-  since `ContestsController#prepare_onchain_contest` and its route were retired
-  (2026-10-07).
+- That a hardware signer leaves instruction order intact. A CLI keypair does:
+  `bin/settle-nonce sign` fills its slot and leaves the message unchanged, which
+  the localnet run in section 5 shows.
+- `SOLANA_DURABLE_NONCE_PUBKEY` is reported set in production to
+  `2bSnZ9d8NLJyGT3VgsjnU4Ncmm8yHcXnNKmepCeNDyiV`; the config var itself is not
+  read here. That account reads initialised on mainnet with authority `8K81…`,
+  and nothing in turf reads the variable.
 - Who holds the `CytJ…` key, and whether it can sign a nonce-anchored settle
   without reordering it. It matters for the third signature `v0.26` asks of every
   settle; if it is a Phantom, it meets the same prerequisite as Alex's.

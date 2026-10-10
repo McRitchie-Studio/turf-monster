@@ -49,6 +49,17 @@ class PendingTransaction < ApplicationRecord
     metadata.present? ? JSON.parse(metadata) : {}
   end
 
+  # The nonce a durable-nonce settle was built on ({account, authority, value}),
+  # or nil for a blockhash row. A nonce row is cosigned with bin/settle-nonce,
+  # never Phantom.
+  def durable_nonce
+    parsed_metadata["durable_nonce"].presence
+  end
+
+  def nonce_anchored?
+    durable_nonce.present?
+  end
+
   def pending?
     status == "pending"
   end

@@ -286,12 +286,12 @@ Phantom must be installed in the browser or available via mobile deep link.
      (`Solana::Cosign::Completer#complete`).
      - Re-runs `entry.assert_enterable!` BEFORE anything irreversible (`:1348`).
      - `Solana::Vault#cosign_expectation` (`:1377-1381`,
-       `app/services/solana/vault.rb:3523-3544`) rebuilds the expectation from
+       `app/services/solana/vault.rb:3543-3564`) rebuilds the expectation from
        the wire the server stored on the `PendingTransaction`, for this entry
        and wallet, and `Solana::Cosign::Expectation` judges the returned bytes
        against it before anything is signed.
      - `Solana::Vault#cosign_and_broadcast_entry` (definition
-       `app/services/solana/vault.rb:3647-3652`, called at
+       `app/services/solana/vault.rb:3667-3672`, called at
        `app/controllers/contests_controller.rb:1399-1407`) fills the admin
        slot, runs a simulation pre-flight, then sends and waits for
        confirmation.

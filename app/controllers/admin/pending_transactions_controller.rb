@@ -153,6 +153,7 @@ module Admin
     def broadcast
       rescue_and_log(target: @tx) do
         raise "Transaction is #{@tx.status}, not pending" unless @tx.pending?
+        refuse_nonce_anchored!
 
         cosigner = require_multisig_cosigner!
         extras   = require_extra_cosigners!(primary: cosigner)
@@ -296,6 +297,7 @@ module Admin
     def rebuild
       rescue_and_log(target: @tx) do
         raise "Transaction is #{@tx.status}, cannot rebuild" unless @tx.pending?
+        refuse_nonce_anchored!
 
         vault    = Solana::Vault.new
         cosigner = Solana::Config::MULTISIG_COSIGNER
@@ -389,6 +391,15 @@ module Admin
     def set_pending_transaction
       @tx = PendingTransaction.find_by(slug: params[:slug])
       return redirect_to admin_pending_transactions_path, alert: "Transaction not found" unless @tx
+    end
+
+    # A nonce-anchored settle never goes to Phantom: Lighthouse lands ahead of
+    # advanceNonceAccount and the wire dies. bin/settle-nonce cosigns it.
+    def refuse_nonce_anchored!
+      return unless @tx.nonce_anchored?
+
+      raise "#{@tx.slug} is nonce-anchored: cosign it with bin/settle-nonce, not Phantom " \
+            "(docs/SOLANA.md, Durable-nonce settlement)"
     end
 
     # OPSEC-010: the cosigner must be one of the vault's multisig signers before

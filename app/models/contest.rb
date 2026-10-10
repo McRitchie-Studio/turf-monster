@@ -911,14 +911,14 @@ class Contest < ApplicationRecord
     vault = Solana::Vault.new
     # Use first non-admin signer as default cosigner placeholder
     cosigner = Solana::Config::MULTISIG_COSIGNER rescue Solana::Keypair.admin.to_base58
-    result = vault.build_settle_contest(slug, winners, cosigner_pubkey: cosigner)
+    result = Solana::SettleNonce.build_settle(vault: vault, slug: slug, settlements: winners, default_cosigner: cosigner)
 
     PendingTransaction.create!(
       tx_type: "settle_contest",
       serialized_tx: result[:serialized_tx],
       target: self,
       initiator_address: Solana::Keypair.admin.to_base58,
-      metadata: { settlements: winners }.to_json
+      metadata: { settlements: winners, durable_nonce: result[:durable_nonce] }.compact.to_json
     )
   end
 

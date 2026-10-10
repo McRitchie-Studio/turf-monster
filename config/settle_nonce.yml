@@ -1,0 +1,30 @@
+# Durable-nonce settlement, per cluster (docs/CHAIN_IS_THE_RECORD.md section 5).
+#
+# Off on both clusters. While a cluster is off, settle builds on a recent
+# blockhash and Alex cosigns in Phantom, exactly as before this file existed.
+#
+# On, Solana::Vault#build_settle_contest makes advanceNonceAccount instruction 0
+# and uses the nonce account's stored value as the recent blockhash. The
+# `cosigner` signs the settle with the Solana CLI keypair file (devnet) or a
+# Ledger (mainnet) and is also the nonce authority, so no other key can advance
+# the nonce under a signed settle. Solana::SettleNonce reads this file.
+#
+# SETTLE_DURABLE_NONCE (1/true/on or 0/false/off) overrides `enabled` for the
+# cluster the app runs on. An enabled cluster with a blank or malformed key
+# raises; it never falls back to the blockhash path.
+#
+# Public keys only. The devnet authority's secret is the 1Password item
+# solana.turf.settle-cosigner.devnet in the studio-agents vault.
+
+devnet:
+  enabled: false
+  nonce_account:
+  cosigner: Bxde5vq5X88ysGMt6T6K7dbi5PKEhP7CWrYXWWWbeEoN
+
+# Owed before this can be enabled (docs/SOLANA.md, "Durable-nonce settlement"):
+# Alex's Ledger pubkey seated as a VaultState signer, and a mainnet nonce
+# account whose authority is that Ledger.
+mainnet-beta:
+  enabled: false
+  nonce_account:
+  cosigner:
