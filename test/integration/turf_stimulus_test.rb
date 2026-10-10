@@ -94,6 +94,25 @@ class TurfStimulusTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "the static controllers are the public pages' controllers, and none is lazy" do
+    assert_equal %w[accordion auto-submit card-filter cost-calculator proof-of-reserves swatch-copy], static_controllers.keys.sort
+    assert_empty static_controllers.keys & lazy_controllers.keys
+  end
+
+  test "a signed-out public page preloads every static controller and the modules it imports" do
+    get teams_path
+    assert_response :success
+    html = response.body
+    imports = page_importmap(html)
+    preloads = preloaded(html)
+
+    static_controllers.each_value do |specifier|
+      graph_of(specifier, imports).grep(OWN).each do |name|
+        assert_includes preloads, name, "#{name} is imported by a static controller and not preloaded"
+      end
+    end
+  end
+
   test "a page without the dev tools neither imports nor preloads them" do
     html = page
     assert_not_includes page_modules(html), "dev_tools"
@@ -133,7 +152,8 @@ class TurfStimulusTest < ActionDispatch::IntegrationTest
     {
       "filter" => "reset", "show-more" => "collapse", "send-gate" => "reset",
       "dev-score-tools" => "reset", "scoring-filter" => "reset", "game-scorer" => "reset",
-      "navbar-preview" => "reset"
+      "navbar-preview" => "reset", "accordion" => "collapse", "card-filter" => "reset",
+      "cost-calculator" => "reset", "swatch-copy" => "reset"
     }.each do |identifier, method|
       # The 300 characters after the attribute hold the rest of the opening tag.
       roots = Dir[VIEWS].sort.flat_map { |file| File.read(file).scan(/data-controller="#{identifier}".{0,300}/m) }

@@ -34,7 +34,6 @@ const { loginAdmin } = require("./helpers");
 
 const SEEDS = '[x-data="seedsBar()"]';
 const BADGE = '[x-data*="entryTokenBadge"]';
-const FILTER = '[x-data*="cardListFilter"]';
 const ATTACHED = { state: "attached" };
 
 // The live component Alpine bound to the element — never the window global.
@@ -235,9 +234,9 @@ test.describe("Alpine factory registration", () => {
     expect(await page.evaluate(serverTotalFrame, modalSeeds)).toEqual(TOTAL_OWNED);
   });
 
-  // entryTokenBadge and cardListFilter had twins that were byte-identical, so
-  // there is no behaviour these can compare — the source scan owns the
-  // single-definition invariant for them. What a browser can still prove, and
+  // entryTokenBadge had a twin that was byte-identical, so there is no
+  // behaviour this can compare — the source scan owns the single-definition
+  // invariant for it. What a browser can still prove, and
   // what a module-only factory would fail, is that the component BINDS on the
   // path importmap timing breaks: a fresh document.
   test("entryTokenBadge binds on both arrival paths", async ({ page }) => {
@@ -253,27 +252,6 @@ test.describe("Alpine factory registration", () => {
     expect(await page.evaluate(shape)).toEqual(WHOLE);
 
     await turboVisit(page, "/contests", BADGE);
-    expect(await page.evaluate(shape)).toEqual(WHOLE);
-  });
-
-  test("cardListFilter binds on both arrival paths", async ({ page }) => {
-    await loginAdmin(page);
-    await page.goto("/teams");
-    await page.waitForSelector(FILTER, ATTACHED);
-    const shape = () => {
-      const el = document.querySelector('[x-data*="cardListFilter"]');
-      const d = el._x_dataStack[0]; // own frame: $data merges ancestors, which can hold these keys
-      return {
-        search: typeof d.search,
-        apply: typeof d.apply,
-        visibleCount: typeof d.visibleCount,
-      };
-    };
-    const WHOLE = { search: "string", apply: "function", visibleCount: "number" };
-    expect(await page.evaluate(shape)).toEqual(WHOLE);
-
-    await page.goto("/contests");
-    await turboVisit(page, "/teams", FILTER);
     expect(await page.evaluate(shape)).toEqual(WHOLE);
   });
 });
