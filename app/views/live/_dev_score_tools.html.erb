@@ -1,21 +1,21 @@
 <%# Dev-only score injectors for the live scoreboard. Locals: games, teams.
 
-    Mirrors mcritchie-studio's tasks/_dev_deploy_tools: an Rails.env.local?
-    gate, an inline Alpine x-data factory (defined before the deferred Alpine
-    CDN runs), and small amber-chrome buttons that POST with the CSRF token.
+    An Rails.env.local? gate around small amber-chrome buttons that the
+    dev-score-tools controller POSTs with the CSRF token.
 
     ONE dropdown, not two. A team plays once per week, so choosing the team
     also chooses the game — the option value carries both, and the operator
     never has to keep a game picker and a team picker agreeing with each other. %>
 <% if Rails.env.local? %>
   <%# Built in the SAME order the <select> renders below (by kickoff, away then
-      home), so the Alpine default lands on the first visible row rather than on
+      home), so the controller's initial value lands on the first visible row rather than on
       whichever team happened to sort first alphabetically. %>
   <% options = games.sort_by { |g| g.kickoff_at || Time.current }
                     .flat_map { |g| [[g, g.away_team], [g, g.home_team]] }
                     .reject { |_g, t| t.nil? } %>
   <% if options.any? %>
-    <div x-data="devScoreTools()" data-test="dev-score-tools"
+    <div data-controller="dev-score-tools" data-test="dev-score-tools"
+         data-dev-score-tools-initial-value="<%= options.first.then { |g, t| "#{g.slug}|#{t.slug}" } %>"
          class="flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50/80 dark:border-amber-700/40 dark:bg-amber-950/30 px-1.5 py-1 flex-wrap">
       <span class="text-[10px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400/90"
             title="Dev/test only — writes real Goal rows so the full pipeline runs">Score</span>
@@ -26,7 +26,7 @@
           "ARI @ GB" / "GB vs ARI" listing had: both rows were selectable but
           neither said which side you were picking. Grouping by game pairs the
           two rows visually so a team is easy to find next to its opponent. %>
-      <select x-model="target" data-test="dev-score-team"
+      <select data-dev-score-tools-target="team" data-action="change->dev-score-tools#pick" data-test="dev-score-team"
               class="px-1.5 py-1 rounded-md text-xs font-medium bg-surface text-secondary border border-subtle max-w-[230px]">
         <% games.sort_by { |g| g.kickoff_at || Time.current }.each do |game| %>
           <% next unless game.home_team && game.away_team %>
@@ -43,7 +43,8 @@
 
       <% [["touchdown", "TD", "6"], ["field_goal", "FG", "3"], ["two_point", "2PT", "2"],
           ["pat", "XP", "1"], ["safety", "SAF", "2"]].each do |type, label, points| %>
-        <button type="button" @click="record('<%= type %>')" :disabled="busy"
+        <button type="button" data-dev-score-tools-target="button"
+                data-action="dev-score-tools#record" data-dev-score-tools-type-param="<%= type %>"
                 data-test="dev-score-<%= type %>"
                 title="Record a <%= type.humanize.downcase %> (<%= points %> points) for the selected team"
                 class="px-2 py-1 rounded-md text-xs font-medium bg-surface text-secondary border border-subtle hover:text-heading disabled:opacity-40 transition whitespace-nowrap">
@@ -55,7 +56,8 @@
           cycle would have stored it. A timeout also spends one of the selected
           team's three. %>
       <% [["play", "Play"], ["first_down", "1st"], ["turnover", "TO"], ["timeout", "T/O"], ["penalty", "Flag"]].each do |kind, label| %>
-        <button type="button" @click="recordPlay('<%= kind %>')" :disabled="busy"
+        <button type="button" data-dev-score-tools-target="button"
+                data-action="dev-score-tools#recordPlay" data-dev-score-tools-kind-param="<%= kind %>"
                 data-test="dev-play-<%= kind %>"
                 title="Record a <%= kind %> in the selected game's play-by-play"
                 class="px-2 py-1 rounded-md text-xs font-medium bg-surface text-secondary border border-subtle hover:text-heading disabled:opacity-40 transition whitespace-nowrap">
@@ -63,58 +65,15 @@
         </button>
       <% end %>
 
-      <button type="button" @click="concludeGame()" :disabled="busy"
+      <button type="button" data-dev-score-tools-target="button" data-action="dev-score-tools#conclude"
               data-test="dev-score-conclude"
               title="Mark the selected game FINAL — reveals the final graphic"
               class="px-2 py-1 rounded-md text-xs font-medium bg-surface text-secondary border border-subtle hover:text-mint-300 disabled:opacity-40 transition">Conclude</button>
 
-      <button type="button" @click="clearGame()" :disabled="busy"
+      <button type="button" data-dev-score-tools-target="button" data-action="dev-score-tools#clear"
               data-test="dev-score-clear"
               title="Clear every goal on the selected game and reset it to kickoff"
               class="px-2 py-1 rounded-md text-xs font-medium bg-surface text-secondary border border-subtle hover:text-red-300 disabled:opacity-40 transition">Clear</button>
     </div>
-    <script>
-      // x-data factory — defined inline before the deferred Alpine CDN runs.
-      function devScoreTools() {
-        return {
-          busy: false,
-          target: '<%= options.first.then { |g, t| "#{g.slug}|#{t.slug}" } %>',
-          async post(path, body) {
-            if (this.busy) return;
-            this.busy = true;
-            try {
-              const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
-              await fetch(path, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
-                body: JSON.stringify(body)
-              });
-            } finally {
-              this.busy = false;
-            }
-          },
-          split() {
-            const [game_slug, team_slug] = this.target.split('|');
-            return { game_slug, team_slug };
-          },
-          record(scoring_type) {
-            const { game_slug, team_slug } = this.split();
-            return this.post('/dev/live_scores/record', { game_slug, team_slug, scoring_type });
-          },
-          recordPlay(kind) {
-            const { game_slug, team_slug } = this.split();
-            return this.post('/dev/live_scores/record_play', { game_slug, team_slug, kind });
-          },
-          clearGame() {
-            const { game_slug } = this.split();
-            return this.post('/dev/live_scores/clear_game', { game_slug });
-          },
-          concludeGame() {
-            const { game_slug } = this.split();
-            return this.post('/dev/live_scores/conclude_game', { game_slug });
-          }
-        };
-      }
-    </script>
   <% end %>
 <% end %>
