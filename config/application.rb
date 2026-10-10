@@ -6,8 +6,9 @@ require "rails/all"
 # you've limited to :test, :development, or :production.
 Bundler.require(*Rails.groups)
 
-# The S3 → Cloudflare R2 switch. Required here, before config/environments/*.rb
-# and config/storage.yml read it, which is why Zeitwerk ignores the file.
+# Object storage (Cloudflare R2) configuration. Required here, before
+# config/environments/*.rb and config/storage.yml read it, which is why Zeitwerk
+# ignores the file.
 require_relative "../lib/storage_backend"
 
 module TurfMonster

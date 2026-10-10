@@ -34,7 +34,7 @@ class DatedCommentAttributionTest < ActiveSupport::TestCase
   DATE = /\b20\d{2}-\d{2}(?:-\d{2})?\b/
   ATTRIBUTION = /#{WHO}[^\d]{0,25}?#{DATE}/
   BARE_DATE = /\b20\d{2}-\d{2}-\d{2}\b/
-  BARE_DATE_CEILING = 286
+  BARE_DATE_CEILING = 285
 
   # [[line_number, comment_text], ...] for one file's source.
   def self.comments(path, src)
