@@ -8,6 +8,8 @@ require "test_helper"
 # matches both and `rows.first` quietly becomes whichever comes first in the
 # document (the hero). The panel has its own file: LiveFocusRenderTest.
 class LiveScoreboardRenderTest < ActionDispatch::IntegrationTest
+  include PageModuleGraph
+
   setup do
     @home = teams(:team_a)
     @away = teams(:team_b)
@@ -208,6 +210,25 @@ class LiveScoreboardRenderTest < ActionDispatch::IntegrationTest
     assert_select "[data-test=?]", "dev-score-touchdown"
     assert_select "[data-test=?]", "dev-score-clear"
     assert_select "[data-test=?]", "dev-score-conclude"
+  end
+
+  # A press straight after a load must land, so the toolbar registers its
+  # controller from its own module tag instead of waiting on the lazy registry.
+  test "the dev score toolbar registers its controller with the page" do
+    get live_path
+    html = response.body
+
+    assert_select '[data-controller="dev-score-tools"][data-action*="turbo:before-cache@document->dev-score-tools#reset"]', 1
+    assert_select '[data-dev-score-tools-target="team"]', 1
+    assert_select 'button[data-dev-score-tools-target="button"]', 12
+    assert_select 'button[data-action="dev-score-tools#record"][data-dev-score-tools-type-param="touchdown"]', 1
+    assert_select 'button[data-action="dev-score-tools#recordPlay"][data-dev-score-tools-kind-param="timeout"]', 1
+    assert_select "[data-test=?] script", "dev-score-tools", 0
+
+    graph = page_modules(html, from: "dev_tools")
+    assert_includes graph, "turf_stimulus"
+    assert_includes graph, "controllers/dev_score_tools_controller"
+    assert_includes graph, "turf/dev_score_tools"
   end
 
   # One across on a phone, two on a tablet, four on a desktop. Asserted on the

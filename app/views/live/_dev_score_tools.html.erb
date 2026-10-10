@@ -13,6 +13,8 @@
                     .flat_map { |g| [[g, g.away_team], [g, g.home_team]] }
                     .reject { |_g, t| t.nil? } %>
   <% if options.any? %>
+    <%# Registers the controller with the page, so a press straight after a load lands. %>
+    <%= javascript_import_module_tag "dev_tools" %>
     <div data-controller="dev-score-tools" data-test="dev-score-tools"
          data-action="turbo:before-cache@document->dev-score-tools#reset"
          class="flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50/80 dark:border-amber-700/40 dark:bg-amber-950/30 px-1.5 py-1 flex-wrap">

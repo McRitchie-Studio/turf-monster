@@ -5,7 +5,7 @@
 // "@hotwired/stimulus" is the engine's vendored copy (the engine pins it), so
 // the two applications share one Stimulus.
 //
-// Two ways a controller registers:
+// Three ways a controller registers:
 //
 //   - LAZY, for a controller only some pages use (every admin and dev tool):
 //     it is fetched and registered the first time an element names it, so no
@@ -18,11 +18,15 @@
 //     moment a page loads: import it here and application.register it below.
 //     It is connected before the page has loaded. Add its module, and the
 //     modules it imports, to every_page in config/importmap.rb.
+//   - A PAGE'S OWN MODULE TAG, for a page-specific controller that is pressed
+//     the moment its page loads: the view imports a small module that
+//     registers it (dev_tools, from live/_dev_score_tools), with
+//     javascript_import_module_tag. It is connected before the page has
+//     loaded, and only that page fetches it.
 import { Application } from "@hotwired/stimulus"
 import { watchLazyControllers } from "studio/lazy_controllers"
 
 export const LAZY = {
-  "dev-score-tools": () => import("controllers/dev_score_tools_controller"),
   "filter": () => import("controllers/filter_controller"),
   "game-scorer": () => import("controllers/game_scorer_controller"),
   "hub-actions": () => import("controllers/hub_actions_controller"),

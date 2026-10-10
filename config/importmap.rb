@@ -27,6 +27,7 @@ pin "page_experiments"
 # names it. test/integration/turf_stimulus_test.rb holds this list to the
 # import graph. Locals, not constants: this file is evaluated on every redraw.
 pin "turf_stimulus"
+pin "dev_tools", preload: false
 every_page = %w[]
 %w[controllers turf].each do |directory|
   Rails.root.glob("app/javascript/#{directory}/*.js").sort.each do |file|

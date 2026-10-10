@@ -12,8 +12,9 @@ class TurfStimulusTest < ActionDispatch::IntegrationTest
   OWN = %r{\A(?:controllers|turf)/}
 
   # identifier => module specifier, for both ways a controller registers.
-  def static_controllers
-    source = ENTRY.read
+  def static_controllers = entry_registrations(ENTRY.read)
+
+  def entry_registrations(source)
     imports = source.scan(/^import (\w+) from "(controllers\/\w+)"$/).to_h
     source.scan(/^application\.register\("([a-z-]+)", (\w+)\)$/).to_h { |name, constant| [ name, imports.fetch(constant) ] }
   end
@@ -22,7 +23,12 @@ class TurfStimulusTest < ActionDispatch::IntegrationTest
     ENTRY.read.scan(/^  "([a-z-]+)": \(\) => import\("(controllers\/\w+)"\),?$/).to_h
   end
 
-  def registered = static_controllers.merge(lazy_controllers)
+  # A controller a view registers from its own module tag: entry module => { identifier => specifier }.
+  def page_tag_controllers
+    { "dev_tools" => entry_registrations(Rails.root.join("app/javascript/dev_tools.js").read) }
+  end
+
+  def registered = static_controllers.merge(lazy_controllers, *page_tag_controllers.values)
 
   def controller_source(identifier) = Rails.root.join("app/javascript/#{registered.fetch(identifier)}.js").read
 
@@ -57,8 +63,9 @@ class TurfStimulusTest < ActionDispatch::IntegrationTest
   end
 
   test "the registry is read, and every controller file is in it once" do
-    assert_operator lazy_controllers.size, :>=, 9
-    assert_empty static_controllers.keys & lazy_controllers.keys
+    assert_operator lazy_controllers.size, :>=, 8
+    assert_equal({ "dev-score-tools" => "controllers/dev_score_tools_controller" }, page_tag_controllers.fetch("dev_tools"))
+    assert_equal registered.size, static_controllers.size + lazy_controllers.size + page_tag_controllers.values.sum(&:size)
 
     files = CONTROLLERS.glob("*_controller.js").map { |file| "controllers/#{file.basename('.js')}" }
     assert_equal files.sort, registered.values.sort
@@ -85,6 +92,12 @@ class TurfStimulusTest < ActionDispatch::IntegrationTest
       assert_empty graph.grep(OWN) & every_page, "#{specifier} is lazy, yet every page already imports part of it"
       assert_empty graph.grep(OWN) & preloaded(html)
     end
+  end
+
+  test "a page without the dev tools neither imports nor preloads them" do
+    html = page
+    assert_not_includes page_modules(html), "dev_tools"
+    assert_empty preloaded(html) & [ "dev_tools", "controllers/dev_score_tools_controller", "turf/dev_score_tools" ]
   end
 
   test "every controller, action and target a view names exists" do
