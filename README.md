@@ -46,7 +46,7 @@ bin/tm up
 
 Seeds create 5 users, 48 World Cup teams plus 31 knockout-slot placeholders, 32 NFL teams, 38 NFL schedule venues, 104 World Cup matches (72 group-stage, 32 knockout), 256 NFL regular season games across 17 slates, and 85 players.
 
-**Required `.env` keys**: `RAILS_MASTER_KEY` (not optional — seed encrypts managed wallets via `secret_key_base`), `GOOGLE_CLIENT_ID`/`SECRET`, `AWS_ACCESS_KEY_ID`/`SECRET`, `SOLANA_ADMIN_KEY`, `SOLANA_RPC_URL` (server-side; `SOLANA_PUBLIC_RPC_URL` is the optional browser-facing sibling), `MANAGED_WALLET_ENCRYPTION_KEY`, and mail transport credentials for local email delivery. Current 1Password item names live in McRitchie Studio's credential docs.
+**Required `.env` keys**: `RAILS_MASTER_KEY` (not optional — seed encrypts managed wallets via `secret_key_base`), `GOOGLE_CLIENT_ID`/`SECRET`, `SOLANA_ADMIN_KEY`, `SOLANA_RPC_URL` (server-side; `SOLANA_PUBLIC_RPC_URL` is the optional browser-facing sibling), `MANAGED_WALLET_ENCRYPTION_KEY`, and mail transport credentials for local email delivery. Current 1Password item names live in McRitchie Studio's credential docs.
 
 ## Prerequisites (single-app path)
 

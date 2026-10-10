@@ -40,7 +40,8 @@ Rails.application.configure do
     config.cache_store = :null_store
   end
 
-  # Store uploaded files on the local file system (see config/storage.yml for options).
+  # The R2 dev bucket when .env.development carries the R2 dev keys, else the
+  # local file system (see config/storage.yml and lib/storage_backend.rb).
   config.active_storage.service = StorageBackend.remote_in_development? ? :amazon_dev : :local
 
   # Don't care if the mailer can't send.

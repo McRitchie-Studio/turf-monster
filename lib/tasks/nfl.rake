@@ -71,7 +71,7 @@ namespace :nfl do
 end
 
 # NFL player database — Person + Athlete seeded from nflverse, with headshots
-# cached to S3 via studio-engine's ImageCache. See
+# cached to R2 via studio-engine's ImageCache. See
 # app/services/nflverse/seed_players.rb.
 namespace :nfl do
   desc "Seed Person + Athlete from nflverse players.csv. MIN_SEASON=2026 STATUS=ACT SKIP_HEADSHOTS=1 VERBOSE=1"
@@ -154,7 +154,7 @@ namespace :nfl do
   task audit_merged_rows: :environment do
     # Safe to run anywhere, including `heroku run` against production: the audit
     # opens only `.readonly` relations and issues no INSERT, UPDATE or DELETE.
-    # It fetches the public nflverse players.csv over HTTPS and needs no AWS
+    # It fetches the public nflverse players.csv over HTTPS and needs no storage
     # credentials, no secrets, and no write access.
     result = Nflverse::MergedRowAudit.call(
       min_season: Integer(ENV.fetch("MIN_SEASON", Nflverse::MergedRowAudit::DEFAULT_MIN_SEASON))

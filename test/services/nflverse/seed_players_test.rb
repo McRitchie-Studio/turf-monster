@@ -37,18 +37,28 @@ class Nflverse::SeedPlayersTest < ActiveSupport::TestCase
     Nflverse::SeedPlayers.new(upload_headshots: false)
   end
 
-  # Headshots cache through Studio::S3, which on R2 signs with its own keys and
-  # on AWS with the SDK's default chain. The guard must accept either and refuse
-  # neither-present, or the seeder breaks the day the AWS keys are unset.
-  test "headshot caching needs storage credentials: R2 keys or an AWS key, not neither" do
+  # Headshots cache through Studio::S3, which signs with the R2 keys. A keyless
+  # boot holds StorageBackend's placeholder pair, which is not a credential, and
+  # an AWS key in the environment is not one either: AWS S3 is retired.
+  test "headshot caching needs real R2 keys: not none, not the keyless placeholder, not an AWS key" do
     original = Studio.s3_access_key_id
     Studio.s3_access_key_id = nil
-    refute Nflverse::SeedPlayers.storage_credentials?({})
-    assert Nflverse::SeedPlayers.storage_credentials?({ "AWS_ACCESS_KEY_ID" => "AKIA" })
+    refute Nflverse::SeedPlayers.storage_credentials?
+    Studio.s3_access_key_id = StorageBackend::UNCONFIGURED_KEY
+    refute Nflverse::SeedPlayers.storage_credentials?
+    with_aws_key { refute Nflverse::SeedPlayers.storage_credentials? }
     Studio.s3_access_key_id = "r2-sentinel-id"
-    assert Nflverse::SeedPlayers.storage_credentials?({})
+    assert Nflverse::SeedPlayers.storage_credentials?
   ensure
     Studio.s3_access_key_id = original
+  end
+
+  def with_aws_key
+    previous = ENV["AWS_ACCESS_KEY_ID"]
+    ENV["AWS_ACCESS_KEY_ID"] = "AKIAEXAMPLEONLYTEST"
+    yield
+  ensure
+    previous.nil? ? ENV.delete("AWS_ACCESS_KEY_ID") : ENV["AWS_ACCESS_KEY_ID"] = previous
   end
 
   test "creates a Person and an Athlete from one row" do
@@ -290,11 +300,11 @@ class Nflverse::SeedPlayersTest < ActiveSupport::TestCase
     assert_equal before, [Person.count, Athlete.count]
   end
 
-  test "the constructor refuses to run headshots without AWS credentials" do
-    ENV.stub :[], nil do
-      error = assert_raises(RuntimeError) { Nflverse::SeedPlayers.new(upload_headshots: true) }
-      assert_match(/AWS_ACCESS_KEY_ID/, error.message)
-    end
+  # This suite boots keyless, so the real initializer's settings are in force.
+  test "the constructor refuses to run headshots on a keyless boot, naming the R2 keys" do
+    error = assert_raises(RuntimeError) { Nflverse::SeedPlayers.new(upload_headshots: true) }
+    assert_match(/R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY/, error.message)
+    refute_match(/AWS/, error.message)
   end
 
   test "call filters by status and last_season" do

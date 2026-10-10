@@ -1,84 +1,135 @@
 # frozen_string_literal: true
 
-# THE MOVE OFF AWS S3 ONTO CLOUDFLARE R2 (asset-library Wave 2; the recipe is
-# mcritchie-studio's docs/agents/system/asset-library-plan.md, and this module is
-# the one mcritchie-industries and moms-app already moved with). Two switches,
-# both config vars, both inert until set, so this code ships before the move and
-# each step of the move is a config change rather than a deploy:
+# OBJECT STORAGE IS CLOUDFLARE R2, AND ONLY R2. AWS S3 is retired (no key, no
+# bucket), so there is no s3 or mirror stage to select: one could only crash
+# (turf-storage-runs-r2-only). The fleet's rules are mcritchie-studio's
+# docs/agents/modules/object-storage.md.
 #
-#   ACTIVE_STORAGE_BACKEND  s3 (default) → mirror_to_r2 → mirror_to_s3 → r2
-#     Read by config/storage.yml, and by config/environments/development.rb
-#     and OgImageAttachable through .remote_in_development?. The four services blob rows name (amazon,
-#     amazon_dev, amazon_public, amazon_public_dev) keep their NAMES through all
-#     four stages; only what they resolve to changes, so no blob row is ever
-#     rewritten. The two mirror stages write both stores, which is what makes
-#     Active Storage's half of the move reversible by config.
+# Two config vars survive from the move, and both now have exactly one value:
 #
-#   STUDIO_S3_BACKEND       s3 (default) | r2
-#     Read by config/initializers/studio.rb through .studio_s3_settings below.
-#     Studio::S3 (email banners) writes to exactly one store, so it moves in ONE
-#     step, followed at once by a catch-up copy of anything written since.
+#   ACTIVE_STORAGE_BACKEND  r2   read by config/storage.yml
+#   STUDIO_S3_BACKEND       r2   read by config/initializers/studio.rb through
+#                                .studio_s3_settings (Studio::S3: email banners,
+#                                cached headshots)
 #
-# R2 connection details come from R2_ENDPOINT, R2_ACCESS_KEY_ID and
-# R2_SECRET_ACCESS_KEY (the prod pair on production, the dev pair on QA; both in
-# 1Password item r2.turf-monster). Bucket NAMES are the same on both stores.
+# UNSET MEANS R2. Any other value RAISES at boot, naming the variable: a dyno
+# still carrying `s3` or a mirror stage from the move would otherwise look
+# configured while pointing at a store that no longer exists.
 #
-# UNLIKE INDUSTRIES, R2_PUBLIC_URL IS REQUIRED on any R2 stage. This app serves
-# raw object URLs to strangers: og:images to link unfurlers (OgImageAttachable)
-# and email banners to inboxes (Studio::S3.url). R2 serves an object anonymously
-# only through a domain attached to its bucket, so without one those URLs would
-# 400; better to refuse at boot than to ship broken previews.
+# The connection comes from four variables (1Password item r2.turf-monster: the
+# prod pair on production, the dev pair on QA and in local development):
 #
-# An unknown value RAISES at boot rather than falling back to S3: a typo in a
-# config var would otherwise look like a successful flip while every write kept
-# landing on the old store.
+#   R2_ENDPOINT  R2_ACCESS_KEY_ID  R2_SECRET_ACCESS_KEY  R2_PUBLIC_URL
+#
+# R2_PUBLIC_URL is as required as the keys. This app serves raw object URLs to
+# strangers (og:images to link unfurlers, email banners to inboxes, headshots to
+# every visitor) and R2 serves an object anonymously only through a domain
+# attached to its bucket.
+#
+# WHO MUST HOLD THEM (.r2_required?):
+#   production   always. QA boots RAILS_ENV=production too, so this covers both
+#                deployed apps. A missing variable raises at boot, by name.
+#   elsewhere    only once ANY of the four is set (a laptop's .env.development).
+#                Then all four are required, so half a configuration fails by
+#                name instead of at the first upload.
+#   keyless      test, CI, and a development boot with none of the four. No
+#                remote service is defined (Active Storage stays on Disk) and
+#                Studio::S3 is pointed at an endpoint that cannot resolve, with
+#                placeholder keys, so nothing falls back to the AWS SDK's
+#                default endpoint or its credential chain.
 module StorageBackend
-  ACTIVE_STORAGE_STAGES = %w[s3 mirror_to_r2 mirror_to_s3 r2].freeze
-  STUDIO_S3_STAGES = %w[s3 r2].freeze
+  BACKEND = "r2"
+  R2_VARIABLES = %w[R2_ENDPOINT R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_PUBLIC_URL].freeze
+
+  # The public domains attached to the two buckets (the same values the deployed
+  # apps hold as R2_PUBLIC_URL; object-storage.md's fleet census).
+  PRODUCTION_PUBLIC_URL = "https://assets.turfmonster.media"
+  DEV_PUBLIC_URL = "https://assets-dev.turfmonster.media"
+
+  # Where a keyless process's Studio::S3 client points. `.invalid` is reserved
+  # (RFC 2606) and never resolves, so a write from an unconfigured laptop fails
+  # on the spot rather than reaching AWS through the SDK's default endpoint. The
+  # placeholder key pair is not a credential: it stops the SDK walking its
+  # default chain (~/.aws, then an instance-metadata lookup that hangs in CI).
+  # Reads still render, from the dev bucket's public domain.
+  UNCONFIGURED_ENDPOINT = "https://r2-not-configured.invalid"
+  UNCONFIGURED_KEY = "r2-not-configured"
+  UNCONFIGURED_SETTINGS = {
+    s3_endpoint: UNCONFIGURED_ENDPOINT, s3_region: "auto",
+    s3_access_key_id: UNCONFIGURED_KEY, s3_secret_access_key: UNCONFIGURED_KEY,
+    s3_public_url: DEV_PUBLIC_URL
+  }.freeze
 
   module_function
 
   def active_storage_stage(env = ENV)
-    stage(env, "ACTIVE_STORAGE_BACKEND", ACTIVE_STORAGE_STAGES)
+    backend(env, "ACTIVE_STORAGE_BACKEND")
   end
 
   def studio_s3_stage(env = ENV)
-    stage(env, "STUDIO_S3_BACKEND", STUDIO_S3_STAGES)
+    backend(env, "STUDIO_S3_BACKEND")
   end
 
-  # Whether development talks to a remote bucket (amazon_dev / amazon_public_dev)
-  # rather than Disk: AWS keys on the S3 stage, as before; any other stage has
-  # already required its R2 keys in config/storage.yml.
+  # Whether this process must hold a complete R2 configuration.
+  def r2_required?(env = ENV, production: production?)
+    production || R2_VARIABLES.any? { |name| env[name].to_s.strip != "" }
+  end
+
+  # Whether development talks to the remote dev bucket (amazon_dev /
+  # amazon_public_dev) rather than Disk: whenever R2 is configured at all.
   def remote_in_development?(env = ENV)
-    active_storage_stage(env) != "s3" || env["AWS_ACCESS_KEY_ID"].to_s.strip != ""
+    r2_required?(env, production: false)
   end
 
-  # The Studio.configure settings for the current stage: {} on S3 (the engine's
-  # defaults, exactly as before), the R2 connection and public domain on r2.
-  def studio_s3_settings(env = ENV)
-    return {} if studio_s3_stage(env) == "s3"
+  # The four R2 values by variable name, or nil for a keyless non-production
+  # process. Raises, naming the first missing variable, when R2 is required.
+  def r2_connection(env = ENV, production: production?)
+    return nil unless r2_required?(env, production: production)
+
+    R2_VARIABLES.to_h { |name| [ name, require!(env, name) ] }
+  end
+
+  # The whole storage configuration, checked in one call at boot
+  # (config/initializers/studio.rb), so a bad value stops the process there
+  # rather than whenever config/storage.yml is first parsed.
+  def verify!(env = ENV, production: production?)
+    active_storage_stage(env)
+    studio_s3_stage(env)
+    r2_connection(env, production: production)
+    true
+  end
+
+  # The Studio.configure settings for Studio::S3.
+  def studio_s3_settings(env = ENV, production: production?)
+    studio_s3_stage(env)
+    r2 = r2_connection(env, production: production)
+    return UNCONFIGURED_SETTINGS unless r2
 
     {
-      s3_endpoint: require!(env, "R2_ENDPOINT"),
+      s3_endpoint: r2.fetch("R2_ENDPOINT"),
       s3_region: "auto",
-      s3_access_key_id: require!(env, "R2_ACCESS_KEY_ID"),
-      s3_secret_access_key: require!(env, "R2_SECRET_ACCESS_KEY"),
-      s3_public_url: require!(env, "R2_PUBLIC_URL")
+      s3_access_key_id: r2.fetch("R2_ACCESS_KEY_ID"),
+      s3_secret_access_key: r2.fetch("R2_SECRET_ACCESS_KEY"),
+      s3_public_url: r2.fetch("R2_PUBLIC_URL")
     }
   end
 
-  def stage(env, name, allowed)
+  def backend(env, name)
     value = env[name].to_s.strip
-    return allowed.first if value.empty?
-    return value if allowed.include?(value)
+    return BACKEND if value.empty? || value == BACKEND
 
-    raise ArgumentError, "#{name}=#{value.inspect} is not one of #{allowed.join(', ')}"
+    raise ArgumentError, "#{name}=#{value.inspect} is not supported: AWS S3 was retired on 2026-10-10 and this " \
+                         "app stores objects on Cloudflare R2 only. Set #{name}=#{BACKEND} or unset it."
   end
 
   def require!(env, name)
     value = env[name].to_s.strip
-    raise ArgumentError, "#{name} must be set when a storage backend is r2" if value.empty?
+    raise ArgumentError, "#{name} must be set: this app stores objects on Cloudflare R2 (lib/storage_backend.rb)" if value.empty?
 
     value
+  end
+
+  def production?
+    defined?(Rails) && Rails.respond_to?(:env) && Rails.env.production?
   end
 end
