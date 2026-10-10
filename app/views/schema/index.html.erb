@@ -3,17 +3,17 @@
     return `columns` as a String, not an Array — the gem's bare
     `idx.columns.join` then raises NoMethodError. Array() normalises both.
     Delete this file once the fix lands upstream in studio-engine. %>
-<section class="mb-6" x-data="{ search: '' }">
+<section class="mb-6" data-controller="filter" data-action="turbo:before-cache@document->filter#reset">
   <div class="flex items-center justify-between mb-4">
     <h2 class="text-2xl font-bold text-heading">Database Schema</h2>
     <span class="text-sm text-muted"><%= @tables.size %> tables</span>
   </div>
 
   <div class="mb-6 relative">
-    <input type="text" placeholder="Filter tables..." x-model="search"
-           @keydown.escape.prevent="search = ''"
+    <input type="text" placeholder="Filter tables..."
+           data-filter-target="input" data-action="input->filter#update keydown.esc->filter#clear"
            class="input-field pr-10 py-2.5 text-sm placeholder-muted" />
-    <button x-show="search.length > 0" x-cloak @click="search = ''"
+    <button hidden data-filter-target="clear" data-action="filter#clear"
             class="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-heading transition">
       <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
         <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -24,7 +24,7 @@
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
     <% @tables.each do |table| %>
       <div class="card p-0 overflow-hidden"
-           x-show="!search || '<%= table[:name] %>'.includes(search.toLowerCase())" x-cloak>
+           data-filter-target="item" data-filter-text="<%= table[:name] %>">
         <div class="px-4 py-3 border-b border-subtle flex items-center justify-between">
           <h3 class="text-heading font-bold text-sm font-mono"><%= table[:name] %></h3>
           <span class="text-xs text-muted"><%= table[:columns].size %> columns</span>
@@ -82,9 +82,7 @@
     <% end %>
   </div>
 
-  <template x-if="search && document.querySelectorAll('[x-show]:not([style*=\'display: none\'])').length === 0">
-    <div class="empty-state py-12 text-center">
-      <p class="text-muted">No tables matching "<span x-text="search"></span>"</p>
-    </div>
-  </template>
+  <div class="empty-state py-12 text-center" hidden data-filter-target="empty">
+    <p class="text-muted">No tables matching "<span data-filter-target="query"></span>"</p>
+  </div>
 </section>

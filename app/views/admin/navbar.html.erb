@@ -173,24 +173,27 @@
         <% breakpoints.each do |bp|
              marker_pct = ((bp[:device_w] - bp[:min]).to_f / (bp[:max] - bp[:min]) * 100).round(1)
         %>
-          <div x-data="{ w: <%= bp[:device_w] %>, scrolled: false }" class="navbar-card">
+          <div class="navbar-card" data-controller="navbar-preview"
+               data-navbar-preview-device-width-value="<%= bp[:device_w] %>"
+               data-action="turbo:before-cache@document->navbar-preview#reset">
             <div class="flex items-center gap-3 mb-2">
               <span class="text-sm font-bold text-heading"><%= bp[:name] %></span>
-              <span class="text-xs text-muted font-mono" x-text="w + 'px'"><%= bp[:device_w] %>px</span>
+              <span class="text-xs text-muted font-mono" data-navbar-preview-target="label"><%= bp[:device_w] %>px</span>
               <div class="flex-1 max-w-xs slider-wrap">
-                <input type="range" min="<%= bp[:min] %>" max="<%= bp[:max] %>" x-model="w">
+                <input type="range" min="<%= bp[:min] %>" max="<%= bp[:max] %>" value="<%= bp[:device_w] %>"
+                       data-navbar-preview-target="slider" data-action="input->navbar-preview#resize">
                 <div class="slider-marker" style="left: <%= marker_pct %>%;"></div>
               </div>
-              <button @click="w = <%= bp[:device_w] %>" class="text-xs text-primary hover:text-primary-300 font-medium transition whitespace-nowrap">
+              <button type="button" data-action="navbar-preview#fit" class="text-xs text-primary hover:text-primary-300 font-medium transition whitespace-nowrap">
                 <%= bp[:device] %> (<%= bp[:device_w] %>px)
               </button>
               <span class="text-xs text-muted font-mono"><%= bp[:min] %>–<%= bp[:max] %>px</span>
-              <button @click="scrolled = !scrolled" class="text-xs font-bold px-2 py-0.5 rounded transition"
-                      :class="scrolled ? 'bg-primary text-white' : 'bg-surface-alt text-secondary hover:text-heading'">
+              <button type="button" data-navbar-preview-target="toggle" data-action="navbar-preview#toggleScrolled"
+                      class="text-xs font-bold px-2 py-0.5 rounded transition bg-surface-alt text-secondary hover:text-heading">
                 Scrolled
               </button>
             </div>
-            <div class="navbar-preview <%= bp[:classes] %>" :class="scrolled && 'is-scrolled-preview'" :style="'width: ' + w + 'px; --nav-p: ' + (scrolled ? 1 : 0)">
+            <div class="navbar-preview <%= bp[:classes] %>" data-navbar-preview-target="frame" style="width: <%= bp[:device_w] %>px; --nav-p: 0">
               <%= render "layouts/navbar", preview: true, show_logged_in: section[:show_logged_in] %>
             </div>
           </div>

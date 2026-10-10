@@ -991,6 +991,47 @@ Landing pages are `LandingPage` records (name, headline, subheadline, badge, cta
 
 **`/account/set_inviter`**: After signup, JS `POST /account/set_inviter?inviter_slug=…` (inviter's slug from landing context). `AccountsController#set_inviter` atomically sets `invited_by_id` (idempotent — 200 if already set). Builds the referral chain for leaderboard attribution.
 
+## Stimulus Controllers (this app's own)
+
+New behaviour, and every Alpine site that is converted, is a Stimulus controller. The engine's rule is `studio-engine/docs/FRONT_END_STANDARD.md`; this is how the app follows it. The ratchet `test/views/alpine_and_inline_script_ratchet_test.rb` counts what is left per surface, and a count only goes down.
+
+**Where things live.**
+
+| What | Where | Tested by |
+|---|---|---|
+| The application and its registries | `app/javascript/turf_stimulus.js` | `test/integration/turf_stimulus_test.rb` |
+| A controller: glue that reads values, finds targets, handles actions | `app/javascript/controllers/<name>_controller.js` | the page's Playwright spec |
+| Its logic: a plain module with no DOM and no imports | `app/javascript/turf/<name>.js` | `test/javascript/<name>.test.mjs`, run by `test/lib/javascript_unit_test.rb` |
+
+The app runs its own Stimulus application on Stimulus' own attributes (`data-controller`, `data-action`, `data-<name>-target`); the engine's controllers run on `data-studio-controller`. Both import the engine's vendored `@hotwired/stimulus`, so this app pins none and bundles no `stimulus-rails`.
+
+**Three ways a controller registers.** Pick by who presses it and when:
+
+1. **Lazy** (every admin and dev tool): listed in `LAZY` in `turf_stimulus.js`, and fetched the first time an element names it. No other page pays for it. Until it registers, its actions do nothing, so its markup must already be the initial state. The root element lists the registered ones in `data-lazy-controllers`; a spec waits on that with `lazyController(page, name)` (`e2e/helpers.js`) before its first press.
+2. **A page's own module tag** (page-specific, and pressed the moment the page loads): the view renders `javascript_import_module_tag` for a small module that registers the controller. `live/_dev_score_tools` imports `dev_tools` this way.
+3. **Static** (on every page, or pressed by a player at once): imported and registered in `turf_stimulus.js`, and listed in `every_page` in `config/importmap.rb` so it is preloaded. There is none yet.
+
+`config/importmap.rb` pins every file under `controllers/` and `turf/`, and preloads only the static ones. A production page with no controller on it fetches one extra module, `turf_stimulus`.
+
+**State.** Decide where it lives, then follow the matching rule:
+
+- **In the markup** (a field's value, a checkbox, a `hidden` attribute): `connect()` reads it and never overwrites it, so nothing typed before the controller arrived is lost. The element also binds its reset to `turbo:before-cache@document`, so a page restored by Back starts as a fresh one does.
+- **In the controller** (a game's score, a simulated total): `connect()` draws the initial state, and `disconnect()` clears every timer.
+
+**Replacing each directive.**
+
+| Alpine | Replacement |
+|---|---|
+| `x-show` with `x-cloak` | the `hidden` attribute in the markup, toggled by the controller (Tailwind's preflight makes `[hidden]` win over a display class) |
+| `x-text`, `:class`, `:style`, `:disabled` | a target the controller writes; the first value is server-rendered |
+| `x-model` | a target read on its `input` or `change` action |
+| `x-for` over a constant | an ERB loop |
+| `x-for` over client data | a `<template>` target the controller clones and fills with `textContent` (`admin/scoring`); never HTML built from strings |
+| `@event` and inline `on<event>` | `data-action`, with `data-<name>-<param>-param` for the argument |
+| an inline `<script>` factory | the controller, with its logic in `app/javascript/turf` |
+
+Still Alpine until the engine changes: the `<body>` scope and its `dev-mode` class, and anything rendered inside the engine's modal host.
+
 ## Alpine + ERB Constraints (critical — silent failures)
 
 These are gotchas that produce **silent no-ops or phantom DOM** rather than errors. Every UI-touching change must respect them. Keep this neutral doc as the app-level source of truth; mirror cross-app lessons into McRitchie Studio's agent docs when they apply beyond Turf Monster.

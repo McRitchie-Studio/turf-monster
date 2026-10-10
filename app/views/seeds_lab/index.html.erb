@@ -22,7 +22,7 @@
 </style>
 
 <div class="max-w-6xl mx-auto py-8 px-4 space-y-8"
-     x-data="seedsLab()">
+     data-controller="seeds-lab">
 
   <%# ── Header ── %>
   <div>
@@ -40,33 +40,33 @@
       <div class="flex items-baseline gap-6">
         <div>
           <div class="text-muted text-[10px] uppercase tracking-wide">Total seeds</div>
-          <div class="text-heading font-mono font-bold text-xl" x-text="seeds">0</div>
+          <div class="text-heading font-mono font-bold text-xl" data-seeds-lab-target="label" data-label="seeds">0</div>
         </div>
         <div>
           <div class="text-muted text-[10px] uppercase tracking-wide">Level</div>
-          <div class="font-mono font-bold text-xl" style="color: var(--color-primary-ink);" x-text="displayLevel">1</div>
+          <div class="font-mono font-bold text-xl" style="color: var(--color-primary-ink);" data-seeds-lab-target="label" data-label="level">1</div>
         </div>
         <div>
           <div class="text-muted text-[10px] uppercase tracking-wide">Toward next</div>
-          <div class="text-secondary font-mono text-xl"><span x-text="displaySeeds">0</span> / 100</div>
+          <div class="text-secondary font-mono text-xl"><span data-seeds-lab-target="label" data-label="toward">0</span> / 100</div>
         </div>
       </div>
       <div class="flex flex-wrap gap-2">
         <button class="btn btn-success btn-sm"
-                :disabled="levelingUp"
-                @click="add(25)">+25 <span class="opacity-60 text-[10px] ml-1">new contest</span></button>
+                data-seeds-lab-target="simButton"
+                data-action="seeds-lab#add" data-seeds-lab-amount-param="25">+25 <span class="opacity-60 text-[10px] ml-1">new contest</span></button>
         <button class="btn btn-primary btn-sm"
-                :disabled="levelingUp"
-                @click="add(19)">+19 <span class="opacity-60 text-[10px] ml-1">2nd entry</span></button>
+                data-seeds-lab-target="simButton"
+                data-action="seeds-lab#add" data-seeds-lab-amount-param="19">+19 <span class="opacity-60 text-[10px] ml-1">2nd entry</span></button>
         <button class="btn btn-outline btn-sm"
-                :disabled="levelingUp"
-                @click="add(14)">+14 <span class="opacity-60 text-[10px] ml-1">3rd entry</span></button>
+                data-seeds-lab-target="simButton"
+                data-action="seeds-lab#add" data-seeds-lab-amount-param="14">+14 <span class="opacity-60 text-[10px] ml-1">3rd entry</span></button>
         <button class="btn btn-outline btn-sm"
-                :disabled="levelingUp"
-                @click="jumpTo(95)">Jump → 95</button>
+                data-seeds-lab-target="simButton"
+                data-action="seeds-lab#jump" data-seeds-lab-to-param="95">Jump → 95</button>
         <button class="btn btn-outline btn-sm"
-                :disabled="levelingUp"
-                @click="reset()">Reset</button>
+                data-seeds-lab-target="simButton"
+                data-action="seeds-lab#reset">Reset</button>
       </div>
     </div>
     <p class="text-muted text-xs">
@@ -82,12 +82,12 @@
         <h3 class="text-heading font-semibold text-sm">Shine Controls</h3>
         <p class="text-muted text-xs">Applies to Variant 1 only. Other variants keep the hardcoded continuous shine.</p>
       </div>
-      <button class="btn btn-success btn-sm" @click="triggerShine()">Trigger now</button>
+      <button class="btn btn-success btn-sm" data-action="seeds-lab#triggerShine">Trigger now</button>
     </div>
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
       <div>
         <label class="text-muted text-[10px] uppercase tracking-wide block mb-1">Mode</label>
-        <select x-model="shineMode"
+        <select data-seeds-lab-target="mode" data-action="change->seeds-lab#shineChanged"
                 class="w-full text-sm rounded-md border border-subtle px-2 py-1.5"
                 style="background: var(--color-surface-alt); color: var(--color-text);">
           <option value="continuous">Continuous (every 2.5s)</option>
@@ -96,24 +96,26 @@
           <option value="off">Off</option>
         </select>
       </div>
-      <div x-show="shineMode === 'pulse'">
+      <div hidden data-seeds-lab-target="pulseOnly">
         <label class="text-muted text-[10px] uppercase tracking-wide block mb-1">
-          Interval: <span class="text-secondary font-mono" x-text="shineInterval + 's'">5s</span>
-          <span class="text-muted ml-1" x-text="'(shine ≈ ' + (shineInterval * 0.25).toFixed(1) + 's)'"></span>
+          Interval: <span class="text-secondary font-mono" data-seeds-lab-target="label" data-label="shineInterval">5s</span>
+          <span class="text-muted ml-1" data-seeds-lab-target="label" data-label="shineIntervalHint"></span>
         </label>
-        <input type="range" min="3" max="20" step="0.5" x-model.number="shineInterval" class="w-full">
+        <input type="range" min="3" max="20" step="0.5" value="5" class="w-full"
+               data-seeds-lab-target="interval" data-action="input->seeds-lab#shineChanged">
       </div>
       <div>
         <label class="text-muted text-[10px] uppercase tracking-wide block mb-1">
-          Initial delay: <span class="text-secondary font-mono" x-text="shineDelay + 's'">0s</span>
+          Initial delay: <span class="text-secondary font-mono" data-seeds-lab-target="label" data-label="shineDelay">0s</span>
         </label>
-        <input type="range" min="0" max="10" step="0.5" x-model.number="shineDelay" class="w-full">
+        <input type="range" min="0" max="10" step="0.5" value="0" class="w-full"
+               data-seeds-lab-target="delay" data-action="input->seeds-lab#shineChanged">
       </div>
       <div>
         <label class="text-muted text-[10px] uppercase tracking-wide block mb-1">Active CSS</label>
         <code class="block text-[10px] font-mono text-secondary px-2 py-1 rounded border border-subtle truncate"
               style="background: var(--color-inset);"
-              x-text="shineDebug()"></code>
+              data-seeds-lab-target="label" data-label="shineDebug"></code>
       </div>
     </div>
   </div>
@@ -128,8 +130,7 @@
           <h2 class="text-heading font-semibold text-base">1 · Segmented</h2>
           <span class="text-[10px] font-bold px-2 py-0.5 rounded-full"
                 style="background: rgb(var(--color-primary-500-rgb) / 0.15); color: var(--color-primary-badge-ink); border: 1px solid rgb(var(--color-primary-500-rgb) / 0.3);"
-                :class="levelingUp ? 'level-up-pop' : ''"
-                x-text="'Level ' + displayLevel">Level 1</span>
+                data-seeds-lab-target="pop label" data-label="levelBadge">Level 1</span>
         </div>
         <p class="text-muted text-xs mt-1">Five hard-divided rectangles (20 seeds each). Shine clipped to each section — gaps stay clean.</p>
       </div>
@@ -137,41 +138,30 @@
       <div class="bg-inset border border-subtle rounded-lg px-3 py-3">
         <div class="seeds-bar-continuous flex gap-1.5"
              style="height: 22px;"
-             :style="{ '--bar-progress': displaySeeds }">
-          <template x-for="i in 5" :key="i">
+             data-seeds-lab-target="styled" data-style="progress">
+          <% (1..5).each do |i| %>
             <div class="flex-1 relative overflow-hidden rounded-md"
                  style="background: rgb(var(--color-primary-500-rgb) / 0.22); border: 2px solid rgb(var(--color-primary-500-rgb) / 0.7); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);">
               <%# Green fill — width derives from inherited --bar-progress; one transition drives all 5 sections in lockstep %>
               <div class="absolute inset-y-0 left-0"
-                   style="background: var(--color-cta);"
-                   :style="{ width: 'clamp(0%, calc((var(--bar-progress) - ' + ((i - 1) * 20) + ') * 5%), 100%)' }"></div>
-              <%# Per-section shimmer — wrapped in x-if so 'Trigger now' can remount + restart the animation %>
-              <template x-if="shineVisible && shineMode !== 'off'">
-                <div class="absolute top-0 bottom-0 pointer-events-none"
-                     :style="{
-                       left: -(i - 1) * 100 + '%',
-                       width: '500%',
-                       background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.5) 50%, transparent 100%)',
-                       animationName: shineAnimationName,
-                       animationDuration: shineAnimationDuration + 's',
-                       animationTimingFunction: 'ease-in-out',
-                       animationDelay: shineDelay + 's',
-                       animationIterationCount: shineIterationCount,
-                       animationFillMode: shineFillMode
-                     }"></div>
-              </template>
+                   style="background: var(--color-cta); width: clamp(0%, calc((var(--bar-progress) - <%= (i - 1) * 20 %>) * 5%), 100%);"></div>
+              <%# Per-section shimmer. The controller sets its animation, and hides it for a moment so 'Trigger now' restarts it. %>
+              <div class="absolute top-0 bottom-0 pointer-events-none" hidden
+                   style="left: <%= -(i - 1) * 100 %>%; width: 500%; background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.5) 50%, transparent 100%);"
+                   data-seeds-lab-target="shimmer"></div>
             </div>
-          </template>
+          <% end %>
         </div>
         <div class="flex items-center justify-end mt-2 font-mono text-[11px] text-secondary">
           <%# Rotating-integer counter — one tall column of 0..100, transform slides up by displaySeeds × line-height. Same easing as the bar so they stay locked together. %>
           <span class="inline-flex items-baseline gap-1 font-mono font-bold text-sm" style="color: var(--color-primary-ink);">
             <span class="relative overflow-hidden inline-block text-right" style="height: 1.25em; width: 3.1ch; line-height: 1.25em;">
               <span class="block"
-                    :style="{ transform: 'translateY(-' + (displaySeeds * 1.25) + 'em)', transition: 'transform 1.2s cubic-bezier(0.16, 1, 0.3, 1)' }">
-                <template x-for="n in 101" :key="n">
-                  <span class="block" style="height: 1.25em; line-height: 1.25em;" x-text="n - 1">0</span>
-                </template>
+                    style="transform: translateY(-0em); transition: transform 1.2s cubic-bezier(0.16, 1, 0.3, 1);"
+                    data-seeds-lab-target="styled" data-style="roller">
+                <% (0..100).each do |n| %>
+                  <span class="block" style="height: 1.25em; line-height: 1.25em;"><%= n %></span>
+                <% end %>
               </span>
             </span>
             <span class="text-secondary text-xs font-normal">seeds</span>
@@ -187,8 +177,7 @@
           <h2 class="text-heading font-semibold text-base">1b · Segmented + Gap Glow</h2>
           <span class="text-[10px] font-bold px-2 py-0.5 rounded-full"
                 style="background: rgb(var(--color-primary-500-rgb) / 0.15); color: var(--color-primary-badge-ink); border: 1px solid rgb(var(--color-primary-500-rgb) / 0.3);"
-                :class="levelingUp ? 'level-up-pop' : ''"
-                x-text="'Level ' + displayLevel">Level 1</span>
+                data-seeds-lab-target="pop label" data-label="levelBadge">Level 1</span>
         </div>
         <p class="text-muted text-xs mt-1">Same as 1 but the gaps catch a faint wash — wave reads as more continuous, sections still pop brightest.</p>
       </div>
@@ -203,24 +192,22 @@
           </div>
           <%# Segments on top, with their own brighter shimmer — same continuous-fill trick as Variant 1 %>
           <div class="seeds-bar-continuous flex gap-1.5 h-full relative"
-               :style="{ '--bar-progress': displaySeeds }">
-            <template x-for="i in 5" :key="'1b-' + i">
+               data-seeds-lab-target="styled" data-style="progress">
+            <% (1..5).each do |i| %>
               <div class="flex-1 relative overflow-hidden rounded-md"
                    style="background: rgb(var(--color-primary-500-rgb) / 0.22); border: 2px solid rgb(var(--color-primary-500-rgb) / 0.7); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);">
                 <div class="absolute inset-y-0 left-0"
-                     style="background: var(--color-cta);"
-                     :style="{ width: 'clamp(0%, calc((var(--bar-progress) - ' + ((i - 1) * 20) + ') * 5%), 100%)' }"></div>
+                     style="background: var(--color-cta); width: clamp(0%, calc((var(--bar-progress) - <%= (i - 1) * 20 %>) * 5%), 100%);"></div>
                 <div class="absolute top-0 bottom-0 pointer-events-none"
-                     :style="{ left: -(i - 1) * 100 + '%', width: '500%' }"
-                     style="background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.5) 50%, transparent 100%);
+                     style="left: <%= -(i - 1) * 100 %>%; width: 500%; background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.5) 50%, transparent 100%);
                             animation: seedsShimmer 2.5s ease-in-out infinite;"></div>
               </div>
-            </template>
+            <% end %>
           </div>
         </div>
         <div class="flex items-center justify-between mt-2 font-mono text-[11px] text-secondary">
-          <span x-text="sectionsFilled + ' / 5 sections'">0 / 5 sections</span>
-          <span x-text="displaySeeds + ' / 100 seeds'">0 / 100 seeds</span>
+          <span data-seeds-lab-target="label" data-label="sections">0 / 5 sections</span>
+          <span data-seeds-lab-target="label" data-label="seedsOf">0 / 100 seeds</span>
         </div>
       </div>
     </div>
@@ -232,8 +219,7 @@
           <h2 class="text-heading font-semibold text-base">2 · Continuous + Ticks</h2>
           <span class="text-[10px] font-bold px-2 py-0.5 rounded-full"
                 style="background: rgb(var(--color-primary-500-rgb) / 0.15); color: var(--color-primary-badge-ink); border: 1px solid rgb(var(--color-primary-500-rgb) / 0.3);"
-                :class="levelingUp ? 'level-up-pop' : ''"
-                x-text="'Level ' + displayLevel">Level 1</span>
+                data-seeds-lab-target="pop label" data-label="levelBadge">Level 1</span>
         </div>
         <p class="text-muted text-xs mt-1">Single smooth bar (matches today). Tick marks at 20/40/60/80 hint at the five sections.</p>
       </div>
@@ -243,14 +229,14 @@
              style="height: 22px; background: rgb(var(--color-primary-500-rgb) / 0.06); border: 1px solid rgb(var(--color-primary-500-rgb) / 0.25);">
           <%# Fill %>
           <div class="absolute inset-y-0 left-0"
-               style="background: var(--color-cta); transition: width 1.2s cubic-bezier(0.16, 1, 0.3, 1);"
-               :style="{ width: displaySeeds + '%' }"></div>
+               style="background: var(--color-cta); transition: width 1.2s cubic-bezier(0.16, 1, 0.3, 1); width: 0%;"
+               data-seeds-lab-target="styled" data-style="fill"></div>
           <%# Shimmer on top of fill %>
           <div class="absolute inset-0 pointer-events-none overflow-hidden">
             <div class="absolute inset-y-0"
                  style="background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.3) 50%, transparent 100%);
-                        animation: seedsShimmer 2.5s ease-in-out infinite; width: 40%;"
-                 :style="{ left: Math.max(0, displaySeeds - 40) + '%' }"></div>
+                        animation: seedsShimmer 2.5s ease-in-out infinite; width: 40%; left: 0%;"
+                 data-seeds-lab-target="styled" data-style="fillShimmer"></div>
           </div>
           <%# Tick marks at 20/40/60/80 %>
           <div class="absolute inset-y-0 pointer-events-none" style="left: 20%; width: 2px; background: rgba(255,255,255,0.45);"></div>
@@ -260,14 +246,13 @@
           <%# Centered counter %>
           <span class="absolute inset-0 flex items-center justify-center text-[11px] font-mono font-bold"
                 style="color: var(--color-primary-ink);"
-                x-text="displaySeeds + ' / 100'">0 / 100</span>
+                data-seeds-lab-target="label" data-label="counter">0 / 100</span>
           <span class="absolute inset-0 flex items-center justify-center text-[11px] font-mono font-bold"
                 style="color: white; clip-path: inset(0 100% 0 0);"
-                :style="{ 'clip-path': 'inset(0 ' + (100 - displaySeeds) + '% 0 0)' }"
-                x-text="displaySeeds + ' / 100'">0 / 100</span>
+                data-seeds-lab-target="styled label" data-style="counterClip" data-label="counter">0 / 100</span>
         </div>
         <div class="flex items-center justify-between mt-2 font-mono text-[11px] text-secondary">
-          <span x-text="sectionsFilled + ' / 5 sections'">0 / 5 sections</span>
+          <span data-seeds-lab-target="label" data-label="sections">0 / 5 sections</span>
           <span>↑ ticks at 20 · 40 · 60 · 80</span>
         </div>
       </div>
@@ -280,34 +265,29 @@
           <h2 class="text-heading font-semibold text-base">3 · Stepped Sprouts</h2>
           <span class="text-[10px] font-bold px-2 py-0.5 rounded-full"
                 style="background: rgb(var(--color-primary-500-rgb) / 0.15); color: var(--color-primary-badge-ink); border: 1px solid rgb(var(--color-primary-500-rgb) / 0.3);"
-                :class="levelingUp ? 'level-up-pop' : ''"
-                x-text="'Level ' + displayLevel">Level 1</span>
+                data-seeds-lab-target="pop label" data-label="levelBadge">Level 1</span>
         </div>
         <p class="text-muted text-xs mt-1">Five sprouts grow into trees. Most gamified — reads as Duolingo-style streak progress.</p>
       </div>
 
       <div class="bg-inset border border-subtle rounded-lg px-3 py-4">
         <div class="flex items-end justify-around gap-2">
-          <template x-for="i in 5" :key="i">
+          <% (1..5).each do |i| %>
             <div class="flex flex-col items-center gap-2 flex-1">
               <div class="text-3xl leading-none select-none"
-                   style="transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.5s ease;"
-                   :style="{
-                     transform: sectionFill(i) >= 100 ? 'scale(1.15)' : 'scale(0.85)',
-                     filter: sectionFill(i) >= 100 ? 'grayscale(0) opacity(1)' : 'grayscale(0.7) opacity(0.45)'
-                   }"
-                   x-text="sectionFill(i) >= 100 ? '🌳' : '🌱'"></div>
+                   style="transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.5s ease; transform: scale(0.85); filter: grayscale(0.7) opacity(0.45);"
+                   data-seeds-lab-target="sprout" data-index="<%= i %>">🌱</div>
               <div class="h-1.5 w-full rounded-full overflow-hidden" style="background: rgb(var(--color-primary-500-rgb) / 0.06);">
                 <div class="h-full rounded-full"
-                     style="background: var(--color-cta); transition: width 1.2s cubic-bezier(0.16, 1, 0.3, 1);"
-                     :style="{ width: sectionFill(i) + '%' }"></div>
+                     style="background: var(--color-cta); transition: width 1.2s cubic-bezier(0.16, 1, 0.3, 1); width: 0%;"
+                     data-seeds-lab-target="sectionFill" data-index="<%= i %>"></div>
               </div>
             </div>
-          </template>
+          <% end %>
         </div>
         <div class="flex items-center justify-between mt-3 font-mono text-[11px] text-secondary">
-          <span x-text="sectionsFilled + ' of 5 grown'">0 of 5 grown</span>
-          <span x-text="displaySeeds + ' / 100 seeds'">0 / 100 seeds</span>
+          <span data-seeds-lab-target="label" data-label="grown">0 of 5 grown</span>
+          <span data-seeds-lab-target="label" data-label="seedsOf">0 / 100 seeds</span>
         </div>
       </div>
     </div>
@@ -319,8 +299,7 @@
           <h2 class="text-heading font-semibold text-base">4 · Battery Cells</h2>
           <span class="text-[10px] font-bold px-2 py-0.5 rounded-full"
                 style="background: rgb(var(--color-primary-500-rgb) / 0.15); color: var(--color-primary-badge-ink); border: 1px solid rgb(var(--color-primary-500-rgb) / 0.3);"
-                :class="levelingUp ? 'level-up-pop' : ''"
-                x-text="'Level ' + displayLevel">Level 1</span>
+                data-seeds-lab-target="pop label" data-label="levelBadge">Level 1</span>
         </div>
         <p class="text-muted text-xs mt-1">Five cells inside a battery casing. Reads as "energy filling up" — feels rewarding without explanation.</p>
       </div>
@@ -329,21 +308,21 @@
         <div class="flex items-center justify-center gap-0">
           <div class="flex gap-1 p-1.5 rounded-md"
                style="border: 2px solid var(--color-cta);"
-               :class="levelingUp ? 'level-up-pop' : ''">
-            <template x-for="i in 5" :key="i">
+               data-seeds-lab-target="pop">
+            <% (1..5).each do |i| %>
               <div class="relative overflow-hidden rounded-sm"
                    style="width: 32px; height: 22px; background: rgb(var(--color-primary-500-rgb) / 0.06);">
                 <div class="absolute inset-y-0 left-0"
-                     style="background: var(--color-cta); transition: width 1.2s cubic-bezier(0.16, 1, 0.3, 1);"
-                     :style="{ width: sectionFill(i) + '%' }"></div>
+                     style="background: var(--color-cta); transition: width 1.2s cubic-bezier(0.16, 1, 0.3, 1); width: 0%;"
+                     data-seeds-lab-target="sectionFill" data-index="<%= i %>"></div>
               </div>
-            </template>
+            <% end %>
           </div>
           <div style="width: 5px; height: 12px; background: var(--color-cta); border-radius: 0 2px 2px 0; margin-left: -1px;"></div>
         </div>
         <div class="flex items-center justify-between mt-3 font-mono text-[11px] text-secondary">
-          <span x-text="sectionsFilled + ' / 5 cells'">0 / 5 cells</span>
-          <span x-text="displaySeeds + ' / 100 seeds'">0 / 100 seeds</span>
+          <span data-seeds-lab-target="label" data-label="cells">0 / 5 cells</span>
+          <span data-seeds-lab-target="label" data-label="seedsOf">0 / 100 seeds</span>
         </div>
       </div>
     </div>
@@ -357,113 +336,3 @@
     All buttons are disabled while the level-up sequence is running.
   </div>
 </div>
-
-<script>
-  function seedsLab() {
-    return {
-      seeds: 0,
-      displaySeeds: 0,
-      displayLevel: 1,
-      levelingUp: false,
-
-      // ── Shine config (Variant 1) ──
-      shineMode: 'continuous',   // 'continuous' | 'pulse' | 'once' | 'off'
-      shineInterval: 5,          // seconds — pulse cycle (shine + pause)
-      shineDelay: 0,             // seconds — initial delay before first shine
-      shineVisible: true,        // toggle false→true to remount shimmer (restarts CSS animation)
-
-
-      get shineAnimationName() {
-        return this.shineMode === 'pulse' ? 'seedsShimmerPulse' : 'seedsShimmer';
-      },
-      get shineAnimationDuration() {
-        return this.shineMode === 'pulse' ? this.shineInterval : 2.5;
-      },
-      get shineIterationCount() {
-        return this.shineMode === 'once' ? 1 : 'infinite';
-      },
-      get shineFillMode() {
-        return this.shineMode === 'once' ? 'forwards' : 'none';
-      },
-
-      shineDebug() {
-        if (this.shineMode === 'off') return 'animation: none';
-        var name = this.shineAnimationName;
-        var dur = this.shineAnimationDuration + 's';
-        var delay = this.shineDelay + 's';
-        var count = this.shineIterationCount;
-        return name + ' ' + dur + ' ease-in-out ' + delay + ' ' + count;
-      },
-
-      triggerShine() {
-        var self = this;
-        // Force-restart any in-flight animation by unmounting + remounting the shimmer divs.
-        self.shineVisible = false;
-        setTimeout(function() { self.shineVisible = true; }, 30);
-      },
-
-      get level() { return Math.floor(this.seeds / 100) + 1; },
-      get towardNext() { return this.seeds % 100; },
-      get sectionsFilled() { return Math.floor(this.displaySeeds / 20); },
-
-      sectionFill(idx) {
-        // idx is 1-indexed. Each section covers 20 seeds.
-        return Math.max(0, Math.min(100, (this.displaySeeds - (idx - 1) * 20) * 5));
-      },
-
-      add(amount) {
-        if (this.levelingUp) return;
-        var prevLevel = this.level;
-        this.seeds += amount;
-        var newLevel = this.level;
-
-        if (newLevel > prevLevel) {
-          this.runLevelUp(newLevel);
-        } else {
-          this.displaySeeds = this.towardNext;
-          this.displayLevel = this.level;
-        }
-      },
-
-      jumpTo(target) {
-        if (this.levelingUp) return;
-        // Set seeds to a specific value within the current level (does not trigger level-up).
-        var baseLevel = Math.floor(this.seeds / 100) * 100;
-        this.seeds = baseLevel + Math.min(99, Math.max(0, target));
-        this.displaySeeds = this.towardNext;
-        this.displayLevel = this.level;
-      },
-
-      reset() {
-        if (this.levelingUp) return;
-        this.seeds = 0;
-        this.displaySeeds = 0;
-        this.displayLevel = 1;
-      },
-
-      runLevelUp(newLvl) {
-        var self = this;
-        self.levelingUp = true;
-
-        // Phase 1: animate fill to 100% (CSS transition handles the smooth motion)
-        self.displaySeeds = 100;
-
-        // Phase 2: bump level number (matches existing _slate_progress_xp timing)
-        setTimeout(function() {
-          self.displayLevel = newLvl;
-        }, 1500);
-
-        // Phase 3: reset bar to 0 (drains via the same CSS transition)
-        setTimeout(function() {
-          self.displaySeeds = 0;
-        }, 2800);
-
-        // Phase 4: refill to leftover progress in the new level
-        setTimeout(function() {
-          self.displaySeeds = self.towardNext;
-          self.levelingUp = false;
-        }, 3000);
-      }
-    };
-  }
-</script>

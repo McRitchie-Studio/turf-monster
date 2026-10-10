@@ -144,14 +144,14 @@
   <% end %>
 
   <%# Actions — buttons and POST forms; a flex row, not the hub_section tile grid. %>
-  <section>
+  <section data-controller="hub-actions">
     <h2 class="label-upper font-bold mb-3">Actions</h2>
     <div class="flex flex-wrap gap-3">
       <button type="button"
-              @click="showNavSpinner(); refreshBalance().finally(function() { hideNavSpinner(); })"
+              data-action="hub-actions#refreshBalance"
               class="btn btn-outline btn-sm">Refresh Balance</button>
       <button type="button"
-              @click="$dispatch('navbar-replay-level')"
+              data-action="hub-actions#replayLevel"
               class="btn btn-outline btn-sm">Replay Level</button>
       <%= button_to(geo_override_active? ? "Clear simulation" : "Simulate WA",
             admin_geo_toggle_path, method: :post,

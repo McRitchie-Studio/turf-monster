@@ -124,7 +124,7 @@ The app connects to the TurfVault Anchor program for contest escrow. Users with 
 
 ## Architecture
 
-- Rails 8.1 with ERB views, Tailwind CSS, Alpine.js
+- Rails 8.1 with ERB views, Tailwind CSS, Stimulus (the pages already converted) and Alpine.js (the rest)
 - Shared [Studio engine](https://github.com/amcritchie/studio-engine) for auth, error handling, and theme system
 - [SolanaStudio](https://github.com/amcritchie/solana-studio) gem for Solana RPC and transaction building
 - Slug-based foreign keys for teams, games, players, and home arenas

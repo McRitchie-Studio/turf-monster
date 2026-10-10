@@ -3,24 +3,24 @@
 # the value to paste when one moves.
 ---
 admin:
-  x_data: 21
-  x_show: 26
-  x_if: 10
-  x_for: 11
-  x_model: 25
-  x_text: 93
+  x_data: 13
+  x_show: 16
+  x_if: 8
+  x_for: 5
+  x_model: 14
+  x_text: 62
   x_html: 0
-  x_bind: 67
-  x_on: 48
+  x_bind: 23
+  x_on: 27
   x_init: 2
   x_ref: 3
-  x_cloak: 13
+  x_cloak: 9
   x_transition: 0
   x_effect: 1
   x_other: 0
   alpine_api: 13
-  inline_script: 14
-  inline_handler: 29
+  inline_script: 10
+  inline_handler: 8
 entry:
   x_data: 49
   x_show: 91

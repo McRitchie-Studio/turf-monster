@@ -2,9 +2,10 @@
 
 <%# The drop announcement, sent by hand. Top to bottom: who it goes to (the
     exact count), how far a send has got, the Send form, then the rendered
-    emails. Send stays disabled until the drop time unless "Send early" is
-    ticked; the server enforces both that and the typed count
-    (DropAnnouncement#send!), the disabled button is only the courtesy. %>
+    emails. Send renders disabled, and the send-gate controller enables it once
+    the typed count matches and, before the drop time, "Send early" is ticked;
+    the server enforces both (DropAnnouncement#send!), the disabled button is
+    only the courtesy. %>
 <div class="max-w-7xl mx-auto py-8 px-4 space-y-6" data-test="admin-drop-announcement">
   <div class="flex flex-wrap items-end justify-between gap-3">
     <div>
@@ -43,26 +44,28 @@
     </p>
   <% end %>
 
-  <div class="card p-5" x-data="{ early: false, typed: '' }">
+  <div class="card p-5" data-controller="send-gate" data-action="turbo:before-cache@document->send-gate#reset"
+       data-send-gate-count-value="<%= @recipient_count %>"
+       data-send-gate-needs-early-value="<%= !@dropped %>"
+       data-send-gate-confirm-value="Send the drop announcement to <%= @recipient_count %> <%= "address".pluralize(@recipient_count) %>? This cannot be undone.">
     <%= form_with url: admin_drop_signups_announcement_path, method: :post, local: true,
-          data: { turbo: false, test: "announcement-send-form" },
-          html: { onsubmit: "return confirm('Send the drop announcement to #{@recipient_count} #{'address'.pluralize(@recipient_count)}? This cannot be undone.')" } do |f| %>
+          data: { turbo: false, test: "announcement-send-form", action: "submit->send-gate#confirm" } do |f| %>
       <div class="flex flex-wrap items-end gap-4">
         <label class="block">
           <span class="block text-sm text-secondary mb-1">Type <strong class="font-mono text-heading"><%= @recipient_count %></strong> to confirm</span>
           <%= f.text_field :confirm_count, value: nil, inputmode: "numeric", autocomplete: "off",
-                class: "input w-32 font-mono", "x-model": "typed", data: { test: "announcement-confirm-count" } %>
+                class: "input w-32 font-mono",
+                data: { test: "announcement-confirm-count", send_gate_target: "typed", action: "input->send-gate#update" } %>
         </label>
         <% unless @dropped %>
           <label class="flex items-center gap-2 text-sm text-secondary">
-            <%= f.check_box :send_early, { "x-model": "early", data: { test: "announcement-send-early" } }, "1", "0" %>
+            <%= f.check_box :send_early, { data: { test: "announcement-send-early", send_gate_target: "early", action: "change->send-gate#update" } }, "1", "0" %>
             Send early (it hasn't dropped yet)
           </label>
         <% end %>
         <%= f.submit "Send drop announcement", class: "btn btn-primary",
-              data: { test: "announcement-send" },
-              disabled: @recipient_count.zero?,
-              ":disabled": "#{@recipient_count.zero?} || typed.trim() !== '#{@recipient_count}' || (#{!@dropped} && !early)" %>
+              data: { test: "announcement-send", send_gate_target: "submit" },
+              disabled: true %>
       </div>
       <% unless @dropped %>
         <p class="text-xs text-muted mt-2">Before the drop the button stays disabled unless "Send early" is ticked.</p>

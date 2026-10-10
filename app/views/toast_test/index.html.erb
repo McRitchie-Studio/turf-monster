@@ -1,6 +1,6 @@
 <% content_for(:title, "Toast Test — Turf Monster") %>
 
-<div class="max-w-2xl mx-auto py-10 space-y-10">
+<div class="max-w-2xl mx-auto py-10 space-y-10" data-controller="toast-demo">
   <div>
     <h1 class="text-heading text-2xl font-bold mb-1">Toast Notifications</h1>
     <p class="text-muted text-sm">Test page for floating toast notifications. Fixed width, auto-dismiss after 4s unless buttons are present.</p>
@@ -12,15 +12,18 @@
     <p class="text-secondary text-sm">Title + message with close button. Auto-generated title from type when omitted.</p>
     <div class="flex flex-wrap gap-3">
       <button class="btn btn-success btn-sm"
-              onclick="toast({ type: 'notice', message: 'Entry confirmed successfully.' })">
+              data-action="toast-demo#fire"
+              data-toast-demo-detail-param='{"type": "notice", "message": "Entry confirmed successfully."}'>
         Success
       </button>
       <button class="btn btn-danger btn-sm"
-              onclick="toast({ type: 'alert', message: 'Failed to submit entry.' })">
+              data-action="toast-demo#fire"
+              data-toast-demo-detail-param='{"type": "alert", "message": "Failed to submit entry."}'>
         Error
       </button>
       <button class="btn btn-outline btn-sm"
-              onclick="toast({ type: 'notice', title: 'Custom Title', message: 'With explicit title text.', duration: 10000 })">
+              data-action="toast-demo#fire"
+              data-toast-demo-detail-param='{"type": "notice", "title": "Custom Title", "message": "With explicit title text.", "duration": 10000}'>
         Custom Title (10s)
       </button>
     </div>
@@ -32,11 +35,13 @@
     <p class="text-secondary text-sm">Auto-dismiss only, no X button.</p>
     <div class="flex flex-wrap gap-3">
       <button class="btn btn-success btn-sm"
-              onclick="toast({ type: 'notice', message: 'Picks saved automatically.', dismissible: false })">
+              data-action="toast-demo#fire"
+              data-toast-demo-detail-param='{"type": "notice", "message": "Picks saved automatically.", "dismissible": false}'>
         Success (no X)
       </button>
       <button class="btn btn-danger btn-sm"
-              onclick="toast({ type: 'alert', message: 'Connection lost. Retrying...', dismissible: false })">
+              data-action="toast-demo#fire"
+              data-toast-demo-detail-param='{"type": "alert", "message": "Connection lost. Retrying...", "dismissible": false}'>
         Error (no X)
       </button>
     </div>
@@ -48,11 +53,13 @@
     <p class="text-secondary text-sm">Avatar or logo instead of the type icon.</p>
     <div class="flex flex-wrap gap-3">
       <button class="btn btn-primary btn-sm"
-              onclick="toast({ title: 'Turf Monster', message: 'Contest is now open for entries.', image: '/logo.png' })">
+              data-action="toast-demo#fire"
+              data-toast-demo-detail-param='{"title": "Turf Monster", "message": "Contest is now open for entries.", "image": "/logo.png"}'>
         App Logo
       </button>
       <button class="btn btn-outline btn-sm"
-              onclick="toast({ title: 'Turf Monster', message: 'Your balance has been updated.', image: '/favicon.png' })">
+              data-action="toast-demo#fire"
+              data-toast-demo-detail-param='{"title": "Turf Monster", "message": "Your balance has been updated.", "image": "/favicon.png"}'>
         Favicon
       </button>
     </div>
@@ -63,13 +70,13 @@
     <h2 class="text-heading text-lg font-semibold">With Buttons</h2>
     <p class="text-secondary text-sm">Action buttons — toast stays until clicked. Clicking "Accept" fires a follow-up toast.</p>
     <div class="flex flex-wrap gap-3">
-      <button class="btn btn-primary btn-sm" onclick="demoInvite()">
+      <button class="btn btn-primary btn-sm" data-action="toast-demo#demo" data-toast-demo-name-param="invite">
         Invite (Accept / Decline)
       </button>
-      <button class="btn btn-danger btn-sm" onclick="demoDelete()">
+      <button class="btn btn-danger btn-sm" data-action="toast-demo#demo" data-toast-demo-name-param="delete">
         Delete Confirm
       </button>
-      <button class="btn btn-outline btn-sm" onclick="demoUndo()">
+      <button class="btn btn-outline btn-sm" data-action="toast-demo#demo" data-toast-demo-name-param="undo">
         Undo Action
       </button>
     </div>
@@ -81,14 +88,16 @@
     <p class="text-secondary text-sm">Frosted glass halo behind the toast — backdrop-filter blur with gradient fade.</p>
     <div class="flex flex-wrap gap-3">
       <button class="btn btn-success btn-sm"
-              onclick="toast({ type: 'notice', message: 'Entry confirmed successfully.', blurShadow: true, duration: 10000 })">
+              data-action="toast-demo#fire"
+              data-toast-demo-detail-param='{"type": "notice", "message": "Entry confirmed successfully.", "blurShadow": true, "duration": 10000}'>
         Success (blur)
       </button>
       <button class="btn btn-danger btn-sm"
-              onclick="toast({ type: 'alert', message: 'Failed to submit entry.', blurShadow: true, duration: 10000 })">
+              data-action="toast-demo#fire"
+              data-toast-demo-detail-param='{"type": "alert", "message": "Failed to submit entry.", "blurShadow": true, "duration": 10000}'>
         Error (blur)
       </button>
-      <button class="btn btn-primary btn-sm" onclick="demoBlurButtons()">
+      <button class="btn btn-primary btn-sm" data-action="toast-demo#demo" data-toast-demo-name-param="blurButtons">
         With Buttons (blur)
       </button>
     </div>
@@ -99,13 +108,14 @@
     <h2 class="text-heading text-lg font-semibold">Stacking</h2>
     <p class="text-secondary text-sm">Latest on top, older toasts collapse into peek strips. Click a peek strip to expand the full stack.</p>
     <div class="flex flex-wrap gap-3">
-      <button class="btn btn-primary btn-sm" onclick="demoStack()">
+      <button class="btn btn-primary btn-sm" data-action="toast-demo#demo" data-toast-demo-name-param="stack">
         Fire 3 Toasts
       </button>
-      <button class="btn btn-outline btn-sm" onclick="demoStackSlow()">
+      <button class="btn btn-outline btn-sm" data-action="toast-demo#demo" data-toast-demo-name-param="stackSlow">
         Slow Stack (1s apart)
       </button>
-      <button class="btn btn-outline btn-sm" onclick="toast({ type: 'notice', title: 'Permanent', message: 'This stays until dismissed.', duration: 0 })">
+      <button class="btn btn-outline btn-sm" data-action="toast-demo#fire"
+              data-toast-demo-detail-param='{"type": "notice", "title": "Permanent", "message": "This stays until dismissed.", "duration": 0}'>
         Permanent
       </button>
     </div>
@@ -121,68 +131,3 @@
     </div>
   </div>
 </div>
-
-<script>
-  function toast(detail) {
-    window.dispatchEvent(new CustomEvent('toast', { detail: detail }));
-  }
-
-  function demoInvite() {
-    toast({
-      title: 'Contest Invite',
-      message: 'Alex invited you to Matchday 2.',
-      image: '/logo.png',
-      buttons: [
-        { label: 'Accept', style: 'primary', onclick: function() { toast({ title: 'Accepted!', message: 'You joined Matchday 2.' }); } },
-        { label: 'Decline', style: 'outline' }
-      ]
-    });
-  }
-
-  function demoDelete() {
-    toast({
-      type: 'alert',
-      title: 'Clear Picks?',
-      message: 'This will remove all 6 selections from your entry.',
-      buttons: [
-        { label: 'Clear', style: 'danger', onclick: function() { toast({ type: 'alert', title: 'Cleared', message: 'All picks removed.' }); } },
-        { label: 'Cancel', style: 'outline' }
-      ]
-    });
-  }
-
-  function demoUndo() {
-    toast({
-      title: 'Pick Removed',
-      message: 'USA vs Mexico removed from entry.',
-      buttons: [
-        { label: 'Undo', style: 'primary', onclick: function() { toast({ title: 'Restored', message: 'Pick added back to entry.' }); } }
-      ]
-    });
-  }
-
-  function demoBlurButtons() {
-    toast({
-      title: 'Contest Invite',
-      message: 'Alex invited you to Matchday 2.',
-      image: '/logo.png',
-      blurShadow: true,
-      buttons: [
-        { label: 'Accept', style: 'primary', onclick: function() { toast({ title: 'Accepted!', message: 'You joined Matchday 2.', blurShadow: true }); } },
-        { label: 'Decline', style: 'outline' }
-      ]
-    });
-  }
-
-  function demoStack() {
-    toast({ type: 'notice', title: 'Step 1', message: 'Entry submitted.', duration: 15000 });
-    setTimeout(function() { toast({ type: 'notice', title: 'Step 2', message: 'Payment confirmed.', duration: 15000 }); }, 300);
-    setTimeout(function() { toast({ type: 'alert', title: 'Warning', message: 'Game locks in 5 minutes.', duration: 15000 }); }, 600);
-  }
-
-  function demoStackSlow() {
-    toast({ type: 'notice', title: 'First', message: 'This appears first.', duration: 20000 });
-    setTimeout(function() { toast({ type: 'notice', title: 'Second', message: 'Pushes first down into a peek strip.', duration: 20000 }); }, 1000);
-    setTimeout(function() { toast({ type: 'alert', title: 'Third', message: 'Now there are 3 stacked. Click a peek to expand.', duration: 20000 }); }, 2000);
-  }
-</script>
