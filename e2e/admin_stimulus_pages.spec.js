@@ -113,12 +113,19 @@ test("the dashboard shows five users and reveals the rest on Show more", async (
 
 test("the hub's Refresh Balance and Replay Level each act once per press", async ({ page }) => {
   await loginAdmin(page);
+  // A cache-cold navbar reads the balance itself, and a second read is refused
+  // while one is out. The pill can show a cached number before that read
+  // lands, so the press waits until no read is out.
+  let outstanding = 0;
+  const isBalance = (request) => /\/admin\/usdc_balance/.test(request.url());
+  page.on("request", (request) => { if (isBalance(request)) outstanding += 1; });
+  const settle = (request) => { if (isBalance(request)) outstanding -= 1; };
+  page.on("requestfinished", settle);
+  page.on("requestfailed", settle);
   await page.goto("/admin/hub");
   await lazyController(page, "hub-actions");
-
-  // A cache-cold navbar reads the balance itself, and a second read is refused
-  // while one is out: wait for the pill before pressing.
   await expect(page.locator("[data-balance-display]").first()).toHaveText(/\$\d/);
+  await expect.poll(() => outstanding).toBe(0);
 
   // The balance read is held until the spinner has been seen over it.
   let release = null;
