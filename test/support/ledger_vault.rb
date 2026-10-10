@@ -51,8 +51,9 @@ class LedgerVault < FakeVault
     @ledger_accounts = {}
     @ledger_signatures = {}
     @ledger_statuses = {}
+    @ledger_transactions = {}
     super(tokens: tokens, account_infos: @ledger_accounts, signatures: @ledger_signatures,
-          signature_statuses: @ledger_statuses, block_height: block_height, **options)
+          signature_statuses: @ledger_statuses, transactions: @ledger_transactions, block_height: block_height, **options)
     self.wallet_balances = { sol: 0.1, usdc: usdc, usdt: 0.0 }
     @tickets = []
     @sequence = 0
@@ -114,6 +115,22 @@ class LedgerVault < FakeVault
     land!(wallet, contest.slug, entry_num, :usdc, usdc_balance < fee ? nil : before_send) { @wallet_balances[:usdc] -= fee }
   end
 
+  # The server-signed USDC entry Entry#enter_onchain! sends.
+  def enter_contest(wallet_address, contest_slug, entry_num, currency_idx: 0,
+                    user_keypair:, season_id: nil, before_send: nil, confirm_timeout: nil)
+    @enter_calls << { method: :enter_contest, wallet: wallet_address, slug: contest_slug,
+                      entry_number: entry_num, currency_idx: currency_idx, season_id: season_id }
+    land!(wallet_address, contest_slug, entry_num, :usdc, before_send) { nil }
+  end
+
+  # Lamports sent to an address by anyone, `before` the entry or after it:
+  # a success in the address's history that creates no ticket.
+  def dust!(pda, signature: "dust-sig-#{SecureRandom.hex(3)}")
+    (@ledger_signatures[pda] ||= []) << { "signature" => signature, "err" => nil } # newest first: appended is oldest
+    @ledger_transactions[signature] = ChainFixtures.dust_transfer(pda)
+    signature
+  end
+
   def next_free_entry_index(contest_slug, wallet_address, max:, skip: [])
     hook, self.before_slot_probe = before_slot_probe, nil
     hook&.call
@@ -164,7 +181,9 @@ class LedgerVault < FakeVault
     yield
     signature = "ledger-sig-#{@sequence += 1}"
     @ledger_accounts[pda] = { "value" => { "lamports" => 1, "owner" => Solana::Config::PROGRAM_ID } }
-    @ledger_signatures[pda] = [{ "signature" => signature, "err" => nil }]
+    @ledger_signatures[pda] = [{ "signature" => signature, "err" => nil }, *@ledger_signatures[pda]] # newest first
+    @ledger_transactions[signature] = ChainFixtures.program_transaction(method == :token ? "enter_contest_with_token" : "enter_contest",
+                                                                        signer: wallet, account: pda)
     @ledger_statuses[signature] = { "err" => nil, "confirmationStatus" => "confirmed" }
     @tickets << { slot: slot, pda: pda, signature: signature, method: method }
     raise Solana::Client::RpcError, "Transaction confirmation timeout" if failure == :lost

@@ -3902,6 +3902,22 @@ module Solana
       data.byteslice(64, 8).unpack1("Q<")
     end
 
+    # The signature that minted the entry token for `source_ref`, or nil when
+    # no token account is there. Read at `confirmed`, the level
+    # #mint_entry_token itself waits for; nil licenses only a send the token's
+    # `init` makes safe to repeat. A token that is there but whose mint the RPC
+    # cannot name yet raises: the caller neither sends again nor records a guess.
+    def minted_entry_token_signature(source_ref)
+      pda = Keypair.encode_base58(entry_token_pda(source_ref).first)
+      owner = client.get_account_info(pda, commitment: "confirmed")&.dig("value", "owner")
+      return nil unless owner == Config::PROGRAM_ID
+
+      # No signer is asked for: the admin key rotates, and only the mint that
+      # created the account can be a successful mint_entry_token writing it.
+      CreatingSignature.find(pda, instructions: %w[mint_entry_token], signer: nil, client: client, commitment: "confirmed") ||
+        raise(Client::RpcError, "entry token #{pda} exists and the transaction that minted it cannot be read yet")
+    end
+
     private
 
     # Runs a cosign submit's RPC calls under COSIGN_WAIT_BUDGET and outside
