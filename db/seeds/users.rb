@@ -1,4 +1,5 @@
-# Shared core user definitions — used by db/seeds.rb and e2e/seed.rb.
+# Shared core user definitions — used by db/seeds.rb, e2e/seed.rb and the QA
+# rehearsal's seed step (lib/turf_monster/qa_rehearsal/driver.rb).
 #
 # Returns a hash of User objects keyed by username string.
 # Adopts existing rows by email, wallet, or username for idempotency.
@@ -82,7 +83,8 @@ def retire_unparked_identities!(retired = User::RETIRED_IDENTITIES)
   end
 end
 
-def seed_core_users!
+# The roster rows and the retired seats. No other row is written.
+def seed_parked_identities!
   users = {}
 
   retire_unparked_identities!
@@ -127,6 +129,12 @@ def seed_core_users!
 
     users[data[:username]] = user
   end
+
+  users
+end
+
+def seed_core_users!
+  users = seed_parked_identities!
 
   # Backfill managed wallets for users without any wallet
   User.where(web2_solana_address: nil, web3_solana_address: nil).find_each(&:generate_managed_wallet!)

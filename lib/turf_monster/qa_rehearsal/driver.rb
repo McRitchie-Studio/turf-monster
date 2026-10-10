@@ -59,9 +59,16 @@ module TurfMonster
       # a vault this service account cannot read. See KeyStore::ITEMS for why
       # that separation is the control rather than a gap.
       CREATOR_EMAIL = "team@mcritchie.studio"
-      CREATOR_MISSING = "no user on #{CREATOR_EMAIL} to create the rehearsal contest as — " \
-                        "that is the Xan identity the server signs with, so re-seed " \
-                        "the app rather than letting another admin stand in"
+      SEED_COMMAND = "bin/qa-contest-rehearsal seed"
+      CREATOR_MISSING = "no user on #{CREATOR_EMAIL} to create the rehearsal contest as. " \
+                        "Nothing was written. Run #{SEED_COMMAND} to seed the parked " \
+                        "roster on QA, then run create again."
+      SLATE_MISSING = "no slate named #{SLATE_NAME.inspect} on QA, so there is no board to " \
+                      "rehearse on. Nothing was written."
+
+      # Step 4's link signs this address in. A first sign-in on it is granted
+      # the parked admin role by its verified email (docs/AUTH.md, Parked roles).
+      COSIGNER_EMAIL = "alex@mcritchie.studio"
 
       # The admin actor drives the HTTP admin surface, signed in by wallet. It
       # has NO FILED KEY: no agent-readable wallet signs in as an admin account
@@ -119,6 +126,69 @@ module TurfMonster
         @manifest ||= Manifest.new
       end
 
+      # --- Step 0 --------------------------------------------------------
+      # Seed the parked roster on QA through the app's own seed
+      # (db/seeds/users.rb). Run once per QA database; a re-run changes nothing.
+      # Only roster rows are written.
+      def seed_roster
+        guard!
+        say "Step 0 · seed the parked roster on #{app}"
+
+        result = remote.call(seed_script)
+        raise StepError, "the seed ran and #{CREATOR_EMAIL} still has no row" unless result["creator"]
+
+        say "  roster:  #{result['seeded'].join(', ')}"
+        say "  creator: #{result['creator']} (#{CREATOR_EMAIL})"
+        hand_back(verify: "the roster line names every parked username",
+                  next_command: "bin/qa-contest-rehearsal create")
+        result
+      end
+
+      def seed_script
+        <<~RUBY
+          load Rails.root.join("db/seeds/users.rb").to_s
+          begin
+            seeded = seed_parked_identities!
+            creator = User.find_by(email: #{CREATOR_EMAIL.inspect})
+            emit(seeded: seeded.values.map(&:username), creator: creator&.username)
+          rescue ActiveRecord::RecordInvalid => e
+            refuse("the roster seed could not save " + e.record.class.name + " " + e.record.id.to_s + ": " +
+                   e.record.errors.full_messages.to_sentence)
+          end
+        RUBY
+      end
+
+      # What step 1 needs from the database, read before anything is written
+      # or sent. No chain call.
+      def preflight_script
+        <<~RUBY
+          slate = Slate.find_by(name: #{SLATE_NAME.inspect})
+          creator = User.find_by(email: #{CREATOR_EMAIL.inspect})
+          signer = Solana::Keypair.admin.to_base58
+          emit(
+            creator: creator&.username,
+            slate: slate&.name,
+            server_signer: signer,
+            signer_listed: Solana::Config::MULTISIG_SIGNERS.include?(signer),
+            cosigner: Solana::Config::MULTISIG_COSIGNER
+          )
+        RUBY
+      end
+
+      def preflight!
+        facts = remote.call(preflight_script)
+        raise StepError, CREATOR_MISSING unless facts["creator"]
+        raise StepError, SLATE_MISSING unless facts["slate"]
+
+        say "  creator: #{facts['creator']} (#{CREATOR_EMAIL})"
+        say "  server signs as #{facts['server_signer']} · co-signer #{facts['cosigner']}"
+        unless facts["signer_listed"]
+          say "  ! the server key is not in this app's SOLANA_MULTISIG_SIGNERS list " \
+              "(docs/qa-signing-key-rotation.md, step 8)"
+        end
+        facts
+      end
+
       # --- Step 1 --------------------------------------------------------
       # Create the contest, funding its prize pool from the admin wallet.
       #
@@ -130,32 +200,19 @@ module TurfMonster
       def create_contest
         guard!
         say "Step 1 · create contest on #{app} (#{CONTEST_TYPE} tier)"
+        preflight!
 
         result = remote.call(<<~RUBY)
           slate = Slate.find_by!(name: #{SLATE_NAME.inspect})
+          creator = User.find_by(email: #{CREATOR_EMAIL.inspect})
+          raise #{CREATOR_MISSING.inspect} if creator.nil?
           vault = Solana::Vault.new
 
-          # TIME-SHIFT THE FIXTURE INTO THE FUTURE.
-          #
-          # The evergreen slate is a week that has already been played, which is
-          # exactly what makes its scores stable -- and exactly what makes it
-          # unpickable: SlateMatchup#locked? keys off the game's kickoff, so
-          # every pick is refused with "Game has already started". Nudging the
-          # whole week forward, preserving the gaps between kickoffs, makes the
-          # board enterable without changing what the games ARE. Step 3 puts the
-          # clock back before it polls, so nothing downstream sees a fixture
-          # pretending to be tomorrow.
-          games = Game.where(slug: slate.slate_matchups.pluck(:game_slug).compact.uniq).to_a
-          earliest = games.filter_map(&:kickoff_at).min
-          shift = earliest ? (2.hours.from_now - earliest).to_i : 0
-          if shift.positive?
-            games.each { |g| g.update_columns(kickoff_at: g.kickoff_at + shift.seconds) if g.kickoff_at }
-          end
           admin = Solana::Keypair.admin.to_base58
 
           # The prize pool is transferred from the admin wallet at create time,
-          # so top it up first. Admin holds mint authority on the devnet test
-          # mint, which is why this is free here and impossible on mainnet.
+          # so top it up first. Only the devnet test mint's authority can mint;
+          # a server key that is not the authority must already hold the pool.
           vault.ensure_ata(admin, mint: Solana::Config::USDC_MINT)
 
           # The pool is denominated in CENTS in Rails and in 6-decimal base
@@ -168,7 +225,14 @@ module TurfMonster
           have = (Solana::Config.client.get_token_account_balance(ata_b58)["value"]["amount"].to_i rescue 0)
           minted = nil
           if have < needed
-            minted = vault.mint_spl(needed * 4, mint: Solana::Config::USDC_MINT, to: admin)[:signature]
+            begin
+              minted = vault.mint_spl(needed * 4, mint: Solana::Config::USDC_MINT, to: admin)[:signature]
+            rescue StandardError => e
+              refuse("the server key " + admin + " holds " + (have / 1_000_000).to_s + " devnet USDC, the pool needs " +
+                     (needed / 1_000_000).to_s + ", and the mint failed (" + e.class.name + ": " + e.message.to_s[0, 200] +
+                     "). No contest was created. Only the mint authority can mint: fund the USDC account of " +
+                     "that key, or move the authority to it (docs/qa-signing-key-rotation.md, step 4).")
+            end
 
             # WAIT FOR THE BALANCE, NOT FOR A CLOCK. A confirmed mint is not
             # immediately visible to the node that simulates the next
@@ -186,12 +250,22 @@ module TurfMonster
             raise "minted but the admin balance never reached the pool size" if have < needed
           end
 
-          # RAISE RATHER THAN SUBSTITUTE. A rehearsal created under the wrong
-          # identity does not fail here; it fails four steps later, on-chain,
-          # with an error about signature counts that says nothing about the
-          # creator. Loud and early is the cheaper failure.
-          creator = User.find_by(email: #{CREATOR_EMAIL.inspect})
-          raise #{CREATOR_MISSING.inspect} if creator.nil?
+          # TIME-SHIFT THE FIXTURE INTO THE FUTURE.
+          #
+          # The evergreen slate is a week that has already been played, which is
+          # exactly what makes its scores stable -- and exactly what makes it
+          # unpickable: SlateMatchup#locked? keys off the game's kickoff, so
+          # every pick is refused with "Game has already started". Nudging the
+          # whole week forward, preserving the gaps between kickoffs, makes the
+          # board enterable without changing what the games ARE. Step 3 puts the
+          # clock back before it polls, so nothing downstream sees a fixture
+          # pretending to be tomorrow.
+          games = Game.where(slug: slate.slate_matchups.pluck(:game_slug).compact.uniq).to_a
+          earliest = games.filter_map(&:kickoff_at).min
+          shift = earliest ? (2.hours.from_now - earliest).to_i : 0
+          if shift.positive?
+            games.each { |g| g.update_columns(kickoff_at: g.kickoff_at + shift.seconds) if g.kickoff_at }
+          end
 
           contest = Contest.create!(
             name: "QA Rehearsal " + Time.current.strftime("%b %-d %H:%M"),
@@ -688,17 +762,19 @@ module TurfMonster
       def offer_cosign_link(graded)
         link = remote.call(<<~RUBY)
           token = Studio::Link.create_magic_link(
-            email: "alex@mcritchie.studio",
+            email: #{COSIGNER_EMAIL.inspect},
             return_to: "/admin/pending_transactions",
             ttl: 12.hours
           ).token
-          emit(token: token)
+          emit(token: token, cosigner: Solana::Config::MULTISIG_COSIGNER)
         RUBY
 
         url = "https://#{host}/l/#{link.fetch('token')}"
         say ""
         say "  Magic Link: #{url}"
-        say "  Rebuild, then Co-sign in Phantom. Transaction #{graded.fetch('ptx_slug')} is waiting."
+        say "  Open it on a desktop browser with Phantom on wallet #{link['cosigner']}."
+        say "  Press Co-sign on #{graded.fetch('ptx_slug')} and approve in Phantom: the page builds a fresh"
+        say "  transaction at the click. It worked when the row reads Confirmed."
         # The one halt that is not a courtesy: this step CANNOT proceed without
         # him. The settle is 2-of-3 and the server has signed only its own half,
         # so an agent that runs `close` next closes a contest that never paid.
