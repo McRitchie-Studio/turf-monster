@@ -124,13 +124,23 @@ end
 # elevate, and ends the sessions of an unproven holder it gives a role or wallet. A fresh
 # database holds no row to adopt, so db/seeds.rb and e2e/seed.rb do not pass it.
 def seed_parked_identities!(proven_only: false)
+  return write_parked_identities!(proven_only: false) unless proven_only
+
+  refuse_unproven_adoptions!(CORE_USERS)
+  # One transaction: a refusal raised part-way through the roster writes nothing.
+  User.transaction(requires_new: true) { write_parked_identities!(proven_only: true) }
+end
+
+def write_parked_identities!(proven_only:)
   users = {}
 
-  refuse_unproven_adoptions!(CORE_USERS) if proven_only
   retire_unparked_identities!
   park_swapped_usernames!(CORE_USERS)
 
   CORE_USERS.each do |data|
+    # An earlier identity's save can leave this one a different row to adopt
+    # than the roster-wide check read, so it is asked again on the rows as they are.
+    refuse_unproven_adoptions!([data]) if proven_only
     # Passwordless (Lazarus audit #4): no password is set — email auth is
     # magic-link only. has_secure_password was removed, so `u.password=` no
     # longer exists; the password_digest column is dormant.

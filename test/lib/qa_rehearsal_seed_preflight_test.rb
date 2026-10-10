@@ -189,6 +189,19 @@ class QaRehearsalSeedPreflightTest < ActiveSupport::TestCase
     end
   end
 
+  # A row on two identities goes to the first, so the second reaches the
+  # username lookup after the roster-wide check has passed.
+  test "seed refuses a username-only row an earlier adoption uncovers, and writes nothing" do
+    legacy_holder(Driver::CREATOR_EMAIL, web3_solana_address: ROSTER.first[:wallet], email_verified_at: Time.current)
+    named = legacy_holder(nil, provider: "google_oauth2", uid: "uid-3")
+    named.update_columns(username: CREATOR[:username])
+
+    error = assert_seed_refuses(named)
+
+    assert_includes error.message, "holds only the username parked for #{CREATOR[:username]}"
+    assert_equal "viewer", User.find_by!(email: Driver::CREATOR_EMAIL).role, "the row seeded before the refusal stayed written"
+  end
+
   test "seed refuses a parked address held unverified beside an API key or another wallet" do
     keyed = legacy_holder(User::TURF_HOUSE_EMAIL)
     ApiKey.mint!(user: keyed, name: "Key", geo_country: "US", geo_state: "CO", age_result: "not_required")
