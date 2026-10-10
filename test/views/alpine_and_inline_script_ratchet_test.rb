@@ -12,8 +12,10 @@ require "yaml"
 #   - a surface that loses one fails here until its ceiling is lowered to match,
 #     so a removal in one place cannot be spent on an addition later.
 #
-# Scanned: app/**/*.{erb,rb,js}, after ERB comments, HTML comments and whole-line
-# // * and # comments are taken out. The engine gem is not scanned.
+# Scanned: app/**/*.{erb,rb,js}, after comments are taken out, per file type:
+# in .erb, <%# %> and <!-- --> comments and whole-line // comments; in .js,
+# whole-line // /* and * comments; in .rb, whole-line # comments. The engine gem
+# is not scanned.
 #
 # Counted, per occurrence:
 #
@@ -45,7 +47,12 @@ require "yaml"
 #
 # Knowingly over-counted: a directive named in rendered prose or inside a
 # string or selector (querySelector("[x-show]")), a JS object key named
-# on<event>, and a trailing comment after code on the same line.
+# on<event>, a trailing comment after code on the same line, a Ruby comment
+# inside an ERB tag (<% # ... %>) and a /* */ comment in an .erb file, an
+# instance variable assigned with no space before a quote (@title="..."), a
+# quoted "@name" key that is not an event (class_names("@lg:flex": ...)),
+# "Alpine.js" in prose, and a JSON script written with tag.script or
+# content_tag :script.
 class AlpineAndInlineScriptRatchetTest < ActiveSupport::TestCase
   CEILINGS_FILE = Pathname(__dir__).join("alpine_and_inline_script_ceilings.yml")
   SOURCES = "app/**/*.{erb,rb,js}".freeze
