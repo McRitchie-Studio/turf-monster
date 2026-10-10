@@ -13,12 +13,9 @@ require "test_helper"
 #
 # The engine's ink-derivation fix changes the ground truth: text-secondary
 # DERIVES from the theme base by a bounded contrast search and clears AA
-# (~5.74:1 here). The characterization below is BEHAVIOR-gated, not
-# version-gated: it keys on ColorScale.respond_to?(:contrast_ratio), the
-# method the derivation ships with. A version predicate was tried first and
-# was falsified within a day — 0.31.0 published WITHOUT the fix — so the guard
-# asks the engine what it can do, never what it is called. (The sweep to
-# text-body stays correct either way — belt on top of the engine's fix.)
+# (~5.74:1 here). The second test below pins that against the locked engine,
+# with no gate on what the engine can do. (The sweep to text-body stays
+# correct: belt on top of the engine's fix.)
 #
 # Tokens are resolved exactly as production resolves them (Studio::ThemeResolver
 # over Studio.theme_config), so both claims are MEASURED, not asserted from a
