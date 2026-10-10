@@ -21,18 +21,13 @@ pin "cdp_offramp_send"
 pin "page_experiments"
 
 # Turf's Stimulus application (turf_stimulus) runs on every page. Every file
-# under controllers/ and turf/ (their logic modules) is pinned, and only the
-# ones turf_stimulus imports statically are preloaded: a lazy controller and
-# its modules are fetched by the page that names it.
-# test/integration/turf_stimulus_test.rb holds this list to the import graph.
-# Locals, not constants: this file is evaluated again on every redraw.
+# under controllers/ and turf/ (their logic modules) is pinned. Only a module
+# turf_stimulus imports statically is preloaded, and it is listed in
+# every_page; a lazy controller and its modules are fetched by the page that
+# names it. test/integration/turf_stimulus_test.rb holds this list to the
+# import graph. Locals, not constants: this file is evaluated on every redraw.
 pin "turf_stimulus"
-every_page = %w[
-  controllers/dev_score_tools_controller controllers/filter_controller controllers/game_scorer_controller
-  controllers/hub_actions_controller controllers/scoring_filter_controller controllers/send_gate_controller
-  controllers/show_more_controller
-  turf/dev_score_tools turf/filter turf/scoring turf/send_gate
-]
+every_page = %w[]
 %w[controllers turf].each do |directory|
   Rails.root.glob("app/javascript/#{directory}/*.js").sort.each do |file|
     name = "#{directory}/#{file.basename('.js')}"

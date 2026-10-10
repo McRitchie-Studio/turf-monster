@@ -56,9 +56,8 @@ class TurfStimulusTest < ActionDispatch::IntegrationTest
     seen
   end
 
-  test "both registries are read, and every controller file is in one of them" do
-    assert_operator static_controllers.size, :>=, 5
-    assert_operator lazy_controllers.size, :>=, 2
+  test "the registry is read, and every controller file is in it once" do
+    assert_operator lazy_controllers.size, :>=, 9
     assert_empty static_controllers.keys & lazy_controllers.keys
 
     files = CONTROLLERS.glob("*_controller.js").map { |file| "controllers/#{file.basename('.js')}" }

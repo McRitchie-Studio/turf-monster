@@ -7,44 +7,44 @@
 //
 // Two ways a controller registers:
 //
-//   - imported below and registered at once. It is connected before the page
-//     has loaded, so its first press is never lost. Every page fetches it.
-//   - listed in LAZY and registered the first time an element names it, so
-//     only a page that uses it fetches it. Until it registers, its element's
-//     actions do nothing, and its markup carries the initial state (hidden,
-//     disabled). A controller whose module fails to load marks its elements
-//     data-controller-failed="<identifier>".
-//
-// config/importmap.rb preloads what is imported here and nothing that is lazy.
+//   - LAZY, for a controller only some pages use (every admin and dev tool):
+//     it is fetched and registered the first time an element names it, so no
+//     other page pays for it. Until it registers, its element's actions do
+//     nothing and its markup carries the initial state (hidden, disabled). The
+//     root element lists the registered ones in data-lazy-controllers, which a
+//     test waits on before it presses. A controller whose module fails to load
+//     marks its elements data-controller-failed="<identifier>".
+//   - STATIC, for a controller on every page or one a player presses the
+//     moment a page loads: import it here and application.register it below.
+//     It is connected before the page has loaded. Add its module, and the
+//     modules it imports, to every_page in config/importmap.rb.
 import { Application } from "@hotwired/stimulus"
 import { watchLazyControllers } from "studio/lazy_controllers"
-import DevScoreToolsController from "controllers/dev_score_tools_controller"
-import FilterController from "controllers/filter_controller"
-import GameScorerController from "controllers/game_scorer_controller"
-import HubActionsController from "controllers/hub_actions_controller"
-import ScoringFilterController from "controllers/scoring_filter_controller"
-import SendGateController from "controllers/send_gate_controller"
-import ShowMoreController from "controllers/show_more_controller"
 
 export const LAZY = {
+  "dev-score-tools": () => import("controllers/dev_score_tools_controller"),
+  "filter": () => import("controllers/filter_controller"),
+  "game-scorer": () => import("controllers/game_scorer_controller"),
+  "hub-actions": () => import("controllers/hub_actions_controller"),
+  "scoring-filter": () => import("controllers/scoring_filter_controller"),
   "seeds-lab": () => import("controllers/seeds_lab_controller"),
+  "send-gate": () => import("controllers/send_gate_controller"),
+  "show-more": () => import("controllers/show_more_controller"),
   "toast-demo": () => import("controllers/toast_demo_controller")
 }
 
 export const application = Application.start()
 
-application.register("dev-score-tools", DevScoreToolsController)
-application.register("filter", FilterController)
-application.register("game-scorer", GameScorerController)
-application.register("hub-actions", HubActionsController)
-application.register("scoring-filter", ScoringFilterController)
-application.register("send-gate", SendGateController)
-application.register("show-more", ShowMoreController)
+const registered = []
 
 export const lazy = watchLazyControllers({
   root: document.documentElement,
   attribute: "data-controller",
   failedAttribute: "data-controller-failed",
   loaders: LAZY,
-  register: (name, controller) => application.register(name, controller)
+  register: (name, controller) => {
+    application.register(name, controller)
+    registered.push(name)
+    document.documentElement.setAttribute("data-lazy-controllers", registered.join(" "))
+  }
 })
