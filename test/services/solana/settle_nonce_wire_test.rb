@@ -10,12 +10,13 @@ require "minitest/mock"
 class SettleNonceWireTest < ActiveSupport::TestCase
   include SettleNonceFixture
 
-  # SHA-256 of the blockhash settle wire for SETTLEMENTS, built from this
-  # fixture on origin/accepted 013595f8 (before durable_nonce: existed). The
-  # default path must produce these bytes exactly.
-  DEFAULT_WIRE_SHA256 = {
-    "v0.25" => "a4a9ea7fa54a180f0f275537ead0afd639a06a86f2fa7104f91a363b8c72861e",
-    "v0.26" => "2c4332786cdb11f82b2d0697deb5c486c02cca5d6647319f39b69b7b1fbd0608"
+  # #content_sha256 of the blockhash settle wire for SETTLEMENTS, built from
+  # this fixture on origin/accepted 013595f8 (before durable_nonce: existed);
+  # the raw bytes matched too, on one machine. The default path must build
+  # this content exactly.
+  DEFAULT_WIRE_CONTENT = {
+    "v0.25" => "9032dcb3e27f19cb894ecb107ba4c1db9cc8f5ef82045a10b0399108b3def5e9",
+    "v0.26" => "cb4f7a049be0b3ab3af5eec4c4969e77119b9b1cd90d4f7cebfa684dd561fee4"
   }.freeze
 
   # ── the nonce-anchored wire ──────────────────────────────────────────────
@@ -75,15 +76,14 @@ class SettleNonceWireTest < ActiveSupport::TestCase
   [false, true].each do |governance|
     label = governance ? "v0.26" : "v0.25"
 
-    test "the blockhash settle wire is byte for byte what origin/accepted built (#{label})" do
+    test "the blockhash settle wire is what origin/accepted built (#{label})" do
       result = build(governance: governance)
       wire = parse(result)
 
       assert_equal BLOCKHASH, wire.recent_blockhash_base58
       refute_equal ADVANCE_NONCE, wire.instructions.first[:data]
       refute result.key?(:nonce_value)
-      assert_equal DEFAULT_WIRE_SHA256.fetch(label), Digest::SHA256.hexdigest(Base64.strict_decode64(result[:serialized_tx])),
-                   anatomy(result[:serialized_tx])
+      assert_equal DEFAULT_WIRE_CONTENT.fetch(label), content_sha256(result[:serialized_tx]), anatomy(result[:serialized_tx])
     end
   end
 

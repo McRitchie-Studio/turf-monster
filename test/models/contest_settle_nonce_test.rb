@@ -7,9 +7,9 @@ require "test_helper"
 class ContestSettleNonceTest < ActiveSupport::TestCase
   include SettleNonceFixture
 
-  # SHA-256 of the queued row's serialized_tx and its metadata, from this
-  # fixture on origin/accepted 013595f8.
-  DEFAULT_ROW_SHA256 = "1fe0bff91969965bdf9bef8241a8c1a3a645aba638aa4d655a3427620b7957e9".freeze
+  # #content_sha256 of the queued row's serialized_tx, and its metadata, from
+  # this fixture on origin/accepted 013595f8.
+  DEFAULT_ROW_CONTENT = "94413a932492673646392f6b1acc92744330ca19bb08f8a31238fd7013a917f7".freeze
   DEFAULT_METADATA = { settlements: SettleNonceFixture::SETTLEMENTS }.to_json.freeze
 
   setup do
@@ -36,7 +36,7 @@ class ContestSettleNonceTest < ActiveSupport::TestCase
   test "off: the queued settle row is what origin/accepted queued" do
     row = queue_settle
 
-    assert_equal DEFAULT_ROW_SHA256, Digest::SHA256.hexdigest(Base64.strict_decode64(row.serialized_tx)), anatomy(row.serialized_tx)
+    assert_equal DEFAULT_ROW_CONTENT, content_sha256(row.serialized_tx), anatomy(row.serialized_tx)
     assert_equal DEFAULT_METADATA, row.metadata
     refute row.nonce_anchored?
   end

@@ -81,4 +81,23 @@ module SettleNonceFixture
       instructions: wire.instructions.map { |ix| [key(ix[:program_id]), ix[:account_indices], ix[:data].unpack1("H*")] },
       signatures: wire.signatures.map { |sig| key(sig) } }.inspect
   end
+
+  # The wire's content with its account order factored out: header, blockhash,
+  # every account with its signer and writable flags, and each instruction with
+  # its accounts resolved to keys. The gem orders accounts with an unstable
+  # sort, which libc decides, so the same build lays out differently on macOS
+  # and Linux; this digest is the same on both.
+  def content_sha256(wire_base64)
+    wire = Solana::WireMessage.parse_base64(wire_base64)
+    accounts = wire.account_keys.each_index.map { |i| [key(wire.account_keys[i]), wire.signer?(i), wire.writable?(i)] }
+    content = {
+      header: [wire.num_required_signatures, wire.num_readonly_signed, wire.num_readonly_unsigned],
+      blockhash: wire.recent_blockhash_base58,
+      fee_payer: key(wire.fee_payer),
+      accounts: accounts.sort,
+      instructions: wire.instructions.map { |ix| [key(ix[:program_id]), ix[:accounts].map { |a| key(a) }, ix[:data].unpack1("H*")] },
+      signed: (0...wire.num_required_signatures).map { |i| [key(wire.account_keys[i]), wire.signature_valid?(i)] }.sort
+    }
+    Digest::SHA256.hexdigest(content.to_json)
+  end
 end
