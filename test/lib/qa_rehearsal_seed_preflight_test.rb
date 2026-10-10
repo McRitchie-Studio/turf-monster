@@ -14,7 +14,8 @@ class QaRehearsalSeedPreflightTest < ActiveSupport::TestCase
 
   ROSTER = User::PARKED_IDENTITIES
   CREATOR = ROSTER.find { |identity| identity[:email] == Driver::CREATOR_EMAIL }
-  CHAIN_CALLS = /Solana::Vault|mint_spl|ensure_ata|Contest\.create!|Solana::Config\.client|update_columns/
+  # Everything that writes or sends. The preflight's one chain call is a read.
+  CHAIN_CALLS = /mint_spl|ensure_ata|Contest\.create!|Solana::Config\.client|update_columns|set_contest|build_|close_contest/
 
   CREATED = {
     "contest_slug" => "qa-rehearsal-x", "name" => "QA Rehearsal", "onchain" => true,
@@ -27,13 +28,30 @@ class QaRehearsalSeedPreflightTest < ActiveSupport::TestCase
   # RemoteRunner prepends, except the chain script.
   class LocalDyno
     attr_reader :scripts
+    # What the devnet VaultState answers the preflight: the seated signers, or
+    # nil for an account that could not be read.
+    attr_accessor :seated
 
-    def initialize = (@scripts = [])
+    def initialize
+      @scripts = []
+      @seated = [Solana::Keypair.admin.to_base58]
+    end
+
+    def vault
+      state = seated && { active_signers: seated }
+      Object.new.tap { |v| v.define_singleton_method(:read_vault_state) { state } }
+    end
 
     def call(source)
       @scripts << source
       return CREATED if source.include?("Contest.create!")
 
+      return Solana::Vault.stub(:new, vault) { evaluate(source) } if source.include?("read_vault_state")
+
+      evaluate(source)
+    end
+
+    def evaluate(source)
       answer = nil
       host = Object.new
       host.define_singleton_method(:emit) { |payload| answer = JSON.parse(payload.to_json) }
@@ -84,7 +102,8 @@ class QaRehearsalSeedPreflightTest < ActiveSupport::TestCase
     refute creator.unproven_parked_holder?, "the seeded creator holds its parked wallet, so the address is proven"
 
     _seed, preflight, chain = @dyno.scripts
-    refute_match CHAIN_CALLS, preflight, "the preflight reads the database and nothing else"
+    refute_match CHAIN_CALLS, preflight, "the preflight reads and writes nothing"
+    assert_equal ["Solana::Vault.new.read_vault_state"], preflight.scan(/Solana::Vault[.\w]*/)
     assert_includes chain, "Contest.create!"
     assert_includes @io.string, "creator: #{CREATOR[:username]} (#{Driver::CREATOR_EMAIL})"
   end
@@ -197,8 +216,13 @@ class QaRehearsalSeedPreflightTest < ActiveSupport::TestCase
 
     error = assert_raises(Refused) { seed! }
 
-    assert_includes error.message, squat.username
-    assert_includes error.message, named.username
+    assert_equal "the roster seed would adopt 2 rows it cannot prove: " \
+                 "#{named.username} holds only the username parked for #{CREATOR[:username]}, with no row on that " \
+                 "identity's address or wallet; #{squat.username} holds the address parked for turf unverified " \
+                 "beside another credential (a wallet, a Google link or an API key). Nothing was written. " \
+                 "An operator resolves each in the database by hand (clear the other credential or the address; " \
+                 "rename the username holder). bin/rails users:parked_role_audit lists " \
+                 "unproven holders. Then run #{Driver::SEED_COMMAND} again.", error.message
     assert_empty roster_rows.where.not(id: squat.id).to_a
   end
 
@@ -285,6 +309,28 @@ class QaRehearsalSeedPreflightTest < ActiveSupport::TestCase
                     "the test key is in no signer list, so the flag must print"
   end
 
+  test "an unseated server key stops create before the kickoffs move or anything is sent" do
+    seed!
+    @dyno.seated = [Solana::Keypair.generate.to_base58]
+
+    error = assert_raises(Driver::StepError) { @driver.create_contest }
+
+    assert_includes error.message, Solana::Keypair.admin.to_base58
+    assert_includes error.message, "is not a signer in the devnet VaultState"
+    assert_includes error.message, "Nothing was written"
+    assert(@dyno.scripts.none? { |script| script.match?(CHAIN_CALLS) })
+  end
+
+  test "a VaultState that cannot be read stops create the same way" do
+    seed!
+    @dyno.seated = nil
+
+    error = assert_raises(Driver::StepError) { @driver.create_contest }
+
+    assert_equal Driver::VAULT_UNREADABLE, error.message
+    assert(@dyno.scripts.none? { |script| script.match?(CHAIN_CALLS) })
+  end
+
   test "close refuses a contest that has not settled, before any chain call" do
     contest = contests(:one)
     contest.update_columns(onchain_settled: false, onchain_cancelled: false, onchain_closed: false)
@@ -294,6 +340,7 @@ class QaRehearsalSeedPreflightTest < ActiveSupport::TestCase
     end
 
     assert_includes error.message, "has not settled on chain"
+    assert_includes error.message, "press Co-sign on a Pending row, or Reconcile on a row that reads Broadcast"
     refute contest.reload.onchain_closed
   end
 

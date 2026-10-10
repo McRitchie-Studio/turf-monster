@@ -66,6 +66,11 @@ module TurfMonster
       SEED_BUILD_BEHIND = "the build on QA has a roster seed with no adoption check, so the seed did not " \
                           "run. Nothing was written. Deploy a build that carries it, then run " \
                           "#{SEED_COMMAND} again."
+      VAULT_UNREADABLE = "the devnet VaultState could not be read from QA, so the server key is not known " \
+                         "to be a signer. Nothing was written. Run create again."
+      SIGNER_UNSEATED = "the server key %<signer>s is not a signer in the devnet VaultState, so the create " \
+                        "transaction would be refused. Nothing was written. Seat it first " \
+                        "(docs/qa-signing-key-rotation.md), then run create again."
       SLATE_MISSING = "no slate named #{SLATE_NAME.inspect} on QA, so there is no board to " \
                       "rehearse on. Nothing was written."
 
@@ -168,18 +173,24 @@ module TurfMonster
         RUBY
       end
 
-      # What step 1 needs from the database, read before anything is written
-      # or sent. No chain call.
+      # What step 1 needs, read before anything is written or sent: two rows,
+      # and one chain read of who is seated in VaultState.
       def preflight_script
         <<~RUBY
           slate = Slate.find_by(name: #{SLATE_NAME.inspect})
           creator = User.find_by(email: #{CREATOR_EMAIL.inspect})
           signer = Solana::Keypair.admin.to_base58
+          seated = begin
+            Solana::Vault.new.read_vault_state&.dig(:active_signers)
+          rescue StandardError
+            nil
+          end
           emit(
             creator: creator&.username,
             slate: slate&.name,
             server_signer: signer,
             signer_listed: Solana::Config::MULTISIG_SIGNERS.include?(signer),
+            signer_seated: seated && seated.include?(signer),
             cosigner: Solana::Config::MULTISIG_COSIGNER
           )
         RUBY
@@ -189,6 +200,8 @@ module TurfMonster
         facts = remote.call(preflight_script)
         raise StepError, CREATOR_MISSING unless facts["creator"]
         raise StepError, SLATE_MISSING unless facts["slate"]
+        raise StepError, VAULT_UNREADABLE if facts["signer_seated"].nil?
+        raise StepError, format(SIGNER_UNSEATED, signer: facts["server_signer"]) unless facts["signer_seated"]
 
         say "  creator: #{facts['creator']} (#{CREATOR_EMAIL})"
         say "  server signs as #{facts['server_signer']} · co-signer #{facts['cosigner']}"
@@ -705,7 +718,8 @@ module TurfMonster
           contest = Contest.find_by!(slug: #{slug.inspect})
           unless contest.onchain_settled? || contest.cancelled?
             refuse("contest " + contest.slug + " has not settled on chain, and closing sweeps its prize pool. " +
-                   "Co-sign the settle transaction on the Treasury page, then run close again.")
+                   "On the Treasury page, press Co-sign on a Pending row, or Reconcile on a row that reads " +
+                   "Broadcast · unreconciled. Run close again once the row reads Confirmed.")
           end
           out = { already_closed: contest.onchain_closed }
           unless contest.onchain_closed?

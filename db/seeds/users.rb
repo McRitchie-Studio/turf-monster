@@ -113,7 +113,7 @@ def refuse_unproven_adoptions!(identities)
   raise SeedAdoptionRefused,
         "the roster seed would adopt #{reasons.size == 1 ? 'a row' : "#{reasons.size} rows"} it cannot prove: " \
         "#{reasons.join('; ')}. Nothing was written. An operator resolves each in the database by hand " \
-        "(clear the other credential or the address; rename the username holder), then the seed runs again. " \
+        "(clear the other credential or the address; rename the username holder). " \
         "bin/rails users:parked_role_audit lists unproven holders."
 end
 
