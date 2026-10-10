@@ -452,7 +452,7 @@ jobs:
       # see its receipt to count it. Uploading only on failure would mean the gate could
       # audit only the runs that were already red.
       - name: Upload this shard's executed-set receipt
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         if: always()
         with:
           name: e2e-report-shard-${{ matrix.shard }}
@@ -460,7 +460,7 @@ jobs:
           if-no-files-found: error
       - name: Upload Playwright report on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: playwright-report-shard-${{ matrix.shard }}
           path: playwright-report/
@@ -471,14 +471,14 @@ jobs:
       # don't reproduce locally.
       - name: Upload Playwright traces on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: playwright-traces-shard-${{ matrix.shard }}
           path: test-results/
           if-no-files-found: ignore
 
       - name: Keep screenshots from failed system tests
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         if: failure()
         with:
           name: screenshots-shard-${{ matrix.shard }}
