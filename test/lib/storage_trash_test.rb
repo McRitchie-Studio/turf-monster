@@ -79,6 +79,39 @@ class StorageTrashTest < ActiveSupport::TestCase
     end
   end
 
+  # [integration] The same refusal with NOTHING in the engine stubbed: QA_ENV is
+  # set in the real ENV and Rails.env reads production, which is exactly how a QA
+  # app boots (no QA app sets RAILS_ENV). The engine's own resolution has to read
+  # QA_ENV and refuse; only the S3 client is stubbed, so nothing leaves the
+  # process. The CONTROL is the same process with QA_ENV unset: real production,
+  # and the delete goes through. Without it, a refusal that never consulted
+  # QA_ENV (say, one keyed on Rails.env alone) would pass here too.
+  test "a QA process, QA_ENV set for real, is refused a production-bucket delete before any request" do
+    previous = ENV.fetch("QA_ENV", :unset)
+
+    [ :amazon, :amazon_public ].each do |name|
+      service = build(name) # QA_ENV unset at build: the service holds the production bucket
+      assert_equal "turf-monster-production", service.bucket.name
+
+      as_rails_production do
+        with_env("QA_ENV" => "true") do
+          refute Studio::S3.production_environment?, "QA_ENV=true must read as a non-production process"
+          assert_raises(Studio::S3::Trash::ProductionBucketRefused) { service.delete(KEY) }
+          assert_raises(Studio::S3::Trash::ProductionBucketRefused) { service.delete_prefixed("variants/#{KEY}/") }
+        end
+        assert_empty recorded(service), "#{name}: a QA process sent a request to the production bucket"
+
+        with_env("QA_ENV" => nil) do
+          assert Studio::S3.production_environment?, "control: Rails production without QA_ENV is real production"
+          service.delete(KEY)
+        end
+        assert_equal %i[head_object copy_object delete_object], recorded(service).map { |r| r[:operation_name] }, name
+      end
+    end
+
+    assert_equal previous, ENV.fetch("QA_ENV", :unset), "QA_ENV must be restored after the test"
+  end
+
   # Variants are regenerable from the original, which is the object trashed.
   test "delete_prefixed stays a hard delete, with no trash copy" do
     service = build(:amazon_dev)
@@ -104,6 +137,12 @@ class StorageTrashTest < ActiveSupport::TestCase
   # Real production, or anything else, as the engine's delete guard reads it.
   def in_environment(production, &block)
     Studio::S3.stub(:production_environment?, production, &block)
+  end
+
+  # Rails.env as a deployed app reads it. Only the engine's environment check
+  # consults it here; the service was built before the block.
+  def as_rails_production(&block)
+    Rails.stub(:env, ActiveSupport::EnvironmentInquirer.new("production"), &block)
   end
 
   def with_env(vars)

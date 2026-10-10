@@ -42,8 +42,22 @@ COPY . .
 # Precompile bootsnap code for faster boot times
 RUN bundle exec bootsnap precompile app/ lib/
 
-# Precompiling assets for production without requiring secret RAILS_MASTER_KEY
-RUN SECRET_KEY_BASE_DUMMY=1 ./bin/rails assets:precompile
+# Precompiling assets for production without requiring secret RAILS_MASTER_KEY.
+# A production boot refuses to start without its storage and chain settings
+# (the R2 four: StorageBackend.verify! in config/initializers/studio.rb; the
+# wallet key: config/initializers/managed_wallet_encryption.rb; the Solana
+# three: app/services/solana/config.rb), so this build-time boot names
+# placeholders that reach nothing: `.invalid` never resolves (RFC 2606), and no
+# asset embeds any of them. They live on this line only, never in an ENV
+# instruction, so the running container gets the real values or refuses to boot
+# (test/lib/dockerfile_build_env_test.rb). Heroku builds with the Ruby
+# buildpack, not this file.
+RUN SECRET_KEY_BASE_DUMMY=1 \
+    R2_ENDPOINT=https://build-time.invalid R2_ACCESS_KEY_ID=build-time \
+    R2_SECRET_ACCESS_KEY=build-time R2_PUBLIC_URL=https://build-time.invalid \
+    MANAGED_WALLET_ENCRYPTION_KEY=build-time \
+    SOLANA_PROGRAM_ID=build-time SOLANA_RPC_URL=https://build-time.invalid SOLANA_NETWORK=build-time \
+    ./bin/rails assets:precompile
 
 
 
