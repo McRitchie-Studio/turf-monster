@@ -51,6 +51,7 @@ module Solana
         raise Refused, "slots not validly signed: #{keys.join(', ')}"
       end
 
+      assert_nonce_unspent!(stored)
       signature = signed.signature
       raise Refused, "#{@tx.slug} is already being broadcast (#{@tx.reload.status})" unless @tx.claim_for_broadcast!(signature)
 
@@ -66,6 +67,19 @@ module Solana
     end
 
     private
+
+    # A wire whose nonce has advanced can never land; refuse it before the claim.
+    def assert_nonce_unspent!(stored)
+      account = Keypair.encode_base58(stored.instructions.first[:accounts].first)
+      data = @vault.client.get_account_info(account)&.dig("value", "data", 0)
+      raise Refused, "nonce account #{account} could not be read; nothing was sent" unless data
+
+      current = NonceAccount.parse(Base64.decode64(data)).nonce
+      return if current == stored.recent_blockhash_base58
+
+      raise Refused, "nonce #{account} has advanced to #{current}, so this wire can never land; " \
+                     "rebuild it with bin/settle-nonce rebuild and sign again"
+    end
 
     def assert_pending_nonce_row!
       raise Refused, "#{@tx.slug} is not a settle_contest row" unless @tx.tx_type == "settle_contest"

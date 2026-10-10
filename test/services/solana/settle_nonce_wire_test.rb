@@ -85,4 +85,35 @@ class SettleNonceWireTest < ActiveSupport::TestCase
       assert_equal DEFAULT_WIRE_SHA256.fetch(label), Digest::SHA256.hexdigest(Base64.strict_decode64(result[:serialized_tx]))
     end
   end
+
+  # ── the packet limit counts the advance ──────────────────────────────────
+  #
+  # The advance costs 106 bytes (nonce account, RecentBlockhashes sysvar,
+  # System Program, the instruction). On v0.25 four paid entries still fit; on
+  # v0.26 three fit and four are refused, so a four-place v0.26 settle cannot
+  # take the nonce path in one legacy transaction.
+
+  def paid(count)
+    (1..count).map do |i|
+      { wallet: Solana::Keypair.from_bytes(Digest::SHA256.digest("packet winner #{i}")).to_base58, entry_num: 1, rank: i, payout: 1_000_000 }
+    end
+  end
+
+  def nonce_settle(settlements, governance:)
+    Solana::Config.stub(:governance?, governance) do
+      vault.build_settle_contest("settle-nonce-contest", settlements, cosigner_pubkey: COSIGNER.to_base58,
+                                 extra_cosigners: governance ? [THIRD.to_base58] : [], durable_nonce: durable_nonce)
+    end
+  end
+
+  test "nonce-anchored: four paid entries fit on v0.25" do
+    assert_operator Base64.decode64(nonce_settle(paid(4), governance: false)[:serialized_tx]).bytesize, :<=, Solana::Vault::PACKET_DATA_SIZE
+  end
+
+  test "nonce-anchored: three paid entries fit on v0.26 and four are refused before anything is queued" do
+    assert_operator Base64.decode64(nonce_settle(paid(3), governance: true)[:serialized_tx]).bytesize, :<=, Solana::Vault::PACKET_DATA_SIZE
+
+    error = assert_raises(Solana::Vault::SettleTooLargeError) { nonce_settle(paid(4), governance: true) }
+    assert_match(/4 paid entries serializes to 1309 bytes/, error.message)
+  end
 end

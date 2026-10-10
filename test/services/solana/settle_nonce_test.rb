@@ -167,8 +167,9 @@ class SettleNonceTest < ActiveSupport::TestCase
                                metadata: { settlements: [], durable_nonce: { account: NONCE_ACCOUNT } }.to_json)
   end
 
-  def broadcasting_vault(sent)
+  def broadcasting_vault(sent, nonce_client: fake_client)
     vault = Object.new
+    vault.define_singleton_method(:client) { nonce_client }
     vault.define_singleton_method(:simulate_and_broadcast) { |w| sent << w; "sig" }
     vault
   end
@@ -205,7 +206,7 @@ class SettleNonceTest < ActiveSupport::TestCase
 
   test "a preflight refusal gives the claim back" do
     row = nonce_row(nonce_wire)
-    vault = Object.new
+    vault = broadcasting_vault([])
     vault.define_singleton_method(:simulate_and_broadcast) { |_w| raise Solana::Cosign::PreflightRejected, "BlockhashNotFound" }
     vault.define_singleton_method(:read_contest) { |*_a, **_k| { status: "Locked" } }
 
@@ -213,5 +214,21 @@ class SettleNonceTest < ActiveSupport::TestCase
       Solana::SettleNonceSubmission.new(row, vault: vault).submit!(Solana::SettleNonceSigner.sign(row.serialized_tx, COSIGNER))
     end
     assert_equal ["pending", nil], [row.reload.status, row.tx_signature]
+  end
+
+  test "submit refuses a wire whose nonce has advanced, before claiming" do
+    row = nonce_row(nonce_wire)
+    advanced = fake_client
+    moved = Base64.strict_encode64([1, 1].pack("VV") + COSIGNER.public_key_bytes + ("\x07" * 32).b + [5000].pack("Q<"))
+    advanced.define_singleton_method(:get_account_info) { |*_a, **_k| { "value" => { "data" => [moved, "base64"] } } }
+    sent = []
+
+    error = assert_raises(Solana::SettleNonceSubmission::Refused) do
+      Solana::SettleNonceSubmission.new(row, vault: broadcasting_vault(sent, nonce_client: advanced))
+                                   .submit!(Solana::SettleNonceSigner.sign(row.serialized_tx, COSIGNER))
+    end
+    assert_match(/has advanced/, error.message)
+    assert_empty sent
+    assert_equal "pending", row.reload.status
   end
 end
