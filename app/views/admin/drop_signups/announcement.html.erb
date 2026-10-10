@@ -44,7 +44,7 @@
     </p>
   <% end %>
 
-  <div class="card p-5" data-controller="send-gate"
+  <div class="card p-5" data-controller="send-gate" data-action="turbo:before-cache@document->send-gate#reset"
        data-send-gate-count-value="<%= @recipient_count %>"
        data-send-gate-needs-early-value="<%= !@dropped %>"
        data-send-gate-confirm-value="Send the drop announcement to <%= @recipient_count %> <%= "address".pluralize(@recipient_count) %>? This cannot be undone.">

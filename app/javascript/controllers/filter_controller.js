@@ -4,12 +4,13 @@ import { matches } from "turf/filter"
 // Filters a list by a text input: hides each item whose data-filter-text does
 // not contain the query, shows a clear button while there is a query, and an
 // empty state when nothing matches.
+//
+// The query lives in the input, so connect reads it. Bind reset to
+// turbo:before-cache@document so a restored page starts unfiltered.
 export default class extends Controller {
   static targets = [ "input", "clear", "item", "empty", "query" ]
 
-  // Starts unfiltered, whatever a restored page left in the input.
   connect() {
-    this.inputTarget.value = ""
     this.update()
   }
 
@@ -28,6 +29,10 @@ export default class extends Controller {
 
   clear(event) {
     if (event.type === "keydown") event.preventDefault()
+    this.reset()
+  }
+
+  reset() {
     this.inputTarget.value = ""
     this.update()
   }

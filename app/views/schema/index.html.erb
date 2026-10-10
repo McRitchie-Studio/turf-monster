@@ -3,7 +3,7 @@
     return `columns` as a String, not an Array — the gem's bare
     `idx.columns.join` then raises NoMethodError. Array() normalises both.
     Delete this file once the fix lands upstream in studio-engine. %>
-<section class="mb-6" data-controller="filter">
+<section class="mb-6" data-controller="filter" data-action="turbo:before-cache@document->filter#reset">
   <div class="flex items-center justify-between mb-4">
     <h2 class="text-2xl font-bold text-heading">Database Schema</h2>
     <span class="text-sm text-muted"><%= @tables.size %> tables</span>

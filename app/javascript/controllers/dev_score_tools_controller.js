@@ -4,19 +4,14 @@ import { request } from "turf/dev_score_tools"
 // The live scoreboard's dev-only injectors: each button POSTs one score, play,
 // conclusion or clear for the team picked in the select. Every button is
 // disabled while a request is out.
+//
+// The pick lives in the select, read at each press. Bind reset to
+// turbo:before-cache@document so a restored page starts on the first team.
 export default class extends Controller {
   static targets = [ "team", "button" ]
-  static values = { initial: String }
 
-  // Starts on the first team, whatever a restored page left selected.
   connect() {
-    this.target = this.initialValue
-    this.teamTarget.value = this.target
-    this.setBusy(false)
-  }
-
-  pick() {
-    this.target = this.teamTarget.value
+    this.busy = false
   }
 
   record(event) {
@@ -35,9 +30,14 @@ export default class extends Controller {
     return this.post("clear")
   }
 
+  reset() {
+    this.teamTarget.selectedIndex = 0
+    this.setBusy(false)
+  }
+
   async post(tool, param) {
     if (this.busy) return
-    const { path, body } = request(tool, this.target, param)
+    const { path, body } = request(tool, this.teamTarget.value, param)
     this.setBusy(true)
     try {
       const csrf = document.querySelector('meta[name="csrf-token"]')?.content

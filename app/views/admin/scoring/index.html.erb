@@ -1,73 +1,14 @@
 <%#
-  Operator goal-entry console. Each fixture is an Alpine `gameScorer` component
-  reading its initial state from a sibling JSON <script>; the row forms POST to
-  Admin::GamesController (record_goal / remove_goal / complete_game) and re-render
+  Operator goal-entry console. Each fixture is a game-scorer controller reading
+  its initial state from its game value; its buttons POST to
+  Admin::GamesController (record_goal / remove_goal / complete_game) and redraw
   from the JSON the server returns (authoritative score + goal list). Recording a
   goal cascades to Game#score_affected_contests! → every OPEN contest on the slate
   re-scores + the /live page refreshes over ActionCable.
 %>
 
-<script>
-  // Inline (not a module) so it's defined before Alpine processes x-data.
-  function gameScorer(configId) {
-    var initial = JSON.parse(document.getElementById(configId).textContent);
-    return {
-      g: initial,
-      minute: '',
-      busy: false,
-      error: '',
-      csrfToken() {
-        var el = document.querySelector('meta[name="csrf-token"]');
-        return el ? el.getAttribute('content') : '';
-      },
-      async post(url, method, body) {
-        this.busy = true;
-        this.error = '';
-        try {
-          var res = await fetch(url, {
-            method: method,
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-              'X-CSRF-Token': this.csrfToken()
-            },
-            body: body ? JSON.stringify(body) : undefined
-          });
-          var data = await res.json();
-          if (!data.success) throw new Error(data.error || 'Request failed');
-          this.g.homeScore = data.game.homeScore;
-          this.g.awayScore = data.game.awayScore;
-          this.g.status = data.game.status;
-          this.g.goals = data.game.goals;
-        } catch (e) {
-          this.error = e.message;
-        } finally {
-          this.busy = false;
-        }
-      },
-      addGoal(side) {
-        var teamSlug = side === 'home' ? this.g.homeSlug : this.g.awaySlug;
-        this.post('/admin/games/' + this.g.slug + '/goals', 'POST', { team_slug: teamSlug, minute: this.minute });
-        this.minute = '';
-      },
-      removeGoal(id) {
-        this.post('/admin/games/' + this.g.slug + '/goals/' + id, 'DELETE', null);
-      },
-      complete() {
-        if (!confirm('Mark this game FINAL? This freezes its scoring and fires the FINAL toast on the live page.')) return;
-        this.post('/admin/games/' + this.g.slug + '/complete', 'POST', null);
-      },
-      get done() { return this.g.status === 'completed'; },
-      get scoreLine() {
-        var h = this.g.homeScore == null ? '–' : this.g.homeScore;
-        var a = this.g.awayScore == null ? '–' : this.g.awayScore;
-        return h + ' – ' + a;
-      }
-    };
-  }
-</script>
-
-<section x-data="{ q: '', hideDone: false }">
+<section data-controller="scoring-filter"
+         data-action="turbo:before-cache@document->scoring-filter#reset game-scorer:changed->scoring-filter#update">
   <div class="flex items-center justify-between gap-3 mb-2">
     <h2 class="text-2xl font-bold text-heading">Goal Console</h2>
     <%= link_to "Admin hub →", admin_hub_path, class: "text-sm text-muted hover:text-heading" %>
@@ -79,10 +20,12 @@
 
   <!-- Toolbar -->
   <div class="flex flex-col sm:flex-row sm:items-center gap-3 mb-5">
-    <input type="search" x-model="q" placeholder="Filter by team…"
+    <input type="search" placeholder="Filter by team…"
+           data-scoring-filter-target="query" data-action="input->scoring-filter#update"
            class="input flex-1" autocomplete="off" />
     <label class="flex items-center gap-2 text-sm text-muted select-none cursor-pointer">
-      <input type="checkbox" x-model="hideDone" class="accent-violet-500" />
+      <input type="checkbox" class="accent-violet-500"
+             data-scoring-filter-target="hideDone" data-action="change->scoring-filter#update" />
       Hide finished
     </label>
   </div>
@@ -110,12 +53,15 @@
           }
           search = [game.home_team.name, game.away_team.name, game.home_team.short_name, game.away_team.short_name].compact.join(" ").downcase
         %>
-        <script type="application/json" id="scorer-cfg-<%= game.slug %>"><%== config.to_json %></script>
-
         <div class="card p-4"
              data-search="<%= search %>"
-             x-data="gameScorer('scorer-cfg-<%= game.slug %>')"
-             x-show="(q === '' || $el.dataset.search.includes(q.toLowerCase())) && !(hideDone && done)">
+             data-done="<%= game.status == "completed" %>"
+             data-scoring-filter-target="card"
+             data-controller="game-scorer"
+             data-action="turbo:before-cache@document->game-scorer#reset"
+             data-game-scorer-game-value="<%= config.to_json %>"
+             data-game-scorer-final-class="bg-emerald-500/15 text-emerald-400"
+             data-game-scorer-open-class="bg-violet-500/15 text-violet-300">
 
           <!-- Scoreline -->
           <div class="flex items-center justify-between gap-3">
@@ -123,7 +69,7 @@
               <span class="text-xl"><%= game.home_team.emoji %></span>
               <span class="text-heading font-semibold truncate"><%= game.home_team.name %></span>
             </div>
-            <div class="text-2xl font-extrabold text-violet tabular-nums px-3" x-text="scoreLine"></div>
+            <div class="text-2xl font-extrabold text-violet tabular-nums px-3" data-game-scorer-target="score"></div>
             <div class="flex items-center gap-2 flex-1 min-w-0 justify-end text-right">
               <span class="text-heading font-semibold truncate"><%= game.away_team.name %></span>
               <span class="text-xl"><%= game.away_team.emoji %></span>
@@ -133,21 +79,21 @@
           <!-- Meta row -->
           <div class="flex items-center justify-between gap-2 mt-1.5 mb-3 text-xs text-muted">
             <span><%= game.kickoff_at.present? ? game.kickoff_at.strftime("%a %b %-d · %l:%M %p") : "TBD" %></span>
-            <span class="px-2 py-0.5 rounded-full font-semibold"
-                  :class="done ? 'bg-emerald-500/15 text-emerald-400' : 'bg-violet-500/15 text-violet-300'"
-                  x-text="done ? 'FINAL' : (g.status === 'in_progress' ? 'LIVE' : 'Scheduled')"></span>
+            <span class="px-2 py-0.5 rounded-full font-semibold" data-game-scorer-target="status"></span>
           </div>
 
           <!-- Goal entry -->
           <div class="flex items-stretch gap-2">
-            <input type="number" min="1" max="130" x-model.number="minute" placeholder="min'"
-                   class="input w-20 text-center" :disabled="busy" />
-            <button type="button" @click="addGoal('home')" :disabled="busy"
+            <input type="number" min="1" max="130" placeholder="min'"
+                   class="input w-20 text-center" data-game-scorer-target="minute control" />
+            <button type="button" data-game-scorer-target="control"
+                    data-action="game-scorer#addGoal" data-game-scorer-side-param="home"
                     class="btn-secondary flex-1 flex items-center justify-center gap-1.5 disabled:opacity-50">
               <span><%= game.home_team.emoji %></span>
               <span class="truncate">Goal · <%= game.home_team.short_name || game.home_team.name %></span>
             </button>
-            <button type="button" @click="addGoal('away')" :disabled="busy"
+            <button type="button" data-game-scorer-target="control"
+                    data-action="game-scorer#addGoal" data-game-scorer-side-param="away"
                     class="btn-secondary flex-1 flex items-center justify-center gap-1.5 disabled:opacity-50">
               <span><%= game.away_team.emoji %></span>
               <span class="truncate">Goal · <%= game.away_team.short_name || game.away_team.name %></span>
@@ -155,23 +101,22 @@
           </div>
 
           <!-- Goal list -->
-          <div class="flex flex-wrap gap-1.5 mt-3" x-show="g.goals.length">
-            <template x-for="goal in g.goals" :key="goal.id">
-              <span class="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full bg-violet-500/10 text-xs">
-                <span x-text="goal.teamEmoji"></span>
-                <span class="text-muted tabular-nums"><span x-text="goal.minute"></span><span x-show="goal.minute">&rsquo;</span></span>
-                <button type="button" @click="removeGoal(goal.id)" :disabled="busy"
-                        class="ml-0.5 w-4 h-4 rounded-full hover:bg-rose-500/30 text-rose-400 leading-none">&times;</button>
-              </span>
-            </template>
-          </div>
+          <div class="flex flex-wrap gap-1.5 mt-3" hidden data-game-scorer-target="goals"></div>
+          <%# One goal's pill; the controller clones it per goal and fills the marked parts. %>
+          <template data-game-scorer-target="goalTemplate">
+            <span class="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full bg-violet-500/10 text-xs">
+              <span data-goal-emoji></span>
+              <span class="text-muted tabular-nums"><span data-goal-minute></span><span data-goal-tick>&rsquo;</span></span>
+              <button type="button" data-goal-remove data-game-scorer-target="control" data-action="game-scorer#removeGoal"
+                      class="ml-0.5 w-4 h-4 rounded-full hover:bg-rose-500/30 text-rose-400 leading-none">&times;</button>
+            </span>
+          </template>
 
           <!-- Footer -->
           <div class="flex items-center justify-between gap-2 mt-3 pt-2.5 border-t border-subtle">
-            <span class="text-xs text-rose-400" x-text="error"></span>
-            <button type="button" @click="complete()" :disabled="busy || done"
-                    class="text-xs font-semibold text-muted hover:text-heading disabled:opacity-40"
-                    x-text="done ? 'Final ✓' : 'Mark Final'"></button>
+            <span class="text-xs text-rose-400" data-game-scorer-target="error"></span>
+            <button type="button" data-game-scorer-target="complete" data-action="game-scorer#complete"
+                    class="text-xs font-semibold text-muted hover:text-heading disabled:opacity-40"></button>
           </div>
         </div>
       <% end %>

@@ -7,15 +7,14 @@
     also chooses the game — the option value carries both, and the operator
     never has to keep a game picker and a team picker agreeing with each other. %>
 <% if Rails.env.local? %>
-  <%# Built in the SAME order the <select> renders below (by kickoff, away then
-      home), so the controller's initial value lands on the first visible row rather than on
-      whichever team happened to sort first alphabetically. %>
+  <%# The tools render when some game has a team to score for. The select's
+      first option, by kickoff then away before home, is the starting pick. %>
   <% options = games.sort_by { |g| g.kickoff_at || Time.current }
                     .flat_map { |g| [[g, g.away_team], [g, g.home_team]] }
                     .reject { |_g, t| t.nil? } %>
   <% if options.any? %>
     <div data-controller="dev-score-tools" data-test="dev-score-tools"
-         data-dev-score-tools-initial-value="<%= options.first.then { |g, t| "#{g.slug}|#{t.slug}" } %>"
+         data-action="turbo:before-cache@document->dev-score-tools#reset"
          class="flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50/80 dark:border-amber-700/40 dark:bg-amber-950/30 px-1.5 py-1 flex-wrap">
       <span class="text-[10px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400/90"
             title="Dev/test only — writes real Goal rows so the full pipeline runs">Score</span>
@@ -26,7 +25,7 @@
           "ARI @ GB" / "GB vs ARI" listing had: both rows were selectable but
           neither said which side you were picking. Grouping by game pairs the
           two rows visually so a team is easy to find next to its opponent. %>
-      <select data-dev-score-tools-target="team" data-action="change->dev-score-tools#pick" data-test="dev-score-team"
+      <select data-dev-score-tools-target="team" data-test="dev-score-team"
               class="px-1.5 py-1 rounded-md text-xs font-medium bg-surface text-secondary border border-subtle max-w-[230px]">
         <% games.sort_by { |g| g.kickoff_at || Time.current }.each do |game| %>
           <% next unless game.home_team && game.away_team %>
