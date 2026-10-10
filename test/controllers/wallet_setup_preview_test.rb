@@ -511,18 +511,9 @@ class WalletSetupPreviewTest < ActionDispatch::IntegrationTest
                     "wallet-setup swaps to buy-entry-token; the host must register it"
   end
 
-  test "the guide CTA falls back to Phantom's guide until /getting-started ships" do
-    # The house guide is a SEPARATE task (phantom-onboarding-guide-page). This
-    # asserts the seam, not a particular winner: whichever target resolves, the
-    # CTA must be a real destination — never a dead route.
-    card = wallet_setup_card
-
-    if Rails.application.routes.url_helpers.respond_to?(:getting_started_path)
-      assert_includes card, "/getting-started",
-                      "with the guide route live the CTA should point at the house guide"
-    else
-      assert_includes card, WalletSetupHelper::PHANTOM_GUIDE_URL,
-                      "without the guide route the CTA must fall back to Phantom's guide, not 404"
-    end
+  test "the guide CTA points at the house guide" do
+    assert_includes wallet_setup_card, %(href="#{getting_started_path}"),
+                    "the guide route is live, so the CTA points at the house guide"
+    assert_not_includes wallet_setup_card, WalletSetupHelper::PHANTOM_GUIDE_URL
   end
 end

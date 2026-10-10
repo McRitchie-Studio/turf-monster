@@ -84,23 +84,13 @@ class PersonTest < ActiveSupport::TestCase
     assert_equal athletes(:passer), people(:passer).athlete_profile
   end
 
-  # studio-engine's Sluggable writes the slug once, at create, from the release
-  # that ships rename_slug! (task slugs-set-once-then-cascade), so correcting a
-  # name keeps the slug and the athlete stays attached. An older engine rewrote
-  # the slug on every save and orphaned athletes.person_slug. Both hold until the
-  # lock carries that release, then only the first branch stays (task
-  # turf-slug-tests-both-engines).
-  test "renaming a person keeps the athlete FK on an engine that writes the slug once" do
+  # studio-engine's Sluggable writes the slug once, at create, so correcting a
+  # name keeps the slug and the athlete stays attached.
+  test "renaming a person keeps the slug and the athlete FK" do
     person = people(:passer)
     person.update!(last_name: "Renamed")
 
-    if Sluggable.method_defined?(:rename_slug!)
-      assert_equal "pat-passer", person.reload.slug
-      assert_equal athletes(:passer), person.athlete_profile
-    else
-      assert_equal "pat-renamed", person.reload.slug
-      assert_nil person.athlete_profile,
-        "the Athlete still points at the OLD slug on an engine that recomputes it"
-    end
+    assert_equal "pat-passer", person.reload.slug
+    assert_equal athletes(:passer), person.athlete_profile
   end
 end

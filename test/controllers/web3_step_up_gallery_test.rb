@@ -213,19 +213,12 @@ class Web3StepUpGalleryTest < ActionDispatch::IntegrationTest
   # user say so — otherwise naming the wallet makes a mismatch visible without
   # making it actionable, which is worse than not naming it.
   #
-  # THE ROUTE IS THE INVARIANT; ITS SPELLING IS THE GEM'S AND IT MOVED. Up to
-  # solana-studio 0.6.0 it was a full-width "Use a different wallet" row; the
-  # next release replaces that row with a quiet "Not your wallet?" link beside
-  # the address (operator call). This app renders whichever its LOCK resolves,
-  # and the release sweep bumps that lock without touching this file — so an
-  # assertion pinned to one spelling is red on one side of the bump or the
-  # other. The handler is what does not move, and the gem's own render tier
-  # pins the new link tightly; re-asserting it here would only re-couple the
-  # repos, which is the mistake ResolvedWeb3StepUp's own note warns about.
+  # The route is a quiet "Not your wallet?" link beside the address, the
+  # spelling solana-studio renders, wired to the picker's opener.
   test "a remembered wallet still offers a way to use another one" do
     assert_includes step_up_page, "openPicker()"
-    assert_match(/Use a different wallet|Not your wallet\?/, card,
-                 "the remembered-wallet card offers no route to the picker at all")
+    assert_includes card, "Not your wallet?",
+                    "the remembered-wallet card offers no route to the picker at all"
   end
 
   # ...and the route lands somewhere this app actually registers. The gem swaps

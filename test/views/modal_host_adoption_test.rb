@@ -56,9 +56,8 @@ class ModalHostAdoptionTest < ActionDispatch::IntegrationTest
   test "the resolved host reads a width registry rather than a static class" do
     source = ResolvedModalHost.source
 
-    # The call sits in the store's JavaScript: the partial on an engine that keeps
-    # the store inline, studio/modal_host.js (which passes the window) otherwise.
-    assert_match(/modalCardWidth\((?:win,\s*)?c\.id\)/, ResolvedModalHost.script,
+    # The call sits in the store's JavaScript, studio/modal_host.js.
+    assert_match(/modalCardWidth\(win,\s*c\.id\)/, ResolvedModalHost.script,
                  "cardClasses() must resolve the width per modal id; without this " \
                  "call the registry is printed on the page and read by nobody")
 
@@ -230,9 +229,7 @@ class ModalHostAdoptionTest < ActionDispatch::IntegrationTest
   end
 
   # CARD_WIDTHS assignments a page mounting the host must carry: the app's
-  # registration, plus the engine's merge when the host renders its store inline.
-  # An engine that ships the store as studio/modal_host.js merges off the page.
-  def rendered_width_statements
-    ResolvedModalHost.script_module ? 1 : 2
-  end
+  # registration alone. The engine merges its own in studio/modal_host.js, off
+  # the page.
+  def rendered_width_statements = 1
 end
