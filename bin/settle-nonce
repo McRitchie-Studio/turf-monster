@@ -1,0 +1,111 @@
+#!/usr/bin/env ruby
+# Cosign a nonce-anchored settle with the Solana CLI keypair or a Ledger
+# (docs/SOLANA.md, "Durable-nonce settlement").
+#
+#   bin/settle-nonce show <ptx-slug> [--out FILE]        server: print the row, write its wire
+#   bin/settle-nonce rebuild <ptx-slug> [--extra PUBKEY] server: rebuild on the current nonce
+#   bin/settle-nonce describe --in FILE                  offline: slots and nonce of a wire
+#   bin/settle-nonce message --in FILE                   offline: the message bytes, base58
+#   bin/settle-nonce sign --in FILE --keypair PATH [--out FILE]
+#                                                        offline: fill PATH's slot
+#   bin/settle-nonce attach --in FILE --pubkey PK --signature SIG [--out FILE]
+#                                                        offline: add a detached signature
+#   bin/settle-nonce submit <ptx-slug> --in FILE         server: broadcast the cosigned wire
+#
+# The offline commands load no Rails, read no database and call no RPC.
+require "optparse"
+
+OFFLINE = %w[describe message sign attach].freeze
+SERVER = %w[show rebuild submit].freeze
+
+command = ARGV.shift
+unless (OFFLINE + SERVER).include?(command)
+  warn File.read(__FILE__).lines.drop(1).take_while { |l| l.start_with?("#") }.map { |l| l.sub(/^# ?/, "") }.join
+  exit 64
+end
+
+options = { extra: [] }
+OptionParser.new do |o|
+  o.on("--in FILE") { |v| options[:in] = v }
+  o.on("--out FILE") { |v| options[:out] = v }
+  o.on("--keypair PATH") { |v| options[:keypair] = v }
+  o.on("--pubkey PK") { |v| options[:pubkey] = v }
+  o.on("--signature SIG") { |v| options[:signature] = v }
+  o.on("--extra PUBKEY") { |v| options[:extra] << v }
+end.parse!(ARGV)
+
+def need(options, key)
+  options.fetch(key) { abort "--#{key} is required" }
+end
+
+def read_wire(options)
+  File.read(need(options, :in)).strip
+end
+
+def write_wire(options, wire)
+  if options[:out]
+    File.write(options[:out], "#{wire}\n")
+    puts "wrote #{options[:out]}"
+  else
+    puts wire
+  end
+end
+
+def print_description(wire)
+  info = Solana::SettleNonceSigner.describe(wire)
+  puts "nonce-anchored: #{info[:nonce_anchored]}"
+  puts "nonce account:  #{info[:nonce_account]}"
+  puts "nonce value:    #{info[:nonce_value]}"
+  puts "message sha256: #{info[:message_sha256]}"
+  info[:signers].each_with_index do |s, i|
+    state = s[:valid] ? "signed" : (s[:signed] ? "INVALID" : "empty")
+    puts "slot #{i}: #{s[:pubkey]}  #{state}"
+  end
+end
+
+if OFFLINE.include?(command)
+  require "bundler/setup"
+  require_relative "../lib/solana/settle_nonce_signer"
+  wire = read_wire(options)
+  begin
+    case command
+    when "describe" then print_description(wire)
+    when "message"
+      puts Solana::Keypair.encode_base58(Solana::WireMessage.parse_base64(wire).message_bytes)
+    when "sign"
+      keypair = Solana::SettleNonceSigner.load_keypair(need(options, :keypair))
+      write_wire(options, Solana::SettleNonceSigner.sign(wire, keypair))
+    when "attach"
+      write_wire(options, Solana::SettleNonceSigner.attach(wire, pubkey: need(options, :pubkey),
+                                                                 signature_base58: need(options, :signature)))
+    end
+  rescue Solana::SettleNonceSigner::Refused, ArgumentError, RuntimeError => e
+    abort "refused: #{e.message}"
+  end
+  exit 0
+end
+
+require_relative "../config/environment"
+slug = ARGV.shift or abort "a pending transaction slug is required (ptx-<id>)"
+tx = PendingTransaction.find_by(slug: slug) or abort "no pending transaction #{slug}"
+submission = Solana::SettleNonceSubmission.new(tx)
+
+begin
+  case command
+  when "show"
+    puts "#{tx.slug}  #{tx.tx_type}  #{tx.status}  contest #{tx.target&.slug}"
+    print_description(tx.serialized_tx)
+    write_wire(options, tx.serialized_tx) if options[:out]
+  when "rebuild"
+    submission.rebuild!(extra_cosigners: options[:extra])
+    puts "rebuilt #{tx.slug} on nonce #{tx.reload.durable_nonce['value']}"
+    print_description(tx.serialized_tx)
+  when "submit"
+    signature = submission.submit!(read_wire(options))
+    puts "broadcast #{signature}"
+    puts "Contests::SettlementSweepJob records it once it lands; Reconcile on the Treasury page asks sooner."
+  end
+rescue Solana::SettleNonceSubmission::Refused, Solana::SettleNonce::ConfigError,
+       Solana::CosignPlan::InvalidCosignerError => e
+  abort "refused: #{e.message}"
+end
