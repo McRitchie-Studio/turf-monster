@@ -128,6 +128,113 @@ class QaRehearsalSeedPreflightTest < ActiveSupport::TestCase
     assert_equal "qa-rehearsal-x", @driver.create_contest["contest_slug"]
   end
 
+  # A row as a release before the parked-address rule could have stored it.
+  def legacy_holder(email, **attrs)
+    user = User.create!(web3_solana_address: Solana::Keypair.generate.to_base58)
+    user.update_columns({ email: email, web3_solana_address: nil, email_verified_at: nil }.merge(attrs))
+    user.reload
+  end
+
+  def roster_rows
+    User.where(email: ROSTER.map { |i| i[:email] }).or(User.where(web3_solana_address: ROSTER.filter_map { |i| i[:wallet] }))
+  end
+
+  def assert_seed_refuses(row)
+    before = row.reload.attributes
+    others = roster_rows.where.not(id: row.id).count
+
+    error = assert_raises(Refused) { seed! }
+
+    assert_equal before, row.reload.attributes, "the refused row was written"
+    assert_equal others, roster_rows.where.not(id: row.id).count, "a roster row was written beside the refusal"
+    assert_includes error.message, row.username
+    refute_includes error.message, "@", "the refusal names rows by username"
+    assert_includes error.message, "Nothing was written"
+    assert_includes error.message, Driver::SEED_COMMAND
+    error
+  end
+
+  ADMIN_ADDRESSES = ROSTER.select { |i| i[:role] == "admin" }.map { |i| i[:email] }.freeze
+
+  test "seed refuses to elevate a parked admin address held unverified beside a Google link" do
+    assert_equal 3, ADMIN_ADDRESSES.size
+    ADMIN_ADDRESSES.each do |address|
+      row = legacy_holder(address, provider: "google_oauth2", uid: "uid-#{address.hash.abs}")
+      refute_equal "admin", row.role
+      refute row.accept_mailbox_proof!, "the mailbox proof refuses this row, so the seed must"
+
+      error = assert_seed_refuses(row)
+
+      assert_includes error.message, "unverified beside another credential"
+      row.update_columns(email: "moved-#{row.id}@example.com")
+    end
+  end
+
+  test "seed refuses a parked address held unverified beside an API key or another wallet" do
+    keyed = legacy_holder(User::TURF_HOUSE_EMAIL)
+    ApiKey.mint!(user: keyed, name: "Key", geo_country: "US", geo_state: "CO", age_result: "not_required")
+    assert_seed_refuses(keyed)
+    keyed.update_columns(email: "moved-#{keyed.id}@example.com")
+
+    walleted = legacy_holder(User::TURF_HOUSE_EMAIL, web3_solana_address: Solana::Keypair.generate.to_base58)
+    assert_seed_refuses(walleted)
+  end
+
+  test "seed refuses a row matched by a parked username alone" do
+    row = legacy_holder(nil)
+    row.update_columns(username: CREATOR[:username])
+
+    error = assert_seed_refuses(row)
+
+    assert_includes error.message, "holds only the username parked for #{CREATOR[:username]}"
+    assert_nil User.find_by(email: Driver::CREATOR_EMAIL)
+  end
+
+  test "one refusal names every refused row" do
+    squat = legacy_holder(User::TURF_HOUSE_EMAIL, provider: "google_oauth2", uid: "uid-1")
+    named = legacy_holder(nil)
+    named.update_columns(username: CREATOR[:username])
+
+    error = assert_raises(Refused) { seed! }
+
+    assert_includes error.message, squat.username
+    assert_includes error.message, named.username
+    assert_empty roster_rows.where.not(id: squat.id).to_a
+  end
+
+  test "seed ends the sessions of an unverified holder with no other credential before it elevates it" do
+    row = legacy_holder(User::TURF_HOUSE_EMAIL)
+    token = row.session_token
+    assert token.present?
+
+    seed!
+
+    row.reload
+    assert_equal "admin", row.role
+    refute_equal token, row.session_token, "a session opened before the seed survived the elevation"
+  end
+
+  test "seed adopts a verified holder and a wallet-proven holder with their sessions" do
+    verified = legacy_holder(User::TURF_HOUSE_EMAIL, provider: "google_oauth2", uid: "uid-2",
+                                                     email_verified_at: Time.current)
+    proven = legacy_holder(Driver::CREATOR_EMAIL, web3_solana_address: CREATOR[:wallet])
+    tokens = [verified, proven].map(&:session_token)
+
+    seed!
+
+    assert_equal %w[admin admin], [verified, proven].map { |row| row.reload.role }
+    assert_equal tokens, [verified, proven].map(&:session_token)
+  end
+
+  test "a second seed writes nothing to the rows the first one made" do
+    seed!
+    before = roster_rows.order(:id).map(&:attributes)
+
+    seed!
+
+    assert_equal before, roster_rows.order(:id).map(&:attributes)
+  end
+
   test "a missing slate stops create before the chain script" do
     seed!
     Slate.where(name: Driver::SLATE_NAME).delete_all
