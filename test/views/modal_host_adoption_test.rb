@@ -91,9 +91,9 @@ class ModalHostAdoptionTest < ActionDispatch::IntegrationTest
     each_host_render do |label, body|
       # THE GUARD ON THE GUARD. If the statement scan matches nothing, every
       # assertion below reads nil and this test fails for the wrong reason —
-      # or, worse, a laxer version of it passes for the wrong reason. Both the
-      # app's registration and the engine's merge are real statements, so a page
-      # mounting the host carries at least two.
+      # or, worse, a laxer version of it passes for the wrong reason. The app's
+      # registration is a real statement, so a page mounting the host carries
+      # at least one.
       assert_operator RenderedCardWidths.statements(body).length, :>=, rendered_width_statements,
                       "#{label}: found no CARD_WIDTHS assignments to read — the scan is " \
                       "matching nothing, so nothing below proves anything"
