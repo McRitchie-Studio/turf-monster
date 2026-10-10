@@ -154,9 +154,7 @@ human_wallet =
   else
     human.web3_solana_address  # canonical wallet from db/seeds/users.rb
   end
-# A swapped wallet is not the roster's, so the fixture proves its mailbox too:
-# unproven, the row is refused a magic link (User#accept_mailbox_proof!).
-human.update!(web3_solana_address: human_wallet, email_verified_at: Time.current)
+human.update!(web3_solana_address: human_wallet, email_verified_at: Time.current) # verified: a non-roster wallet beside an unproven parked address refuses the magic link
 
 # Clear encrypted keypairs so approve/deny tests don't trigger onchain withdrawals.
 # Keep web2_solana_address so managed_wallet? stays true (needed for deposits).
