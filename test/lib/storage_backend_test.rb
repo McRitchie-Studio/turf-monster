@@ -1,4 +1,9 @@
 require "test_helper"
+# Active Storage requires a service's file only when it first builds that
+# service, and these tests name the classes directly; requiring them here (the
+# public service requires the engine's trash service) keeps every test
+# independent of which one ran first.
+require "active_storage/service/r2_public_service"
 
 # [unit] Turf Monster's object storage is Cloudflare R2 and nothing else
 # (lib/storage_backend.rb + config/storage.yml). Asserted on the service OBJECTS
