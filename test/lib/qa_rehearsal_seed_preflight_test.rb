@@ -115,9 +115,8 @@ class QaRehearsalSeedPreflightTest < ActiveSupport::TestCase
     assert_equal "qa-rehearsal-x", @driver.create_contest["contest_slug"]
   end
 
-  # One shape a deployed database can hold: the roster renamed this address on
-  # 2026-06-17 and no migration carried the rename, so a row seeded before it
-  # keeps the wallet under the old address.
+  # One shape a deployed database can hold: a roster rename changes no stored
+  # row, so a row seeded before one keeps the wallet under the old address.
   test "a row holding the creator wallet under an older address is adopted, not duplicated" do
     old = User.create!(email: "bot@mcritchie.studio", name: "Alex", web3_solana_address: CREATOR[:wallet])
     assert_raises(Driver::StepError) { @driver.create_contest }

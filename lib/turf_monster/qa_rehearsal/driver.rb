@@ -66,8 +66,8 @@ module TurfMonster
       SLATE_MISSING = "no slate named #{SLATE_NAME.inspect} on QA, so there is no board to " \
                       "rehearse on. Nothing was written."
 
-      # Step 4's link signs this address in. A first sign-in on it is granted
-      # the parked admin role by its verified email (docs/AUTH.md, Parked roles).
+      # Step 4's link signs this address in. Its admin role is the roster's
+      # (docs/AUTH.md, Parked roles).
       COSIGNER_EMAIL = "alex@mcritchie.studio"
 
       # The admin actor drives the HTTP admin surface, signed in by wallet. It
