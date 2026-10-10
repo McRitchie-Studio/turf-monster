@@ -34,7 +34,8 @@ class QaRehearsalCreatorTest < ActiveSupport::TestCase
     # Answers the preflight with its facts, then the create script.
     def call(source)
       @scripts << source
-      REMOTE_RESULT.merge("creator" => "mcritchie", "slate" => Driver::SLATE_NAME, "signer_listed" => true)
+      REMOTE_RESULT.merge("creator" => "mcritchie", "slate" => Driver::SLATE_NAME, "signer_listed" => true,
+                          "signer_seated" => true)
     end
   end
 
