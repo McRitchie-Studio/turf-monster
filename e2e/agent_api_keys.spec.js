@@ -148,11 +148,14 @@ test.describe("Agent API keys", () => {
     await expectNoReload(page);
 
     // --- revoke ---------------------------------------------------------------
-    // Hold the DELETE so the pending state is observable rather than a race.
+    // Hold the revoke so the pending state is observable rather than a race.
+    // button_to sends it as a POST carrying _method=delete.
     let release;
     const held = new Promise((resolve) => (release = resolve));
     await page.route("**/account/api_keys/*", async (route) => {
-      if (route.request().method() === "DELETE") await held;
+      const request = route.request();
+      const revoke = request.method() === "DELETE" || /_method=delete|name="_method"\s+delete/.test(request.postData() || "");
+      if (revoke) await held;
       await route.continue();
     });
 

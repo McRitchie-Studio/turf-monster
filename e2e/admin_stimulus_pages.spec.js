@@ -113,19 +113,21 @@ test("the dashboard shows five users and reveals the rest on Show more", async (
 
 test("the hub's Refresh Balance and Replay Level each act once per press", async ({ page }) => {
   await loginAdmin(page);
-  // A cache-cold navbar reads the balance itself, and a second read is refused
-  // while one is out. The pill can show a cached number before that read
-  // lands, so the press waits until no read is out.
-  let outstanding = 0;
-  const isBalance = (request) => /\/admin\/usdc_balance/.test(request.url());
-  page.on("request", (request) => { if (isBalance(request)) outstanding += 1; });
-  const settle = (request) => { if (isBalance(request)) outstanding -= 1; };
+  // The navbar hydrates on load: it reads the session under the spinner and
+  // hides it when that read lands, and a cache-cold navbar reads the balance,
+  // which refuses a second read while one is out. The press waits until
+  // neither read is out and the load's spinner is down.
+  const outstanding = new Set();
+  const isNavbarRead = (request) => /\/admin\/usdc_balance|\/account\/session_refresh/.test(request.url());
+  page.on("request", (request) => { if (isNavbarRead(request)) outstanding.add(request); });
+  const settle = (request) => outstanding.delete(request);
   page.on("requestfinished", settle);
   page.on("requestfailed", settle);
   await page.goto("/admin/hub");
   await lazyController(page, "hub-actions");
   await expect(page.locator("[data-balance-display]").first()).toHaveText(/\$\d/);
-  await expect.poll(() => outstanding).toBe(0);
+  await expect.poll(() => outstanding.size).toBe(0);
+  await expect(page.locator(".nav-spinner-icon").first()).toHaveCSS("opacity", "0");
 
   // The balance read is held until the spinner has been seen over it.
   let release = null;
@@ -254,10 +256,17 @@ test("the seeds lab fills, levels up and restyles its shine", async ({ page }) =
   await expect(label("seeds")).toHaveText("25");
 });
 
+// A toast raised before Alpine has started has no store to land in, on this
+// page as on the Alpine one it replaces, so a press waits for both.
+async function toastsReady(page) {
+  await lazyController(page, "toast-demo");
+  await page.waitForFunction(() => Boolean(window.Alpine && window.Alpine.store && window.Alpine.store("toasts")));
+}
+
 test("the toast test page fires each toast once, and a toast's button fires its follow-up", async ({ page }) => {
   await loginAdmin(page);
   await page.goto("/toast_test");
-  await lazyController(page, "toast-demo");
+  await toastsReady(page);
 
   const toasts = page.locator(".toast-card");
   await page.getByRole("button", { name: "Success", exact: true }).click();
@@ -265,14 +274,14 @@ test("the toast test page fires each toast once, and a toast's button fires its 
   await expect(toasts.first()).toContainText("Entry confirmed successfully.");
 
   await page.reload();
-  await lazyController(page, "toast-demo");
+  await toastsReady(page);
   await page.getByRole("button", { name: "Invite (Accept / Decline)" }).click();
   await expect(toasts.first()).toContainText("Alex invited you to Matchday 2.");
   await toasts.getByRole("button", { name: "Accept" }).click();
   await expect(toasts.filter({ hasText: "You joined Matchday 2." })).toHaveCount(1);
 
   await page.reload();
-  await lazyController(page, "toast-demo");
+  await toastsReady(page);
   await page.getByRole("button", { name: "Fire 3 Toasts" }).click();
   await expect(toasts).toHaveCount(3);
   await expect(toasts).toContainText(["Game locks in 5 minutes.", "Payment confirmed.", "Entry submitted."]);
