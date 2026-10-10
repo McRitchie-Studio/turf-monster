@@ -37,8 +37,9 @@ decision log at the end.
 5. **No refunds on cancel or withdrawal.** An entrant who leaves forfeits the fee.
    The `entry-forfeit` SOP stands.
 6. **Settlement uses a durable nonce.** Alex cosigns a settle transaction once;
-   the server submits and retries those signed bytes until they land. One
-   prerequisite is open: a cosigner that keeps instruction order (section 5).
+   the server submits and retries those signed bytes until they land. The
+   cosigner is decided: a Ledger through the Solana CLI on mainnet, a CLI keypair
+   on devnet (section 5). None of the nonce path is built.
 
 ## 2. What exists today
 
@@ -235,18 +236,18 @@ bytes until they land.
   server key, Alex, and a third signer. Each signs the same nonce-anchored bytes
   once.
 
-**The open prerequisite: a cosigner that keeps instruction order.** A nonce
+**The cosigner keeps instruction order.** A nonce
 transaction is recognised only when `advanceNonceAccount` is instruction 0, and
 Phantom may insert Lighthouse instructions ahead of whatever was built. When one lands
 ahead of the advance, validators read the nonce value as an unknown blockhash and
 reject the transaction. The repo records this in the `Solana::Cosign` module
 header, the durable-nonce note in `Solana::Vault#build_enter_contest`, and
-`docs/SOLANA.md` (the 2026-06-11 mainnet incident). So (a) needs Alex to cosign
-with a signer that signs the message as built: a CLI keypair or a hardware
-wallet. Choosing that signer, and seating it as a vault signer if it is a new
-key, is Alex's to decide before any settle runs on a nonce. Until then, settle
-runs as today. Whether Phantom also rewrites a transaction that already carries
-the server's signature is not verified (section 8).
+`docs/SOLANA.md` (the 2026-06-11 mainnet incident). So (a) needs a signer that signs
+the message as built. Decided: on mainnet Alex cosigns with a Ledger through the
+Solana CLI; on devnet, with a CLI keypair. Not built: no settle transaction
+carries a nonce, and the cosigner key is not seated as a vault signer. Until both
+are done, settle runs as today. Whether Phantom also rewrites a transaction that
+already carries the server's signature is not verified (section 8).
 
 **Considered and not chosen.**
 - **(b) Automatic settlement by two agent-held keys.** No human in the loop. A
@@ -355,3 +356,6 @@ The durable-nonce settlement (section 5) is four more:
   He cosigns once; the server submits and retries that signed transaction until
   it lands. (b) and (c) are recorded as considered. The cosigner that keeps
   instruction order is the open prerequisite.
+- 2026-10-08 — Alex: the cosigner is a Ledger through the Solana CLI on mainnet
+  and a CLI keypair on devnet. Not built: no settle transaction carries a nonce,
+  and the cosigner key is not seated as a vault signer.
