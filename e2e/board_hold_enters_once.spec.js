@@ -4,8 +4,8 @@ const { setupPhantomMock } = require("./phantom-mock");
 
 // ONE HOLD, ONE ENTER REQUEST (task board-hold-enters-once).
 //
-// selectionBoard().init() listens on WINDOW for the hold button's
-// 'hold-confirm-entry' event. Window outlives a Turbo visit, the component does
+// selectionBoard().init() listens on DOCUMENT for the hold button's
+// hold-button:* events. Document outlives a Turbo visit, the component does
 // not: every board Alpine builds (a fresh render, or the snapshot Turbo puts
 // back on Back) runs init() again. A board that leaves its listener behind
 // keeps answering holds from the page that replaced it, so one hold sends
@@ -101,9 +101,20 @@ async function countEnters(page) {
   return seen;
 }
 
-// What the hold button does when a hold completes: its on_success is exactly
-// this dispatch (see the studio/hold_button render in _turf_totals_board).
-const completeOneHold = (page) => page.evaluate(() => window.dispatchEvent(new CustomEvent("hold-confirm-entry")));
+const HOLD_SUCCESS = "document:hold-button:success";
+
+// What the hold button does: it dispatches hold-button:<name> on itself, and
+// the event bubbles to the board's listeners on document.
+const holdEvent = (page, name, times = 1) =>
+  page.evaluate(
+    ([eventName, count]) => {
+      const button = document.querySelector('.hold-btn[data-hold-id="desktop"]');
+      for (let i = 0; i < count; i++) {
+        button.dispatchEvent(new CustomEvent(`hold-button:${eventName}`, { bubbles: true, cancelable: true, detail: { id: "desktop" } }));
+      }
+    },
+    [name, times]
+  );
 
 // Six picks, so the cart's hold button is on screen and its guard passes.
 async function pickSix(page) {
@@ -147,7 +158,7 @@ test("after a Turbo visit away and Back, one hold sends exactly one POST /enter"
   await signedInBoard(page);
   await holdOneToken(page);
   await pickSix(page);
-  expect(await page.evaluate(() => window.__listenerCensus("window:hold-confirm-entry")), "a fresh board listens once").toBe(1);
+  expect(await page.evaluate((key) => window.__listenerCensus(key), HOLD_SUCCESS), "a fresh board listens once").toBe(1);
 
   await leaveAndComeBack(page);
   await holdOneToken(page);
@@ -155,7 +166,7 @@ test("after a Turbo visit away and Back, one hold sends exactly one POST /enter"
   // Soft, so a leak reports its listener count AND its request count together.
   expect
     .soft(
-      await page.evaluate(() => window.__listenerCensus("window:hold-confirm-entry")),
+      await page.evaluate((key) => window.__listenerCensus(key), HOLD_SUCCESS),
       "the board that left took its hold listener with it"
     )
     .toBe(1);
@@ -186,15 +197,126 @@ test("a second confirm while the first is still in flight sends nothing", async 
   const enters = await countEnters(page);
   // Two completes in one tick, then a third once the request is open: the
   // shapes a double press and an early-action-plus-success pair both take.
-  await page.evaluate(() => {
-    Alpine.store("session").mode = "web2";
-    window.dispatchEvent(new CustomEvent("hold-funding-check"));
-    window.dispatchEvent(new CustomEvent("hold-confirm-entry"));
-    window.dispatchEvent(new CustomEvent("hold-confirm-entry"));
-  });
+  await page.evaluate(() => (Alpine.store("session").mode = "web2"));
+  await holdEvent(page, "start");
+  await holdEvent(page, "success", 2);
   await expect.poll(() => enters.count, { message: "the hold reached /enter" }).toBeGreaterThanOrEqual(1);
-  await completeOneHold(page);
+  await holdEvent(page, "success");
   await page.waitForTimeout(2500);
   expect(enters.count, "the confirms that arrived mid-flight were ignored").toBe(1);
   enters.release();
+});
+
+// THE BUTTON'S OWN EVENTS (task turf-hold-button-uses-events). The cart's
+// button carries no JavaScript for the engine to evaluate: it dispatches
+// hold-button:* and the board answers. A real hold, released after it
+// completes, is one request; a second hold is one more.
+const STRING_HOOKS = ["data-guard", "data-on-hold-start", "data-validate", "data-early-action", "data-early-action-guard", "data-on-success"];
+
+// Every hold-button event the page dispatches, by name, counted at document.
+async function recordHoldEvents(page) {
+  await page.evaluate(() => {
+    window.__holdEvents = {};
+    for (const name of ["guard", "start", "validate", "early", "success"]) {
+      document.addEventListener(`hold-button:${name}`, (event) => {
+        const seen = (window.__holdEvents[name] = window.__holdEvents[name] || []);
+        // Read after the board's listeners have had their turn.
+        setTimeout(() => seen.push({ id: event.detail.id, prevented: event.defaultPrevented }), 0);
+      });
+    }
+  });
+}
+
+// /enter answers each request, so the board is free for the next hold.
+async function answerEnters(page) {
+  const seen = { count: 0 };
+  await page.route("**/contests/*/check_funding", (route) =>
+    route.fulfill(json(200, { fundable: true, reason: null, method: "token" })).catch(() => {})
+  );
+  await page.route("**/contests/*/enter", async (route) => {
+    seen.count += 1;
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    await route.fulfill(json(422, { success: false, error: "Stopped by the spec.", code: "spec_stop" })).catch(() => {});
+  });
+  return seen;
+}
+
+// Put the page back to a cart ready to hold. The refusal is waited for first:
+// its card paints after the request answers, and closing ahead of it leaves the
+// card to open over the button. Then every card is closed, and the button must
+// be the element under the pointer before the next press.
+async function dismissRefusal(page) {
+  const refusal = page.getByText("Stopped by the spec.").first();
+  await expect(refusal, "the board said why the entry stopped").toBeVisible();
+  await expect
+    .poll(
+      async () => {
+        await page.evaluate(() => {
+          const solana = Alpine.store("solanaModal");
+          if (solana && solana.visible) solana.close();
+          const modals = Alpine.store("modals");
+          for (let i = 0; i < 5 && modals && modals.current(); i++) modals.close();
+        });
+        return page.evaluate(() => {
+          const button = document.querySelector('.hold-btn[data-hold-id="desktop"]');
+          const box = button.getBoundingClientRect();
+          const top = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+          return !!top && button.contains(top) && !/process|loading|success|error/.test(button.className);
+        });
+      },
+      { message: "the cart's button is clear to press again", timeout: 15000, intervals: [300, 500, 1000] }
+    )
+    .toBe(true);
+}
+
+test("a hold released after it completes sends one POST /enter, and a second hold one more", async ({ page }) => {
+  await signedInBoard(page);
+  await holdOneToken(page);
+  await pickSix(page);
+
+  const button = page.locator('.hold-btn[data-hold-id="desktop"]');
+  for (const attribute of STRING_HOOKS) await expect(button, `no ${attribute} for the engine to evaluate`).not.toHaveAttribute(attribute);
+  expect(await page.locator(STRING_HOOKS.map((name) => `[${name}]`).join(",")).count(), "no string hook anywhere on the page").toBe(0);
+
+  await recordHoldEvents(page);
+  const enters = await answerEnters(page);
+
+  await holdTheButton(page);
+  await expect.poll(() => enters.count, { message: "the first hold reached /enter" }).toBeGreaterThanOrEqual(1);
+  await page.waitForTimeout(2000);
+  expect(enters.count, "one hold, one request").toBe(1);
+  const first = await page.evaluate(() => window.__holdEvents);
+  expect(first.success, "the button completed once and the board took its state").toEqual([{ id: "desktop", prevented: true }]);
+  expect(first.guard, "the full cart let the press through").toEqual([{ id: "desktop", prevented: false }]);
+  expect(first.start.length, "the hold start was heard once").toBe(1);
+  expect(first.validate.length, "validation ran once").toBe(1);
+
+  await dismissRefusal(page);
+  await expect(page.locator("body")).toContainText("6 / 6");
+  await holdTheButton(page);
+  await expect.poll(() => enters.count, { message: "the second hold reached /enter" }).toBeGreaterThanOrEqual(2);
+  await page.waitForTimeout(2000);
+  expect(enters.count, "two holds, two requests").toBe(2);
+  expect((await page.evaluate(() => window.__holdEvents)).success.length, "each hold completed once").toBe(2);
+});
+
+// A press on a cart that is not full is refused by the board's guard listener,
+// so nothing after it runs.
+test("a hold on a cart that is not full is refused and sends nothing", async ({ page }) => {
+  await signedInBoard(page);
+  await holdOneToken(page);
+  await recordHoldEvents(page);
+  const enters = await answerEnters(page);
+
+  // The button is in the page but its row is hidden until the cart is full, so
+  // the press is dispatched on it, as the pointer would.
+  await page.evaluate(() => document.querySelector('.hold-btn[data-hold-id="desktop"]').dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
+  await page.waitForTimeout(2600);
+  await page.evaluate(() => document.querySelector('.hold-btn[data-hold-id="desktop"]').dispatchEvent(new MouseEvent("mouseup", { bubbles: true })));
+
+  const events = await page.evaluate(() => window.__holdEvents);
+  expect(events.guard, "the board refused the press").toEqual([{ id: "desktop", prevented: true }]);
+  expect(events.start, "a refused press starts nothing").toBeUndefined();
+  expect(events.success, "and completes nothing").toBeUndefined();
+  expect(enters.count).toBe(0);
 });

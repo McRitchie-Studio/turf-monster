@@ -372,13 +372,15 @@ window.selectionBoard = function() {
         board.pollTokenStatus(orderId, 'order_id');
       });
 
-      // Hold-to-Confirm dispatch listener — the shared hold_button
-      // partial fires this window event regardless of which DOM scope
-      // it lives in. The auth-modal version of the button can't reach
-      // d.confirmEntry() through el.closest('[x-data]') (that resolves
-      // to the auth wizard's data, not the board's), so we route both
-      // the in-board AND in-modal holds through this single channel.
-      listen(window, 'hold-confirm-entry', function () {
+      // THE HOLD BUTTONS ANSWER HERE. The engine's hold button
+      // (studio/_hold_button) asks its page through hold-button:* events that
+      // bubble, each carrying detail.id, the button's hold_id. They are heard
+      // on document because the token modal's button sits outside this
+      // element. BOARD_HOLDS are the cart's two buttons; the modal's button
+      // only confirms.
+      var BOARD_HOLDS = ['desktop', 'mobile'], MODAL_HOLD = 'tokens-modal', HOLD_SETTLE_MS = 500;
+      var onBoard = function (e) { return !!e.detail && BOARD_HOLDS.indexOf(e.detail.id) !== -1; };
+      var confirmHold = function () {
         // ONE CONFIRM IN FLIGHT. confirmEntry() marks itself `submitting` only
         // after it has awaited the funding pre-check, so a second complete
         // arriving inside that wait passes its re-entry guard and both POST
@@ -387,26 +389,24 @@ window.selectionBoard = function() {
         // settles without it. From there `submitting` is the guard, as before.
         if (board._confirmInFlight) return;
         board._confirmInFlight = true;
-        // confirmEntry is async — a synchronous try/catch won't catch a
-        // rejected promise. Tail with .catch so a failure in the entry
-        // submission surfaces in the console instead of silently
-        // freezing the hold button at "Almost there…".
         Promise.resolve()
           .then(function () { return board.confirmEntry(); })
-          .catch(function (e) { console.error('[hold-confirm-entry] confirmEntry rejected:', e); })
+          .catch(function (e) { console.error('[hold-button] confirmEntry rejected:', e); })
           .then(function () { board._confirmInFlight = false; });
-      });
-
-      // Hold-START funding pre-check (2026-06-13). The shared hold_button
-      // fires this the instant a hold BEGINS (on_hold_start), regardless of
-      // DOM scope — same window-event channel as hold-confirm-entry so the
-      // in-modal hold buttons reach the board too. beginFundingCheck kicks
-      // off a FRESH authoritative server balance read in PARALLEL with the
-      // ~2s hold; confirmEntry() awaits the resolved verdict at hold-complete
-      // (see the funding-gate there). Read-only — never touches the chain.
-      listen(window, 'hold-funding-check', function () {
-        try { board.beginFundingCheck(); }
-        catch (e) { console.error('[hold-funding-check] beginFundingCheck threw:', e); }
+      };
+      // The press: refused until the cart is full.
+      listen(document, 'hold-button:guard', function (e) { if (onBoard(e) && board.selectionCount !== board.picksRequired) e.preventDefault(); });
+      // The hold began: beginFundingCheck reads the server balance while the hold runs; confirmEntry() awaits the verdict. Read-only.
+      listen(document, 'hold-button:start', function (e) { if (onBoard(e)) { try { board.beginFundingCheck(); } catch (err) { console.error('[hold-button] beginFundingCheck threw:', err); } } });
+      // At validate_at: a false answer aborts the hold.
+      listen(document, 'hold-button:validate', function (e) { if (onBoard(e)) e.detail.waitUntil(board.runHoldValidations()); });
+      // At early_action_at: a wallet session on an on-chain contest confirms now, so the wallet opens while the pointer is still down.
+      listen(document, 'hold-button:early', function (e) { var s = Alpine.store('session'); if (onBoard(e) && board.contestOnchain && s && s.isWeb3) { e.preventDefault(); confirmHold(); } });
+      // The hold completed: the button keeps its holding face through the settle, then the entry is confirmed, unless the button or this board has left the page.
+      listen(document, 'hold-button:success', function (e) {
+        if (!onBoard(e) && !(e.detail && e.detail.id === MODAL_HOLD)) return;
+        e.preventDefault(); var button = e.target;
+        setTimeout(function () { if (button && button.isConnected && board._listeners.length) confirmHold(); }, HOLD_SETTLE_MS);
       });
 
       // NO RESUME LISTENERS HERE, DELIBERATELY (operator rule, 2026-09-08).
@@ -1671,8 +1671,8 @@ window.selectionBoard = function() {
     },
 
     // Authoritative hold-window funding pre-check (2026-06-13). Fired the
-    // instant a hold STARTS (shared/_hold_button on_hold_start → the board's
-    // 'hold-funding-check' listener), so the FRESH server balance read runs in
+    // instant a hold STARTS (the board's hold-button:start listener in
+    // init()), so the FRESH server balance read runs in
     // PARALLEL and is resolved by the time the hold completes ~2s later.
     // confirmEntry()'s funding-gate awaits this.
     //
@@ -2492,14 +2492,8 @@ window.selectionBoard = function() {
           duration: 2000,
           hold_id: "desktop",
           fizz_bind: "fizzPalette",
-          guard: "data.selectionCount === #{@contest.picks_required}",
-          on_hold_start: "window.dispatchEvent(new CustomEvent('hold-funding-check'))",
-          validate: "d.runHoldValidations()",
           validate_at: 750,
-          on_success: "window.dispatchEvent(new CustomEvent('hold-confirm-entry'))",
-          early_action: "window.dispatchEvent(new CustomEvent('hold-confirm-entry'))",
-          early_action_at: 1500,
-          early_action_guard: "d.contestOnchain && Alpine.store('session') && Alpine.store('session').isWeb3" %>
+          early_action_at: 1500 %>
         </div>
         <%# Clear-all lives in the header chip ("Clear n / 6 x") now —
             no separate footer button needed. %>
@@ -2580,14 +2574,8 @@ window.selectionBoard = function() {
         duration: 2000,
         hold_id: "mobile",
         fizz_bind: "fizzPalette",
-        guard: "data.selectionCount === #{@contest.picks_required}",
-        on_hold_start: "window.dispatchEvent(new CustomEvent('hold-funding-check'))",
-        validate: "d.runHoldValidations()",
         validate_at: 750,
-        on_success: "window.dispatchEvent(new CustomEvent('hold-confirm-entry'))",
-        early_action: "window.dispatchEvent(new CustomEvent('hold-confirm-entry'))",
-        early_action_at: 1500,
-        early_action_guard: "d.contestOnchain && Alpine.store('session') && Alpine.store('session').isWeb3" %>
+        early_action_at: 1500 %>
     </div>
     <% end %>
     <%# Header row: the title and the Clear chip share ONE line. The desktop
