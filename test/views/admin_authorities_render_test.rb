@@ -529,11 +529,11 @@ class AdminAuthoritiesRenderTest < ActionDispatch::IntegrationTest
     assert_match(/Auto<\/span>/, response.body)
   end
 
-  test "the planner carries an announced warning for a malformed address" do
+  test "the planner's announced refusal also reports a malformed address" do
     render_page
 
-    assert_select "p[data-malformed-warning][role=alert][x-show=?]", "malformed()"
-    assert_match(/malformed: function\(\)/, response.body)
+    assert_select "p[role=alert][x-show=?]", "conflict()"
+    assert_match(/return this\.malformed\(\);/, response.body)
   end
 
   test "the armed panel shows the exact new set, both sides, before signing" do

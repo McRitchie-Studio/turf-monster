@@ -267,16 +267,24 @@ test.describe("Authorities", () => {
     await page.goto("/admin/authorities");
 
     const verdicts = await page.evaluate(() => {
+      // Real-format keys: the planner also refuses a value that is not one.
+      const [A, B, C, D, E] = [
+        "8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd",
+        "7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr",
+        "CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR",
+        "3Qj4v9qjhXgkru6zCRCErRVhy8Q6qU3NrNpvpXLTZboA",
+        "9gACbzsCLmkYF9Yx1EBGmwMvvyfuTquJ6qs8QsoQvHXf"
+      ];
       const el = { dataset: { maxSlots: "5", required: "3",
-                              currentSigners: "AAA,BBB,CCC,DDD,EEE" } };
+                              currentSigners: [A, B, C, D, E].join(",") } };
       const planner = window.evictionPlanner();
       planner.init(el);
 
-      planner.slots = ["BBB", "CCC", "DDD", "", ""];
-      planner.authorizers = ["BBB", "CCC", "DDD"]; // every signer survives
+      planner.slots = [B, C, D, "", ""];
+      planner.authorizers = [B, C, D]; // every signer survives
       const clean = planner.conflict();
 
-      planner.authorizers = ["BBB", "BBB", "CCC"]; // the same wallet twice
+      planner.authorizers = [B, B, C]; // the same wallet twice
       const duplicate = planner.conflict();
 
       return { clean, duplicate };
@@ -315,6 +323,17 @@ test.describe("Authorities", () => {
     expect(verdicts.trailingDot).toContain("not a Solana address");
     expect(verdicts.short).toContain("not a Solana address");
     expect(verdicts.notBase58).toContain("not a Solana address");
+
+    // It reaches the operator through the planner's one announced refusal.
+    const announced = await page.evaluate(() => {
+      const good = "7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr";
+      const planner = window.evictionPlanner();
+      planner.init({ dataset: { maxSlots: "3", required: "2", currentSigners: good } });
+      planner.slots = [good, good + ".", ""];
+      planner.authorizers = [good, ""];
+      return planner.conflict();
+    });
+    expect(announced).toContain("not a Solana address");
   });
 
   test("a server-led eviction collects ONE Phantom signature and broadcasts @smoke", async ({ page }) => {

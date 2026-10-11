@@ -305,14 +305,6 @@
           <p class="mt-2 text-3xs"
              :class="liveCount < required ? 'text-danger-ink' : 'text-muted'"
              x-text="liveCount + ' of ' + maxSlots + ' slots filled; ' + required + ' signatures are required, so the set cannot go below ' + required"></p>
-
-          <%# A pasted key often carries a stray full stop or space-like
-              character. Said here as he types; the arm endpoint refuses it
-              either way. %>
-          <p class="mt-2 text-3xs text-danger-ink" x-show="malformed()" x-cloak
-             role="alert" aria-live="assertive" aria-atomic="true"
-             data-malformed-warning
-             x-text="malformed()"></p>
         </section>
 
         <section class="rounded-lg border border-subtle bg-surface-alt p-3">
@@ -554,7 +546,9 @@
           return dupes.join(', ') + ' is named twice. Every signature must come from a ' +
                  'distinct wallet (DuplicateSigner).';
         }
-        return '';
+        // A pasted key often carries a stray full stop. Shares this live
+        // region rather than adding a second one.
+        return this.malformed();
       }
     };
   };
