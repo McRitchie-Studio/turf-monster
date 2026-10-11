@@ -144,6 +144,13 @@ module Admin
     # is to give him unhurried time to check the set. The bytes are minted at
     # CLICK time by #rebuild.
     def arm
+      # A malformed address is an operator typo, not an error: refused before
+      # `rescue_and_log` so it never pages.
+      bad = malformed_addresses(params[:signers]) + malformed_addresses(params[:authorizers])
+      if bad.any?
+        return redirect_to admin_authorities_path, alert: "Refused: #{malformed_address_message(bad)}"
+      end
+
       rescue_and_log do
         rotation = build_rotation(
           proposed: params[:signers],
@@ -200,6 +207,14 @@ module Admin
           extra_cosigners: plan[:authorizers][2..] || []
         )
 
+        # The queue below and the broadcast check both assume who filled
+        # account 0. If the build disagrees, nothing is written or sent.
+        if result[:server_signed] != server_signs_lead?(plan)
+          raise "The build #{result[:server_signed] ? 'signed' : 'left unsigned'} account 0, but " \
+                "the armed plan expects it #{server_signs_lead?(plan) ? 'signed by this server' : 'left for your wallet'}. " \
+                "Discard and re-arm this eviction."
+        end
+
         # CONDITIONAL, NOT A BARE WRITE — the same shape the treasury sibling
         # takes, for the same reason. `pending?` at the top of this action is a
         # READ; a #broadcast that claims the row in the interval leaves this
@@ -234,7 +249,7 @@ module Admin
           # signed, and it is only true when the SERVER filled the slot at build
           # time. A green check standing for a signature nobody has produced is
           # the same lie as an Execute button at 2 of 3.
-          fee_payer_address: result[:server_signed] ? plan[:lead_signer] : nil,
+          fee_payer_address: server_signs_lead?(plan) ? plan[:lead_signer] : nil,
           shape: shape,
           new_signers: result[:new_signers]
         }
@@ -289,7 +304,7 @@ module Admin
         # proven signature must never be recorded as authorization for a
         # multi-signature act. `Admin::VaultStateController#confirm` omitted this
         # half and now runs the same check through `CosignPlan#validate_extras!`.
-        claimed = require_signer_queue!(plan)
+        signers = require_signer_queue!(plan)
 
         # THE SIGNATURE IS A FACT ABOUT THE BYTES, read before the claim so a
         # malformed wire is refused without stranding one. `vault` is already
@@ -325,11 +340,11 @@ module Admin
           raise
         end
 
-        verify_landed!(signature: signature, claimed: claimed)
+        verify_landed!(signature: signature, signers: signers)
 
         @tx.update!(status: "confirmed",
-                    cosigner_address: claimed[1],
-                    cosigner_addresses: claimed)
+                    cosigner_address: signers[1],
+                    cosigner_addresses: signers)
 
         render json: {
           status: "confirmed",
@@ -693,38 +708,71 @@ module Admin
       Solana::Governance.max_live_threshold(table[:thresholds])
     end
 
-    # [lead, cosigner, *extras] — the order the slots were reserved in, which is
-    # the order turf-vault reads them positionally.
+    # The wallets the browser collects in Phantom, in slot order. Server-led:
+    # [cosigner, *extras], because the build already signed account 0.
+    # Operator-led: [lead, cosigner, *extras].
     def signer_queue_for(plan)
-      Array(plan[:authorizers])
+      authorizers = Array(plan[:authorizers])
+      server_signs_lead?(plan) ? authorizers.drop(1) : authorizers
+    end
+
+    # Whether the server signs account 0 at build time. Decided from the armed
+    # plan and this process's key, never from the browser, so a request cannot
+    # drop an operator's lead from the queue. `Vault#build_update_signers`
+    # signs exactly when the lead is this key; `#rebuild` refuses a build that
+    # disagrees.
+    def server_signs_lead?(plan)
+      server = Solana::CosignPlan.admin_address
+      plan[:server_leads] == true && server.present? && plan[:lead_signer] == server
     end
 
     # What the browser CLAIMS signed, checked for count, order and membership
-    # against the armed plan before a word of it is written to the record.
+    # against the queue the server sent for this shape. Returns every signer
+    # of the transaction, the server's lead included, for verification and the
+    # record.
     def require_signer_queue!(plan)
-      expected = Array(plan[:authorizers])
+      expected = signer_queue_for(plan)
       claimed  = Array(params[:signer_queue]).map { |a| a.to_s.strip }.reject(&:blank?)
       claimed  = Array(params[:cosigner_address]).map(&:to_s) + Array(params[:extra_cosigners]) if claimed.empty?
       claimed  = claimed.map { |a| a.to_s.strip }.reject(&:blank?)
 
       if claimed != expected
         raise "This broadcast names #{claimed.length} signer(s) (#{claimed.join(', ')}) but the " \
-              "armed eviction reserved #{expected.length} slot(s) for #{expected.join(', ')}. " \
+              "armed eviction reserved #{expected.length} slot(s) for #{expected.join(', ')}" \
+              "#{server_signs_lead?(plan) ? ' (this server signs account 0 itself)' : ''}. " \
               "turf-vault reads those accounts positionally, so a different set is a different " \
               "transaction — re-arm rather than re-send."
       end
 
-      claimed
+      Array(plan[:authorizers])
+    end
+
+    # Every non-blank value that is not a 32-byte base58 key, stripped.
+    def malformed_addresses(values)
+      values = values.respond_to?(:to_unsafe_h) ? values.to_unsafe_h.values : Array(values)
+      values.map { |value| value.to_s.strip }
+            .reject { |value| value.blank? || Solana::SignerIsolation.valid_pubkey?(value) }
+    end
+
+    # Names each bad value so the operator can see the stray character. A value
+    # far longer than an address is described, not echoed: it may be a secret
+    # key pasted into the wrong field.
+    def malformed_address_message(values)
+      named = values.map do |value|
+        value.length > 50 ? "a #{value.length}-character value (not shown)" : "\"#{value}\""
+      end
+      "#{named.join(', ')} #{values.one? ? 'is' : 'are'} not a Solana address " \
+        "(32 bytes of base58). Check for a character pasted with it."
     end
 
     # EVERY claimed signer is asserted to be in a SIGNER SLOT of what landed —
     # not merely present in the transaction. turf-vault requires `info.is_signer`
     # on each leading remaining account, and a non-signer sitting in a cosigner
     # slot is what produces 6047 CosignerDidNotSign.
-    def verify_landed!(signature:, claimed:)
+    def verify_landed!(signature:, signers:)
       vault_pda = Solana::Keypair.encode_base58(vault.vault_state_pda.first)
 
-      claimed.each_with_index do |address, i|
+      signers.each_with_index do |address, i|
         Solana::TxVerifier.verify!(
           signature: signature,
           instruction_name: TX_TYPE,
@@ -757,7 +805,7 @@ module Admin
     # operator leads — which is the case whenever the SERVER'S OWN KEY is being
     # evicted — nothing is pre-signed and every row is his to act on.
     def roster_for(plan)
-      server_leads = plan[:server_leads]
+      server_leads = server_signs_lead?(plan)
       fee_payer = @fee_payer
 
       Array(plan[:authorizers]).each_with_index.map do |address, i|

@@ -514,6 +514,28 @@ class AdminAuthoritiesRenderTest < ActionDispatch::IntegrationTest
                     "the operator leads here, so no row may claim it signs automatically")
   end
 
+  test "a server-led roster marks the server's lead Auto and leaves the cosigner pending" do
+    # The server signs account 0 at build time, so its row is the one row that
+    # may claim it signs itself.
+    vault = RenderVault.new(signers: [server_key, ALEX, MASON])
+    Solana::Vault.stub :new, vault do
+      post admin_arm_authority_rotation_path,
+           params: { signers: [server_key, ALEX, ALEX2], authorizers: [server_key, ALEX] }
+    end
+    assert_equal 1, PendingTransaction.where(tx_type: "update_signers").count, "fixture must arm"
+    render_page(vault: vault)
+
+    assert_match(/Server \(fee payer\)/, response.body)
+    assert_match(/Auto<\/span>/, response.body)
+  end
+
+  test "the planner's announced refusal also reports a malformed address" do
+    render_page
+
+    assert_select "p[role=alert][x-show=?]", "conflict()"
+    assert_match(/return this\.malformed\(\);/, response.body)
+  end
+
   test "the armed panel shows the exact new set, both sides, before signing" do
     vault = arm_a_rotation
     render_page(vault: vault)
