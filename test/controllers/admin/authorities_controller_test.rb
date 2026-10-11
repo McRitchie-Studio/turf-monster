@@ -86,8 +86,11 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
       @build_calls << { new_signers: new_signers, cosigner: cosigner_pubkey,
                         lead: lead_signer, extras: extra_cosigners }
       @on_build&.call
+      # The real builder signs account 0 itself exactly when the lead is the
+      # server's own key; the stub answers the same way.
       { serialized_tx: "FAKE_WIRE", vault_pda: "VAULTPDA", new_signers: new_signers,
-        slot_width: 3, lead_signer: lead_signer, server_signed: false }
+        slot_width: 3, lead_signer: lead_signer,
+        server_signed: lead_signer.present? && lead_signer == Solana::CosignPlan.admin_address }
     end
 
     # A seeded STRING models a PRE-FLIGHT refusal, which the real method raises
@@ -249,6 +252,69 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
     end
 
     assert_match(/refusing to plan a rotation blind/i, flash[:alert].to_s)
+  end
+
+  # ── ARMING: MALFORMED ADDRESSES ──────────────────────────────────────────
+  #
+  # A slot is a 32-byte base58 key or it is refused at the door. QA armed
+  # `<key>.` (a full stop pasted with the key), and the plan stored it.
+
+  test "arming refuses a signer with a trailing full stop, naming the value" do
+    assert_no_difference -> { PendingTransaction.count } do
+      arm(StubVault.new, signers: [ALEX, MASON, "#{ALEX2}."], authorizers: [ALEX, MASON])
+    end
+
+    assert_match(/#{Regexp.escape("#{ALEX2}.")}/, flash[:alert].to_s)
+    assert_match(/not a Solana address/, flash[:alert].to_s)
+  end
+
+  test "arming refuses a key one character short" do
+    short = ALEX2[0..-2]
+    assert_no_difference -> { PendingTransaction.count } do
+      arm(StubVault.new, signers: [ALEX, MASON, short], authorizers: [ALEX, MASON])
+    end
+
+    assert_match(/#{short}/, flash[:alert].to_s)
+  end
+
+  test "arming refuses a character outside the base58 alphabet" do
+    # `0`, `O`, `I` and `l` are not base58.
+    bad = "0#{ALEX2[1..]}"
+    assert_no_difference -> { PendingTransaction.count } do
+      arm(StubVault.new, signers: [ALEX, MASON, bad], authorizers: [ALEX, MASON])
+    end
+
+    assert_match(/#{bad}/, flash[:alert].to_s)
+  end
+
+  test "arming refuses a malformed authorizer too" do
+    assert_no_difference -> { PendingTransaction.count } do
+      arm(StubVault.new, signers: [ALEX, MASON, ALEX2], authorizers: [ALEX, "#{MASON}x"])
+    end
+
+    assert_match(/#{MASON}x/, flash[:alert].to_s)
+  end
+
+  test "arming does not echo a value too long to be an address" do
+    # An 88-character base58 string is the shape of a secret key; a mistaken
+    # paste must not travel back into the page.
+    secret_shaped = ALEX * 2
+    assert_no_difference -> { PendingTransaction.count } do
+      arm(StubVault.new, signers: [ALEX, MASON, secret_shaped], authorizers: [ALEX, MASON])
+    end
+
+    assert_match(/88-character value/, flash[:alert].to_s)
+    assert_no_match(/#{secret_shaped}/, flash[:alert].to_s)
+  end
+
+  test "arming strips surrounding whitespace and stores the bare key" do
+    assert_difference -> { PendingTransaction.count }, 1 do
+      arm(StubVault.new, signers: [" #{ALEX}", MASON, "#{ALEX2}\n"], authorizers: [ALEX, " #{MASON} "])
+    end
+
+    plan = JSON.parse(PendingTransaction.last.metadata)["plan"]
+    assert_equal [ALEX, MASON, ALEX2], plan["proposed"]
+    assert_equal [ALEX, MASON], plan["authorizers"]
   end
 
   # ── ARMING: THE RECORD ───────────────────────────────────────────────────
@@ -505,6 +571,109 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
     row.reload
     assert_nil row.tx_signature
     assert row.pending?, "a transaction that never landed stays retryable"
+  end
+
+  # ── SERVER-LED: THE BROWSER COLLECTS ONLY WHAT PHANTOM HOLDS ─────────────
+  #
+  # When the server's own key leads, the build signs account 0 here and the
+  # browser owes the rest. The queue once carried the lead too, so cosign.js
+  # asked Phantom to switch to the server's key, which no operator holds.
+
+  def server = Solana::CosignPlan.admin_address
+
+  def server_led_vault(**opts)
+    StubVault.new(signers: [server, ALEX, MASON], **opts)
+  end
+
+  def server_led_row(vault)
+    arm(vault, signers: [server, ALEX, ALEX2], authorizers: [server, ALEX])
+    PendingTransaction.last
+  end
+
+  test "server-led rebuild queues only the cosigner, and paints the lead signed" do
+    vault = server_led_vault
+    row = server_led_row(vault)
+    assert JSON.parse(row.metadata)["plan"]["server_leads"], "fixture: the server leads"
+
+    with_vault(vault) do
+      post admin_rebuild_authority_rotation_path(row.slug), as: :json
+    end
+
+    assert_response :success
+    body = JSON.parse(response.body)
+    assert_equal [ALEX], body["signer_queue"], "the server's lead is not Phantom's to sign"
+    assert_equal server, body["fee_payer_address"]
+    assert_equal server, vault.build_calls.first[:lead]
+  end
+
+  test "server-led broadcast accepts the cosigner-only queue and verifies every signer" do
+    vault = server_led_vault(read_back: [server, ALEX, ALEX2])
+    row = server_led_row(server_led_vault)
+    verified = []
+
+    with_vault(vault) do
+      Solana::TxVerifier.stub :verify!, ->(**kw) { verified << kw[:signer_pubkey] } do
+        post admin_broadcast_authority_rotation_path(row.slug),
+             params: { signed_tx: "SIGNED", signer_queue: [ALEX] }, as: :json
+      end
+    end
+
+    assert_response :success
+    # The lead is still asserted to be a signer of what landed.
+    assert_equal [server, ALEX], verified
+    row.reload
+    assert_equal "confirmed", row.status
+    assert_equal [server, ALEX], row.cosigner_addresses
+    assert_equal ALEX, row.cosigner_address
+  end
+
+  test "server-led broadcast refuses a queue that claims the server's slot" do
+    vault = server_led_vault
+    row = server_led_row(server_led_vault)
+
+    with_vault(vault) do
+      post admin_broadcast_authority_rotation_path(row.slug),
+           params: { signed_tx: "SIGNED", signer_queue: [server, ALEX] }, as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_empty vault.broadcast_calls
+  end
+
+  test "operator-led broadcast refuses a queue that drops the lead" do
+    # The lead is an operator wallet here, so it must be collected. A browser
+    # that sends only the cosigner is claiming a signature nobody gave.
+    vault = StubVault.new
+    row = armed_row(StubVault.new)
+
+    with_vault(vault) do
+      post admin_broadcast_authority_rotation_path(row.slug),
+           params: { signed_tx: "SIGNED", signer_queue: [MASON] }, as: :json
+    end
+    assert_response :unprocessable_entity
+
+    with_vault(vault) do
+      post admin_broadcast_authority_rotation_path(row.slug),
+           params: { signed_tx: "SIGNED", cosigner_address: MASON }, as: :json
+    end
+    assert_response :unprocessable_entity
+    assert_empty vault.broadcast_calls
+  end
+
+  test "rebuild refuses when the build and the plan disagree on who signed account 0" do
+    vault = StubVault.new
+    vault.define_singleton_method(:build_update_signers) do |**kw|
+      { serialized_tx: "FAKE_WIRE", new_signers: kw[:new_signers], server_signed: true }
+    end
+    row = armed_row(StubVault.new)
+
+    with_vault(vault) do
+      post admin_rebuild_authority_rotation_path(row.slug), as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_match(/account 0/, JSON.parse(response.body)["error"])
+    assert_equal Admin::AuthoritiesController::UNBUILT_WIRE, row.reload.serialized_tx
   end
 
   # ── CANCEL ───────────────────────────────────────────────────────────────
