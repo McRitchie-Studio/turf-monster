@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_08_210000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_10_160000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -328,9 +328,14 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_08_210000) do
     t.datetime "created_at", null: false
     t.integer "eliminated_round"
     t.integer "entry_number"
+    t.string "landed_answer"
+    t.datetime "landed_answered_at"
+    t.datetime "landed_replaced_at"
+    t.bigint "landed_replaced_by_id"
     t.string "onchain_entry_id"
     t.string "onchain_tx_signature"
     t.string "payment_attempt_token"
+    t.datetime "payment_landed_at"
     t.bigint "payment_last_valid_block_height"
     t.string "payment_rail"
     t.string "payment_refusal_code"
@@ -355,6 +360,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_08_210000) do
     t.index ["user_id", "contest_id"], name: "index_entries_on_user_id_and_contest_id"
     t.index ["user_id", "contest_id"], name: "index_entries_one_payment_in_flight", unique: true, where: "((payment_state)::text = ANY ((ARRAY['submitted'::character varying, 'landed'::character varying])::text[]))"
     t.index ["user_id"], name: "index_entries_on_user_id"
+    t.check_constraint "landed_answer IS NULL OR (landed_answer::text = ANY (ARRAY['reauthorized'::character varying, 'declined'::character varying]::text[]))", name: "entries_landed_answer_known"
   end
 
   create_table "entry_gifts", force: :cascade do |t|

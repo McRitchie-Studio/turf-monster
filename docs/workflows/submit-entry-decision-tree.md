@@ -52,7 +52,7 @@ through one table (`Entry::Payment::TRANSITIONS`):
 |---|---|---|
 | `draft` | Nothing is owed and nothing is in the air. The cart can be edited, cleared or submitted. | a charge begins → `submitted` |
 | `submitted` | A payment was started and its outcome is not known. The row cannot be edited, cleared, abandoned or destroyed. | the chain's verdict → `confirmed`, `landed`, or back to `draft` |
-| `landed` | The chain holds this entry's ticket and an app gate refused to activate it. It never fails and never lapses, and it blocks the player's next entry in the contest. | a later settlement that passes the gate → `confirmed` |
+| `landed` | The chain holds this entry's ticket and an app gate refused to activate it. It never fails and never lapses, and it blocks the player's next entry in the contest. | a later settlement that passes the gate, or the player's re-authorize or the operator's replace (`Entry::LandedHold`) → `confirmed` |
 | `confirmed` | The entry is live. Written whenever `status` becomes `active` or `complete`. | terminal |
 
 Two facts make a second charge impossible, and each covers what the other cannot:
@@ -127,6 +127,26 @@ nothing is sent, the confirm wait ends four seconds before the deadline, and an
 unknown outcome answers `202 entry_pending` while the job finishes it.
 
 What the player is told, by cause, is `Entries::PaymentCopy::COPY`.
+
+**A landed row's way out** (`Entry::LandedHold`). Nothing on this path sends,
+refunds or transfers. While the row is unanswered and inside its hold, every
+signed-in page shows the player a card (`shared/_landed_entry_prompt`) with two
+plain forms:
+
+- **Yes, keep my entry** (`POST /entries/:slug/landed/reauthorize`) records the
+  answer and runs `Entries::PaymentSettlement` at once; an unreadable chain is
+  left to `Entries::PaymentSettleJob`.
+- **No, I don't want it** (`POST /entries/:slug/landed/decline`) records the
+  answer. The row stays `landed` for a person; nothing is refunded.
+
+The hold ends at the first Sunday 9:00 AM `America/New_York` after the row
+landed (`payment_landed_at`, else the attempt's stamp). After it, or at once on a
+re-authorized row, an admin may press **Replace** on `/admin/landed_entries`,
+which runs the same verdict; a declined row is refused there. A re-authorized or
+replaced row skips two gates in `Entry#assert_enterable!`, contest capacity and
+the per-user entry limit, because the chain already counted its ticket against
+both. Every other gate stands, so a row refused for a duplicate lineup, a closed
+contest or a kicked-off pick stays `landed`.
 
 ## 1. Client-side decision tree (the board, "Hold to Confirm")
 

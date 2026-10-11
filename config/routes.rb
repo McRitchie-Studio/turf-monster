@@ -786,4 +786,16 @@ Rails.application.routes.draw do
     post   "users/:user_slug/freeze", to: "account_freezes#create",  as: :freeze_user
     delete "users/:user_slug/freeze", to: "account_freezes#destroy", as: :unfreeze_user
   end
+
+  # A paid entry an app gate refused (Entry::LandedHold): the player's answer
+  # to the prompt, and the operator's queue and replacement. At the end of the
+  # file for the same no-citation-moves reason as above.
+  post "entries/:slug/landed/reauthorize", to: "landed_entries#reauthorize", as: :reauthorize_landed_entry
+  post "entries/:slug/landed/decline",     to: "landed_entries#decline",     as: :decline_landed_entry
+  namespace :admin do
+    get  "landed_entries",               to: "landed_entries#index",   as: :landed_entries
+    post "landed_entries/:slug/replace", to: "landed_entries#replace", as: :replace_landed_entry
+  end
+  # The e2e lane's landed-entry fixture (TestController#set_landed_entry).
+  post "test/set_landed_entry", to: "test#set_landed_entry" unless Rails.env.production?
 end
