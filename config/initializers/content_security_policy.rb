@@ -67,7 +67,8 @@ Rails.application.configure do
   config.content_security_policy_nonce_directives = []
 
   # script-src on a signing page: no 'unsafe-inline', no https:, each script
-  # host named. 'unsafe-eval' stays until the engine retires Alpine.
+  # host named. 'unsafe-eval' stays until the engine retires Alpine
+  # (engine-retires-alpine).
   signing_script_src = [
     :self,
     :unsafe_eval,

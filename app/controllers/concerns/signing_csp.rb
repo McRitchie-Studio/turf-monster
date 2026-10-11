@@ -6,7 +6,8 @@
 # script hosts by name, and carries a per-request nonce: every inline <script>
 # in app/views renders nonce="<%= content_security_policy_nonce %>". The
 # nonce rides script-src only here; nonce_directives is empty app-wide, so no
-# other page's header changes. 'unsafe-eval' stays while Alpine runs.
+# other page's header changes. 'unsafe-eval' stays while Alpine runs
+# (engine-retires-alpine removes it).
 #
 # Report-only first. While config.x.signing_csp_enforced is false, a signing
 # page enforces the app policy and reports the strict one in
