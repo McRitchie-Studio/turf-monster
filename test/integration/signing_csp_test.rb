@@ -103,7 +103,7 @@ class SigningCspTest < ActionDispatch::IntegrationTest
   test "an admin gets the strict policy on every signing page" do
     log_in_as(users(:alex))
     [
-      contest_path(contests(:one)), edit_contest_path(contests(:one)), new_contest_path,
+      contest_path(contests(:one)), admin_contest_path(contests(:one)), edit_contest_path(contests(:one)), new_contest_path,
       generator_contests_path, account_path, admin_pending_transactions_path, "/auth/phantom/callback",
       profile_path, wallet_path, admin_vault_init_path, admin_vault_state_path, admin_authorities_path
     ].each do |path|

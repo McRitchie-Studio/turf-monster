@@ -23,17 +23,20 @@ module SigningCsp
   extend ActiveSupport::Concern
 
   # controller_path => actions. The HTML pages of the signing flows: contest
-  # entry and settle (contests#show and #contest), contest create and its
-  # lock and conclusion times (#new, #generator, #edit), the wallet section
-  # (accounts#show and the engine's profile page), cash-out (wallets#show),
-  # the key export (wallet_exports#show), the Phantom cosign pages (the
-  # treasury queue, signer eviction, vault init and pause), and wallet
-  # sign-in (solana_sessions).
+  # entry and settle (contests#show, #contest and the admin view #admin),
+  # contest create and its lock and conclusion times (#new, #generator,
+  # #edit), the wallet section (accounts#show and the engine's profile page),
+  # cash-out (wallets#show, #sync, which renders it, and the Coinbase offramp
+  # return, cdp/returns#offramp, where the send modal opens), the key export
+  # (wallet_exports#show), the Phantom cosign pages (the treasury queue,
+  # signer eviction, vault init and pause), and wallet sign-in
+  # (solana_sessions).
   PAGES = {
-    "contests" => %w[show contest new generator edit],
+    "contests" => %w[show contest admin new generator edit],
     "accounts" => %w[show],
     "studio/profiles" => %w[show],
-    "wallets" => %w[show],
+    "wallets" => %w[show sync],
+    "cdp/returns" => %w[offramp],
     "wallet_exports" => %w[show],
     "admin/pending_transactions" => %w[index],
     "admin/authorities" => %w[show],
