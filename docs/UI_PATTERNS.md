@@ -1062,6 +1062,12 @@ Some Alpine factories intentionally stay inline in `.erb` partials because Alpin
 
 Do move pure helper logic into modules when it does not participate in early `x-data` resolution. `StateFanout` is safe as a module because it is invoked from later event callbacks, not during Alpine's first component scan.
 
+### Inline script carries the nonce; no inline handlers
+
+Every inline `<script>` in `app/views` opens `<script nonce="<%= content_security_policy_nonce %>">` (`test/integration/signing_csp_test.rb` reads every view for it). The signing pages (`SigningCsp::PAGES` in `app/controllers/concerns/signing_csp.rb`: contest entry and settle, contest create, lock and conclusion times, the wallet section of `/account`, the treasury cosign queue and wallet sign-in) serve a script-src with no `'unsafe-inline'` and no `https:`, each script host named, and that per-request nonce, so an inline script without it does not run there. `'unsafe-eval'` stays while Alpine runs. An inline `on<event>` attribute cannot carry a nonce: write a `data-action` instead (`session-wipe` on the logout links, `chat-reactions` on the contest chat, `cosign-button` on the treasury queue). A new script host goes in `config.x.signing_csp_script_src` in `config/initializers/content_security_policy.rb`.
+
+The strict policy is report-only until `config.x.signing_csp_enforced` is `true` (same file): a signing page enforces the app policy and reports the strict one in `Content-Security-Policy-Report-Only`. Every other page keeps the app policy. A signing page renders a tracked `csp-nonce` meta tag, so a Turbo visit into, out of, or between signing pages is a full load and the page gets its own header.
+
 ## Solana Modal (legacy alias)
 `shared/_solana_modal.html.erb` — Now a thin compatibility proxy over `$store.modals` (see § Modal Host above). The store name `Alpine.store('solanaModal')` is preserved for older callsites; new code should call `$store.modals` directly. Three logical states still apply (processing / success / error). `fireSuccessConfetti()` from `solana_utils.js` fires 4 confetti bursts (center, left cannon, right cannon, delayed shower) on the success state via `$watch`.
 
