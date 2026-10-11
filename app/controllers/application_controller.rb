@@ -1170,6 +1170,9 @@ class ApplicationController < ActionController::Base
   # runs after authentication resolves, and so this file's cited lines hold.
   include FrozenAccountGuard
 
+  # The strict script policy on the signing pages (SigningCsp::PAGES).
+  include SigningCsp
+
   private
 
   # FrozenAccountGuard's refusal, for the web. A browser form post (plain or

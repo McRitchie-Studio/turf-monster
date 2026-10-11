@@ -24,6 +24,13 @@ test.describe("Account avatar upload", () => {
     await page.locator('input[type="file"][accept="image/*"]').first().setInputFiles(IMG);
     await expect(page.locator(".cropper-container")).toBeVisible();
 
+    // /account is a signing page (SigningCsp), so the save's redirect ends in
+    // a full load rather than a Turbo render, and a fast local upload can
+    // finish before the card is seen. Hold the upload long enough to see it.
+    await page.route("**/account", async (route) => {
+      if (route.request().method() !== "GET") await new Promise((resolve) => setTimeout(resolve, 600));
+      await route.continue();
+    });
     await page.getByRole("button", { name: /Crop.*Save/ }).click();
 
     await expect(page.getByText("Saving photo")).toBeVisible();    // loading card during upload

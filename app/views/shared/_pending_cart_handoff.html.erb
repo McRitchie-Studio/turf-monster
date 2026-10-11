@@ -18,7 +18,7 @@
     nothing consumes the cart there, and an unmarked one would pull them off
     this page for the full 30 minutes. %>
 <% contest = local_assigns[:contest] %>
-<script>
+<script nonce="<%= content_security_policy_nonce %>">
   (function () {
     try {
       var parsed = JSON.parse(localStorage.getItem('pendingContestEntry') || 'null');

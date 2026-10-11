@@ -260,7 +260,7 @@
         <%= f.file_field :contest_image, "x-ref": "fileInput", class: "hidden", accept: "image/*" %>
       </div>
 
-      <script>
+      <script nonce="<%= content_security_policy_nonce %>">
         // Contest-banner cropper for /contests/new. Opens the SAME shared crop
         // modal as the contest editor (studio cropper, dispatch mode). The
         // contest doesn't exist yet, so instead of submitting a form, holdCrop()
@@ -352,7 +352,7 @@
         tierEntryFees: Contest.selectable_formats.transform_values { |c| c[:entry_fee_cents] / 100.0 }
       }.to_json.html_safe %>
     </script>
-    <script>
+    <script nonce="<%= content_security_policy_nonce %>">
       (function() {
         var cfg = JSON.parse(document.getElementById('contest-new-config').textContent);
         var form = document.getElementById('contest-form');

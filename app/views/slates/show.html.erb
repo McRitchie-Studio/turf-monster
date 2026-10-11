@@ -123,7 +123,7 @@
 </style>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-<script>
+<script nonce="<%= content_security_policy_nonce %>">
   // THE CHART READS THE FILL TOKENS; IT DOES NOT KEEP A COPY OF THEM.
   //
   // This was three hex literals under a comment calling itself "single source
@@ -676,7 +676,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
-<script>
+<script nonce="<%= content_security_policy_nonce %>">
   function rankManager() {
     return {
       slateSlug: '<%= @slate.slug %>',

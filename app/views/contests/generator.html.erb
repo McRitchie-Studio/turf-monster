@@ -58,7 +58,7 @@
       usdcBalance:          display_balance&.to_f # null when navbar cache cold
     }.to_json.html_safe %>
   </script>
-  <script>
+  <script nonce="<%= content_security_policy_nonce %>">
     (function() {
       var cfg = JSON.parse(document.getElementById('bundle-config').textContent);
       var btns = document.querySelectorAll('.bundle-generate-btn');

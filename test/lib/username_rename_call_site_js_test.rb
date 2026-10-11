@@ -24,7 +24,7 @@ class UsernameRenameCallSiteJsTest < ActiveSupport::TestCase
 
   def runner_source
     src = File.read(RUNNER)
-    src[(src.index("<script>") + "<script>".length)...src.rindex("</script>")]
+    src[(src.index('<script nonce="<%= content_security_policy_nonce %>">') + '<script nonce="<%= content_security_policy_nonce %>">'.length)...src.rindex("</script>")]
   end
 
   def call_site_source

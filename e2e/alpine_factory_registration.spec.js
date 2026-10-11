@@ -133,9 +133,12 @@ test.describe("Alpine factory registration", () => {
     expect(await page.evaluate(serverTotalFrame, SEEDS)).toEqual(TOTAL_OWNED);
   });
 
+  // From /help, not /account: /account is a signing page (SigningCsp), and a
+  // visit out of one is a full load, never the client-side navigation this
+  // pins.
   test("seedsBar is whole after a Turbo client-side navigation", async ({ page }) => {
     await loginAdmin(page);
-    await page.goto("/account");
+    await page.goto("/help");
     await turboVisit(page, "/contests", SEEDS);
     expect(await page.evaluate(liveShape, SEEDS)).toEqual(SEEDS_WHOLE);
     expect(await page.evaluate(serverTotalFrame, SEEDS)).toEqual(TOTAL_OWNED);
@@ -239,9 +242,10 @@ test.describe("Alpine factory registration", () => {
   // invariant for it. What a browser can still prove, and
   // what a module-only factory would fail, is that the component BINDS on the
   // path importmap timing breaks: a fresh document.
+  // From /help for the same reason as seedsBar's Turbo test above.
   test("entryTokenBadge binds on both arrival paths", async ({ page }) => {
     await loginAdmin(page);
-    await page.goto("/account");
+    await page.goto("/help");
     await page.waitForSelector(BADGE, ATTACHED);
     const shape = () => {
       const el = document.querySelector('[x-data*="entryTokenBadge"]');

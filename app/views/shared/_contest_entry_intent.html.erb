@@ -19,7 +19,7 @@
 
     Registration is idempotent and guarded, so rendering it everywhere is safe: a
     page without solana_studio/wallet_ops.js registers nothing and throws nothing. %>
-<script>
+<script nonce="<%= content_security_policy_nonce %>">
 // THE contest_entry INTENT — registered here, at page load, BY NAME.
 //
 // WHY BY NAME AND NOT AS A CLOSURE, which is the whole reason walletOps has this

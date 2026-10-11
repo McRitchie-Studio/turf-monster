@@ -183,7 +183,7 @@
       until it sticks. It corrects a stale fact with a fresh one and never
       invents a count. Bounded to five seconds, and it settles the moment the
       two agree. %>
-  <script>
+  <script nonce="<%= content_security_policy_nonce %>">
     (function () {
       var want = <%= free %>;
       var until = Date.now() + 5000;
@@ -207,7 +207,7 @@
       panel sync. Alpine may not have booted when this runs (Turbo evaluates body
       scripts on navigation), so poll for the store, bounded, and give up
       quietly: the worst case is that the button above is still there to click. %>
-  <script>
+  <script nonce="<%= content_security_policy_nonce %>">
     (function () {
       var tries = 0;
       (function attempt() {

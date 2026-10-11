@@ -18,7 +18,7 @@ class BoardListenerTeardownRenderTest < ActionDispatch::IntegrationTest
     get contest_path(contests(:one))
     assert_response :success
     @html = response.body
-    @script = @html.scan(%r{<script>(.*?)</script>}m).flatten.find { |body| body.include?("window.selectionBoard = function") }
+    @script = @html.scan(%r{<script(?: nonce="[^"]*")?>(.*?)</script>}m).flatten.find { |body| body.include?("window.selectionBoard = function") }
     assert @script, "the contest page renders the selectionBoard script"
     @config = JSON.parse(@html[%r{<script type="application/json" id="board-config">(.*?)</script>}m, 1])
   end

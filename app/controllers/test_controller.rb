@@ -37,6 +37,9 @@ class TestController < ApplicationController
   def reseed
     cleared = []
 
+    # UNDO #set_signing_csp: the switch is process-wide, so it lasts one spec file.
+    Rails.configuration.x.signing_csp_enforced = SIGNING_CSP_ENFORCED_AT_BOOT
+
     # UNDO #warm_entry_tokens' cache-store swap. That endpoint replaces the test
     # env's :null_store with a live MemoryStore so a cache-first page can render,
     # and the swap is PROCESS-WIDE and permanent — the e2e lane runs one shared
@@ -875,6 +878,16 @@ class TestController < ApplicationController
   # verdict leaves when an app gate refuses a paid entry. It is written as rows
   # only; no chain is touched. `clear=true` removes this fixture's rows.
   E2E_LANDED_SIGNATURE_PREFIX = "e2e-landed-".freeze
+
+  # The signing pages' enforce switch (SigningCsp), flipped for one spec so a
+  # browser can prove what the ENFORCED strict policy refuses. Process-wide,
+  # like #warm_entry_tokens' swap; #reseed puts the boot value back.
+  SIGNING_CSP_ENFORCED_AT_BOOT = Rails.configuration.x.signing_csp_enforced
+
+  def set_signing_csp
+    Rails.configuration.x.signing_csp_enforced = params[:enforced].to_s == "true"
+    render json: { ok: true, enforced: SigningCsp.enforced? }
+  end
 
   def set_landed_entry
     return render json: { error: "not logged in" }, status: :unauthorized unless current_user

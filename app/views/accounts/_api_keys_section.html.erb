@@ -132,10 +132,10 @@
   <% if new_key&.raw_token.present? %>
     <%# Nothing else to offer until the key has been copied. This link shows
         only once the reveal above is gone from the frame, which is the card
-        Back restores from Turbo's snapshot. The controller connects again on a
-        restored page, so the question is re-asked of the DOM that is really there. %>
+        Back restores from the back/forward cache (signing_document drops the
+        reveal on pagehide). pageshow re-asks the question of the DOM really there. %>
     <div hidden data-controller="reveal-follow-up" data-reveal-follow-up-selector-value="[data-api-key-created]"
-         data-action="turbo:before-cache@document->reveal-follow-up#reset"
+         data-action="turbo:before-cache@document->reveal-follow-up#reset pageshow@window->reveal-follow-up#connect"
          data-api-key-add-after-reveal>
       <%= link_to "Add another API key", account_api_keys_path(adding: 1),
             class: "text-sm font-semibold text-primary hover:underline underline-offset-2" %>

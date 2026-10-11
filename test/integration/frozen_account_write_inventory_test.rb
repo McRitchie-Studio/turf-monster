@@ -48,7 +48,8 @@ class FrozenAccountWriteInventoryTest < ActiveSupport::TestCase
   EXEMPT_CONTROLLER_PREFIXES = {
     "action_mailbox/"         => "inbound email ingress: authenticated by the provider's password, no session",
     "rails/conductor/"        => "Rails' development-only inbound email conductor, not routed in production",
-    "active_storage/"         => "a blob upload attached to nothing; the attach is a guarded write (avatar, banner)"
+    "active_storage/"         => "a blob upload attached to nothing; the attach is a guarded write (avatar, banner)",
+    "csp_reports"             => "a browser's CSP violation report: no session, writes only an ErrorLog row"
   }.freeze
 
   # Mounted Rack apps: no controller, no callback chain.

@@ -23,7 +23,7 @@
     sdk_params["buyer-country"] = "US" if Paypal::Client.sandbox?
     paypal_sdk_url = "https://www.paypal.com/sdk/js?#{sdk_params.to_query}"
   %>
-  <script>
+  <script nonce="<%= content_security_policy_nonce %>">
     if (!window.loadPaypalSdk) {
       // Lazy, memoized SDK injector. Resolves with window.paypal once the
       // <script> loads; a load failure clears the memo so the next mount

@@ -228,7 +228,7 @@
                     refreshing that blockhash by hand. %>
                 <button data-tx-slug="<%= tx.slug %>"
                         data-tx-label="<%= tx.tx_type.titleize %>"
-                        onclick="cosignTransaction(this.dataset.txSlug, this.dataset.txLabel, collectExtraCosigners(this), this)"
+                        data-controller="cosign-button" data-action="cosign-button#cosign"
                         data-desktop-only-action
                         <%= "disabled" if blocked_reason %>
                         class="btn btn-primary btn-sm">

@@ -108,7 +108,7 @@
     <%= render "shared/username_rename_intent" %>
     <% if session_replay_active? %>
       <script src="https://cdn.logr-in.com/LogRocket.min.js" crossorigin="anonymous"></script>
-      <script>
+      <script nonce="<%= content_security_policy_nonce %>">
         // LogRocket records DOM + network in prod. Sanitize before anything leaves the
         // browser (audit LR-1): never ship the CSRF token, an api-keyed RPC URL, or
         // auth/account/wallet request+response bodies (SIWS sigs, emails, tokens) to the
@@ -144,7 +144,7 @@
       </script>
     <% end %>
     <% content_for :head do %>
-      <script>
+      <script nonce="<%= content_security_policy_nonce %>">
         <% if session_replay_active? && logged_in? && current_user %>
           <%# Identify by opaque slug only — never send email/PII to the replay
               vendor (Lazarus audit #2). Display name is already public on
@@ -245,7 +245,7 @@
         });
       </script>
       <script type="application/json" id="session-context"><%= client_session_payload.to_json.html_safe %></script>
-      <script>
+      <script nonce="<%= content_security_policy_nonce %>">
         // --- Inline Solana stores + components ---
         // Alpine's defer script fires alpine:init BEFORE importmap modules execute.
         // These must be inline so they're available when Alpine processes the DOM.
@@ -1540,7 +1540,7 @@
 
       </script>
     <% end %>
-    <%= action_cable_meta_tag %>
+    <%= action_cable_meta_tag %><%= signing_csp_meta_tags %>
     <%= render "layouts/studio/head" %>
   </head>
 
@@ -1607,7 +1607,7 @@
         changed (including → '' on logout), purge the user-scoped keys
         and stamp the new id. Runs synchronously before Alpine inits so
         components like _seeds_bar read a clean slate. %>
-    <script>
+    <script nonce="<%= content_security_policy_nonce %>">
       (function() {
         var current = document.body.dataset.userId || '';
         var last    = localStorage.getItem('lastUserId') || '';
@@ -1675,10 +1675,10 @@
         <%= raw({ steps: onboarding_steps }.to_json) %>
       </script>
       <% if onboarding_steps.include?("wallet") %>
-        <script>window.__walletSetupPrompt = true;</script>
+        <script nonce="<%= content_security_policy_nonce %>">window.__walletSetupPrompt = true;</script>
       <% end %>
     <% end %>
-    <script>
+    <script nonce="<%= content_security_policy_nonce %>">
       // ── Onboarding chain driver ───────────────────────────────────────────
       // Owns the ORDER so no modal has to know what follows it. Each step ends
       // by handing back the steps the SERVER says remain, and we open the next.

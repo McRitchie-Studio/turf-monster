@@ -12,7 +12,7 @@
   Uses window.authedFetch so a session lapse / rate-limit surfaces the shared
   modal (returns null → we stop). Parity with the paypal createOrder fetch.
 %>
-<script>
+<script nonce="<%= content_security_policy_nonce %>">
   window.tmCoinflowBuyOne = async function (pack) {
     pack = pack || 'single';
     // Open the checkout tab synchronously inside the click gesture so the popup

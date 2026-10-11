@@ -4,6 +4,7 @@ pin "application"
 pin "@hotwired/turbo-rails", to: "turbo.min.js"
 pin "debug_logger"
 pin "session_wipe"
+pin "signing_document"
 pin "base58"
 pin "wallet_provider"
 pin "solana_utils"
@@ -33,9 +34,11 @@ every_page = %w[
   controllers/arrival_scroll_controller turf/arrival_scroll
   controllers/auto_submit_controller
   controllers/card_filter_controller turf/card_filter
+  controllers/chat_reactions_controller
   controllers/contest_chain_controller
   controllers/contest_rail_controller turf/contest_rail
   controllers/copy_link_controller turf/copy_link
+  controllers/cosign_button_controller
   controllers/cost_calculator_controller turf/cost_calculator
   controllers/desktop_only_notice_controller turf/desktop_only_notice
   controllers/disclosure_controller turf/transition
@@ -49,12 +52,15 @@ every_page = %w[
   controllers/reveal_controller turf/reveal
   controllers/reveal_follow_up_controller
   controllers/row_link_controller
+  controllers/session_wipe_controller
   controllers/settled_filter_controller turf/settled_filter
   controllers/submit_busy_controller turf/submit_busy
   controllers/swatch_copy_controller turf/swatch_copy
   controllers/tabs_controller
   controllers/usdc_balance_controller turf/usdc_balance
+  controllers/vault_console_controller
   controllers/withdraw_card_controller turf/withdraw_card
+  turf/signing_document
 ]
 %w[controllers turf].each do |directory|
   Rails.root.glob("app/javascript/#{directory}/*.js").sort.each do |file|

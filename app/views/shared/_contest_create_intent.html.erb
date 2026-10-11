@@ -15,7 +15,7 @@
     broadcast one of these would hand Solana a transaction missing a required
     signature, and the bytes the server must cosign would never come back: the
     prize pool would not move and there would be nothing to retry. %>
-<script>
+<script nonce="<%= content_security_policy_nonce %>">
 (function () {
   var S = window.SolanaStudio;
   // GUARDED like every optional capability in this app: a page that did not load

@@ -46,7 +46,7 @@
 
   Add a new factory: paste it below as `window.factoryName = function(...) {...}`.
 %>
-<script>
+<script nonce="<%= content_security_policy_nonce %>">
   window.seedFanoutPayloadPresent = function (payload) {
     return !!(payload && (
       payload.seeds_earned ||

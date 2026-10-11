@@ -16,7 +16,7 @@
     re-applied to the fresh nodes by the observers at the bottom. This is the
     same posture live/index.html.erb takes with the league board, for the same
     reason. %>
-<script>
+<script nonce="<%= content_security_policy_nonce %>">
   (function () {
     var ID       = "<%= contest.id %>";
     var feed     = document.getElementById('contest_' + ID + '_goal_feed');

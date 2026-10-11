@@ -31,7 +31,7 @@
   Merged rather than assigned so the map survives another registration and a
   future engine default. Add a width: one line below, plus nothing else.
 %>
-<script>
+<script nonce="<%= content_security_policy_nonce %>">
   window.StudioModals = window.StudioModals || {};
   window.StudioModals.CARD_WIDTHS = Object.assign({}, window.StudioModals.CARD_WIDTHS || {}, {
     'wallet-setup': 'max-w-md'

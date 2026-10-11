@@ -10,7 +10,7 @@
 
     Registration is idempotent and guarded: a page that did not load
     solana_studio/wallet_ops.js registers nothing and throws nothing. %>
-<script>
+<script nonce="<%= content_security_policy_nonce %>">
 // THE username_rename INTENT — registered here, at page load, BY NAME.
 //
 // WHAT THIS FLOW IS. studio-engine's leveling-activity modal owns the username

@@ -42,7 +42,7 @@
         <%= render "contests/your_entries" %>
       <% elsif @seeds_data %>
         <%= render "contests/slate_progress_xp", seeds_data: @seeds_data %>
-        <script>
+        <script nonce="<%= content_security_policy_nonce %>">
           localStorage.setItem('seedsNavbar', JSON.stringify({
             seeds_total: <%= @seeds_data[:seeds] %>,
             level: <%= @seeds_data[:level] %>,

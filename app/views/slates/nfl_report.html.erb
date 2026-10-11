@@ -3,7 +3,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 
 <% if @nfl_distribution %>
-<script>
+<script nonce="<%= content_security_policy_nonce %>">
   <%
     nfl_n = @nfl_distribution.team_count
     nfl_payload = {

@@ -30,7 +30,7 @@
 <style>@keyframes magic-spin { to { transform: rotate(360deg); } }</style>
 <noscript><style>#magic-fallback { display: block !important; } div[role="status"] { display: none; }</style></noscript>
 
-<script>
+<script nonce="<%= content_security_policy_nonce %>">
   (function () {
     var form = document.getElementById('magic-consume-form');
     if (form && !form.dataset.autoSubmitted) {

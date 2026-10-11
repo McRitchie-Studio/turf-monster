@@ -132,7 +132,7 @@ class AdminDesktopOnlyNoticeTest < ActionDispatch::IntegrationTest
     assert_message_not_baked_in("admin/pending_transactions")
     # EVERY row, not the first: the buttons are rendered in a loop, and a marker
     # applied outside it would gate one and leave the rest live.
-    assert_select "button[data-desktop-only-action][onclick*=?]", "cosignTransaction", two.length,
+    assert_select "button[data-desktop-only-action][data-action=?]", "cosign-button#cosign", two.length,
       "admin/pending_transactions: every pending row's Co-sign button must carry the marker"
   end
 

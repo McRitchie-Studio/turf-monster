@@ -784,10 +784,11 @@ class Admin::PendingTransactionsControllerTest < ActionDispatch::IntegrationTest
     get admin_pending_transactions_path
 
     assert_match(/data-tx-slug="#{tx.slug}"/, response.body)
-    assert_match(
-      /cosignTransaction\(this\.dataset\.txSlug, this\.dataset\.txLabel, collectExtraCosigners\(this\), this\)/,
-      response.body
-    )
+    assert_match(/data-tx-label="Settle Contest"/, response.body)
+    assert_match(/data-controller="cosign-button" data-action="cosign-button#cosign"/, response.body)
+    controller = Rails.root.join("app/javascript/controllers/cosign_button_controller.js").read
+    assert_includes controller,
+      "window.cosignTransaction(data.txSlug, data.txLabel, window.collectExtraCosigners(button), button)"
   end
 
   # ── THE THIRD SIGNATURE'S CONTROL ────────────────────────────────────────

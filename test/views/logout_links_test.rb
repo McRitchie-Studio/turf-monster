@@ -27,8 +27,10 @@ class LogoutLinksTest < ActionDispatch::IntegrationTest
                     "expected at least the gear-sidebar and account-page logout links"
 
     links.each_with_index do |link, i|
-      assert_includes link["onclick"].to_s, "wipeClientState",
-                      "logout link ##{i} must call the SHARED helper, not a copy-pasted removeItem"
+      assert_equal "session-wipe", link["data-controller"],
+                   "logout link ##{i} must call the SHARED helper (session-wipe), not a copy-pasted removeItem"
+      assert_equal "session-wipe#wipe", link["data-action"]
+      assert_nil link["onclick"], "logout link ##{i}: an inline handler is refused on a signing page"
       assert_equal "false", link["data-turbo"],
                    "logout link ##{i} must force a full document load — that is what rebuilds " \
                    "every Alpine store from its declaration, which the wipe deliberately does " \

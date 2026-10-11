@@ -20,7 +20,7 @@ admin:
   x_other: 0
   alpine_api: 13
   inline_script: 10
-  inline_handler: 8
+  inline_handler: 0
 entry:
   x_data: 40
   x_show: 75
@@ -39,7 +39,7 @@ entry:
   x_other: 0
   alpine_api: 75
   inline_script: 21
-  inline_handler: 7
+  inline_handler: 6
 board:
   x_data: 18
   x_show: 44
@@ -58,7 +58,7 @@ board:
   x_other: 0
   alpine_api: 67
   inline_script: 12
-  inline_handler: 5
+  inline_handler: 0
 marketing:
   x_data: 8
   x_show: 13
@@ -77,4 +77,4 @@ marketing:
   x_other: 1
   alpine_api: 29
   inline_script: 9
-  inline_handler: 1
+  inline_handler: 0

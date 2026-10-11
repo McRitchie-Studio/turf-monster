@@ -33,9 +33,11 @@ import AccordionController from "controllers/accordion_controller"
 import ArrivalScrollController from "controllers/arrival_scroll_controller"
 import AutoSubmitController from "controllers/auto_submit_controller"
 import CardFilterController from "controllers/card_filter_controller"
+import ChatReactionsController from "controllers/chat_reactions_controller"
 import ContestChainController from "controllers/contest_chain_controller"
 import ContestRailController from "controllers/contest_rail_controller"
 import CopyLinkController from "controllers/copy_link_controller"
+import CosignButtonController from "controllers/cosign_button_controller"
 import CostCalculatorController from "controllers/cost_calculator_controller"
 import DesktopOnlyNoticeController from "controllers/desktop_only_notice_controller"
 import DisclosureController from "controllers/disclosure_controller"
@@ -49,11 +51,13 @@ import ReferralShareController from "controllers/referral_share_controller"
 import RevealController from "controllers/reveal_controller"
 import RevealFollowUpController from "controllers/reveal_follow_up_controller"
 import RowLinkController from "controllers/row_link_controller"
+import SessionWipeController from "controllers/session_wipe_controller"
 import SettledFilterController from "controllers/settled_filter_controller"
 import SubmitBusyController from "controllers/submit_busy_controller"
 import SwatchCopyController from "controllers/swatch_copy_controller"
 import TabsController from "controllers/tabs_controller"
 import UsdcBalanceController from "controllers/usdc_balance_controller"
+import VaultConsoleController from "controllers/vault_console_controller"
 import WithdrawCardController from "controllers/withdraw_card_controller"
 
 export const LAZY = {
@@ -74,9 +78,11 @@ application.register("accordion", AccordionController)
 application.register("arrival-scroll", ArrivalScrollController)
 application.register("auto-submit", AutoSubmitController)
 application.register("card-filter", CardFilterController)
+application.register("chat-reactions", ChatReactionsController)
 application.register("contest-chain", ContestChainController)
 application.register("contest-rail", ContestRailController)
 application.register("copy-link", CopyLinkController)
+application.register("cosign-button", CosignButtonController)
 application.register("cost-calculator", CostCalculatorController)
 application.register("desktop-only-notice", DesktopOnlyNoticeController)
 application.register("disclosure", DisclosureController)
@@ -90,11 +96,13 @@ application.register("referral-share", ReferralShareController)
 application.register("reveal", RevealController)
 application.register("reveal-follow-up", RevealFollowUpController)
 application.register("row-link", RowLinkController)
+application.register("session-wipe", SessionWipeController)
 application.register("settled-filter", SettledFilterController)
 application.register("submit-busy", SubmitBusyController)
 application.register("swatch-copy", SwatchCopyController)
 application.register("tabs", TabsController)
 application.register("usdc-balance", UsdcBalanceController)
+application.register("vault-console", VaultConsoleController)
 application.register("withdraw-card", WithdrawCardController)
 
 const registered = []

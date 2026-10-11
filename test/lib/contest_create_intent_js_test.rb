@@ -17,7 +17,7 @@ class ContestCreateIntentJsTest < ActiveSupport::TestCase
 
   def script_body(path)
     src = File.read(path)
-    src[(src.index("<script>") + "<script>".length)...src.rindex("</script>")]
+    src[(src.index('<script nonce="<%= content_security_policy_nonce %>">') + '<script nonce="<%= content_security_policy_nonce %>">'.length)...src.rindex("</script>")]
   end
 
   def gem_transport_source

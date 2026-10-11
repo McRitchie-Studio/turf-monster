@@ -298,9 +298,11 @@ test.describe("Agent API keys", () => {
   });
 
   // The player mints a key and walks off without pressing "I've copied it".
-  // Turbo files a snapshot of the page they left; Back puts that snapshot on
-  // screen without asking the server. The reveal is data-turbo-temporary, so it
-  // is not in the snapshot.
+  // /account is a signing page (SigningCsp), so leaving is a full load and Back
+  // a back/forward navigation, never a Turbo snapshot. The reveal is
+  // data-turbo-temporary: a server render never had the key, and
+  // signing_document drops temporary elements as the page is hidden, so a
+  // back/forward-cache restore has none either.
   test("the raw key is not shown again after leaving the page and pressing Back", async ({ page }) => {
     await openAccount(page);
     const card = page.locator(CARD);
@@ -308,49 +310,22 @@ test.describe("Agent API keys", () => {
     expect(key).toMatch(KEY_FORMAT);
     await expect(card.locator("[data-api-key-created]")).toBeVisible();
 
-    // A Turbo visit, not a document load: the marker planted by openAccount
-    // has to survive it, or Back below would be an ordinary reload and prove
-    // nothing about the snapshot.
+    // The pagehide leg, which this browser's back/forward cache would keep.
+    await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true })));
+    await expect(card.locator("[data-api-key-created]")).toHaveCount(0);
+    expect(await page.content()).not.toContain(key);
+
     await page.locator(LEAVE_LINK).first().click();
     await page.waitForURL((u) => u.pathname !== "/account");
-    await settle(page);
-    await expectNoReload(page);
-
-    // THE CONTROL: Back must be answered from Turbo's snapshot. A request for
-    // /account here would mean the server re-rendered the page, and a server
-    // render never had the key to show.
-    const refetched = [];
-    page.on("request", (req) => {
-      if (req.isNavigationRequest() || new URL(req.url()).pathname === "/account") refetched.push(req.url());
-    });
+    await page.waitForLoadState("load");
 
     await page.goBack();
     await page.waitForURL(/\/account$/);
-    await settle(page);
+    await page.waitForLoadState("load");
     await expect(card).toBeVisible();
-    await expectNoReload(page);
-    expect(refetched, "Back was served by the network, so the snapshot was never exercised").toEqual([]);
-
-    // The snapshot kept the card and the key's row, and dropped the reveal.
-    await expect(card.locator("[data-api-key-row]")).toHaveCount(1);
-    await expect(card.locator("[data-api-key-row]")).toContainText("Left on screen");
     await expect(card.locator("[data-api-key-created]")).toHaveCount(0);
     await expect(card.locator("[data-api-key-secret]")).toHaveCount(0);
     expect(await page.content()).not.toContain(key);
-
-    // The reveal took its only exit ("I've copied it") with it, so the restored
-    // card offers its own way on: one click, in place, to the open form.
-    const after = card.locator("[data-api-key-add-after-reveal]");
-    await expect(after).toBeVisible();
-    await after.getByRole("link", { name: "Add another API key" }).click();
-    await expect(card.getByLabel("Name")).toBeVisible();
-    await expect(card.locator("[data-api-key-add-after-reveal]")).toHaveCount(0);
-    await expectNoReload(page);
-    await expect(page).toHaveURL(/\/account$/);
-    const second = await createKey(page, "After Back");
-    expect(second).toMatch(KEY_FORMAT);
-    // And while a reveal IS on screen, that link stays out of the way.
-    await expect(card.locator("[data-api-key-add-after-reveal]")).toBeHidden();
   });
 
   // The mint throttle is rack-attack's, and rack-attack is off in the e2e

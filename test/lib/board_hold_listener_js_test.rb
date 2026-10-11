@@ -19,8 +19,8 @@ class BoardHoldListenerJsTest < ActiveSupport::TestCase
   # interpolations are JSON string literals, so each becomes one here.
   def board_script
     src = File.read(BOARD)
-    open_tag = src.rindex("<script>")
-    body = src[(open_tag + "<script>".length)...src.index("</script>", open_tag)]
+    open_tag = src.rindex('<script nonce="<%= content_security_policy_nonce %>">')
+    body = src[(open_tag + '<script nonce="<%= content_security_policy_nonce %>">'.length)...src.index("</script>", open_tag)]
     assert_includes body, "window.selectionBoard = function", "the last script block is the board"
     body.gsub(/<%=.*?%>/m, '"erb"')
   end

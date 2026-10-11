@@ -81,7 +81,7 @@
           emits .input-field BEFORE the width utilities, so equal specificity
           resolves by order. Guarded now by
           test/views/admin_vault_phantom_classes_test.rb. %>
-      <form id="vault-init-form" class="space-y-4" onsubmit="return false;">
+      <form id="vault-init-form" class="space-y-4" data-controller="vault-console" data-action="submit->vault-console#hold">
         <div>
           <label class="label-upper text-xs">Creator (INIT_AUTHORITY)</label>
           <input type="text" name="creator_pubkey" value="<%= @init_authority %>"
@@ -115,7 +115,7 @@
         </div>
 
         <div class="flex items-center gap-3 pt-2">
-          <button id="vault-init-btn" type="button" onclick="initVault()"
+          <button id="vault-init-btn" type="button" data-action="vault-console#init"
                   data-desktop-only-action class="btn btn-primary">
             Connect Phantom + Sign
           </button>
@@ -133,7 +133,7 @@
 <div id="cosign-config" data-rpc-url="<%= @rpc_url %>" style="display:none;"></div>
 
 <% unless @vault %>
-<script>
+<script nonce="<%= content_security_policy_nonce %>">
 (function() {
   var csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
   var rpcUrl = document.getElementById('cosign-config').dataset.rpcUrl;

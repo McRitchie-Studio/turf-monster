@@ -29,7 +29,7 @@
       and streams x-data via a MutationObserver, so no fixed lifecycle event
       reliably lands a page-load toast. Poll until the toast-manager component
       is live, then dispatch through its documented `toast` event. %>
-  <script>
+  <script nonce="<%= content_security_policy_nonce %>">
     (function () {
       var detail = {
         type: 'alert',

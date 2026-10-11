@@ -97,10 +97,12 @@ class TurfStimulusTest < ActionDispatch::IntegrationTest
   test "the static controllers are the public pages' controllers, and none is lazy" do
     marketing = %w[accordion auto-submit card-filter cost-calculator proof-of-reserves swatch-copy]
     entry = %w[desktop-only-notice email-change-notice frame-reload newsletter-state referral-share reveal
-               reveal-follow-up submit-busy usdc-balance withdraw-card]
-    board = %w[arrival-scroll contest-chain contest-rail copy-link disclosure leaderboard leaderboard-poll
+               reveal-follow-up session-wipe submit-busy usdc-balance withdraw-card]
+    # Signing-page admin controls, static so an early press is never dropped.
+    signing = %w[cosign-button vault-console]
+    board = %w[arrival-scroll chat-reactions contest-chain contest-rail copy-link disclosure leaderboard leaderboard-poll
                row-link settled-filter tabs]
-    assert_equal (marketing + entry + board).sort, static_controllers.keys.sort
+    assert_equal (marketing + entry + board + signing).sort, static_controllers.keys.sort
     assert_empty static_controllers.keys & lazy_controllers.keys
   end
 
