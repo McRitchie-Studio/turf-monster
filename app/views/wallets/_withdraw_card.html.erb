@@ -5,8 +5,9 @@
     instead (see _withdraw_self_custody_callout). Phantom-only users
     don't see anything — they manage withdrawals in their wallet app.
 
-    Behavior: collapsed by default; clicking the header reveals the
-    amount + destination-info form. Submit POSTs to /wallet/withdraw,
+    Behavior: collapsed by default; the Withdraw button (the withdraw-card
+    controller) reveals the amount + destination-info form, and the page
+    opens it when reached at #cash-out. Submit POSTs to /wallet/withdraw,
     which validates against the on-chain balance, refuses self-custody,
     and creates a pending TransactionLog row for the admin queue.
 
@@ -18,8 +19,8 @@
     transaction-log page once fiat lands.
 %>
 <div id="cash-out" class="card shadow p-6 mb-6"
-     x-data="{ open: <% if account_frozen? %>false<% else %>window.location.hash === '#cash-out'<% end %>, amount: '', destination: '' }"
-     x-cloak>
+     data-controller="withdraw-card" data-withdraw-card-frozen-value="<%= account_frozen? %>"
+     data-action="turbo:before-cache@document->withdraw-card#reset">
   <div class="flex items-center justify-between">
     <div>
       <h2 class="text-lg font-bold text-heading mb-1">Cash out</h2>
@@ -31,16 +32,17 @@
       <button type="button" disabled data-frozen-cta title="<%= FrozenAccount::CTA_REASON %>" aria-describedby="cash-out-frozen-reason"
               class="btn btn-outline btn-sm opacity-60 cursor-not-allowed">Withdraw</button>
     <% else %>
-      <button type="button" @click="open = !open"
-              class="btn btn-outline btn-sm"
-              x-text="open ? 'Cancel' : 'Withdraw'"></button>
+      <button type="button" data-withdraw-card-target="toggle" data-action="withdraw-card#toggle"
+              class="btn btn-outline btn-sm">Withdraw</button>
     <% end %>
   </div>
   <% if account_frozen? %>
     <p id="cash-out-frozen-reason" class="mt-3 text-sm font-semibold text-body" data-frozen-reason><%= FrozenAccount::CTA_REASON %>, so withdrawals are off. Contact <a href="mailto:support@turfmonster.media" class="underline">support@turfmonster.media</a>.</p>
   <% end %>
 
-  <div x-show="open" x-transition class="mt-4">
+  <div hidden data-withdraw-card-target="panel" class="mt-4 origin-center"
+       data-enter="transition ease-in-out duration-150" data-enter-start="opacity-0 scale-95" data-enter-end="opacity-100 scale-100"
+       data-leave="transition ease-in-out duration-75" data-leave-start="opacity-100 scale-100" data-leave-end="opacity-0 scale-95">
     <%= form_with url: withdraw_wallet_path, method: :post, local: true, class: "space-y-4" do |f| %>
       <div>
         <%= f.label :amount, "Amount (USD)", class: "block text-sm font-semibold text-heading mb-1" %>
@@ -51,9 +53,8 @@
                 min: "1",
                 placeholder: "0.00",
                 required: true,
-                x: "model: amount",
                 class: "input-field w-full pl-7",
-                "x-model": "amount" %>
+                data: { withdraw_card_target: "amount", action: "withdraw-card#validate" } %>
         </div>
         <% if @onchain_balance %>
           <p class="text-xs text-muted mt-1">
@@ -70,7 +71,7 @@
               placeholder: "e.g. Stripe-linked email alex@example.com  /  Chase routing 021000021 acct 1234  /  PayPal @yourhandle",
               class: "input-field w-full",
               maxlength: 500,
-              "x-model": "destination" %>
+              data: { withdraw_card_target: "destination", action: "withdraw-card#validate" } %>
         <p class="text-xs text-muted mt-1">
           We'll match against an off-ramp provider (Stripe / Bridge / Kraken) and email you when funds land. Settlement is typically 1–3 business days.
         </p>
@@ -80,7 +81,8 @@
         <p class="text-xs text-muted">Reviewed by an operator before send.</p>
         <%= f.submit "Submit withdrawal",
               class: "btn btn-primary",
-              "x-bind:disabled": "!amount || !destination" %>
+              disabled: true,
+              data: { withdraw_card_target: "submit" } %>
       </div>
     <% end %>
   </div>

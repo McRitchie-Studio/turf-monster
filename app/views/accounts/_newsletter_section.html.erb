@@ -23,19 +23,21 @@
     mounted on every authenticated page, /profile included. Nothing extra needs
     registering there.
 
-    Each x-show state carries a matching min-height so toggling subscribed <->
+    Each state carries a matching min-height so toggling subscribed <->
     not-subscribed does not change the card height (no jump). `subscribed` is
     server-seeded and kept in sync by the newsletter-state-changed event, which
-    the modals dispatch. %>
+    the modals dispatch, through the newsletter-state controller. The two
+    buttons still open the modals through $store.modals, the engine's. %>
 <%# BODY ONLY — no card, no heading. Each call site owns its own chrome:
     /account wraps this in its `card shadow p-6 mb-6` with an <h2>, and the
     /profile row gets both from the engine's section wrapper and its `title:`.
     Carrying a card in here would nest one inside the other on /profile. %>
-<div x-data="{ subscribed: <%= user.subscribed_to_newsletter? %> }"
-     @newsletter-state-changed.window="subscribed = !!$event.detail.subscribed">
+<% subscribed = user.subscribed_to_newsletter? %>
+<div data-controller="newsletter-state" data-newsletter-state-subscribed-value="<%= subscribed %>"
+     data-action="newsletter-state-changed@window->newsletter-state#update turbo:before-cache@document->newsletter-state#reset">
 
   <%# Subscribed state %>
-  <div x-show="subscribed" x-cloak class="flex items-center justify-between gap-3 flex-wrap" style="min-height: 3rem;">
+  <div data-newsletter-state-target="subscribed" <%= "hidden" unless subscribed %> class="flex items-center justify-between gap-3 flex-wrap" style="min-height: 3rem;">
     <div class="flex items-center gap-2 min-w-0">
       <svg class="w-5 h-5 text-primary flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
@@ -49,7 +51,7 @@
   </div>
 
   <%# Not-subscribed state %>
-  <div x-show="!subscribed" x-cloak class="flex items-center justify-between gap-3 flex-wrap" style="min-height: 3rem;">
+  <div data-newsletter-state-target="unsubscribed" <%= "hidden" if subscribed %> class="flex items-center justify-between gap-3 flex-wrap" style="min-height: 3rem;">
     <p class="text-secondary text-sm min-w-0">
       <% if user.first_newsletter_join? %>
         Join the newsletter for <span class="text-primary font-semibold">25 seeds</span> — sports news and contest updates.

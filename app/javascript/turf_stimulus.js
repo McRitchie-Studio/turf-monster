@@ -35,6 +35,16 @@ import CardFilterController from "controllers/card_filter_controller"
 import CostCalculatorController from "controllers/cost_calculator_controller"
 import ProofOfReservesController from "controllers/proof_of_reserves_controller"
 import SwatchCopyController from "controllers/swatch_copy_controller"
+import DesktopOnlyNoticeController from "controllers/desktop_only_notice_controller"
+import EmailChangeNoticeController from "controllers/email_change_notice_controller"
+import FrameReloadController from "controllers/frame_reload_controller"
+import NewsletterStateController from "controllers/newsletter_state_controller"
+import ReferralShareController from "controllers/referral_share_controller"
+import RevealController from "controllers/reveal_controller"
+import RevealFollowUpController from "controllers/reveal_follow_up_controller"
+import SubmitBusyController from "controllers/submit_busy_controller"
+import UsdcBalanceController from "controllers/usdc_balance_controller"
+import WithdrawCardController from "controllers/withdraw_card_controller"
 
 export const LAZY = {
   "filter": () => import("controllers/filter_controller"),
@@ -56,6 +66,16 @@ application.register("card-filter", CardFilterController)
 application.register("cost-calculator", CostCalculatorController)
 application.register("proof-of-reserves", ProofOfReservesController)
 application.register("swatch-copy", SwatchCopyController)
+application.register("desktop-only-notice", DesktopOnlyNoticeController)
+application.register("email-change-notice", EmailChangeNoticeController)
+application.register("frame-reload", FrameReloadController)
+application.register("newsletter-state", NewsletterStateController)
+application.register("referral-share", ReferralShareController)
+application.register("reveal", RevealController)
+application.register("reveal-follow-up", RevealFollowUpController)
+application.register("submit-busy", SubmitBusyController)
+application.register("usdc-balance", UsdcBalanceController)
+application.register("withdraw-card", WithdrawCardController)
 
 const registered = []
 

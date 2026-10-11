@@ -35,6 +35,16 @@ every_page = %w[
   controllers/cost_calculator_controller turf/cost_calculator
   controllers/proof_of_reserves_controller turf/proof_of_reserves
   controllers/swatch_copy_controller turf/swatch_copy
+  controllers/desktop_only_notice_controller turf/desktop_only_notice
+  controllers/email_change_notice_controller turf/email_change_notice
+  controllers/frame_reload_controller turf/frame_reload
+  controllers/newsletter_state_controller turf/newsletter_state
+  controllers/referral_share_controller turf/referral_share turf/enter_leave
+  controllers/reveal_controller turf/reveal
+  controllers/reveal_follow_up_controller
+  controllers/submit_busy_controller turf/submit_busy
+  controllers/usdc_balance_controller turf/usdc_balance
+  controllers/withdraw_card_controller turf/withdraw_card
 ]
 %w[controllers turf].each do |directory|
   Rails.root.glob("app/javascript/#{directory}/*.js").sort.each do |file|
