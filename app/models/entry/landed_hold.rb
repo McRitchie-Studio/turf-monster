@@ -7,8 +7,9 @@ class Entry
   #                  signed-in page asks the player (shared/_landed_entry_prompt)
   #   re-authorize   the player keeps the entry: the one verdict
   #                  (Entries::PaymentSettlement) activates it with no new payment
-  #   decline        the player does not want it: the row stays landed and waits
-  #                  for a person; nothing is refunded here
+  #   decline        the player does not want it: the row stays landed for good
+  #                  (#assert_not_declined!) and waits for a person; nothing is
+  #                  refunded here
   #   the hold       until the first Sunday 9:00 AM Eastern after the row landed
   #   replace        after the hold (or on a re-authorized row the verdict still
   #                  refuses), the operator runs the same verdict for the player
@@ -72,6 +73,24 @@ class Entry
       landed? && now < landed_hold_expires_at
     end
 
+    # A DECLINE IS FINAL. Entry#assert_enterable! asks this first, so every
+    # activation (the verdict, the reconciler, the jobs, the operator) refuses a
+    # declined landed row. It reads the row as stored, so a caller that loaded
+    # the row before the decline is refused too. Only a landed row is locked
+    # (under confirm!'s transaction, against a decline in between): a pre-flight
+    # on any other row takes no lock it did not take before.
+    def assert_not_declined!
+      return unless persisted?
+
+      row = self.class.where(id: id)
+      return unless row.pick(:payment_state) == "landed"
+
+      state, answer = row.lock.pick(:payment_state, :landed_answer)
+      return unless state == "landed" && answer == "declined"
+
+      raise Entry::Refusal.new(:landed_declined, "The player declined this entry.")
+    end
+
     # Whether the verdict may lift the two counted gates for this row.
     def landed_hold_authorized?
       payment_state == "landed" && landed_answer != "declined" &&
@@ -84,7 +103,7 @@ class Entry
 
       with_lock do
         raise Refused, "This entry is no longer waiting for your answer." unless landed? && landed_answer.nil?
-        raise Refused, "The time to answer has passed. Our team is finishing this entry." unless landed_hold_open?(now: now)
+        raise Refused, "The time to answer has passed. With any question, contact #{Entry::Payment::SUPPORT_EMAIL}." unless landed_hold_open?(now: now)
 
         update!(landed_answer: answer.to_s, landed_answered_at: now)
       end

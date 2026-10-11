@@ -133,14 +133,14 @@ class Entry < ApplicationRecord
   # never passes it, and #gate_time clamps it to now, so no caller can use it to
   # judge a moment later than the present.
   def assert_enterable!(comped: false, as_of: nil, held: false)
+    assert_not_declined! # Entry::LandedHold: no gate lifts a decline
     at = self.class.gate_time(as_of)
     raise Refusal.new(:contest_not_open, "Contest is not open") unless contest.open?
 
     # H7 prelaunch audit (2026-05-24): enforce contest-wide lock time. Closes
     # the staggered-kickoff information-edge attack — a user could otherwise
-    # wait until 30 min after the contest's stated lock, read live scores from
-    # already-kicked games, then submit picks drawn from later-kickoff matchups
-    # whose individual `locked?` is still false. `comped: true` (admin fill via
+    # wait past the contest's stated lock, read live scores from already-kicked
+    # games, then pick later-kickoff matchups whose `locked?` is still false. `comped: true` (admin fill via
     # Contest#fill!) is exempt; admin seeding may legitimately happen after lock.
     if contest.locks_at && at >= contest.locks_at && !comped
       raise Refusal.new(:contest_locked, "Contest has locked — entries closed")

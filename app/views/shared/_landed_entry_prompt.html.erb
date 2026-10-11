@@ -14,8 +14,9 @@
         You will not be charged again.
       </p>
       <p class="text-secondary text-sm mt-2">
+        Yes tries the entry again, with no new charge. No leaves it out for good.
         Answer by <strong data-landed-entry-deadline><%= landed_entry_deadline(entry) %></strong>.
-        If we do not hear from you by then, our team will finish the entry for you.
+        With any question, contact <%= Entry::Payment::SUPPORT_EMAIL %>.
       </p>
       <div class="mt-4 flex flex-wrap gap-3">
         <%= button_to "Yes, keep my entry", reauthorize_landed_entry_path(entry.slug),

@@ -21,8 +21,8 @@ class LandedEntriesController < ApplicationController
   def decline
     @entry.answer_landed!("declined")
     redirect_back_or_to root_path, status: :see_other,
-                                   notice: "Got it. You will not be charged again, and our team will be in touch " \
-                                           "about your payment. You can also write to #{Entry::Payment::SUPPORT_EMAIL}."
+                                   notice: "Got it. This entry stays out, and you will not be charged again. " \
+                                           "With any question, contact #{Entry::Payment::SUPPORT_EMAIL}."
   rescue Entry::LandedHold::Refused => e
     redirect_back_or_to root_path, alert: e.message, status: :see_other
   end
@@ -45,11 +45,11 @@ class LandedEntriesController < ApplicationController
     if settled.confirmed?
       "You're in. Your entry for #{name} is live, and you were not charged again."
     elsif settled.pending?
-      "Thanks. We are checking your payment on Solana and will finish your entry for #{name}. " \
+      "Thanks. Your payment for #{name} is still confirming on Solana, so the entry is not live yet. " \
         "You will not be charged again."
     else
-      "Thanks. We could not finish your entry for #{name} ourselves, so our team will finish it for you. " \
-        "You will not be charged again."
+      "Thanks. Your entry for #{name} still did not go through. You will not be charged again. " \
+        "With any question, contact #{Entry::Payment::SUPPORT_EMAIL}."
     end
   end
 end
