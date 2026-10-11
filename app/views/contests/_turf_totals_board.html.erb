@@ -179,7 +179,7 @@ window.selectionBoard = function() {
   // A signing page (SigningCsp) is never restored from Turbo's cache: Back to
   // it is a fresh load. A signed-in cart comes back from the server; a guest's
   // picks never reach it, so they ride sessionStorage (saveGuestCartForBack,
-  // on pagehide) and are read here when the server rendered no cart.
+  // on every pick) and are read here when the server rendered no cart.
   if (!cfg.userEmail && cfg.mode !== 'edit' && Object.keys(cfg.cartSelections).length === 0) {
     try {
       var savedCart = JSON.parse(sessionStorage.getItem('turf:guest-cart:' + cfg.contestSlug) || 'null');
@@ -282,7 +282,7 @@ window.selectionBoard = function() {
       board._teardown = teardown;
       window.__turfBoardTeardown = teardown;
       listen(document, 'turbo:before-cache', function () { var nav = window.Turbo && window.Turbo.navigator; if (!nav || nav.currentVisit) teardown(); }); // no visit in flight: Turbo cached and rendered nothing (a fragment change), so this board stays and keeps listening
-      listen(window, 'pagehide', function () { board.saveGuestCartForBack(); });
+      board.$watch('selectionOrder', function () { board.saveGuestCartForBack(); });
 
       var handleTokenSignal = function (data) {
         if (!data || data.source !== 'tt-tokens') return;
@@ -835,7 +835,8 @@ window.selectionBoard = function() {
     // rather than on every toggle. Failure here must be silent: a cart that
     // cannot be serialised is not a reason to break the navigation.
     // A guest's cart for the fresh load Back brings (see the top of this
-    // factory). Silent on failure, like persistCartToConfig.
+    // factory), written on every change to the pick order. Silent on failure:
+    // a cart that cannot be saved is not a reason to break a pick.
     saveGuestCartForBack() {
       if (this.loggedIn || this.isEditMode) return;
       try {
