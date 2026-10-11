@@ -7,8 +7,9 @@ class Entry
   #                  signed-in page asks the player (shared/_landed_entry_prompt)
   #   re-authorize   the player keeps the entry: the one verdict
   #                  (Entries::PaymentSettlement) activates it with no new payment
-  #   decline        the player does not want it: the row stays landed and waits
-  #                  for a person; nothing is refunded here
+  #   decline        the player does not want it: the row stays landed for good
+  #                  (#assert_not_declined!) and waits for a person; nothing is
+  #                  refunded here
   #   the hold       until the first Sunday 9:00 AM Eastern after the row landed
   #   replace        after the hold (or on a re-authorized row the verdict still
   #                  refuses), the operator runs the same verdict for the player
@@ -70,6 +71,19 @@ class Entry
 
     def landed_hold_open?(now: Time.current)
       landed? && now < landed_hold_expires_at
+    end
+
+    # A DECLINE IS FINAL. Entry#assert_enterable! asks this first, so every
+    # activation (the verdict, the reconciler, the jobs, the operator) refuses a
+    # declined landed row. It reads the row as stored, locked under confirm!'s
+    # transaction, so a caller that loaded the row before the decline is refused too.
+    def assert_not_declined!
+      return unless persisted?
+
+      state, answer = self.class.where(id: id).lock.pick(:payment_state, :landed_answer)
+      return unless state == "landed" && answer == "declined"
+
+      raise Entry::Refusal.new(:landed_declined, "The player declined this entry.")
     end
 
     # Whether the verdict may lift the two counted gates for this row.

@@ -133,6 +133,7 @@ class Entry < ApplicationRecord
   # never passes it, and #gate_time clamps it to now, so no caller can use it to
   # judge a moment later than the present.
   def assert_enterable!(comped: false, as_of: nil, held: false)
+    assert_not_declined! # Entry::LandedHold: no gate lifts a decline
     at = self.class.gate_time(as_of)
     raise Refusal.new(:contest_not_open, "Contest is not open") unless contest.open?
 
