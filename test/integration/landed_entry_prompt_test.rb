@@ -30,7 +30,7 @@ class LandedEntryPromptTest < ActionDispatch::IntegrationTest
       chain { Entries::ManagedEntry.new(contest: @contest, user: @user, usdc_allowed: true).call(@entry) }
     end
     @contest.update!(max_entries: 1)
-    enter!(users(:jordan), @contest, fixture_matchups)
+    @seat = enter!(users(:jordan), @contest, fixture_matchups)
     @vault.chain_unreadable = false
     assert chain { Entries::PaymentSettlement.call(@entry, vault: @vault) }.landed?
   end
@@ -82,6 +82,46 @@ class LandedEntryPromptTest < ActionDispatch::IntegrationTest
     assert_response :see_other
     assert_equal %w[cart landed declined], @entry.reload.values_at(:status, :payment_state, :landed_answer)
     assert_equal 1, @vault.tickets.size
+  end
+
+  # Alex 2026-10-10: a decline is a decline; promise the player nothing.
+  PROMISES = /in touch|finish the entry|finish it|refund|we will|our team/i
+
+  test "the decline notice and the prompt state facts and promise nothing" do
+    log_in_as @user
+    get root_path
+    follow_redirect! while response.redirect?
+    refute_match PROMISES, prompt.text.squish
+
+    chain { post decline_landed_entry_path(@entry.slug) }
+    assert_equal "Got it. This entry stays out, and you will not be charged again. " \
+                 "With any question, contact support@turfmonster.media.", flash[:notice]
+    refute_match PROMISES, flash[:notice]
+  end
+
+  test "a Yes the gates still refuse promises nothing" do
+    @seat.update!(user: @user) # the player already holds this exact lineup
+    @contest.update!(max_entries: 10)
+    log_in_as @user
+    chain { post reauthorize_landed_entry_path(@entry.slug) }
+
+    assert_equal "landed", @entry.reload.payment_state
+    assert_match(/still did not go through.*contact support@turfmonster\.media/, flash[:notice])
+    refute_match PROMISES, flash[:notice]
+  end
+
+  test "an answer after the hold promises nothing" do
+    log_in_as @user
+    travel_to(@entry.landed_hold_expires_at) { chain { post decline_landed_entry_path(@entry.slug) } }
+
+    assert_nil @entry.reload.landed_answer
+    assert_equal "The time to answer has passed. With any question, contact support@turfmonster.media.", flash[:alert]
+    refute_match PROMISES, flash[:alert]
+  end
+
+  test "the board's held message promises nothing" do
+    refute_match PROMISES, Entry::Payment::IN_FLIGHT_MESSAGES.fetch("landed")
+    assert_includes Entry::Payment::IN_FLIGHT_MESSAGES.fetch("landed"), "arrived, but the entry did not go through"
   end
 
   test "a player cannot answer for another player's entry" do

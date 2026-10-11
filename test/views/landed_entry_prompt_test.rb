@@ -43,6 +43,17 @@ class LandedEntryPromptViewTest < ActionView::TestCase
     assert_includes render_prompt([@entry]).text, "Solana, but we could not finish your entry."
   end
 
+  # Alex 2026-10-10: a decline is a decline; promise the player nothing.
+  PROMISES = /in touch|finish the entry|refund|we will|our team/i
+
+  test "the card states facts and promises nothing, with support as an offer" do
+    text = render_prompt([@entry]).text.squish
+
+    refute_match PROMISES, text
+    assert_includes text, "Yes tries the entry again, with no new charge. No leaves it out for good."
+    assert_includes text, "contact support@turfmonster.media"
+  end
+
   test "CONTROL: no rows, no card" do
     assert_empty render_prompt([]).css("[data-landed-entry-prompt]")
   end

@@ -52,7 +52,7 @@ test.describe("Landed entry prompt", () => {
     // Pressed the moment the page is there, with no wait on a controller.
     await page.goto("/contests");
     await card.getByRole("button", { name: "No, I don't want it" }).click();
-    await expect(page.getByText("our team will be in touch about your payment")).toBeVisible();
+    await expect(page.getByText("This entry stays out, and you will not be charged again.")).toBeVisible();
     await expect(page.locator("[data-landed-entry-prompt]")).toHaveCount(0);
 
     await page.goto("/account");

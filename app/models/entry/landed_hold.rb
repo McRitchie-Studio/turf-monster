@@ -98,7 +98,7 @@ class Entry
 
       with_lock do
         raise Refused, "This entry is no longer waiting for your answer." unless landed? && landed_answer.nil?
-        raise Refused, "The time to answer has passed. Our team is finishing this entry." unless landed_hold_open?(now: now)
+        raise Refused, "The time to answer has passed. With any question, contact #{Entry::Payment::SUPPORT_EMAIL}." unless landed_hold_open?(now: now)
 
         update!(landed_answer: answer.to_s, landed_answered_at: now)
       end
