@@ -132,7 +132,7 @@ class Entry < ApplicationRecord
   # lineup are NOT time gates and stay judged now. A pre-broadcast pre-flight
   # never passes it, and #gate_time clamps it to now, so no caller can use it to
   # judge a moment later than the present.
-  def assert_enterable!(comped: false, as_of: nil)
+  def assert_enterable!(comped: false, as_of: nil, held: false)
     at = self.class.gate_time(as_of)
     raise Refusal.new(:contest_not_open, "Contest is not open") unless contest.open?
 
@@ -153,13 +153,13 @@ class Entry < ApplicationRecord
       raise Refusal.new(:team_locked, "#{s.slate_matchup.team.name}'s game has already started") if s.slate_matchup.pick_locked?(at)
     end
 
-    # Contest capacity. This entry is still `cart`, so it is not double-counted.
+    # Contest capacity. This entry is still `cart`, so it is not double-counted. `held:` (Entry::LandedHold) skips it.
     active_count = contest.entries.where(status: [:active, :complete]).count
-    raise Refusal.new(:contest_full, "Contest is full") if contest.max_entries && active_count >= contest.max_entries
+    raise Refusal.new(:contest_full, "Contest is full") if contest.max_entries && active_count >= contest.max_entries && !held
 
-    # Per-user entry limit
+    # Per-user entry limit. `held:` skips it too: the chain already counted this ticket.
     user_active_count = contest.entries.where(user: user, status: [:active, :complete]).count
-    raise Refusal.new(:entry_limit_reached, "Maximum #{contest.max_entries_per_user} entries per contest") if user_active_count >= contest.max_entries_per_user
+    raise Refusal.new(:entry_limit_reached, "Maximum #{contest.max_entries_per_user} entries per contest") if user_active_count >= contest.max_entries_per_user && !held
 
     # Sybil / duplicate-exact-combo check
     my_combo = selections.map(&:slate_matchup_id).sort
@@ -184,7 +184,7 @@ class Entry < ApplicationRecord
   # `comped: true` is the admin-seed escape hatch (Contest#fill! only): it
   # activates entries for seeded users without payment. Real user entries
   # always pass through the gate.
-  def confirm!(tx_signature: nil, onchain_entry_id: nil, comped: false, as_of: nil)
+  def confirm!(tx_signature: nil, onchain_entry_id: nil, comped: false, as_of: nil, held: false)
     user.with_lock do
       # Backstop the read-only gates under the user row lock so the per-user
       # limit / sybil checks stay race-safe. ContestsController#enter already
@@ -193,7 +193,7 @@ class Entry < ApplicationRecord
       # `as_of:` judges its time gates at the moment the spend was cleared (see
       # #assert_enterable!); it means nothing without a signature, so it is
       # ignored for an unpaid confirm.
-      assert_enterable!(comped: comped, as_of: tx_signature.present? ? as_of : nil)
+      assert_enterable!(comped: comped, as_of: tx_signature.present? ? as_of : nil, held: held && tx_signature.present?)
 
       transaction do
         # Payment gate: never activate a paid entry without proof of payment —
@@ -259,7 +259,7 @@ class Entry < ApplicationRecord
 
   # Confirm entry via direct onchain payment (Phantom wallet users).
   # No DB balance deduction — USDC was transferred onchain directly.
-  def confirm_onchain!(tx_signature:, entry_pda:, as_of: nil)
+  def confirm_onchain!(tx_signature:, entry_pda:, as_of: nil, held: false)
     # Lock user row to prevent concurrent entry-limit bypass, then re-run the
     # read-only gates as the serialized backstop. ContestsController#
     # confirm_onchain_entry already ran assert_enterable! as a PRE-FLIGHT before
@@ -267,7 +267,7 @@ class Entry < ApplicationRecord
     # `comped:` here — the on-chain path is user-initiated only (admin fills go
     # through #confirm!).
     user.with_lock do
-      assert_enterable!(as_of: as_of) # time gates as of the cleared pre-flight / blockTime
+      assert_enterable!(as_of: as_of, held: held) # time gates as of the cleared pre-flight / blockTime
 
       # Fail-closed payment gate (Lazarus audit #1/#7, 2026-05-31). The caller
       # (ContestsController#confirm_onchain_entry and #recover_pending_entry)
@@ -486,4 +486,5 @@ class Entry < ApplicationRecord
   # so docs/workflows' line citations above hold.
   include Payment
   prepend Payment::EditGuard
+  include LandedHold
 end

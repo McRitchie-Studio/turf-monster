@@ -302,7 +302,7 @@ class Entry
 
     # submitted → landed: paid on chain, refused by an app gate.
     def mark_payment_landed!(code:, signature: payment_signature)
-      transition_payment!("landed", payment_refusal_code: code.to_s, payment_signature: signature)
+      transition_payment!("landed", payment_refusal_code: code.to_s, payment_signature: signature, payment_landed_at: Time.current)
     end
 
     # THE ONE RELEASE RULE: what must be true before a submitted row goes back
