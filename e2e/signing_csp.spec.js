@@ -65,17 +65,24 @@ test("an admin meets no script violation on any signing page", async ({ page }) 
   }
 });
 
-test("a Turbo visit into a signing page loads it as a new document", async ({ page }) => {
+// A Turbo visit keeps the document, and so its policy and nonce, while the
+// new page carries its own request's nonce. csp_nonce_carry hands the
+// incoming scripts the document's nonce, so they run under the strict policy.
+test("a Turbo visit between signing pages runs the new page's scripts", async ({ page }) => {
+  await setupPhantomMock(page);
+  await loginAdmin(page);
   await watchViolations(page);
-  await page.goto("/contests");
-  const link = page.locator(`a[href="${CONTEST}"]`).first();
-  await link.click();
-  await page.waitForURL(`**${CONTEST}`);
+  await page.goto(CONTEST);
   await page.waitForLoadState("load");
-  const navigation = await page.evaluate(() => performance.getEntriesByType("navigation")[0].name);
-  expect(new URL(navigation).pathname).toBe(CONTEST);
-  const nonce = await page.locator('meta[name="csp-nonce"][data-turbo-track]').getAttribute("content");
-  expect(nonce).toBeTruthy();
-  const seen = await page.evaluate(() => window.__cspViolations);
-  expect(seen.filter((v) => !pending(v, CONTEST))).toEqual([]);
+  const before = await page.evaluate(() => performance.getEntriesByType("navigation")[0].name);
+
+  for (const path of ["/account", `${CONTEST}/edit`, "/admin/pending_transactions"]) {
+    await page.evaluate((target) => window.Turbo.visit(target), path);
+    await page.waitForURL(`**${path}`);
+    await page.waitForFunction(() => document.readyState === "complete");
+    const seen = await page.evaluate(() => window.__cspViolations);
+    expect(seen.filter((v) => !pending(v, CONTEST)), path).toEqual([]);
+  }
+  const after = await page.evaluate(() => performance.getEntriesByType("navigation")[0].name);
+  expect(after).toBe(before);
 });

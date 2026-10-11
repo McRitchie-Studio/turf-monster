@@ -15,10 +15,9 @@
 # replaces it there in that one header.
 #
 # A browser applies the policy of the document it loaded, and a Turbo visit
-# keeps that document. So a signing page puts its nonce in a tracked meta tag
-# (signing_csp_meta_tag): the signature differs on every crossing into, out
-# of, or between signing pages, and Turbo answers with a full load, which
-# brings the page's own header.
+# keeps that document. A visit from a signing page keeps its strict policy,
+# and csp_nonce_carry gives the incoming scripts the document's nonce; a
+# visit into a signing page from another keeps the app policy.
 module SigningCsp
   extend ActiveSupport::Concern
 
@@ -38,7 +37,7 @@ module SigningCsp
 
   included do
     after_action :apply_signing_csp, if: :signing_csp_page?
-    helper_method :signing_csp_page?, :signing_csp_meta_tag
+    helper_method :signing_csp_page?
   end
 
   # The app policy with script-src narrowed for a signing page.
@@ -54,12 +53,6 @@ module SigningCsp
 
   def signing_csp_page?
     PAGES.fetch(controller_path, []).include?(action_name)
-  end
-
-  def signing_csp_meta_tag
-    return unless signing_csp_page?
-
-    helpers.tag.meta(name: "csp-nonce", content: request.content_security_policy_nonce, data: { turbo_track: "reload" })
   end
 
   # Writes the headers itself; the middleware then leaves them alone.

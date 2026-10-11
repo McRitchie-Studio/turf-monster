@@ -65,11 +65,11 @@ class SigningCspTest < ActionDispatch::IntegrationTest
   end
 
   def assert_page_nonced(doc, nonce)
-    # The engine's csp_meta_tag renders an untracked one on every page.
-    meta = doc.at_css('meta[name="csp-nonce"][data-turbo-track]')
-    assert meta, "no tracked csp-nonce meta"
+    # The engine's csp_meta_tag: csp_nonce_carry reads the document's nonce
+    # from it, and Turbo gives it to every script it runs.
+    meta = doc.at_css('meta[name="csp-nonce"]')
+    assert meta, "no csp-nonce meta"
     assert_equal nonce, meta["content"]
-    assert_equal "reload", meta["data-turbo-track"]
 
     unnonced = doc.css("script").select { |script| executable?(script) && script["nonce"] != nonce }
     assert_empty unnonced.reject { |script| pending_script?(script) }.map { |script| script.to_html[0, 160] }
@@ -125,7 +125,6 @@ class SigningCspTest < ActionDispatch::IntegrationTest
       assert_nil response.headers[ENFORCED], path
       assert_includes script_src(response.headers[REPORT_ONLY]), "'unsafe-inline'"
       assert_nil nonce_of(response.headers[REPORT_ONLY]), path
-      assert_nil page.at_css('meta[name="csp-nonce"][data-turbo-track]'), path
     end
   end
 

@@ -4,6 +4,7 @@ pin "application"
 pin "@hotwired/turbo-rails", to: "turbo.min.js"
 pin "debug_logger"
 pin "session_wipe"
+pin "csp_nonce_carry"
 pin "base58"
 pin "wallet_provider"
 pin "solana_utils"
@@ -57,6 +58,7 @@ every_page = %w[
   controllers/tabs_controller
   controllers/usdc_balance_controller turf/usdc_balance
   controllers/withdraw_card_controller turf/withdraw_card
+  turf/csp_nonce
 ]
 %w[controllers turf].each do |directory|
   Rails.root.glob("app/javascript/#{directory}/*.js").sort.each do |file|
