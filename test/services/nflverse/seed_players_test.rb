@@ -122,7 +122,7 @@ class Nflverse::SeedPlayersTest < ActiveSupport::TestCase
     s = seeder                                         # set after construction so the
     s.instance_variable_set(:@upload_headshots, true)  # AWS guard stays out of this test
     cached = []
-    Studio::ImageCache.stub(:cache!, ->(**kw) { cached << kw[:owner].person_slug }) do
+    Studio::ImageCache.stub(:reference_or_cache!, ->(**kw) { cached << kw[:owner].person_slug }) do
       s.send(:ingest_row, row)
     end
     assert_equal [ person.slug ], cached, "a synced athlete's headshot must still be cached"

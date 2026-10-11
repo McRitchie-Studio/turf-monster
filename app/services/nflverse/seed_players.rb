@@ -88,6 +88,33 @@ class Nflverse::SeedPlayers
     Studio.s3_access_key_id.present? && Studio.s3_access_key_id != StorageBackend::UNCONFIGURED_KEY
   end
 
+  # THE ONE HEADSHOT CALL, shared by this seeder and `nfl:upload_headshots`, so
+  # the key layout and the storage policy cannot drift between them.
+  #
+  # Headshots land under the athlete's team folder so a trade reads clearly in
+  # the bucket; free agents share one folder rather than scattering at the root.
+  #
+  # Headshots are SEED ASSETS (docs object-storage, "Seed assets"): they live in
+  # the production bucket. reference_or_cache! (studio-engine >= 0.103.0), outside
+  # production and with Studio.s3_production_public_url set
+  # (config/initializers/studio.rb), sends a read-only HEAD to
+  # turf-monster-production for each variant's key: found, it records a
+  # REFERENCE row (stored_in "production") that serves from
+  # assets.turfmonster.media; absent (a player production has not cached yet), it
+  # uploads to this process's own bucket exactly as cache! did. In production it
+  # IS cache!, so production's uploads are unchanged. Idempotent either way.
+  def self.cache_headshot!(athlete, widths: HEADSHOT_WIDTHS)
+    folder = athlete.team_slug.presence || "free-agents"
+    Studio::ImageCache.reference_or_cache!(
+      owner: athlete,
+      purpose: "headshot",
+      source_url: athlete.espn_headshot_url,
+      key_prefix: "headshots/nfl/#{folder}/#{athlete.person_slug}",
+      widths: widths,
+      content_type: "image/png"
+    )
+  end
+
   def initialize(verbose: false, upload_headshots: true,
                  min_season: DEFAULT_MIN_SEASON, status_filter: "ACT",
                  source_url: PLAYERS_URL, csv_body: nil)
@@ -561,18 +588,9 @@ class Nflverse::SeedPlayers
     PositionConcern.normalize_position(row["position"], source: :nflverse)
   end
 
-  # Headshots land under the athlete's team folder so a trade reads clearly in
-  # the bucket; free agents share one folder rather than scattering at the root.
+  # The layout and the reference-or-upload policy: self.cache_headshot! above.
   def cache_headshot(athlete)
-    folder = athlete.team_slug.presence || "free-agents"
-    Studio::ImageCache.cache!(
-      owner: athlete,
-      purpose: "headshot",
-      source_url: athlete.espn_headshot_url,
-      key_prefix: "headshots/nfl/#{folder}/#{athlete.person_slug}",
-      widths: HEADSHOT_WIDTHS,
-      content_type: "image/png"
-    )
+    self.class.cache_headshot!(athlete)
     @stats[:headshots_cached] += 1
   rescue StandardError => e
     @stats[:headshots_failed] += 1

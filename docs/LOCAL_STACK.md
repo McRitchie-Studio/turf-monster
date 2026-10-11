@@ -241,5 +241,22 @@ Object storage is Cloudflare R2 and nothing else; AWS S3 was retired on
   Restore within the window with `rake studio:trash:restore[TRASH_KEY]`. A
   process that is not real production is refused a delete on
   `turf-monster-production`.
+- **NFL headshots reference production.** Headshots are seed assets and live
+  in `turf-monster-production`. `nfl:players_seed` and `nfl:upload_headshots`
+  both cache through `Nflverse::SeedPlayers.cache_headshot!`, which calls
+  studio-engine's `Studio::ImageCache.reference_or_cache!`. On a laptop, a desk
+  or QA, each variant's key is first looked up in the production bucket with a
+  read-only HEAD (the dev token holds Item Read there). If production has it,
+  the `image_caches` row is recorded with `stored_in: "production"` and serves
+  from `https://assets.turfmonster.media`; nothing is uploaded. If production
+  lacks it (a player production has not cached yet), the variant is uploaded to
+  `turf-monster-dev` as before. Real production skips the lookup and uploads to
+  its own bucket, unchanged. The production host is
+  `config.s3_production_public_url` in `config/initializers/studio.rb`; it is
+  nil in test, so the suite never sends a HEAD to production. Read or remove a
+  row's object with `row.download` / `row.delete_object!`, never
+  `Studio::S3.download(key: row.s3_key)`: a reference row's bytes are not in
+  this process's bucket, and `delete_object!` deletes nothing for one off
+  production.
 
 Use McRitchie Studio's agent credential docs for current 1Password item names. Do not print secret values in terminal output or handoff notes.

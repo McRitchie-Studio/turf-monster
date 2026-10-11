@@ -422,7 +422,7 @@ GEM
     stripe (19.5.0)
       bigdecimal
       logger
-    studio-engine (0.102.0)
+    studio-engine (0.103.0)
       aws-sdk-s3 (~> 1.218)
       csv (>= 3.0)
       faker (>= 2.0, < 4.0)
@@ -513,7 +513,7 @@ DEPENDENCIES
   solana-studio (~> 0.12)
   sprockets-rails
   stripe
-  studio-engine (~> 0.93)
+  studio-engine (~> 0.103)
   tailwindcss-rails (~> 4.5)
   turbo-rails
   tzinfo-data
