@@ -2186,35 +2186,56 @@ html.dark { --rx-fill: 0 0 0; }
 
 /* ── The primary INK: green used as text ──────────────────────────────────────
    The primary #2E7D32 is a FILL colour: white labels clear 5.13:1 on it. As
-   TEXT on the dark theme it fails, at 3.41:1 on the page (#1A1535) and 2.18:1
-   on a card (#3C3853). So text reads a separate ink, per theme, in the spirit
-   of the engine's --color-danger-ink (text colour is not fill colour):
+   TEXT it fails: 2.18:1 on the dark card, and in the light theme 4.28:1 on its
+   own painted 10 percent tint over the page. So text reads a separate ink per
+   theme, in the spirit of the engine's --color-danger-ink (text colour is not
+   fill colour). `text-primary` reads it through config/tailwind.config.js
+   (textColor.primary, via the -rgb twin); the engine's `text-primary-ink`,
+   hand-written CSS and inline styles read var(--color-primary-ink).
 
-     dark   #81C784   8.68:1 page, 5.54:1 card
-     light  the primary itself, 4.90:1 page, 5.13:1 card
+   THE ENGINE OWNS THIS TOKEN. A studio-engine whose ThemeResolver derives
+   --color-primary-ink (the primary, shaded until it clears AA 4.5:1 on the four
+   surfaces and on the primary at 10, 15 and 20 percent) emits it in the theme
+   tag under `:root, .dark` and `html:not(.dark)`. The declarations below are a
+   FALLBACK inside :where(), which has zero specificity, so the engine's rules
+   outrank them wherever the engine emits the ink, whatever the load order. They
+   paint only on an engine that emits none (0.102.x and earlier).
 
-   #81C784 cannot serve the light theme (2.01:1 on white), which is why this is
-   per theme and not a new primary. `text-primary` reads the ink through
-   config/tailwind.config.js (textColor.primary); hand-written CSS and inline
-   styles read var(--color-primary-ink) directly.
+   The fallback values ARE the engine's derived values for this palette, so
+   nothing moves when the lock bumps:
 
-   --color-primary-badge-ink is the same ink for text sitting ON a primary tint
-   (the level-badge-1 pattern, a 15 percent primary wash). In the light theme the
-   primary measures only 4.21:1 on its own tint, so the badge takes the scale's
-   700 shade there (6.95:1); in the dark theme the ink already clears it (5.04:1).
+     dark   #97BE99   4.63:1 worst (primary at 20 percent, painted)
+     light  #246227   4.57:1 worst (primary at 20 percent, painted)
+
+   The engine emits no -rgb twin, so `text-primary` (the "Entered" badge,
+   bg-primary/15 text-primary) paints this app's --color-primary-ink-rgb on
+   every engine. It is pinned to the same values, and a test holds it to the ink
+   that paints: if the engine's derivation for this palette moves, the twin
+   goes red instead of drifting.
+
+   --color-primary-badge-ink is the ink for text sitting ON a primary tint (the
+   level-badge-1 pattern, a 15 percent wash): the 700 shade in light (6.95:1 on
+   the card), the primary ink in dark. It is this app's own token at full
+   specificity.
 
    Same selectors as the engine's theme block, so a .dark container inside a
-   light page flips these with the rest of the theme.
-   Guard: test/views/primary_text_contrast_test.rb. */
+   light page flips these with the rest of the theme. The light fallback comes
+   second: both :where() rules have zero specificity, so source order decides.
+   Guards: test/views/primary_text_contrast_test.rb, and "the primary ink clears
+   AA whichever source paints it" in test/views/violet_text_contrast_test.rb. */
+:where(:root, .dark) {
+  --color-primary-ink: #97be99;
+  --color-primary-ink-rgb: 151 190 153;
+}
+:where(html:not(.dark)) {
+  --color-primary-ink: #246227;
+  --color-primary-ink-rgb: 36 98 39;
+}
 :root,
 .dark {
-  --color-primary-ink: #81c784;
-  --color-primary-ink-rgb: 129 199 132;
   --color-primary-badge-ink: var(--color-primary-ink);
 }
 html:not(.dark) {
-  --color-primary-ink: var(--color-primary);
-  --color-primary-ink-rgb: var(--color-primary-rgb);
   --color-primary-badge-ink: var(--color-primary-700);
 }
 
