@@ -513,7 +513,7 @@ DEPENDENCIES
   solana-studio (~> 0.12)
   sprockets-rails
   stripe
-  studio-engine (~> 0.93)
+  studio-engine (~> 0.103)
   tailwindcss-rails (~> 4.5)
   turbo-rails
   tzinfo-data

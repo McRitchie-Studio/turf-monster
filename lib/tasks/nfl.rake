@@ -126,16 +126,10 @@ namespace :nfl do
         next
       end
 
-      folder = athlete.team_slug.presence || "free-agents"
       begin
-        Studio::ImageCache.cache!(
-          owner: athlete,
-          purpose: "headshot",
-          source_url: athlete.espn_headshot_url,
-          key_prefix: "headshots/nfl/#{folder}/#{athlete.person_slug}",
-          widths: widths,
-          content_type: "image/png"
-        )
+        # Off production this references production's copy where it exists and
+        # uploads only what production lacks (Nflverse::SeedPlayers.cache_headshot!).
+        Nflverse::SeedPlayers.cache_headshot!(athlete, widths: widths)
         cached += 1
         puts "  [+] #{athlete.person_slug}" if cached <= 5 || (cached % 100).zero?
       rescue StandardError => e

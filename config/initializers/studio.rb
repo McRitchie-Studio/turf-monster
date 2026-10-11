@@ -278,6 +278,18 @@ Studio.configure do |config|
   StorageBackend.verify!
   StorageBackend.studio_s3_settings.each { |name, value| config.public_send("#{name}=", value) }
 
+  # SEED ASSETS REFERENCE PRODUCTION (studio-engine >= 0.103.0). NFL headshots
+  # are seed assets: they live in turf-monster-production, and a laptop, desk or
+  # QA process records a REFERENCE to production's copy (ImageCache stored_in
+  # "production", served from this host) instead of uploading a duplicate into
+  # the dev bucket. Studio::ImageCache.reference_or_cache! reads this knob; real
+  # production never does, so production's uploads are unchanged.
+  #
+  # Nil in test: with it unset reference_or_cache! IS cache!, so the suite never
+  # sends a live HEAD to production. A test that needs it sets it and stubs the
+  # S3 client (test/services/nflverse/headshot_reference_test.rb).
+  config.s3_production_public_url = StorageBackend::PRODUCTION_PUBLIC_URL unless Rails.env.test?
+
   # ---- Geo (studio-engine >= 0.57 — see the gem's docs/GEO.md) -------------
   #
   # This app used to carry the whole stack: GeoSetting, GeoHelper,
