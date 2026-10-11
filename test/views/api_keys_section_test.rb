@@ -38,7 +38,8 @@ class ApiKeysSectionTest < ActionView::TestCase
 
     assert_nil doc.at_css("[data-api-key-list]")
     assert_nil doc.at_css("[data-api-key-add]")
-    assert_match(/adding: true/, form(doc).parent["x-data"])
+    assert_equal "true", form(doc).parent["data-reveal-open-value"]
+    assert_nil form(doc)["hidden"]
   end
 
   test "a key is listed by name and prefix, never by its secret" do
@@ -92,16 +93,16 @@ class ApiKeysSectionTest < ActionView::TestCase
     revoke = render_section.at_css("[data-api-key-row] form")
     button = revoke.at_css("button")
 
-    assert_match(/busy: false/, revoke["x-data"])
-    assert_equal "busy = true", revoke["@turbo:submit-start"]
-    assert_equal "busy = false", revoke["@turbo:submit-end"]
-    assert_nil button["@click"], "a click handler would spin even when the confirm is declined"
+    assert_equal "submit-busy", revoke["data-controller"]
+    assert_equal "turbo:submit-start->submit-busy#start turbo:submit-end->submit-busy#end turbo:before-cache@document->submit-busy#reset", revoke["data-action"]
+    assert_nil button["data-action"], "a click handler would spin even when the confirm is declined"
 
     idle, working = button.css("> span")
-    assert_equal "!busy", idle["x-show"]
+    assert_equal "idle", idle["data-submit-busy-target"]
+    assert_nil idle["hidden"]
     assert_equal "Revoke", idle.text.strip
-    assert_equal "busy", working["x-show"]
-    assert working.key?("x-cloak")
+    assert_equal "busy", working["data-submit-busy-target"]
+    assert working.key?("hidden")
     assert working.at_css(".cta-spinner")
     assert_match(/Revoking/, working.text)
   end
@@ -126,12 +127,12 @@ class ApiKeysSectionTest < ActionView::TestCase
     create = form(render_section)
     idle, working = create.at_css('button[type="submit"]').css("> span")
 
-    assert_match(/busy: false/, create.parent["x-data"])
-    # Each handler now also drives the throttle message (see the 429 test
-    # below), so the busy assignment is one statement of two.
-    assert_equal "busy = true", create["@turbo:submit-start"].split(";").first.strip
-    assert_equal "busy = false", create["@turbo:submit-end"].split(";").first.strip
+    assert_equal "submit-busy", create["data-controller"]
+    assert_equal "turbo:submit-start->submit-busy#start turbo:submit-end->submit-busy#end turbo:before-cache@document->submit-busy#reset", create["data-action"]
+    assert_equal "button", create.at_css('button[type="submit"]')["data-submit-busy-target"]
+    assert_nil create.at_css('button[type="submit"]')["disabled"]
     assert_equal "Create key", idle.text.strip
+    assert working.key?("hidden")
     assert working.at_css(".cta-spinner")
     assert_match(/Creating/, working.text)
   end
@@ -142,13 +143,17 @@ class ApiKeysSectionTest < ActionView::TestCase
     link = doc.at_css("[data-api-key-add]")
 
     assert_equal "Add another API key", link.text.strip
-    assert_equal "!adding", link["x-show"]
-    assert_match(/adding = true/, link["@click"])
-    assert_match(/adding: false/, form(doc).parent["x-data"])
-    assert_equal "adding", form(doc)["x-show"]
-    assert form(doc).key?("x-cloak"), "x-show owns display; cloak covers the first paint"
-    # The link and the form share one Alpine scope, or the toggle cannot reach it.
+    assert_nil link["hidden"]
+    assert_equal "trigger", link["data-reveal-target"]
+    assert_equal "reveal#open", link["data-action"]
+    assert_equal "false", form(doc).parent["data-reveal-open-value"]
+    assert_equal "region", form(doc)["data-reveal-target"]
+    assert form(doc).key?("hidden"), "the form starts hidden behind the link"
+    assert_equal "field", form(doc).at_css('input[name="name"]')["data-reveal-target"]
+    # The link and the form share one reveal controller, or the link cannot reach it.
     assert_equal link.parent, form(doc).parent
+    assert_equal "reveal", link.parent["data-controller"]
+    assert_includes link.parent["data-action"], "turbo:before-cache@document->reveal#reset"
   end
 
   test "a refused submit comes back open, with the error, the typed name, and no key on screen" do
@@ -157,7 +162,9 @@ class ApiKeysSectionTest < ActionView::TestCase
     error = doc.at_css("[data-api-key-error]")
     input = doc.at_css('input[name="name"]')
 
-    assert_match(/adding: true/, form(doc).parent["x-data"])
+    assert_equal "true", form(doc).parent["data-reveal-open-value"]
+    assert_nil form(doc)["hidden"]
+    assert doc.at_css("[data-api-key-add]").key?("hidden")
     assert_equal "Name can't be blank", error.text
     assert_equal "alert", error["role"]
     assert_equal "true", input["aria-invalid"]
@@ -188,13 +195,11 @@ class ApiKeysSectionTest < ActionView::TestCase
 
   test "the age blocker opens the birthday card and re-fetches the frame when it reports success" do
     blocked = render_section(blocked_reason: :age).at_css('[data-api-key-blocked="age"]')
-    handler = blocked["@age-verified.window"]
 
     assert_includes blocked.at_css("button")["@click"], "open('birthday'"
-    assert blocked.key?("x-data"), "without a component the listener is never bound"
-    assert_includes handler, "closest('turbo-frame')"
-    assert_includes handler, account_api_keys_path
-    assert_no_match(/location|Turbo\.visit/, handler, "the card updates in place; the page does not reload")
+    assert_equal "frame-reload", blocked["data-controller"]
+    assert_equal "age-verified@window->frame-reload#reload", blocked["data-action"]
+    assert_equal account_api_keys_path, blocked["data-frame-reload-src-value"]
   end
 
   test "a blocked player still sees and can revoke the keys they hold" do
@@ -244,10 +249,10 @@ class ApiKeysSectionTest < ActionView::TestCase
     # block, hidden while the reveal is in the frame, a frame navigation.
     after = doc.at_css("[data-api-key-add-after-reveal]")
     assert_nil after.ancestors.find { |node| node.key?("data-turbo-temporary") }
-    assert after.key?("x-cloak")
-    assert_equal "!revealed", after["x-show"]
-    assert_match(/revealed: true/, after["x-data"])
-    assert_includes after["x-init"], "querySelector('[data-api-key-created]')"
+    assert after.key?("hidden")
+    assert_equal "reveal-follow-up", after["data-controller"]
+    assert_equal "[data-api-key-created]", after["data-reveal-follow-up-selector-value"]
+    assert_equal "turbo:before-cache@document->reveal-follow-up#reset", after["data-action"]
     link = after.at_css("a")
     assert_equal "Add another API key", link.text
     assert_equal account_api_keys_path(adding: 1), link["href"]
@@ -296,15 +301,12 @@ class ApiKeysSectionTest < ActionView::TestCase
     doc = render_section
     message = form(doc).at_css("[data-api-key-throttled]")
 
-    assert_match(/throttled: false/, form(doc).parent["x-data"])
-    assert_equal "throttled", message["x-show"]
-    assert message.key?("x-cloak"), "hidden until Alpine says otherwise"
+    assert_equal "throttled", message.parent["data-submit-busy-target"]
+    assert message.parent.key?("hidden"), "hidden until the submit-busy controller reads a 429"
     assert_equal "alert", message["role"]
     assert_match(/too many keys/i, message.text)
-    assert_match(/throttled = false/, form(doc)["@turbo:submit-start"])
-    assert_match(/throttled = \$event\.detail\.fetchResponse\?\.response\.status === 429/,
-                 form(doc)["@turbo:submit-end"])
-    assert_match(/busy = false/, form(doc)["@turbo:submit-end"])
+    assert_equal "submit-busy", form(doc)["data-controller"]
+    assert_includes form(doc)["data-action"], "turbo:submit-end->submit-busy#end"
   end
 
   test "outside the reveal there is no after-reveal link" do
@@ -316,14 +318,15 @@ class ApiKeysSectionTest < ActionView::TestCase
   test "form_open renders the form open although keys exist" do
     mint
 
-    assert_match(/adding: false/, form(render_section).parent["x-data"])
-    assert_match(/adding: true/, form(render_section(form_open: true)).parent["x-data"])
+    assert_equal "false", form(render_section).parent["data-reveal-open-value"]
+    assert_equal "true", form(render_section(form_open: true)).parent["data-reveal-open-value"]
+    assert_nil form(render_section(form_open: true))["hidden"]
   end
 
   test "the name error stands down while the throttle message is up" do
     doc = render_section(form_error: "Name can't be blank", form_name: " ")
 
-    assert_equal "!throttled", doc.at_css("[data-api-key-error]")["x-show"]
+    assert_equal "error", doc.at_css("[data-api-key-error]").parent["data-submit-busy-target"]
   end
 
   test "a key reloaded from the database reveals nothing" do

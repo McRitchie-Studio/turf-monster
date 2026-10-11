@@ -68,14 +68,15 @@ class NewsletterSectionRenderTest < ActionView::TestCase
     assert_includes html, "Subscribed"
   end
 
-  # Both states ship in the markup and are toggled by x-show, so the card can
-  # respond to the newsletter-state-changed event without a round trip. That is
-  # also why both assertions above can pass on one render.
+  # Both states ship in the markup and the newsletter-state controller toggles
+  # them, so the card can respond to the newsletter-state-changed event without
+  # a round trip. That is also why both assertions above can pass on one render.
   test "both states are present and driven by the shared event" do
     html = render_card(subscribed: false)
 
-    assert_includes html, "newsletter-state-changed"
-    assert_includes html, 'x-show="subscribed"'
-    assert_includes html, 'x-show="!subscribed"'
+    assert_includes html, "newsletter-state-changed@window->newsletter-state#update"
+    doc = Nokogiri::HTML5.fragment(html)
+    assert doc.at_css('[data-newsletter-state-target="subscribed"]').key?("hidden")
+    assert_not doc.at_css('[data-newsletter-state-target="unsubscribed"]').key?("hidden")
   end
 end

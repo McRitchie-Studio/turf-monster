@@ -175,10 +175,12 @@ class ApiKeysControllerTest < ActionDispatch::IntegrationTest
     log_in_as(@user)
 
     get account_api_keys_path, headers: FRAME
-    assert_match(/adding: false/, page.at_css("form[data-api-key-form]").parent["x-data"])
+    assert_equal "false", page.at_css("form[data-api-key-form]").parent["data-reveal-open-value"]
+    assert page.at_css("form[data-api-key-form]")["hidden"]
 
     get account_api_keys_path(adding: 1), headers: FRAME
-    assert_match(/adding: true/, page.at_css("form[data-api-key-form]").parent["x-data"])
+    assert_equal "true", page.at_css("form[data-api-key-form]").parent["data-reveal-open-value"]
+    assert_nil page.at_css("form[data-api-key-form]")["hidden"]
 
     @user.freeze_for_payment_risk!(reason: "test")
     get account_api_keys_path(adding: 1), headers: FRAME
@@ -210,7 +212,7 @@ class ApiKeysControllerTest < ActionDispatch::IntegrationTest
       assert_equal "Name can't be blank", page.at_css("[data-api-key-error]").text
       assert_equal "true", page.at_css('input[name="name"]')["aria-invalid"]
       # The form sits behind "Add another" when keys exist; a refusal reopens it.
-      assert_match(/adding: true/, page.at_css("form[data-api-key-form]").parent["x-data"])
+      assert_equal "true", page.at_css("form[data-api-key-form]").parent["data-reveal-open-value"]
       assert_nil shown_key
     end
   end

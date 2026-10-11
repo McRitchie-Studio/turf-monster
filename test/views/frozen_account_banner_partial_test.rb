@@ -51,6 +51,6 @@ class FrozenAccountBannerPartialTest < ActionView::TestCase
     doc = fragment(render(partial: "wallets/withdraw_card"))
 
     assert_nil doc.at_css("[data-frozen-cta]")
-    assert doc.at_css("button[x-text]"), "the Withdraw / Cancel toggle"
+    assert doc.at_css('button[data-withdraw-card-target="toggle"]'), "the Withdraw / Cancel toggle"
   end
 end

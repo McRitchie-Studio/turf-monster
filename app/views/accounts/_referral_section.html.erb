@@ -23,9 +23,9 @@
     targets, which is not something a section title can express, so /profile
     registers this row with NO title and lets the header below be the header.
 
-    THE ROOT DIV STAYS. `x-data` is the copy/info state and `relative` is the
-    positioning context the info popover anchors to — both belong to the
-    component. Only `card shadow p-6 mb-6` came off, because that is chrome and
+    THE ROOT DIV STAYS. It carries the referral-share controller (the copy and
+    info state) and `relative`, the positioning context the info popover
+    anchors to: both belong to the component. Only `card shadow p-6 mb-6` came off, because that is chrome and
     the call site owns it.
 %>
 <% share_contest = local_assigns.fetch(:share_contest, main_contest_target) %>
@@ -44,11 +44,13 @@
     progress_filled = [invitees_in_contest, target_count].min
     token_earned = invitees_in_contest >= target_count
   %>
-<div x-data="{ copied: false, infoOpen: false }" class="relative">
+<div data-controller="referral-share" data-referral-share-url-value="<%= referral_url %>"
+     data-action="click@window->referral-share#outside keydown.esc@window->referral-share#closeInfo turbo:before-cache@document->referral-share#reset"
+     class="relative">
     <div class="flex items-center justify-between mb-4">
       <div class="flex items-center gap-2 min-w-0">
         <h2 class="text-lg font-bold text-heading">Bring ✌️ Friends, Get a Free Entry</h2>
-        <button type="button" @click="infoOpen = !infoOpen"
+        <button type="button" data-referral-share-target="toggle" data-action="referral-share#toggleInfo"
                 class="w-4 h-4 rounded-full bg-surface-alt text-muted hover:text-heading hover:bg-inset flex items-center justify-center text-[10px] font-bold leading-none transition flex-shrink-0"
                 aria-label="How invites work">i</button>
       </div>
@@ -66,19 +68,17 @@
     </div>
 
     <%# Info popover — same explainer used on the contest page card %>
-    <div x-show="infoOpen" x-cloak
-         x-transition:enter="transition ease-out duration-150"
-         x-transition:enter-start="opacity-0 -translate-y-1"
-         x-transition:enter-end="opacity-100 translate-y-0"
-         x-transition:leave="transition ease-in duration-100"
-         x-transition:leave-start="opacity-100"
-         x-transition:leave-end="opacity-0"
-         @click.outside="infoOpen = false"
-         @keydown.escape.window="infoOpen = false"
+    <div hidden data-referral-share-target="popover"
+         data-enter="transition ease-out duration-150"
+         data-enter-start="opacity-0 -translate-y-1"
+         data-enter-end="opacity-100 translate-y-0"
+         data-leave="transition ease-in duration-100"
+         data-leave-start="opacity-100"
+         data-leave-end="opacity-0"
          class="absolute left-6 top-14 z-20 w-72 max-w-[calc(100%-3rem)] bg-surface border border-subtle rounded-lg shadow-2xl p-4">
       <div class="flex items-start justify-between mb-2">
         <h4 class="text-heading font-semibold text-sm">How it works</h4>
-        <button type="button" @click="infoOpen = false" class="text-muted hover:text-heading text-lg leading-none" aria-label="Close">&times;</button>
+        <button type="button" data-action="referral-share#closeInfo" class="text-muted hover:text-heading text-lg leading-none" aria-label="Close">&times;</button>
       </div>
       <p class="text-secondary text-xs leading-relaxed mb-3">
         You get a free contest entry once <strong class="text-heading">two friends</strong> sign up <em>and</em> submit a contest entry of their own. The referral is locked in the moment they click your link &mdash; even before they sign up.
@@ -87,12 +87,11 @@
     </div>
 
     <%# Copy-link row %>
-    <% copy_js = "navigator.clipboard.writeText('#{referral_url}'); copied = true; setTimeout(() => copied = false, 1500)" %>
     <div class="flex items-center gap-2 mb-4">
-      <div @click="<%= copy_js %>" class="flex-1 min-w-0 bg-inset border border-subtle rounded-lg px-3 py-2 text-xs font-mono text-muted truncate cursor-pointer hover:border-primary/40 transition"><%= referral_url %></div>
-      <button @click="<%= copy_js %>" class="btn btn-sm whitespace-nowrap transition-colors" :class="copied ? 'btn-secondary' : 'btn-primary'" style="min-width:5.5rem">
-        <span x-show="!copied" x-cloak.remove>Copy Link</span>
-        <span x-show="copied" x-cloak>Copied!</span>
+      <div data-action="click->referral-share#copy" class="flex-1 min-w-0 bg-inset border border-subtle rounded-lg px-3 py-2 text-xs font-mono text-muted truncate cursor-pointer hover:border-primary/40 transition"><%= referral_url %></div>
+      <button data-referral-share-target="button" data-action="referral-share#copy" class="btn btn-sm btn-primary whitespace-nowrap transition-colors" style="min-width:5.5rem">
+        <span data-referral-share-target="copyLabel">Copy Link</span>
+        <span data-referral-share-target="copiedLabel" hidden>Copied!</span>
       </button>
     </div>
 

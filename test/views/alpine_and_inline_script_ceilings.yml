@@ -22,23 +22,23 @@ admin:
   inline_script: 10
   inline_handler: 8
 entry:
-  x_data: 49
-  x_show: 91
+  x_data: 40
+  x_show: 75
   x_if: 62
   x_for: 1
-  x_model: 8
-  x_text: 72
+  x_model: 5
+  x_text: 70
   x_html: 0
-  x_bind: 45
-  x_on: 106
-  x_init: 5
-  x_ref: 8
-  x_cloak: 35
-  x_transition: 7
+  x_bind: 42
+  x_on: 92
+  x_init: 3
+  x_ref: 7
+  x_cloak: 23
+  x_transition: 0
   x_effect: 0
   x_other: 0
   alpine_api: 75
-  inline_script: 22
+  inline_script: 21
   inline_handler: 7
 board:
   x_data: 26

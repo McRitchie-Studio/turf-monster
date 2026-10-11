@@ -95,7 +95,10 @@ class TurfStimulusTest < ActionDispatch::IntegrationTest
   end
 
   test "the static controllers are the public pages' controllers, and none is lazy" do
-    assert_equal %w[accordion auto-submit card-filter cost-calculator proof-of-reserves swatch-copy], static_controllers.keys.sort
+    marketing = %w[accordion auto-submit card-filter cost-calculator proof-of-reserves swatch-copy]
+    entry = %w[desktop-only-notice email-change-notice frame-reload newsletter-state referral-share reveal
+               reveal-follow-up submit-busy usdc-balance withdraw-card]
+    assert_equal (marketing + entry).sort, static_controllers.keys.sort
     assert_empty static_controllers.keys & lazy_controllers.keys
   end
 
@@ -153,10 +156,13 @@ class TurfStimulusTest < ActionDispatch::IntegrationTest
       "filter" => "reset", "show-more" => "collapse", "send-gate" => "reset",
       "dev-score-tools" => "reset", "scoring-filter" => "reset", "game-scorer" => "reset",
       "navbar-preview" => "reset", "accordion" => "collapse", "card-filter" => "reset",
-      "cost-calculator" => "reset", "swatch-copy" => "reset"
+      "cost-calculator" => "reset", "swatch-copy" => "reset",
+      "email-change-notice" => "reset", "newsletter-state" => "reset", "referral-share" => "reset",
+      "reveal" => "reset", "reveal-follow-up" => "reset", "submit-busy" => "reset", "withdraw-card" => "reset"
     }.each do |identifier, method|
-      # The 300 characters after the attribute hold the rest of the opening tag.
-      roots = Dir[VIEWS].sort.flat_map { |file| File.read(file).scan(/data-controller="#{identifier}".{0,300}/m) }
+      # The 300 characters after the attribute (or a helper's controller: key)
+      # hold the rest of the opening tag.
+      roots = Dir[VIEWS].sort.flat_map { |file| File.read(file).scan(/(?:data-controller="|\bcontroller: ")#{identifier}".{0,300}/m) }
       assert_not_empty roots, "no view names #{identifier}"
       roots.each { |tag| assert_includes tag, "turbo:before-cache@document->#{identifier}##{method}" }
     end

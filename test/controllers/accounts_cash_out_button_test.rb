@@ -64,8 +64,12 @@ class AccountsCashOutButtonTest < ActionDispatch::IntegrationTest
       get wallet_path
     end
     assert_response :success
-    # The collapse trigger reads window.location.hash on mount.
-    assert_match(/x-data="\{ open: window\.location\.hash === '#cash-out'/, response.body)
+    # The withdraw-card controller reads window.location.hash when it connects;
+    # the form starts hidden and its submit disabled.
+    card = Nokogiri::HTML(response.body).at_css('#cash-out[data-controller="withdraw-card"]')
+    assert card, "the cash-out card lost its controller"
+    assert card.at_css('[data-withdraw-card-target="panel"][hidden]')
+    assert card.at_css('[data-withdraw-card-target="submit"][disabled]')
     # And the card itself has the anchor id.
     assert_match(/<div id="cash-out"/, response.body)
   end

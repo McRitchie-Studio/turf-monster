@@ -159,7 +159,9 @@ class ProfileWalletReferralTest < ActionDispatch::IntegrationTest
       source = Rails.root.join("app/views/accounts/#{name}.html.erb").read
       markup = source.gsub(/<%#.*?%>/m, "")
 
-      refute_match(/@[a-z_]+[^a-zA-Z_(]/, markup.gsub(/@(click|keydown|change|submit|input|blur|focus)/, ""),
+      # Alpine's @event shorthand and a Stimulus action's event@window are not ivars.
+      events = markup.gsub(/@(click|keydown|change|submit|input|blur|focus)/, "").gsub(/(?<=[\w.:-])@(?:window|document)\b/, "")
+      refute_match(/@[a-z_]+[^a-zA-Z_(]/, events,
         "#{name} reads a controller instance variable — it renders on /account, where that " \
         "ivar happens to be set, and silently empties on /profile where it is not")
       refute_includes markup, "current_user",
