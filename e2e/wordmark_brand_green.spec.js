@@ -20,10 +20,11 @@ const { test, expect } = require("@playwright/test");
 const BRAND_GREEN = "rgb(75, 175, 80)"; //   #4BAF50, the logotype
 const PRIMARY_FILL = "rgb(46, 125, 50)"; //  #2E7D32, buttons and fills
 const DARK_INK = "rgb(129, 199, 132)"; //    #81C784, green text on the dark theme
+const LIGHT_INK = "rgb(32, 88, 35)"; //      #205823, green text on the light theme (the 700 shade)
 
 const THEMES = {
   dark: { ink: DARK_INK },
-  light: { ink: PRIMARY_FILL },
+  light: { ink: LIGHT_INK },
 };
 
 for (const [theme, { ink }] of Object.entries(THEMES)) {
