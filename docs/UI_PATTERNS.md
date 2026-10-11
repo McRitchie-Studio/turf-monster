@@ -1007,7 +1007,7 @@ The app runs its own Stimulus application on Stimulus' own attributes (`data-con
 
 **Three ways a controller registers.** Pick by who presses it and when:
 
-1. **Static** (every public page, the site shell, and the sign-in, account and wallet controls): imported and registered in `turf_stimulus.js`, and listed with every module it imports in `every_page` in `config/importmap.rb`, so every page preloads it and it is connected before the page has loaded, on a full load and on a Turbo visit. The markup still renders the safe state (Refresh disabled while a read runs, panels closed, a submit disabled until its fields are filled). Each one has a spec in `e2e/marketing_stimulus_pages.spec.js` or `e2e/entry_stimulus_pages.spec.js` that presses at once after `goto` and after a Turbo visit, with no wait on the controller.
+1. **Static** (every public page, the site shell, and the sign-in, account and wallet controls): imported and registered in `turf_stimulus.js`, and listed with every module it imports in `every_page` in `config/importmap.rb`, so every page preloads it and it is connected before the page has loaded, on a full load and on a Turbo visit. The markup still renders the safe state (Refresh disabled while a read runs, panels closed, a submit disabled until its fields are filled). Each one has a spec in `e2e/marketing_stimulus_pages.spec.js`, `e2e/entry_stimulus_pages.spec.js` or `e2e/board_stimulus_pages.spec.js` that presses at once after `goto` and after a Turbo visit, with no wait on the controller.
 2. **Lazy** (admin and dev tools only): listed in `LAZY` in `turf_stimulus.js`, and fetched the first time an element names it. No other page pays for it. Until it registers, its actions do nothing, and **a press made before then is dropped silently** (the controller and its `turf/` module are two serial fetches; measured under 150 ms of latency, presses at +50 and +150 ms were lost). That is tolerable for an operator, never for a visitor. Its markup must already be the initial state. The root element lists the registered ones in `data-lazy-controllers`; a spec waits on that with `lazyController(page, name)` (`e2e/helpers.js`) before its first press.
 3. **A page's own module tag** (admin only): the view renders `javascript_import_module_tag` for a small module that registers the controller. `live/_dev_score_tools` imports `dev_tools` this way. Its pin is `preload: false`, so on a Turbo visit the fetch starts after the new body renders, and an early press is lost the same way as a lazy one.
 
@@ -1024,7 +1024,9 @@ The app runs its own Stimulus application on Stimulus' own attributes (`data-con
 
 | Alpine | Replacement |
 |---|---|
-| `x-show` with `x-cloak` | the `hidden` attribute in the markup, toggled by the controller (Tailwind's preflight makes `[hidden]` win over a display class) |
+| `x-show` with `x-cloak` | the `hidden` attribute in the markup, toggled by the controller (Tailwind's preflight makes `[hidden]` win over a display class). Where a responsive class must win back (`hidden md:block`), toggle the `hidden` class instead (`tabs`) |
+| `x-transition` | `data-transition-enter`, `-enter-start`, `-enter-end` and the three `leave` ones on the element; the `disclosure` controller runs them (`turf/transition`) |
+| `@click.outside`, `@keydown.escape.window` | `click@window->disclosure#outside` (a press outside the panel and its triggers), `keydown.esc@window->disclosure#close` |
 | `x-text`, `:class`, `:style`, `:disabled` | a target the controller writes; the first value is server-rendered |
 | `x-model` | a target read on its `input` or `change` action |
 | `x-for` over a constant | an ERB loop |
@@ -1034,7 +1036,7 @@ The app runs its own Stimulus application on Stimulus' own attributes (`data-con
 | `x-transition` | the classes in `data-enter`, `data-enter-start`, `data-enter-end`, `data-leave`, `data-leave-start` and `data-leave-end`, run by `turf/enter_leave` (`referral-share`, `withdraw-card`) |
 | `@turbo:submit-start` / `-end` busy and 429 state | `submit-busy` on the form |
 
-Still Alpine until the engine changes: the `<body>` scope and its `dev-mode` class, `$store.sidebars` (the engine's link sidebar registers it), and anything rendered inside the engine's modal host, including a partial that is rendered both there and on a page. A button that opens an engine modal (`@click="$store.modals.open(...)"`) stays Alpine too, inside a converted control: the `<body>` scope runs it, and a controller under `app/javascript/controllers` names no `Alpine` member. The same holds for a control that reads a wallet store (`$store.wallet`, `$store.session`, `$store.solanaModal`): it waits for those stores to have a non-Alpine form.
+Still Alpine until the engine changes: the `<body>` scope and its `dev-mode` class, `$store.sidebars` (the engine's link sidebar registers it), and anything rendered inside the engine's modal host, including a partial that is rendered both there and on a page (`contests/_timestamp_countdown`, in the entry-success modal). A button that opens an engine modal (`@click="$store.modals.open(...)"`) stays Alpine too, inside a converted control: the `<body>` scope runs it, and a controller under `app/javascript/controllers` names no `Alpine` member. The same holds for a control that reads a wallet store (`$store.wallet`, `$store.session`, `$store.solanaModal`): it waits for those stores to have a non-Alpine form. The contest board and cart (`selectionBoard()` in `contests/_turf_totals_board`) stay too: the engine's hold button refuses a press while its nearest `[x-data]` scope's `submitting` is true, and the entry, payment and signing code lives in that factory.
 
 ## Alpine + ERB Constraints (critical — silent failures)
 

@@ -98,7 +98,9 @@ class TurfStimulusTest < ActionDispatch::IntegrationTest
     marketing = %w[accordion auto-submit card-filter cost-calculator proof-of-reserves swatch-copy]
     entry = %w[desktop-only-notice email-change-notice frame-reload newsletter-state referral-share reveal
                reveal-follow-up submit-busy usdc-balance withdraw-card]
-    assert_equal (marketing + entry).sort, static_controllers.keys.sort
+    board = %w[arrival-scroll contest-chain contest-rail copy-link disclosure leaderboard leaderboard-poll
+               row-link settled-filter tabs]
+    assert_equal (marketing + entry + board).sort, static_controllers.keys.sort
     assert_empty static_controllers.keys & lazy_controllers.keys
   end
 
@@ -135,6 +137,7 @@ class TurfStimulusTest < ActionDispatch::IntegrationTest
 
       source.scan(/(?:data-action=|\baction: )"([^"<]+)"/).flatten.flat_map(&:split).each do |action|
         identifier, method = action.split("->").last.split("#")
+        method = method&.split(":")&.first
         next unless method && registered.key?(identifier)
 
         assert_match(/^  (?:async )?#{method}\(/, controller_source(identifier), "#{view}: #{action} names a missing method")
@@ -158,11 +161,16 @@ class TurfStimulusTest < ActionDispatch::IntegrationTest
       "navbar-preview" => "reset", "accordion" => "collapse", "card-filter" => "reset",
       "cost-calculator" => "reset", "swatch-copy" => "reset",
       "email-change-notice" => "reset", "newsletter-state" => "reset", "referral-share" => "reset",
-      "reveal" => "reset", "reveal-follow-up" => "reset", "submit-busy" => "reset", "withdraw-card" => "reset"
+      "reveal" => "reset", "reveal-follow-up" => "reset", "submit-busy" => "reset", "withdraw-card" => "reset",
+      "disclosure" => "reset", "copy-link" => "reset", "tabs" => "reset", "leaderboard" => "reset",
+      "settled-filter" => "reset"
     }.each do |identifier, method|
       # The 300 characters after the attribute (or a helper's controller: key)
-      # hold the rest of the opening tag.
-      roots = Dir[VIEWS].sort.flat_map { |file| File.read(file).scan(/(?:data-controller="|\bcontroller: ")#{identifier}".{0,300}/m) }
+      # hold the rest of the opening tag. The root may name more than one
+      # controller.
+      roots = Dir[VIEWS].sort.flat_map do |file|
+        File.read(file).scan(/(?:data-controller="[^"]*(?<![\w-])|\bcontroller: ")#{identifier}(?![\w-])[^"]*".{0,300}/m)
+      end
       assert_not_empty roots, "no view names #{identifier}"
       roots.each { |tag| assert_includes tag, "turbo:before-cache@document->#{identifier}##{method}" }
     end

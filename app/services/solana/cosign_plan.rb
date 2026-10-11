@@ -55,6 +55,10 @@ module Solana
       "deactivate_currency"    => "deactivate_currency",
       "sweep_operator_revenue" => "sweep_operator_revenue",
       "unpause"                => "unpause",
+      # close_contest names only `admin`; the primary cosigner rides in the
+      # first remaining account instead of a named slot, so the count below
+      # (server + one Phantom = 2) still matches CLOSE_CONTEST.
+      "close_contest"          => "close_contest",
       # EVICTION. Three signatures, and FLOORED at three — `set_action_threshold`
       # cannot lower it, which is what stops three signatures handing the vault
       # back to two agent-reachable keys the next day. Driven from

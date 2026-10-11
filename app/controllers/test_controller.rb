@@ -242,7 +242,11 @@ class TestController < ApplicationController
     return render json: { error: "not logged in" }, status: :unauthorized unless current_user
 
     contest = Contest.find_by!(slug: params[:contest_slug])
-    Entry.create!(user: current_user, contest: contest, status: :active)
+    entry = Entry.create!(user: current_user, contest: contest, status: :active)
+    # `picks: n` also picks the first n teams on the slate, so the entry's
+    # leaderboard row has pills to lay out.
+    picks = params[:picks].to_i.clamp(0, contest.picks_required)
+    contest.matchups.to_a.uniq(&:team_slug).first(picks).each { |matchup| entry.selections.create!(slate_matchup: matchup) }
 
     render json: {
       ok: true,
@@ -279,7 +283,11 @@ class TestController < ApplicationController
   def seed_contests
     count = params[:count].to_i.clamp(1, 12)
     onchain = ActiveModel::Type::Boolean.new.cast(params[:onchain])
-    slate = Slate.order(:id).first
+    # `upcoming: true` locks them a week out on the e2e contest's own slate,
+    # whose games have not started, so their pages show the board rather than
+    # redirect to the live page.
+    upcoming = ActiveModel::Type::Boolean.new.cast(params[:upcoming])
+    slate = (Contest.find_by(slug: "world-cup-2026")&.slate if upcoming) || Slate.order(:id).first
     return render json: { error: "no slate to hang a contest on" }, status: :unprocessable_entity if slate.nil?
 
     made = (1..count).map do |i|
@@ -296,6 +304,7 @@ class TestController < ApplicationController
         max_entries: 29,
         contest_type: "standard",
         slate: slate,
+        starts_at: (1.week.from_now if upcoming),
         # Newest first inside the rail's open band, so the spec can name the
         # order it expects rather than discover it.
         created_at: i.minutes.ago,

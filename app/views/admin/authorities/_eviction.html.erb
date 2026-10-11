@@ -497,6 +497,37 @@
         this.slots.push('');
       },
 
+      // Byte length of a base58 string, or -1 for a character outside the
+      // alphabet. Leading `1`s are zero bytes.
+      base58Bytes: function(value) {
+        var alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+        var n = BigInt(0);
+        for (var i = 0; i < value.length; i++) {
+          var digit = alphabet.indexOf(value[i]);
+          if (digit === -1) return -1;
+          n = n * BigInt(58) + BigInt(digit);
+        }
+        var bytes = 0;
+        while (n > BigInt(0)) { n = n / BigInt(256); bytes++; }
+        var leading = 0;
+        while (leading < value.length && value[leading] === '1') leading++;
+        return bytes + leading;
+      },
+
+      // Every named value that is not a 32-byte base58 key, as the arm
+      // endpoint judges it: surrounding whitespace is stripped first.
+      malformed: function() {
+        var self = this;
+        var bad = this.slots.concat(this.authorizers)
+          .map(function(s) { return (s || '').trim(); })
+          .filter(function(s) { return !!s && self.base58Bytes(s) !== 32; });
+        if (!bad.length) return '';
+        return bad.map(function(s) { return s.length > 50 ? 'A ' + s.length + '-character value' : '"' + s + '"'; })
+                  .join(', ') +
+               (bad.length === 1 ? ' is' : ' are') +
+               ' not a Solana address (32 bytes of base58). Check for a character pasted with it; arming will be refused.';
+      },
+
       // The refusal the CHAIN would give, said here first. Continuity is the
       // one rule an operator reliably trips: he picks the wallets he has, and
       // one of them is the key he is trying to remove.
@@ -515,7 +546,9 @@
           return dupes.join(', ') + ' is named twice. Every signature must come from a ' +
                  'distinct wallet (DuplicateSigner).';
         }
-        return '';
+        // A pasted key often carries a stray full stop. Shares this live
+        // region rather than adding a second one.
+        return this.malformed();
       }
     };
   };

@@ -110,11 +110,12 @@ async function reseed(request) {
  * user a chat_participant — without the on-chain Vault dance devnet needs.
  *
  * This is what makes the quest card render: the contest show page gates it on
- * @has_entry (an :active/:complete entry on this contest).
+ * @has_entry (an :active/:complete entry on this contest). `picks` also picks
+ * that many of the slate's teams, so the entry's leaderboard row has pills.
  */
-async function createActiveEntry(page, contestSlug) {
+async function createActiveEntry(page, contestSlug, picks = 0) {
   const res = await page.request.post("/test/create_active_entry", {
-    data: { contest_slug: contestSlug },
+    data: { contest_slug: contestSlug, picks },
   });
   if (!res.ok()) {
     throw new Error(`create_active_entry failed: ${res.status()} ${await res.text()}`);
@@ -284,8 +285,8 @@ const FITTING_NAME_EMAIL = "team@turfmonster.media";
  * one worker against one database, so a leftover contest is paid for by every
  * later spec that measures this page.
  */
-async function seedRailContests(page, count) {
-  const res = await page.request.post("/test/seed_contests", { data: { count } });
+async function seedRailContests(page, count, { upcoming = false } = {}) {
+  const res = await page.request.post("/test/seed_contests", { data: { count, upcoming } });
   if (!res.ok()) {
     throw new Error(`seed_contests failed: ${res.status()} ${await res.text()}`);
   }

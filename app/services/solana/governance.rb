@@ -20,28 +20,26 @@ module Solana
   #
   # ── WHAT THIS MIRROR IS AND IS NOT ────────────────────────────────────────
   #
-  # It is the program's compiled-in DEFAULTS plus its FLOORS. It is NOT the
-  # stored table: `set_action_threshold` can retune any unfloored entry, and a
-  # retune lands here as a build that reserves too few or too many slots.
+  # It is the program's compiled-in DEFAULTS plus its FLOORS, and the same
+  # `threshold_for` rule the program applies to its STORED table: a stored zero
+  # reads as the default, and nothing reads below its floor. Pass the stored
+  # table (`Vault#read_governance[:thresholds]`) as `thresholds:` and the answer
+  # follows a `set_action_threshold` retune; omit it and the answer is the
+  # shipped default. `Vault#required_signatures` passes the chain table on a
+  # v0.26 boot and nothing on v0.25, so v0.25 never makes the read.
+  #
+  # A wrong count fails closed either way:
   #   * TOO FEW  → the chain refuses (6046 InsufficientSigners, or 6047
   #                CosignerDidNotSign when a payload account fills the slot).
-  #                Loud, and the transaction never lands.
   #   * TOO MANY → `authorize` consumes only `required - named.len()` leading
-  #                remaining accounts, so a surplus signer slot is simply never
-  #                read as a cosigner. For `settle_contest` that is NOT benign:
-  #                the surplus shifts the settlement payload, so the split
-  #                `remaining[cosigners_consumed..]` lands mid-payload and the
-  #                length check fails. Never over-reserve.
-  # Both directions fail closed. Neither silently under-authorizes.
-  #
-  # So: when a threshold is retuned on chain, this file must follow. It is
-  # deliberately a plain table rather than an RPC read — an RPC in the build
-  # path would put a network round trip on every settle and would still be a
-  # snapshot by the time the transaction is signed.
+  #                remaining accounts. For `settle_contest` the surplus shifts
+  #                the settlement payload and the length check fails. Never
+  #                over-reserve.
   #
   # Source of truth: turf-vault `programs/turf_vault/src/state.rs`,
-  # `DEFAULT_THRESHOLDS` and `THRESHOLD_FLOORS`. Read at `accepted`
-  # 3ea4245b on 2026-09-15.
+  # `gov_action`, `DEFAULT_THRESHOLDS`, `THRESHOLD_FLOORS` and
+  # `GovernanceConfig::threshold_for`. Read at `origin/main` 8a9fa715 on
+  # 2026-10-11.
   module Governance
     # Action ids, mirroring `state.rs::gov_action`. PERMANENT — the program
     # indexes its stored threshold table by these numbers, so renumbering one
@@ -76,7 +74,12 @@ module Solana
       # one of these must decide from an on-chain read or reserve for the
       # escalated number. See `docs/SOLANA.md` "escalated branches".
       "set_contest_lock_time_reopen"       => 20,
-      "set_contest_conclusion_time_amend"  => 21
+      "set_contest_conclusion_time_amend"  => 21,
+      # The username registry (program names OVERWRITE_USERNAME,
+      # RESERVE_USERNAME, RELEASE_USERNAME). Id 17 is retired and never reused.
+      "overwrite_username"                 => 22,
+      "reserve_username"                   => 23,
+      "release_reserved_username"          => 24
     }.freeze
 
     # Signatures each action requires, mirroring `DEFAULT_THRESHOLDS`.
@@ -107,17 +110,27 @@ module Solana
       "create_contest"                    => 1,
       "enter_contest"                     => 1,
       "set_contest_lock_time_reopen"      => 3,
-      "set_contest_conclusion_time_amend" => 3
+      "set_contest_conclusion_time_amend" => 3,
+      "overwrite_username"                => 3,
+      "reserve_username"                  => 3,
+      "release_reserved_username"         => 3
     }.freeze
 
     # Immovable floors, mirroring `THRESHOLD_FLOORS`. The program raises a
     # stored value up to these ON READ, so a floor holds even against a table
     # written by a path that forgot to check. Mirrored here so this module
     # cannot report a number the chain would refuse to honour.
+    #
+    # The registry's three are floored because a table written before they
+    # existed stores a literal 1 at 22-24, which `threshold_for` cannot read as
+    # unset.
     THRESHOLD_FLOORS = {
-      "update_signers" => 3,
-      "unpause"        => 3,
-      "set_governance" => 3
+      "update_signers"            => 3,
+      "unpause"                   => 3,
+      "set_governance"            => 3,
+      "overwrite_username"        => 3,
+      "reserve_username"          => 3,
+      "release_reserved_username" => 3
     }.freeze
 
     # Raised when an action name reaches this module that the program has no id
@@ -125,8 +138,10 @@ module Solana
     # a 1 here reserves no cosigner slot at all on an action that needs three.
     class UnknownActionError < StandardError; end
 
-    # Signatures `action` requires. Never returns less than the program's floor.
-    def self.required_signatures(action)
+    # Signatures `action` requires. With `thresholds:` (the stored table from
+    # `GovernanceConfig`) this is the chain's own answer; without it, the
+    # shipped default. Never less than the program's floor.
+    def self.required_signatures(action, thresholds: nil)
       key = action.to_s
       unless ACTION_IDS.key?(key)
         raise UnknownActionError,
@@ -135,22 +150,25 @@ module Solana
               "action here with the id state.rs::gov_action gives it; do not guess a number."
       end
 
-      [DEFAULT_THRESHOLDS.fetch(key, 1), THRESHOLD_FLOORS.fetch(key, 1)].max
+      threshold_for(key, thresholds)
     end
 
+    # `GovernanceConfig::threshold_for`: a stored zero (or no table) falls back
+    # to the default, then the floor applies on read.
+    def self.threshold_for(key, thresholds)
+      stored = Array(thresholds)[ACTION_IDS.fetch(key)].to_i
+      value = stored.zero? ? DEFAULT_THRESHOLDS.fetch(key, 1) : stored
+      [value, THRESHOLD_FLOORS.fetch(key, 1)].max
+    end
+    private_class_method :threshold_for
+
     # The highest threshold ANY live action requires, from a stored threshold
-    # table (`Vault#read_governance[:thresholds]`): `threshold_for`'s own rule —
-    # a stored zero falls back to the shipped default, and nothing reads below
-    # its floor. `update_signers` refuses a set smaller than this. Shared by
-    # /admin/authorities and bin/qa-signer-rotation so the two cannot disagree
-    # about what a rotation must leave standing.
+    # table (`Vault#read_governance[:thresholds]`). `update_signers` refuses a
+    # set smaller than this. Shared by /admin/authorities and
+    # bin/qa-signer-rotation so the two cannot disagree about what a rotation
+    # must leave standing.
     def self.max_live_threshold(thresholds)
-      stored = Array(thresholds)
-      ACTION_IDS.filter_map do |name, id|
-        value = stored[id].to_i
-        value = DEFAULT_THRESHOLDS.fetch(name, 1) if value.zero?
-        [value, THRESHOLD_FLOORS.fetch(name, 1)].max
-      end.max
+      ACTION_IDS.keys.map { |name| threshold_for(name, thresholds) }.max
     end
 
     # How many EXTRA signer slots a builder must leave in `remaining_accounts`
@@ -164,8 +182,8 @@ module Solana
     # wire, and `saturating_sub` is why this floors at zero rather than going
     # negative — an instruction whose named signers already satisfy its
     # threshold needs no extra slots and no client change.
-    def self.extra_cosigners_needed(action, named_count:)
-      [required_signatures(action) - named_count.to_i, 0].max
+    def self.extra_cosigners_needed(action, named_count:, thresholds: nil)
+      [required_signatures(action, thresholds: thresholds) - named_count.to_i, 0].max
     end
 
     # True when `action` needs more signatures than the pre-governance (v0.25)

@@ -59,16 +59,16 @@ class HoldButtonEventHooksTest < ActionDispatch::IntegrationTest
     end
   end
 
-  # The names are the pinned engine's own: every data-* key its hooks module
-  # evaluates is one this test refuses.
-  test "the refused attributes are the ones the pinned engine evaluates" do
-    hooks = File.join(Gem.loaded_specs.fetch("studio-engine").full_gem_path, "app/javascript/studio/hold_button_hooks.js")
-    skip "the engine no longer ships string hooks" unless File.exist?(hooks) && File.read(hooks).include?("button.dataset.")
+  # The names are the pinned engine's own: its hooks module lists every
+  # attribute it refuses a press for (REMOVED_HOOKS: attribute => [the local
+  # that wrote it, the event that answers now]), and that table is this one.
+  test "the refused attributes are the ones the pinned engine refuses" do
+    hooks = File.read(File.join(Gem.loaded_specs.fetch("studio-engine").full_gem_path, "app/javascript/studio/hold_button_hooks.js"))
+    table = hooks[/export const REMOVED_HOOKS = \{(.*?)\n\}/m, 1]
+    assert table, "the engine's hooks module no longer exports REMOVED_HOOKS"
 
-    read = File.read(hooks).scan(/button\.dataset\.(\w+)/).flatten.uniq - ["holdId"]
-    attributes = read.map { |key| "data-#{key.gsub(/([A-Z])/) { "-#{$1.downcase}" }}" }
-
-    assert_equal STRING_HOOKS.values.sort, attributes.sort
+    removed = table.scan(/"(data-[a-z-]+)": \["(\w+)", "hold-button:\w+"\]/).to_h { |attribute, local| [ local, attribute ] }
+    assert_equal STRING_HOOKS, removed
   end
 
   test "the contest page carries hold buttons with no string hook on them" do

@@ -106,6 +106,10 @@ module TurfMonster
       #     whole question.
       DEFAULT_CAST = %w[mason mack turf].freeze
 
+      # Agents whose filed keys may fill a v0.26 vault signer slot. The driver
+      # uses only those the chain seats, never the server key twice.
+      VAULT_AGENTS = %w[mason mack].freeze
+
       attr_reader :app, :host, :cast, :io
 
       def initialize(app: APP, host: HOST, cast: DEFAULT_CAST, io: $stdout)
@@ -526,15 +530,46 @@ module TurfMonster
       end
 
       def lock_contest(slug)
-        locked = remote.call(<<~RUBY)
+        locked = remote.call(lock_script(slug))
+        locked = agent_cosigned_lock(slug, locked) unless locked.key?("locked")
+        say "  contest locked: #{locked['locked']} · live page: #{locked['live'] ? 'open' : 'closed'}"
+      end
+
+      # v0.25: the server sets the lock alone, as it always has. v0.26: with
+      # no cosigners it answers what the lock needs; with enough, it answers
+      # a server-signed wire for them to sign.
+      def lock_script(slug, cosigners: [])
+        <<~RUBY
           contest = Contest.find_by!(slug: #{slug.inspect})
-          unless contest.locked?
-            Solana::Vault.new.set_contest_lock_time(contest.slug, Time.current.to_i)
-            contest.update!(starts_at: Time.current)
+          if contest.locked? || !Solana::Config.governance?
+            unless contest.locked?
+              Solana::Vault.new.set_contest_lock_time(contest.slug, Time.current.to_i)
+              contest.update!(starts_at: Time.current)
+            end
+            emit(locked: contest.reload.locked?, live: contest.live?)
+          else
+            vault = Solana::Vault.new
+            action = vault.governed_time_action("set_contest_lock_time", contest.slug)
+            #{cosign_or_build_ruby(cosigners, named: 1,
+                                   build: 'vault.build_agent_cosigned_contest_time("set_contest_lock_time", ' \
+                                          "contest.slug, Time.current.to_i, cosigner_pubkeys: cosigners)")}
           end
+        RUBY
+      end
+
+      # `answer` is the v0.26 lock script's first reply: a cosign request, or
+      # a finished wire when the chain needs no agent.
+      def agent_cosigned_lock(slug, answer)
+        agents = answer["cosign"] ? pick_agents(answer["cosign"]) : []
+        built = answer["cosign"] ? remote.call(lock_script(slug, cosigners: agents.map(&:to_base58))) : answer
+        raise StepError, "the lock wire did not come back: #{built.inspect}" unless built["serialized_tx"]
+
+        say "  lock co-signed by #{agents.map { |a| a.to_base58[0, 4] }.join(', ')}: #{sign_and_send(built, agents)}"
+        remote.call(<<~RUBY)
+          contest = Contest.find_by!(slug: #{slug.inspect})
+          contest.update!(starts_at: Time.current)
           emit(locked: contest.reload.locked?, live: contest.live?)
         RUBY
-        say "  contest locked: #{locked['locked']} · live page: #{locked['live'] ? 'open' : 'closed'}"
       end
 
       # EVERY slot must land, not just the last. A span whose second week fetched
@@ -649,10 +684,47 @@ module TurfMonster
         slug = data.fetch("contest_slug")
         say "Step 4 · conclude #{slug}"
 
-        graded = remote.call(<<~RUBY)
+        graded = remote.call(grade_script(slug))
+        if graded["cosign"]
+          # v0.26: the lock needs an agent signature, so it lands first and the
+          # grade runs again on a locked contest.
+          agent_cosigned_lock(slug, graded)
+          graded = remote.call(grade_script(slug))
+        end
+
+        say "  graded: #{graded['status']} · #{graded['winners'].size} winner(s)"
+        graded["winners"].each do |w|
+          say "    ##{w['rank']} #{w['user']} $#{w['payout_cents'].to_i / 100} (#{w['wallet'].to_s[0, 8]}…)"
+        end
+
+        manifest.merge("ptx_slug" => graded["ptx_slug"], "winners" => graded["winners"])
+
+        say_urls(slug)
+
+        if graded["ptx_slug"].blank?
+          say "  no settle transaction to co-sign (nobody was owed)"
+          return hand_back(verify: "the contest graded with no winner owed a payout",
+                           next_command: "bin/qa-contest-rehearsal close")
+        end
+
+        cosign == :link ? offer_cosign_link(graded) : cosign_with_agent(graded)
+      end
+
+      # Lock (v0.25), grade, and report the settle row. Re-runnable: grading
+      # is skipped on a contest that already has its ranks.
+      def grade_script(slug)
+        <<~RUBY
           contest = Contest.find_by!(slug: #{slug.inspect})
           raise "\#{contest.slug} was cancelled on chain; it cannot be graded" if contest.cancelled?
           vault = Solana::Vault.new
+
+          # v0.26: the lock needs an agent signature the dyno does not hold, so
+          # ask for it and stop; conclude lands the lock and runs this again.
+          if !contest.locked? && Solana::Config.governance?
+            action = vault.governed_time_action("set_contest_lock_time", contest.slug)
+            #{cosign_request_ruby(named: 1)}
+            exit
+          end
 
           # Move the lock to NOW, on-chain first (the chain is master) and then
           # mirror it in the DB, exactly as confirm_lock_time does.
@@ -678,23 +750,6 @@ module TurfMonster
           emit(status: contest.status, onchain_settled: contest.onchain_settled,
                ptx_slug: ptx&.slug, ptx_status: ptx&.status, winners: winners)
         RUBY
-
-        say "  graded: #{graded['status']} · #{graded['winners'].size} winner(s)"
-        graded["winners"].each do |w|
-          say "    ##{w['rank']} #{w['user']} $#{w['payout_cents'].to_i / 100} (#{w['wallet'].to_s[0, 8]}…)"
-        end
-
-        manifest.merge("ptx_slug" => graded["ptx_slug"], "winners" => graded["winners"])
-
-        say_urls(slug)
-
-        if graded["ptx_slug"].blank?
-          say "  no settle transaction to co-sign (nobody was owed)"
-          return hand_back(verify: "the contest graded with no winner owed a payout",
-                           next_command: "bin/qa-contest-rehearsal close")
-        end
-
-        cosign == :link ? offer_cosign_link(graded) : cosign_with_agent(graded)
       end
 
       # --- Step 5 --------------------------------------------------------
@@ -705,6 +760,7 @@ module TurfMonster
         say "Step 5 · reclaim rent on #{slug}"
 
         result = remote.call(close_script(slug))
+        result = agent_cosigned_close(slug, result) unless result.key?("already_closed")
 
         say "  closed: #{result.inspect}"
         say_urls(slug)
@@ -713,7 +769,8 @@ module TurfMonster
       end
 
       # Closing sweeps the prize pool, so an unpaid contest is refused.
-      def close_script(slug)
+      # v0.26 follows lock_script's shape: a request first, then a wire.
+      def close_script(slug, cosigners: [])
         <<~RUBY
           contest = Contest.find_by!(slug: #{slug.inspect})
           unless contest.onchain_settled? || contest.cancelled?
@@ -722,27 +779,51 @@ module TurfMonster
                    "Broadcast · unreconciled. Run close again once the row reads Confirmed.")
           end
           out = { already_closed: contest.onchain_closed }
-          unless contest.onchain_closed?
-            sig = Solana::Vault.new.close_contest(contest.slug)
-            signature = sig.is_a?(Hash) ? sig[:signature] : sig
-            # Only stamp the flag on a signature we actually got back. Setting
-            # it unconditionally makes the DB claim a close that never landed,
-            # and the rent stays unreclaimed with nothing left to say so.
-            raise "close_contest returned no signature" if signature.to_s.empty?
+          if contest.onchain_closed? || !Solana::Config.governance?
+            unless contest.onchain_closed?
+              sig = Solana::Vault.new.close_contest(contest.slug)
+              signature = sig.is_a?(Hash) ? sig[:signature] : sig
+              # Only stamp the flag on a signature we actually got back. Setting
+              # it unconditionally makes the DB claim a close that never landed,
+              # and the rent stays unreclaimed with nothing left to say so.
+              raise "close_contest returned no signature" if signature.to_s.empty?
 
-            contest.update!(onchain_closed: true)
-            out[:signature] = signature
+              contest.update!(onchain_closed: true)
+              out[:signature] = signature
+            end
+            emit(**out)
+          else
+            vault = Solana::Vault.new
+            action = "close_contest"
+            #{cosign_or_build_ruby(cosigners, named: 1,
+                                   build: "vault.build_close_contest(contest.slug, cosigner_pubkey: cosigners.first, " \
+                                          "extra_cosigners: cosigners.drop(1))")}
           end
-          emit(**out)
+        RUBY
+      end
+
+      # Same shape as #agent_cosigned_lock.
+      def agent_cosigned_close(slug, answer)
+        agents = answer["cosign"] ? pick_agents(answer["cosign"]) : []
+        built = answer["cosign"] ? remote.call(close_script(slug, cosigners: agents.map(&:to_base58))) : answer
+        raise StepError, "the close wire did not come back: #{built.inspect}" unless built["serialized_tx"]
+
+        signature = sign_and_send(built, agents)
+        remote.call(<<~RUBY)
+          contest = Contest.find_by!(slug: #{slug.inspect})
+          contest.update!(onchain_closed: true)
+          emit(already_closed: false, signature: #{signature.to_s.inspect})
         RUBY
       end
 
       private
 
-      # The unattended half. Mason is the second signer on the vault, the server
-      # already signed as Xan when it built the transaction, and 2-of-3 is
-      # satisfied without a browser. Everything the server does afterwards —
-      # TxVerifier, the onchain_settled flip, the winner emails — is unchanged.
+      # The unattended half. Mason is the second signer on the vault and the
+      # server already signed as Xan when it built the transaction. v0.25 is
+      # satisfied at 2; v0.26 asks for SETTLE_CONTEST's extra signers, which
+      # come from the other seated agents. Everything the server does
+      # afterwards — TxVerifier, the onchain_settled flip, the winner emails —
+      # is unchanged.
       def cosign_with_agent(graded)
         slug = manifest.read.fetch("contest_slug")
         say "  co-signing as mason (agent key)"
@@ -755,30 +836,24 @@ module TurfMonster
         # transaction's account list, so signing it fails with "not a required
         # signer". The unattended path therefore builds its own wire naming
         # Mason, and leaves the stored one alone for the browser path to use.
-        wire = remote.call(<<~RUBY)
-          contest = Contest.find_by!(slug: #{slug.inspect})
-          winners = contest.entries.complete.where("payout_cents > 0").includes(:user).map do |e|
-            { wallet: e.user.solana_address, entry_num: e.entry_number || 0, rank: e.rank || 0,
-              payout: Solana::Config.cents_to_base_units(e.payout_cents) }
-          end.select { |w| w[:wallet].present? }
-          built = Solana::Vault.new.build_settle_contest(
-            contest.slug, winners, cosigner_pubkey: #{mason.to_base58.inspect}
-          )
-          emit(serialized_tx: built[:serialized_tx], winners: winners.size)
-        RUBY
-        signed = Solana::Transaction.cosign_wire_base64(wire.fetch("serialized_tx"), signer: mason)
+        wire = remote.call(settle_build_script(slug, mason.to_base58))
+        extras = []
+        if wire["cosign"]
+          extras = pick_agents(wire.fetch("cosign"), exclude: [mason.to_base58])
+          wire = remote.call(settle_build_script(slug, mason.to_base58, extras.map(&:to_base58)))
+        end
         # Solana::Config.client, never Solana::Client.new: a raw client falls
         # through to the gem's ENV.fetch("SOLANA_RPC_URL", <public devnet>) and
         # so FAILS OPEN, where Solana::Config::RPC_URL fails closed (OPSEC-012).
         # The repo has a test that enforces exactly this, and it caught this
         # line in CI.
-        signature = Solana::Config.client.send_and_confirm(signed)
+        signature = sign_and_send(wire, [mason, *extras])
         say "  broadcast: #{signature}"
 
+        confirm = { cosigner_address: mason.to_base58, tx_signature: signature }
+        confirm[:extra_cosigners] = extras.map(&:to_base58) if extras.any?
         response = admin_session.post_json(
-          "/admin/pending_transactions/#{graded.fetch('ptx_slug')}/confirm",
-          cosigner_address: mason.to_base58,
-          tx_signature: signature
+          "/admin/pending_transactions/#{graded.fetch('ptx_slug')}/confirm", **confirm
         )
 
         raise StepError, "confirm refused: #{response['error']}" if response["error"].present?
@@ -788,6 +863,89 @@ module TurfMonster
                           "and each winner rose by exactly their rank",
                   next_command: "bin/qa-contest-rehearsal close")
         response
+      end
+
+      # The settle wire naming `cosigner` (and, on v0.26, `extras`). With too
+      # few extras for the chain's threshold it answers a cosign request.
+      def settle_build_script(slug, cosigner, extras = [])
+        <<~RUBY
+          contest = Contest.find_by!(slug: #{slug.inspect})
+          winners = contest.entries.complete.where("payout_cents > 0").includes(:user).map do |e|
+            { wallet: e.user.solana_address, entry_num: e.entry_number || 0, rank: e.rank || 0,
+              payout: Solana::Config.cents_to_base_units(e.payout_cents) }
+          end.select { |w| w[:wallet].present? }
+          vault = Solana::Vault.new
+          action = "settle_contest"
+          extras = #{extras.inspect}
+          needed = Solana::Config.governance? ? vault.required_signatures(action) - 2 : 0
+          if extras.size < needed
+            #{cosign_request_ruby(named: 2)}
+          else
+            built = vault.build_settle_contest(
+              contest.slug, winners, cosigner_pubkey: #{cosigner.inspect}, extra_cosigners: extras
+            )
+            emit(serialized_tx: built[:serialized_tx], winners: winners.size)
+          end
+        RUBY
+      end
+
+      # ── v0.26 agent cosigning ──────────────────────────────────────────
+      #
+      # v0.26 raised lock and close to 2 signatures and settle to 3, and the
+      # dyno holds one vault key. Each script first answers what it needs (a
+      # cosign request); the driver picks seated agents whose keys it files,
+      # asks for a server-signed wire with their slots, and signs here, where
+      # the keys are. The thresholds come from the chain, so a retune moves
+      # the count without a code change.
+
+      # Ruby, for a remote script that has `vault` and `action` in scope: emit
+      # what a v0.26 action needs beyond the `named` signers the dyno fills.
+      def cosign_request_ruby(named:)
+        "emit(cosign: vault.unattended_cosign_request(action, named: #{named}))"
+      end
+
+      # Ruby, for a remote script with `vault` and `action` in scope: with too
+      # few cosigners, the request; with enough, the wire `build` returns.
+      def cosign_or_build_ruby(cosigners, named:, build:)
+        <<~RUBY
+          cosigners = #{cosigners.inspect}
+          if cosigners.size < vault.required_signatures(action) - #{named}
+            #{cosign_request_ruby(named: named)}
+          else
+            built = #{build}
+            emit(serialized_tx: built[:serialized_tx], cosigners: cosigners)
+          end
+        RUBY
+      end
+
+      # The filed agent keys that fill a request: seated in VaultState, not
+      # the server's own key, not already signing. Refuses a shortfall by name
+      # rather than sending a transaction the chain would reject.
+      def pick_agents(request, exclude: [])
+        needed = request.fetch("needed").to_i
+        seated = Array(request["seated"])
+        taken = exclude + [request["server"]]
+
+        picked = VAULT_AGENTS.lazy.filter_map do |who|
+          keys.keypair(who)
+        rescue KeyStore::MissingKeyError
+          nil
+        end.select { |kp| seated.include?(kp.to_base58) && !taken.include?(kp.to_base58) }.first(needed)
+        return picked if picked.size == needed
+
+        raise StepError, "#{request['action']} needs #{needed} agent signature(s) beyond the server's on v0.26, " \
+                         "and the filed agents (#{VAULT_AGENTS.join(', ')}) seat #{picked.size} in VaultState. " \
+                         "Nothing was sent. Seat an agent key, or run this step through the Treasury cosign."
+      end
+
+      # Each agent fills its own slot; the last one completes the wire. Sent
+      # through Solana::Config.client (fails closed on a missing RPC URL).
+      def sign_and_send(answer, signers)
+        wire = answer.fetch("serialized_tx")
+        signers.each_with_index do |kp, i|
+          wire = Solana::Transaction.cosign_wire_base64(wire, signer: kp, require_complete: i == signers.size - 1)
+        end
+        Solana::Config.client.send_and_confirm(wire)
       end
 
       # The attended half — the path production actually uses. Mints a signed-in

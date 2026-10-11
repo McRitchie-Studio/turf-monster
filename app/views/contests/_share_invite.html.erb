@@ -15,11 +15,13 @@
   whatsapp_url = "https://wa.me/?text=#{ERB::Util.url_encode(whatsapp_text)}"
 %>
 
-<div x-data="{ copied: false, infoOpen: false }" class="card shadow p-5 relative h-full">
+<div data-controller="disclosure copy-link" data-copy-link-text-value="<%= invite_url %>"
+     data-action="click@window->disclosure#outside keydown.esc@window->disclosure#close turbo:before-cache@document->disclosure#reset turbo:before-cache@document->copy-link#reset"
+     class="card shadow p-5 relative h-full">
   <div class="flex items-center justify-between mb-3">
     <div class="flex items-center gap-2 min-w-0">
       <h3 class="text-heading font-semibold text-sm">Bring ✌️ Friends, Get a Free Entry</h3>
-      <button type="button" @click="infoOpen = !infoOpen"
+      <button type="button" data-disclosure-target="trigger" data-action="disclosure#toggle" aria-expanded="false"
               class="w-4 h-4 rounded-full bg-surface-alt text-muted hover:text-heading hover:bg-inset flex items-center justify-center text-[10px] font-bold leading-none transition flex-shrink-0"
               aria-label="How invites work">i</button>
     </div>
@@ -38,19 +40,17 @@
 
   <%# Info popover — explainer + terms link. Anchored to the card so it
       drops down below the title. Outside click + Escape both close. %>
-  <div x-show="infoOpen" x-cloak
-       x-transition:enter="transition ease-out duration-150"
-       x-transition:enter-start="opacity-0 -translate-y-1"
-       x-transition:enter-end="opacity-100 translate-y-0"
-       x-transition:leave="transition ease-in duration-100"
-       x-transition:leave-start="opacity-100"
-       x-transition:leave-end="opacity-0"
-       @click.outside="infoOpen = false"
-       @keydown.escape.window="infoOpen = false"
+  <div hidden data-disclosure-target="panel"
+       data-transition-enter="transition ease-out duration-150"
+       data-transition-enter-start="opacity-0 -translate-y-1"
+       data-transition-enter-end="opacity-100 translate-y-0"
+       data-transition-leave="transition ease-in duration-100"
+       data-transition-leave-start="opacity-100"
+       data-transition-leave-end="opacity-0"
        class="absolute left-5 top-12 z-20 w-72 max-w-[calc(100%-2.5rem)] bg-surface border border-subtle rounded-lg shadow-2xl p-4">
     <div class="flex items-start justify-between mb-2">
       <h4 class="text-heading font-semibold text-sm">How it works</h4>
-      <button type="button" @click="infoOpen = false" class="text-muted hover:text-heading text-lg leading-none" aria-label="Close">&times;</button>
+      <button type="button" data-action="disclosure#close" class="text-muted hover:text-heading text-lg leading-none" aria-label="Close">&times;</button>
     </div>
     <p class="text-secondary text-xs leading-relaxed mb-3">
       You get a free contest entry once <strong class="text-heading">two friends</strong> sign up <em>and</em> submit a contest entry of their own. The referral is locked in the moment they click your link &mdash; even before they sign up.
@@ -58,12 +58,11 @@
     <%= link_to "Read full terms &rarr;".html_safe, "/terms#referrals", class: "text-primary hover:underline text-xs font-medium" %>
   </div>
 
-  <% copy_js = "navigator.clipboard.writeText('#{invite_url}'); copied = true; setTimeout(() => copied = false, 1500)" %>
   <div class="flex items-center gap-2">
-    <div @click="<%= copy_js %>" class="flex-1 min-w-0 bg-inset border border-subtle rounded-lg px-3 py-2 text-xs font-mono text-muted truncate cursor-pointer hover:border-primary/40 transition"><%= invite_url %></div>
-    <button @click="<%= copy_js %>" class="btn btn-sm whitespace-nowrap transition-colors" :class="copied ? 'btn-secondary' : 'btn-primary'" style="min-width:5.5rem">
-      <span x-show="!copied" x-cloak.remove>Copy Link</span>
-      <span x-show="copied" x-cloak>Copied!</span>
+    <div data-action="click->copy-link#copy" class="flex-1 min-w-0 bg-inset border border-subtle rounded-lg px-3 py-2 text-xs font-mono text-muted truncate cursor-pointer hover:border-primary/40 transition"><%= invite_url %></div>
+    <button data-copy-link-target="button" data-action="copy-link#copy" class="btn btn-sm whitespace-nowrap transition-colors btn-primary" style="min-width:5.5rem">
+      <span data-copy-link-target="idle">Copy Link</span>
+      <span hidden data-copy-link-target="done">Copied!</span>
     </button>
   </div>
 </div>

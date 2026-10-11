@@ -80,31 +80,31 @@
     contests/turf_totals_leaderboard partial once. Hidden during edit
     mode so the user focuses on the selection board above. %>
 <% unless edit_mode %>
-<div x-data="{ tab: 'leaderboard' }" class="mb-8">
+<div class="mb-8" data-controller="tabs" data-tabs-initial-value="leaderboard"
+     data-tabs-active-class="bg-primary text-white" data-tabs-inactive-class="text-secondary hover:text-heading"
+     data-action="turbo:before-cache@document->tabs#reset">
   <%# Tab switcher — mobile only %>
   <div class="flex gap-1 mb-4 md:hidden bg-surface-alt rounded-lg p-1">
-    <button type="button" @click="tab = 'leaderboard'"
-            :class="tab === 'leaderboard' ? 'bg-primary text-white' : 'text-secondary hover:text-heading'"
-            class="flex-1 py-2 rounded-md text-sm font-semibold transition">
+    <button type="button" data-tabs-target="tab" data-action="tabs#select" data-tabs-key-param="leaderboard"
+            class="flex-1 py-2 rounded-md text-sm font-semibold transition bg-primary text-white">
       Leaderboard
     </button>
-    <button type="button" @click="tab = 'chat'"
-            :class="tab === 'chat' ? 'bg-primary text-white' : 'text-secondary hover:text-heading'"
-            class="flex-1 py-2 rounded-md text-sm font-semibold transition">
+    <button type="button" data-tabs-target="tab" data-action="tabs#select" data-tabs-key-param="chat"
+            class="flex-1 py-2 rounded-md text-sm font-semibold transition text-secondary hover:text-heading">
       Chat
     </button>
   </div>
 
   <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:items-start">
     <%# Left — contest chat panel (see contests/_chat_panel). %>
-    <div x-cloak :class="tab === 'chat' ? '' : 'hidden'" class="md:block">
+    <div data-tabs-target="panel" data-key="chat" class="hidden md:block">
       <%= render "contests/chat_panel", contest: @contest %>
     </div>
     <%# Right — leaderboard. compact: true renders just the ranked list (no
         contest-details / admin chrome) so both columns start at the same place.
         Keeps id="leaderboard-container" for the leaderboard_poll JS + the chat
         panel's height-matching ResizeObserver (both key off this id). %>
-    <div id="leaderboard-container" :class="tab === 'leaderboard' ? '' : 'hidden'" class="md:block">
+    <div id="leaderboard-container" data-tabs-target="panel" data-key="leaderboard" class="md:block">
       <%= render (@contest.retired_format? ? "contests/final_standings" : "contests/turf_totals_leaderboard"), compact: true, viewer: current_user %>
     </div>
   </div>
@@ -119,14 +119,14 @@
       <!-- Contest actions -->
       <div class="card p-4">
         <p class="text-xs font-semibold text-muted mb-2 uppercase tracking-wide">Contest</p>
-        <div class="flex flex-wrap gap-2">
+        <div class="flex flex-wrap gap-2" data-controller="contest-chain" data-contest-chain-slug-value="<%= @contest.slug %>">
           <% if @contest.open? && !@contest.locked? %>
             <% active_count = @contest.active_entry_count %>
             <% if AppFlags.test_scaffolding? && (@contest.max_entries.nil? || active_count < (@contest.max_entries || @contest.format_config[:max_entries])) %>
               <%= button_to "Fill", fill_contest_path(@contest), method: :post, class: "btn btn-secondary btn-sm" %>
             <% end %>
-            <button type="button" onclick="lockContestViaPhantom('<%= @contest.slug %>', 0)" class="btn btn-sm bg-yellow-600 hover:bg-yellow-500 text-white">Lock</button>
-            <button type="button" onclick="lockContestViaPhantom('<%= @contest.slug %>', 60)" class="btn btn-sm bg-yellow-700 hover:bg-yellow-600 text-white">Lock in 60s</button>
+            <button type="button" data-action="contest-chain#lock" data-contest-chain-delay-param="0" class="btn btn-sm bg-yellow-600 hover:bg-yellow-500 text-white">Lock</button>
+            <button type="button" data-action="contest-chain#lock" data-contest-chain-delay-param="60" class="btn btn-sm bg-yellow-700 hover:bg-yellow-600 text-white">Lock in 60s</button>
           <% end %>
           <% if @contest.onchain? && @contest.open? && !@contest.onchain_cancelled? %>
             <%= button_to "Cancel + refund creator", cancel_onchain_contest_path(@contest), method: :post,
@@ -174,56 +174,19 @@
   </div>
 <% end %>
 
-<!-- Leaderboard polling (locked or entered contests) -->
+<!-- Leaderboard polling (locked or entered contests): every 90s, swaps a
+     changed list into #leaderboard-container (turf/leaderboard_poll). -->
 <% if @contest.locked? || @has_entry %>
-  <script>
-  (function() {
-    let version = <%= @contest.updated_at.to_i %>;
-    const contestId = '<%= @contest.slug %>';
-    const pollUrl = '/c/' + contestId + '/leaderboard_poll';
-
-    var pollTimer = setInterval(async function() {
-      try {
-        const resp = await fetch(pollUrl + '?version=' + version);
-        const data = await resp.json();
-        if (data.changed) {
-          const container = document.getElementById('leaderboard-container');
-          if (container && data.html) {
-            container.innerHTML = data.html;
-            version = data.version;
-            window.dispatchEvent(new CustomEvent('toast', {
-              detail: { type: 'info', title: 'Leaderboard Updated', message: 'Scores have changed', duration: 3000 }
-            }));
-          }
-        }
-      } catch (e) { /* silently retry next interval */ }
-    }, 90000);
-
-    document.addEventListener('turbo:before-cache', function() {
-      clearInterval(pollTimer);
-    }, { once: true });
-  })();
-  </script>
+  <div hidden data-controller="leaderboard-poll"
+       data-leaderboard-poll-slug-value="<%= @contest.slug %>"
+       data-leaderboard-poll-version-value="<%= @contest.updated_at.to_i %>"></div>
 <% end %>
 
-<!-- Auto-scroll on arrival
+<!-- Auto-scroll on arrival (turf/arrival_scroll)
      - ?scroll=<px> — absolute pixel scroll (landing-page CTAs).
      - ?add_entry=true / ?edit_entry=<slug> — scroll to #board so the user
        lands on the picks UI instead of re-reading the contest header. -->
-<script>
-  (function() {
-    var params = new URLSearchParams(window.location.search);
-    var px = parseInt(params.get('scroll'), 10);
-    if (px > 0) {
-      setTimeout(function() { window.scrollTo({ top: px, behavior: 'smooth' }); }, 200);
-    } else if (params.get('add_entry') === 'true' || params.get('edit_entry')) {
-      setTimeout(function() {
-        var board = document.getElementById('board');
-        if (board) board.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 200);
-    }
-  })();
-</script>
+<div hidden data-controller="arrival-scroll"></div>
 
 <!-- Section 7: More Contests -->
 <% if @other_contests&.any? %>

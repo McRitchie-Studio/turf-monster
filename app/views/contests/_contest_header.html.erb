@@ -37,22 +37,24 @@
     </h1>
 
     <% if show_dropdown %>
-      <div x-data="{ open: false }" @click.outside="open = false" class="relative flex-shrink-0">
-        <button type="button" @click="open = !open"
+      <div data-controller="disclosure contest-chain" data-contest-chain-slug-value="<%= @contest.slug %>"
+           data-action="click@window->disclosure#outside turbo:before-cache@document->disclosure#reset"
+           class="relative flex-shrink-0">
+        <button type="button" data-disclosure-target="trigger" data-action="disclosure#toggle"
                 class="p-2 -m-2 rounded-md text-secondary hover:text-heading hover:bg-surface-alt transition"
-                :aria-expanded="open"
+                aria-expanded="false"
                 aria-label="Contest actions">
           <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
             <path d="M10 3a1.5 1.5 0 110 3 1.5 1.5 0 010-3zm0 5.5a1.5 1.5 0 110 3 1.5 1.5 0 010-3zM10 14a1.5 1.5 0 110 3 1.5 1.5 0 010-3z"/>
           </svg>
         </button>
-        <div x-show="open" x-cloak
-             x-transition:enter="transition ease-out duration-150"
-             x-transition:enter-start="opacity-0 scale-95"
-             x-transition:enter-end="opacity-100 scale-100"
-             x-transition:leave="transition ease-in duration-100"
-             x-transition:leave-start="opacity-100 scale-100"
-             x-transition:leave-end="opacity-0 scale-95"
+        <div hidden data-disclosure-target="panel"
+             data-transition-enter="transition ease-out duration-150"
+             data-transition-enter-start="opacity-0 scale-95"
+             data-transition-enter-end="opacity-100 scale-100"
+             data-transition-leave="transition ease-in duration-100"
+             data-transition-leave-start="opacity-100 scale-100"
+             data-transition-leave-end="opacity-0 scale-95"
              class="absolute right-0 mt-1 w-48 rounded-lg bg-surface border border-subtle shadow-lg py-1 z-30 origin-top-right">
           <% if has_edit_items %>
             <% editable_entries.each_with_index do |entry, idx| %>
@@ -81,7 +83,7 @@
             <% if @contest.open? && !@contest.locked? %>
               <%# Testing aid: schedule the lock 60s out (Phantom-signed) to watch the countdown engage. %>
               <button type="button"
-                      onclick="lockContestViaPhantom('<%= @contest.slug %>', 60)"
+                      data-action="contest-chain#lock" data-contest-chain-delay-param="60"
                       class="block w-full text-left px-4 py-2 text-sm text-yellow-500 hover:bg-surface-alt transition">
                 Lock in 60s
               </button>
@@ -89,7 +91,7 @@
             <% unless @contest.concluded? || @contest.graded? %>
               <%# Testing aid: schedule the conclusion 60s out (Phantom-signed). %>
               <button type="button"
-                      onclick="concludeContestViaPhantom('<%= @contest.slug %>', 60)"
+                      data-action="contest-chain#conclude" data-contest-chain-delay-param="60"
                       class="block w-full text-left px-4 py-2 text-sm text-orange-500 hover:bg-surface-alt transition">
                 Conclude in 60s
               </button>
@@ -172,9 +174,12 @@
 
       <% if show_start %>
         <%# Click the start countdown to reveal the exact start date as a tooltip. %>
-        <div x-data="{ tip: false }" @click.outside="tip = false" class="relative min-w-0">
-          <div role="button" tabindex="0" @click="tip = !tip" @keydown.enter.prevent="tip = !tip" @keydown.space.prevent="tip = !tip"
-               class="cursor-pointer" aria-label="Show start time" :aria-expanded="tip">
+        <div data-controller="disclosure"
+             data-action="click@window->disclosure#outside turbo:before-cache@document->disclosure#reset"
+             class="relative min-w-0">
+          <div role="button" tabindex="0" data-disclosure-target="trigger"
+               data-action="click->disclosure#toggle keydown.enter->disclosure#toggle:prevent keydown.space->disclosure#toggle:prevent"
+               class="cursor-pointer" aria-label="Show start time" aria-expanded="false">
             <%# shell_class hands the countdown the SAME cell shape as the two
                 plain cells beside it; label_after puts its digits first to
                 match them.
@@ -187,10 +192,10 @@
                   wrapper_class: "", shell_class: meta_cell, label_class: meta_label,
                   label_after: true, max_units: 2, emphasize: true, compact: true %>
           </div>
-          <div x-show="tip" x-cloak
-               x-transition:enter="transition ease-out duration-150"
-               x-transition:enter-start="opacity-0 translate-y-1"
-               x-transition:enter-end="opacity-100 translate-y-0"
+          <div hidden data-disclosure-target="panel"
+               data-transition-enter="transition ease-out duration-150"
+               data-transition-enter-start="opacity-0 translate-y-1"
+               data-transition-enter-end="opacity-100 translate-y-0"
                class="absolute left-0 top-full mt-1.5 z-30 whitespace-nowrap rounded-lg border border-subtle bg-surface px-3 py-1.5 text-xs font-medium text-secondary shadow-lg">
             <%= @contest.start_time_display %>
           </div>

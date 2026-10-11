@@ -283,9 +283,9 @@ module Solana
         return ok(message: "Entry token reference hash mismatch — retry the mint.", log: true)
       end
 
-      # ── v0.26 codes (6045-6066) ──────────────────────────────────────
+      # ── v0.26 codes (6045-6067) ──────────────────────────────────────
       #
-      # The range grew from 6000-6044 to 6000-6066 with the governance model and
+      # The range grew from 6000-6044 to 6000-6067 with the governance model and
       # the username registry. Most of these are OPERATOR errors — a caller that
       # assembled the wrong account list or could not gather enough signatures —
       # and the right handling is a loud log plus a message that names the cause,
@@ -361,6 +361,13 @@ module Solana
       # they are a BUG signal rather than anything a person did.
       if stripped.match?(/0x17a[d-f]|0x17b[0-2]|\b(6061|6062|6063|6064|6065|6066)\b|usernamekeymismatch|usernamerecord(missing|ownermismatch|namemismatch|notexpected)|usernamenotreserved/i)
         return ok(message: "Username registry mismatch — the rename could not be completed. Please try again.", log: true)
+      end
+
+      # VaultPdaNotAWallet (6067 / 0x17b3) — a create_user_account that named
+      # the vault PDA as the wallet. Only reserve_username may give the vault a
+      # name, so this is a caller bug, never a person's.
+      if stripped.match?(/0x17b3|\b6067\b|vaultpdanotawallet/i)
+        return ok(message: "That account cannot be registered as a player wallet.", log: true)
       end
 
       # The RPC provider throttling us: an HTTP 429 the gem's retries could not

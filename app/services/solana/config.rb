@@ -702,9 +702,8 @@ module Solana
 
     # The turf-vault version whose shape this boot is speaking. Used in log
     # lines and the health rake; `Config.idl_version` reads the IDL's own
-    # metadata, which is NOT a substitute — turf-vault shipped v0.26 without
-    # bumping its Cargo version, so both IDLs report "0.25.0" (see
-    # docs/SOLANA.md "The version string is not the discriminator").
+    # metadata, which is a label, not a shape: the first v0.26 build read
+    # "0.25.0" (see docs/SOLANA.md "The version string is not the discriminator").
     def self.vault_shape
       IdlSelection.vault_shape(GOVERNANCE)
     end
@@ -845,9 +844,8 @@ module Solana
     # STRUCTURAL, not a version string. `init_governance` exists only in v0.26+,
     # so its presence is a fact about the shape the pinned IDL describes — and
     # unlike `metadata.version` it cannot be stale, because nobody hand-writes
-    # it. turf-vault built v0.26 with Cargo version "0.25.0" still in place, so
-    # the version string is identical in both artifacts and would have been a
-    # silently useless discriminator.
+    # it. The first v0.26 build read Cargo version "0.25.0", so a version
+    # check would have been a silently useless discriminator.
     def self.idl_declares_governance?
       # Composed from idl_instruction_names rather than calling
       # IdlSelection.declares_governance? directly, so the app keeps ONE read of

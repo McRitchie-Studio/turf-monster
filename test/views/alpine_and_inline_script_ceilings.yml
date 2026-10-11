@@ -41,24 +41,24 @@ entry:
   inline_script: 21
   inline_handler: 7
 board:
-  x_data: 26
-  x_show: 59
+  x_data: 18
+  x_show: 44
   x_if: 9
   x_for: 6
   x_model: 8
-  x_text: 29
+  x_text: 28
   x_html: 0
-  x_bind: 75
-  x_on: 88
-  x_init: 2
-  x_ref: 8
-  x_cloak: 28
-  x_transition: 53
+  x_bind: 62
+  x_on: 68
+  x_init: 1
+  x_ref: 7
+  x_cloak: 15
+  x_transition: 38
   x_effect: 0
   x_other: 0
   alpine_api: 67
-  inline_script: 14
-  inline_handler: 13
+  inline_script: 12
+  inline_handler: 5
 marketing:
   x_data: 8
   x_show: 13

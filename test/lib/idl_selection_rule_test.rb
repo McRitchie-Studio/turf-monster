@@ -99,18 +99,17 @@ class IdlSelectionRuleTest < ActiveSupport::TestCase
 
   # ── THE DISCRIMINATOR IS STRUCTURAL ───────────────────────────────────────
   #
-  # turf-vault built v0.26 with `version = "0.25.0"` still in Cargo.toml, so all
-  # four artifacts report metadata.version "0.25.0" (filed separately as
-  # cargo-version-lies-about-program). Anything keyed on that string returns a
-  # plausible answer and selects the wrong wire format.
+  # The first v0.26 build shipped reading metadata.version "0.25.0", so a rule
+  # keyed on that string would have selected the wrong wire format. The files
+  # are now labelled correctly; the rule still reads only the instruction set.
 
   test "init_governance, not the version string, tells the two shapes apart" do
     MATRIX.each do |(_network, governance), path|
       absolute = Rails.root.join(path)
       assert_equal governance, RULE.declares_governance?(absolute),
                    "#{path} must declare init_governance iff it is the v0.26 artifact"
-      assert_equal "0.25.0", JSON.parse(File.read(absolute)).dig("metadata", "version"),
-                   "if turf-vault finally bumps Cargo, this test is where that is noticed"
+      assert_equal (governance ? "0.26.0" : "0.25.0"), JSON.parse(File.read(absolute)).dig("metadata", "version"),
+                   "#{path} carries the label of the build it came from"
     end
   end
 

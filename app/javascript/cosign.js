@@ -286,7 +286,8 @@ window.cosignTransaction = async function(slug, txTypeLabel, extraCosigners, but
           if (!modal) return;
           modal.show('Switch Phantom Account',
                      'Open Phantom and select ' + shortKey(pubkey) + ', then approve. ' +
-                     'This transaction needs ' + signerQueue.length + ' wallet signatures.');
+                     'This transaction needs ' + signerQueue.length +
+                     (signerQueue.length === 1 ? ' wallet signature.' : ' wallet signatures.'));
         },
         onSigned: function(pubkey) { paintSigner(pubkey, 'signed'); },
         onFailed: function(pubkey) { paintSigner(pubkey, 'failed'); }

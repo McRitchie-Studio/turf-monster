@@ -44,14 +44,19 @@ class LaptopLiveSnapshot
   STRIPPED = "script, turbo-cable-stream-source".freeze
 
   # The snapshot is x-ignore, so Alpine never decides its x-show switches.
-  # These are the leaderboard's, resolved to what the real page shows a guest
-  # at a 1280px window: its column measures 616px, so dkFull (>= 600) and wide
-  # (>= 450) are true, and nothing is expanded, opened, or in dev mode. True
-  # reveals (x-cloak removed); false hides (display: none). An expression not
-  # listed here is left exactly as rendered.
-  STATIC_X_SHOW = {
-    "dkFull" => true, "!dkFull" => false, "picksOpen || wide" => true,
-    "expanded" => false, "!expanded" => true, "$store.devMode" => false
+  # The leaderboard's one: nothing is in dev mode. True reveals (x-cloak
+  # removed); false hides (display: none). An expression not listed here is
+  # left exactly as rendered.
+  STATIC_X_SHOW = { "$store.devMode" => false }.freeze
+
+  # The leaderboard runs on its Stimulus controller, which never connects
+  # here (#strip_controllers). Its targets are resolved to what the real page
+  # shows a guest at a 1280px window: the column measures 616px, so the full
+  # row of six shows (>= 600), the narrow layout does not, and nothing is
+  # unfolded. True shows (hidden removed); false hides.
+  STATIC_LEADERBOARD = {
+    "full" => true, "narrow" => false, "value" => true,
+    "tail" => false, "more" => true, "less" => false
   }.freeze
 
   # The one time format the laptop prints: the weekday and the clock time,
@@ -203,6 +208,8 @@ class LaptopLiveSnapshot
     # page's HTML, so it goes too.
     doc.css(".json-debug").each { |node| (node.ancestors("details").first || node).remove }
     resolve_x_show(doc)
+    resolve_leaderboard(doc)
+    strip_controllers(doc)
     resolve_focus_class(doc)
     localize_times(doc)
     doc
@@ -320,6 +327,23 @@ class LaptopLiveSnapshot
       next unless match[1] == @showcase.focus_slug
 
       node["class"] = [node["class"], match[2]].compact.join(" ")
+    end
+  end
+
+  def resolve_leaderboard(doc)
+    STATIC_LEADERBOARD.each do |target, shown|
+      doc.css(%([data-leaderboard-target~="#{target}"])).each do |node|
+        shown ? node.remove_attribute("hidden") : node["hidden"] = ""
+      end
+    end
+  end
+
+  # No Stimulus controller runs in the snapshot: the page's own application
+  # would otherwise connect every one it names, inside a static picture.
+  def strip_controllers(doc)
+    doc.css("[data-controller], [data-action]").each do |node|
+      node.remove_attribute("data-controller")
+      node.remove_attribute("data-action")
     end
   end
 
