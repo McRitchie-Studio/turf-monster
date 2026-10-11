@@ -303,6 +303,8 @@ class EntryPaymentTest < ActiveSupport::TestCase
 
   test "the landed sentence names the support contact the app uses elsewhere" do
     assert_includes Entry::Payment::IN_FLIGHT_MESSAGES.fetch("landed"), "contact support@turfmonster.media"
+    # A landed row's hold runs to Sunday morning (Entry::LandedHold), so the sentence promises no day.
+    refute_match(/within a day/, Entry::Payment::IN_FLIGHT_MESSAGES.fetch("landed"))
     assert_includes FrozenAccount::MESSAGE, Entry::Payment::SUPPORT_EMAIL
   end
 

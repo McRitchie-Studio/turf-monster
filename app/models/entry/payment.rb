@@ -51,8 +51,8 @@ class Entry
       "submitted" => "Your entry was sent and is still confirming on Solana. We are checking it now. " \
                      "You will not be charged twice.",
       "landed" => "Your payment for this contest arrived, but we could not finish the entry. " \
-                  "You will not be charged again, and we are sorting it out. " \
-                  "If it is not resolved within a day, contact #{SUPPORT_EMAIL}."
+                  "You will not be charged again. If we need your answer, it is at the top of the page. " \
+                  "With any question, contact #{SUPPORT_EMAIL}."
     }.freeze
 
     # A second charge was refused. Controllers answer 409 with the message.
