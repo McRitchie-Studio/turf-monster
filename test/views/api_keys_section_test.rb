@@ -252,7 +252,9 @@ class ApiKeysSectionTest < ActionView::TestCase
     assert after.key?("hidden")
     assert_equal "reveal-follow-up", after["data-controller"]
     assert_equal "[data-api-key-created]", after["data-reveal-follow-up-selector-value"]
-    assert_equal "turbo:before-cache@document->reveal-follow-up#reset", after["data-action"]
+    # pageshow: a back/forward-cache restore of /account (a signing page) re-asks.
+    assert_equal "turbo:before-cache@document->reveal-follow-up#reset pageshow@window->reveal-follow-up#connect",
+                 after["data-action"]
     link = after.at_css("a")
     assert_equal "Add another API key", link.text
     assert_equal account_api_keys_path(adding: 1), link["href"]
