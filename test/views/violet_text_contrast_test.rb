@@ -90,7 +90,7 @@ require "tmpdir"
 # So "none resolves to a registered series colour" was false, and it was
 # falsifiable from INSIDE the old list of five: admin/seasons/index:77 writes
 # `color: var(--color-primary-ink)`, which is exactly what `--fc-dk-score-ink`
-# resolves to in dark (#81C784). The other two are admin/error_logs/index:38
+# resolves to in dark (#97BE99). The other two are admin/error_logs/index:38
 # and :42, which the old count missed entirely. Each of the three numbers above
 # is now asserted below rather than left as prose, because a hand count in a
 # comment is precisely what rotted here.
@@ -105,6 +105,9 @@ class VioletTextContrastTest < ActiveSupport::TestCase
   COMPILED_CSS = Rails.root.join("app/assets/builds/tailwind.css").freeze
   SCANNED = [ Rails.root.join("app/views"), Rails.root.join("app/helpers") ].freeze
   THEME_SELECTORS = { dark: ":root,.dark", light: "html:not(.dark)" }.freeze
+  # The same two selectors at zero specificity: a FALLBACK any engine theme rule
+  # outranks (app/assets/tailwind/application.css, the primary INK block).
+  FALLBACK_SELECTORS = { dark: ":where(:root,.dark)", light: ":where(html:not(.dark))" }.freeze
   SURFACES = {
     card: "--color-surface", page: "--color-page",
     "surface-alt": "--color-surface-alt", inset: "--color-inset"
@@ -166,13 +169,13 @@ class VioletTextContrastTest < ActiveSupport::TestCase
 
   # WHICH OF THEM PAINT A REGISTERED SERIES COLOUR, per theme, with the ground
   # the site actually sits on recorded beside it. LIGHT IS ASSERTED EMPTY and
-  # that is a tripwire, not a vacuous pass: `--color-primary-ink` is
-  # `var(--color-primary-700)` there (#205823), which is nobody's series colour, so
+  # that is a tripwire, not a vacuous pass: `--color-primary-ink` is #246227
+  # there on either engine, which is nobody's series colour, so
   # a light-theme entry appearing here means a new site started painting one.
   #
   # The ground column is documentation, not the measurement. See the lane.
   TAG_HELPER_SERIES_SITES = {
-    # #81C784 — what --fc-dk-score-ink resolves to in dark.
+    # #97BE99 — what --fc-dk-score-ink resolves to in dark, on either engine.
     dark: [
       # the class chips close their cards at :30, so these sit on the PAGE
       [ "app/views/admin/error_logs/index.html.erb", 38 ],
@@ -312,8 +315,16 @@ class VioletTextContrastTest < ActiveSupport::TestCase
     declarations(block)
   end
 
+  # The custom properties that paint in one theme, in cascade order (later wins):
+  # this app's zero-specificity :where() fallbacks first (dark, then light, by
+  # source order), then the engine's `:root, .dark` (0,1,0) and this app's rule
+  # with the same selector, which loads after it, then the engine's
+  # `html:not(.dark)` (0,1,1) and this app's. A fallback paints only a token no
+  # engine rule declares.
   def tokens(mode, css: compiled_css, colors: ThemeSetting.current.resolved_colors, overrides: {})
-    dark = engine_tokens(:dark, colors).merge(app_tokens(css, THEME_SELECTORS[:dark]))
+    fallback = app_tokens(css, FALLBACK_SELECTORS[:dark])
+    fallback = fallback.merge(app_tokens(css, FALLBACK_SELECTORS[:light])) if mode == :light
+    dark = fallback.merge(engine_tokens(:dark, colors)).merge(app_tokens(css, THEME_SELECTORS[:dark]))
     seen = if mode == :dark
       dark
     else
@@ -855,19 +866,17 @@ class VioletTextContrastTest < ActiveSupport::TestCase
                     "floor it was raised to clear"
   end
 
-  # THE CLAIM THE COMMENTS MAKE ABOUT WHERE THESE INKS COME FROM. slates/show and
-  # docs/FORMULAS.md say the borrowed inks are this app's own tokens and that the
-  # four ink values pin rather than track the theme. That has to hold on every
-  # engine this app runs against:
+  # THE CLAIM THE COMMENTS MAKE ABOUT WHERE THESE INKS COME FROM. slates/show,
+  # docs/FORMULAS.md and the CSS block say:
   #
-  #   * --color-violet-ink: the resolver emits none, so the app's is the only one.
-  #   * --color-primary-ink: one engine emits none, a newer one derives its own.
-  #     The app declares it in BOTH theme selectors, so its value paints either
-  #     way. The light selector matters: the engine's `html:not(.dark)` outranks
-  #     `:root, .dark`, so a dark-only declaration would lose in light.
-  #
-  # The test below this one measures the value that paints, on either engine.
-  test "control: the borrowed inks are the app's own tokens on either engine" do
+  #   * --color-violet-ink is this app's own token; the resolver emits none.
+  #   * --color-primary-ink is the ENGINE's token. This app declares it only as a
+  #     zero-specificity :where() fallback, in both theme selectors, so the
+  #     engine's `:root, .dark` and `html:not(.dark)` rules outrank it wherever
+  #     the engine derives one, and it paints only on an engine that emits none.
+  #     Declared at full specificity it would shadow the engine again (this app
+  #     loads after the theme tag), which is what this guards.
+  test "control: the primary ink is a fallback the engine outranks; the violet ink is the app's own" do
     colors = ThemeSetting.current.resolved_colors
 
     %i[dark light].each do |mode|
@@ -881,36 +890,57 @@ class VioletTextContrastTest < ActiveSupport::TestCase
              "the resolver stopped emitting --color-primary in the #{mode} theme, so this control can no longer " \
              "tell 'the resolver does not emit the ink' from 'the resolver emitted nothing'"
 
-      app = app_tokens(compiled_css, THEME_SELECTORS[mode])
-      assert app.key?("--color-primary-ink"),
-             "this app's #{mode} selector (#{THEME_SELECTORS[mode]}) no longer declares --color-primary-ink. " \
-             "On an engine that emits none the chips lose their ink; on one that derives its own, the engine's " \
-             "value paints instead of the one slates/show and docs/FORMULAS.md quote."
+      %w[--color-primary-ink --color-primary-ink-rgb].each do |token|
+        shadowing = rules(compiled_css).select { |sel, body| !sel.start_with?(":where(") && declarations(body).key?(token) }
+        assert_empty shadowing.map(&:first),
+                     "#{token} is declared at full specificity, so this app's value outranks the engine's derived " \
+                     "ink instead of falling back to it. Declare it only inside :where()."
+
+        fallback = app_tokens(compiled_css, FALLBACK_SELECTORS[mode])
+        assert fallback.key?(token),
+               "this app's #{mode} fallback (#{FALLBACK_SELECTORS[mode]}) no longer declares #{token}. On an engine " \
+               "that emits no ink the chips lose their ink."
+      end
+
+      painted = tokens(mode)["--color-primary-ink"]
+      expected = emitted["--color-primary-ink"] || app_tokens(compiled_css, FALLBACK_SELECTORS[mode])["--color-primary-ink"]
+      assert_equal expected.downcase, painted.downcase,
+                   "the #{mode} primary ink that paints should be #{emitted.key?("--color-primary-ink") ? "the engine's" : "this app's fallback"}"
     end
 
     dark_app = app_tokens(compiled_css, THEME_SELECTORS[:dark])
     assert dark_app.key?("--color-violet-ink"), "--color-violet-ink is no longer declared by this app's own CSS"
   end
 
-  # THE SHADOW MAY NOT LOWER CONTRAST. Where the engine derives --color-primary-ink,
-  # this app's value replaces it; where it does not, this app's value is the only
-  # one. Either way the ink that paints must clear AA on every surface and on the
-  # primary tints chips and badges sit in: 10 percent as written and as 8-bit
-  # alpha paints it (26/255, the two the engine derives against), and this
-  # app's own 15 and 20 percent badges. The assertion does not branch on the
-  # engine, so it measures on both.
+  # THE INK THAT PAINTS CLEARS AA, whichever source paints it: the engine's
+  # derived --color-primary-ink where the engine emits one, this app's fallback
+  # where it does not. `text-primary` reads the -rgb twin instead (the engine
+  # emits none, so the twin is always this app's), and the "Entered" badge is
+  # `bg-primary/15 text-primary`, so the twin is measured too. Grounds: the four
+  # surfaces and the primary over each at 10 percent as written and as 8-bit
+  # alpha paints it (26/255), and at 15 and 20 percent, each tint also one unit
+  # off in every channel, as 8-bit compositing can round it (the engine derives
+  # against the same set). It does not branch on the engine, so it measures both.
   PRIMARY_TINT_ALPHAS = [ 0.10, 26 / 255.0, 0.15, 0.20 ].freeze
+  PRIMARY_INK_SOURCES = { "--color-primary-ink" => "var(--color-primary-ink)",
+                          "--color-primary-ink-rgb" => "rgb(var(--color-primary-ink-rgb))" }.freeze
 
-  def primary_ink_ratios(mode, **opts)
+  def nudged(hex_value, units) = hex(*rgb(hex_value).map { |c| (c + units).clamp(0, 255) })
+
+  def primary_ink_ratios(mode, expr: "var(--color-primary-ink)", **opts)
     toks = tokens(mode, **opts)
-    ink = opaque(toks.fetch("--color-primary-ink"), toks)
+    ink = opaque(expr, toks)
     primary = opaque(toks.fetch("--color-primary"), toks)
     SURFACES.each_with_object({}) do |(surface, var), out|
       ground = opaque(toks.fetch(var), toks)
       out["#{surface}"] = [ contrast(ink, ground), ink, ground ]
       PRIMARY_TINT_ALPHAS.each do |alpha|
         tint = composite(primary, alpha, ground)
-        out["primary at #{format('%.3f', alpha)} on #{surface}"] = [ contrast(ink, tint), ink, tint ]
+        [ 0, 1, -1 ].each do |units|
+          painted = nudged(tint, units)
+          out["primary at #{format('%.3f', alpha)}#{units.zero? ? "" : format(' %+d', units)} on #{surface}"] =
+            [ contrast(ink, painted), ink, painted ]
+        end
       end
     end
   end
@@ -920,13 +950,28 @@ class VioletTextContrastTest < ActiveSupport::TestCase
 
     %i[dark light].each do |mode|
       engine_ink = engine_tokens(mode, colors)["--color-primary-ink"]
-      source = engine_ink ? "this app's value, shadowing the engine's #{engine_ink}" : "this app's value, the only one"
+      source = engine_ink ? "the engine's derived ink" : "this app's fallback, the engine emits none"
 
-      primary_ink_ratios(mode).each do |ground, (ratio, ink, color)|
-        assert_operator ratio, :>=, AA_TEXT,
-                        "--color-primary-ink (#{ink}, #{source}) is #{format('%.2f', ratio)}:1 on the #{mode} " \
-                        "#{ground} (#{color}); AA needs 4.5:1"
+      PRIMARY_INK_SOURCES.each do |token, expr|
+        ratios = primary_ink_ratios(mode, expr: expr)
+        assert_operator ratios.size, :>=, SURFACES.size * (1 + PRIMARY_TINT_ALPHAS.size * 3), "the lane measured too few grounds"
+        ratios.each do |ground, (ratio, ink, color)|
+          assert_operator ratio, :>=, AA_TEXT,
+                          "#{token} (#{ink}, #{token == "--color-primary-ink" ? source : "this app's twin"}) is " \
+                          "#{format('%.2f', ratio)}:1 on the #{mode} #{ground} (#{color}); AA needs 4.5:1"
+        end
       end
+    end
+  end
+
+  # `text-primary` paints the twin and the engine's chips paint the ink: one
+  # colour, whichever engine. On an engine that derives the ink, a twin left on
+  # an old value would paint a different green beside the engine's chips.
+  test "the primary ink's -rgb twin names the ink that paints" do
+    %i[dark light].each do |mode|
+      toks = tokens(mode)
+      assert_equal opaque("var(--color-primary-ink)", toks).upcase, opaque("rgb(var(--color-primary-ink-rgb))", toks).upcase,
+                   "#{mode}: --color-primary-ink-rgb and --color-primary-ink paint different colours"
     end
   end
 
@@ -943,6 +988,18 @@ class VioletTextContrastTest < ActiveSupport::TestCase
                     "longer tell a shadow below AA from one above it"
     page_chip = ratios.fetch("primary at #{format('%.3f', 26 / 255.0)} on page").first
     assert_in_delta 4.28, page_chip, 0.01, "the bare primary on its painted 10 percent tint over the light page measured 4.28:1"
+  end
+
+  # And the 15 and 20 percent grounds are not decoration: the ink the engine
+  # derived against the 10 percent chip alone (#286C2B light, #8AB68C dark, at
+  # studio-engine ae0a410) clears that chip and fails the stronger tints.
+  test "control: an ink tuned to the 10 percent chip alone fails the 15 and 20 percent tints" do
+    { light: "#286C2B", dark: "#8AB68C" }.each do |mode, chip_only_ink|
+      ratios = primary_ink_ratios(mode, overrides: { "--color-primary-ink" => chip_only_ink })
+      stronger = ratios.select { |ground, _| ground.match?(/primary at 0\.(150|200)/) }.values.map(&:first).min
+
+      assert_operator stronger, :<, AA_TEXT, "#{mode}: #{chip_only_ink} now clears the 15 and 20 percent tints"
+    end
   end
 
   test "the slate bye-line badge uses the benchmarks badge treatment" do
@@ -1033,8 +1090,8 @@ class VioletTextContrastTest < ActiveSupport::TestCase
     { token: "--fc-goals-ink", mode: :dark, surface: "card", ratio: 5.68 },
     { token: "--fc-dk-score-ink", mode: :light, surface: "card", ratio: 5.02 },
     { token: "--fc-dk-score-ink", mode: :light, surface: "page", ratio: 4.79 },
-    { token: "--fc-dk-score-ink", mode: :dark, surface: "card", ratio: 5.54 },
-    { token: "--fc-dk-score-ink", mode: :dark, surface: "page", ratio: 8.68 }
+    { token: "--fc-dk-score-ink", mode: :dark, surface: "card", ratio: 5.39 },
+    { token: "--fc-dk-score-ink", mode: :dark, surface: "page", ratio: 8.43 }
   ].freeze
 
   def slate_token(name, mode)

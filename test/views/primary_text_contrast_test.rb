@@ -7,11 +7,15 @@ require "test_helper"
 # the light theme 4.28:1 on its own chip tint, so this app paints green text
 # with a per-theme ink instead:
 #
-#   --color-primary-ink        dark #81C784, light the scale's 700 shade
+#   --color-primary-ink        dark #97BE99, light #246227
 #   --color-primary-badge-ink  the ink for text ON a primary tint (level-badge-1)
 #
-# Declared at the end of app/assets/tailwind/application.css, and wired into
-# `text-primary` by config/tailwind.config.js (textColor.primary).
+# The primary ink is the engine's: a studio-engine that derives it emits it in
+# the theme tag, and app/assets/tailwind/application.css declares the same
+# values only as a zero-specificity :where() fallback for an engine that emits
+# none. `text-primary` reads the -rgb twin through config/tailwind.config.js
+# (textColor.primary); the engine emits no twin, so the twin is always this
+# app's.
 #
 # WHAT IS MEASURED. Nothing here trusts a hex. Each ratio resolves what ships:
 #   * the COMPILED stylesheet (app/assets/builds/tailwind.css, which CI builds
@@ -21,7 +25,8 @@ require "test_helper"
 #     ThemeSetting.current.resolved_colors, what studio_theme_css_tag renders)
 #     supplies the primary, success and surface colours.
 # The light theme is modelled the way the cascade builds it: html matches both
-# `:root, .dark` and `html:not(.dark)`, and the second wins.
+# `:root, .dark` and `html:not(.dark)`, and the second wins; a :where()
+# fallback loses to both.
 #
 # THE BAR. Text must clear WCAG AA 4.5:1 on the card (--color-surface) and the
 # page (--color-page), in both themes. The other two surfaces and the primary
@@ -32,6 +37,8 @@ class PrimaryTextContrastTest < ActiveSupport::TestCase
   COMPILED_CSS = Rails.root.join("app/assets/builds/tailwind.css").freeze
   VIEWS = Rails.root.join("app/views").freeze
   THEME_SELECTORS = { dark: ":root,.dark", light: "html:not(.dark)" }.freeze
+  # This app's zero-specificity fallbacks for the engine-owned primary ink.
+  FALLBACK_SELECTORS = { dark: ":where(:root,.dark)", light: ":where(html:not(.dark))" }.freeze
   SURFACES = { card: "--color-surface", page: "--color-page" }.freeze
 
   # ── colour arithmetic, deliberately independent of Studio::ColorScale ──────
@@ -100,8 +107,13 @@ class PrimaryTextContrastTest < ActiveSupport::TestCase
   # Custom properties an element sees in one theme: the engine's block plus
   # this app's, with the light theme layered over `:root, .dark` as the
   # cascade does. `overrides` lets a control swap one token and re-measure.
+  # Cascade order, later wins: this app's :where() fallbacks (zero specificity,
+  # so every engine rule outranks them), then the engine's `:root, .dark` and
+  # this app's, then the engine's `html:not(.dark)` and this app's.
   def tokens(mode, css: compiled_css, colors: ThemeSetting.current.resolved_colors, overrides: {})
-    dark = engine_tokens(:dark, colors).merge(app_tokens(css, THEME_SELECTORS[:dark]))
+    fallback = app_tokens(css, FALLBACK_SELECTORS[:dark])
+    fallback = fallback.merge(app_tokens(css, FALLBACK_SELECTORS[:light])) if mode == :light
+    dark = fallback.merge(engine_tokens(:dark, colors)).merge(app_tokens(css, THEME_SELECTORS[:dark]))
     seen = if mode == :dark
       dark
     else
@@ -179,8 +191,8 @@ class PrimaryTextContrastTest < ActiveSupport::TestCase
   end
 
   test "control: the dark ink cannot serve the light theme" do
-    ratio, = text_primary_ratios(:light, overrides: { "--color-primary-ink-rgb" => "129 199 132" })[:card]
-    assert_operator ratio, :<, AA_TEXT, "#81C784 on white is #{format('%.2f', ratio)}:1; the ink must stay per theme"
+    ratio, = text_primary_ratios(:light, overrides: { "--color-primary-ink-rgb" => "151 190 153" })[:card]
+    assert_operator ratio, :<, AA_TEXT, "#97BE99 on white is #{format("%.2f", ratio)}:1; the ink must stay per theme"
   end
 
   # ── text on a primary tint: .level-badge-1 ───────────────────────────────────
