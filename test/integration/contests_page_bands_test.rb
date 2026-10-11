@@ -143,10 +143,10 @@ class ContestsPageBandsTest < ActionDispatch::IntegrationTest
 
     assert_response :success
     assert_select "#{MINE} [data-contest-row='#{done.slug}']", count: 1
-    assert_select "#{MINE} [data-contest-row='#{done.slug}'][x-show]", count: 0,
+    assert_select "#{MINE} [data-contest-row='#{done.slug}'][hidden]", count: 0,
       message: "a finished contest's result is the only thing this band reports — it cannot be behind a toggle"
     # The pair: the same contest IS behind the toggle in All Contests.
-    assert_select "#{ALL} [data-contest-row='#{done.slug}'][x-show]", count: 1
+    assert_select "#{ALL} [data-contest-row='#{done.slug}'][hidden][data-settled-filter-target=row]", count: 1
   end
 
   # --- The band switch: one contest, two readings ------------------------
@@ -193,7 +193,7 @@ class ContestsPageBandsTest < ActionDispatch::IntegrationTest
     get contests_path
 
     assert_response :success
-    assert_select "#{ALL} button[x-text]", count: 1              # Show Settled / Hide Settled
+    assert_select "#{ALL} button[data-settled-filter-target=toggle]", count: 1, text: "Show Settled"
     assert_select "#{ALL} a[href='#{new_contest_path}']", count: 1
     assert_select "#{RAIL} a[href='#{new_contest_path}']", count: 0
   end

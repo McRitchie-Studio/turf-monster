@@ -9,10 +9,10 @@
     Drawn once, between the last paying rank and the first that pays nothing, so
     the two sides of it read as different places to be.
 
-    `collapsed` mirrors the row above it into the collapsed tail: on a format that
+    `collapsed` mirrors the row above it into the leaderboard's folded tail: on a format that
     pays nine (large), the cut falls below the eight-row fold, and a divider that
     stayed visible while its neighbours were hidden would point at nothing. %>
-<div <% if collapsed %>x-show="expanded" x-cloak <% end %>class="flex items-center gap-3 px-1 py-1"
+<div <% if collapsed %>hidden data-leaderboard-target="tail" <% end %>class="flex items-center gap-3 px-1 py-1"
      data-test="leaderboard-money-line" role="separator"
      aria-label="Below this line, entries are out of the money">
   <span class="h-px flex-1 bg-gradient-to-r from-transparent to-primary/60"></span>

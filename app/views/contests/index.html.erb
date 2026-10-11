@@ -4,12 +4,11 @@
       2. My Contests         where do I stand in the ones I'm in?
       3. All Contests        the full list.
 
-    The whole page shares one Alpine scope so the admin Show Settled toggle
-    controls the All Contests table from the section header it now sits in.
-    showSettled starts false: settled contests are hidden there by default for
-    everyone (admins and non-admins alike), and only the admin-only toggle can
-    flip it. Single-quote everything inside x-data to avoid breaking the
-    double-quoted attribute.
+    The whole page is one settled-filter controller so the admin Show Settled
+    toggle controls the All Contests table from the section header it sits in.
+    It starts off: settled contests are hidden there by default for everyone
+    (admins and non-admins alike), and only the admin-only toggle can show
+    them.
 
     MY CONTESTS DOES NOT ANSWER TO THAT TOGGLE. A settled contest is the one
     thing that band exists to report on — the Won / Complete badge and the
@@ -22,7 +21,7 @@
     falls through to the site identity's image, as a bannerless contest does. %>
 <% content_for :og_image, contest_og_image_url(Contest.featured) %>
 <%= render "shared/pending_cart_handoff" %>
-<div x-data="{ showSettled: false }">
+<div data-controller="settled-filter" data-action="turbo:before-cache@document->settled-filter#reset">
   <h1 class="text-3xl font-extrabold text-heading mb-6">Contests</h1>
 
   <%# ===== The featured rail — open contests first, then coming soon, each
@@ -30,13 +29,13 @@
       the top of the page and it is the page's headline, so a label above it
       would only push the contests themselves down. ===== %>
   <% if @featured_contests.any? %>
-    <section class="mb-10" x-data="contestRail()" data-contest-band="featured">
-      <%# The mask is the house's overflow idiom (shared/_alpine_factories
-          contestRail, and navUsernameFade before it): taper the content itself
+    <section class="mb-10" data-controller="contest-rail" data-contest-band="featured">
+      <%# The mask is the house's overflow idiom (turf/contest_rail, and
+          navUsernameFade before it): taper the content itself
           rather than paint a gradient that would have to know the page's
           background colour. It is bound, not static, so a rail that fits on
           screen is not given a fade that lies about more cards to the right. %>
-      <div x-ref="viewport"
+      <div data-contest-rail-target="viewport"
            data-contest-rail
            <%# `py-5` rather than `pb-2`: `overflow-x-auto` forces overflow-y to
                a non-visible value, so the rail box CLIPS anything a card throws
@@ -45,8 +44,7 @@
                INTO. Take it away and the carbonation ends at the card's edge,
                which is the one place it must not. %>
            class="tt-contest-rail overflow-x-auto overflow-y-hidden py-5"
-           @scroll.passive="measure()"
-           x-bind:style="canScrollRight ? '-webkit-mask-image: linear-gradient(to right, black 85%, transparent); mask-image: linear-gradient(to right, black 85%, transparent);' : ''">
+           data-action="scroll->contest-rail#measure:passive">
         <div class="flex gap-4 items-stretch">
           <%# 320 / 384px, a step up from 288 / 320. THE BANNER IS WHY. It is a
               5:1 crop shown in a fixed-height `object-cover` box, so the box's
@@ -118,11 +116,8 @@
         <div class="flex items-center gap-2">
           <%# Style flips on state: muted outline when OFF, filled accent when
               ON, so it reads as secondary to the green New Contest CTA. %>
-          <button type="button"
-                  @click="showSettled = !showSettled"
-                  :class="showSettled ? 'btn btn-secondary' : 'btn btn-outline'"
-                  :aria-pressed="showSettled"
-                  x-text="showSettled ? 'Hide Settled' : 'Show Settled'">Show Settled</button>
+          <button type="button" class="btn btn-outline" aria-pressed="false"
+                  data-settled-filter-target="toggle" data-action="settled-filter#toggle">Show Settled</button>
           <%= link_to "New Contest", new_contest_path, class: "btn btn-primary" %>
         </div>
       <% end %>
@@ -140,7 +135,7 @@
           renders no visible rows with the toggle OFF. Show a subtle note
           (revealed away once settled are shown). %>
       <% if @contests.all?(&:graded?) %>
-        <p x-show="!showSettled" class="text-secondary mt-3">No open contests right now.</p>
+        <p data-settled-filter-target="empty" class="text-secondary mt-3">No open contests right now.</p>
       <% end %>
     <% else %>
       <p class="text-secondary">No contests yet.</p>

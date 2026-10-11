@@ -59,7 +59,8 @@ Phantom must be installed in the browser or available via mobile deep link.
      `landing_page_claimed_path` (`:73`), the confirmation page. That flow is in
      `docs/UI_PATTERNS.md` under "Claim mode".
    - The `scroll=280` param drives a `window.scrollTo` past the hero chrome to
-     the matchup board (`app/views/contests/show.html.erb:213-226`).
+     the matchup board: the page's arrival-scroll controller reads it with
+     `arrivalScroll` (`app/javascript/turf/arrival_scroll.js:9-15`).
    - Route: `get "lp/:slug", to: "landing_pages#show", as: :landing_page` —
      `config/routes.rb:148`.
 
