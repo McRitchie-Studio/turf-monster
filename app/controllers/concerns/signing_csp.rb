@@ -78,8 +78,11 @@ module SigningCsp
     ])
   end
 
-  # Writes the headers itself; the middleware then leaves them alone.
+  # Writes the headers itself; the middleware then leaves them alone. Never
+  # stored: Back to a signing page is a fresh load (it is never in Turbo's
+  # cache), and a stored copy would show the cart as it was first rendered.
   def apply_signing_csp
+    no_store
     policy = request.content_security_policy or return
     nonce = request.content_security_policy_nonce
     strict = SigningCsp.strict(policy).build(self, nonce, NONCE_DIRECTIVES)

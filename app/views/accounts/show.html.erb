@@ -148,7 +148,7 @@
         the CURRENT address (AccountsController#update), so there's no in-app
         re-auth field. Setting a first email applies directly + verifies. %>
     <div data-controller="email-change-notice" data-email-change-notice-initial-value="<%= @user.email %>"
-         data-action="turbo:before-cache@document->email-change-notice#reset">
+         data-action="turbo:before-cache@document->email-change-notice#reset pageshow@window->email-change-notice#check">
       <h3 class="text-sm font-bold text-heading mb-2">Email</h3>
       <%= form_with model: @user, url: account_path, method: :patch do |f| %>
         <div class="flex gap-2">

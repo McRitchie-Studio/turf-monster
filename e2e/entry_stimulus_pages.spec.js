@@ -31,9 +31,14 @@ async function signIn(page, label) {
   await login(page, `entry-stimulus-${label}-${Date.now()}@example.test`);
 }
 
-// A Turbo visit that stays in this document, resolving once the new page's
-// `selector` has rendered (not merely the old one's).
+// A Turbo visit, resolving once the new page's `selector` has rendered (not
+// merely the old one's). It stays in this document unless it enters or leaves
+// a signing page (SigningCsp): those are always full loads, so the press after
+// it is a press straight after a fresh load.
+const onSigningPage = (page) => page.evaluate(() => !!document.querySelector('meta[name="signing-csp"]'));
+
 async function turboVisit(page, path, selector) {
+  const leaving = await onSigningPage(page);
   await page.evaluate((s) => {
     window.__sameDocument = true;
     document.querySelectorAll(s).forEach((el) => (el.__beforeVisit = true));
@@ -43,7 +48,10 @@ async function turboVisit(page, path, selector) {
     const el = document.querySelector(s);
     return !!el && !el.__beforeVisit;
   }, selector);
-  expect(await page.evaluate(() => window.__sameDocument)).toBe(true);
+  const crossed = leaving || (await onSigningPage(page));
+  expect(await page.evaluate(() => window.__sameDocument)).toBe(crossed ? undefined : true);
+  // A full load is pressed after its load event, as page.goto() would be.
+  if (crossed) await page.waitForLoadState("load");
 }
 
 // Wait for a Turbo visit to finish filing its snapshot before Back.
@@ -171,10 +179,13 @@ test.describe("email change notice", () => {
 
     await turboVisit(page, "/help", 'a[href="/help/how-to-play"]');
     await settled(page);
+    // /account is a signing page (SigningCsp), so Back is a fresh load, not a
+    // Turbo restoration. The browser puts back what was typed, and the notice
+    // reads the field as it connects, so the two still agree.
     await page.goBack();
     await expect(page).toHaveURL(/\/account$/);
-    await expect(field(page)).toHaveValue(/^entry-stimulus-email-turbo-/);
-    await expect(notice(page)).toBeHidden();
+    await expect(field(page)).toHaveValue("someone-new@example.test");
+    await expect(notice(page)).toBeVisible();
   });
 });
 
@@ -289,10 +300,12 @@ test.describe("cash-out card", () => {
 
     await turboVisit(page, "/help", 'a[href="/help/how-to-play"]');
     await settled(page);
+    // /wallet is a signing page (SigningCsp), so Back is a fresh load: the
+    // card starts closed, and the browser keeps the amount that was typed.
     await page.goBack();
     await expect(page).toHaveURL(/\/wallet$/);
     await expect(toggle(page)).toHaveText("Withdraw");
     await expect(panel(page)).toBeHidden();
-    await expect(card(page).getByLabel("Amount (USD)")).toHaveValue("");
+    await expect(card(page).getByLabel("Amount (USD)")).toHaveValue("12");
   });
 });

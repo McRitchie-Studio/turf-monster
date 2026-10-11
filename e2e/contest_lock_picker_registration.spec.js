@@ -54,19 +54,19 @@ test.describe("contestLockPicker registration", () => {
     expect(await page.evaluate(liveComponent)).toEqual(FULL);
   });
 
-  test("the picker is whole after a Turbo client-side navigation", async ({ page }) => {
+  // /contests/new is a signing page (SigningCsp), so a Turbo visit to it is a
+  // full load and no client-side navigation reaches it. What is pinned here is
+  // that the visit DID fall back to a full load (the sentinel dies with the
+  // document), and that the picker is whole after it.
+  test("a Turbo visit to the create page is a full load, and the picker is whole after it", async ({ page }) => {
     await loginAdmin(page);
     await page.goto("/contests");
 
-    // PIN THE TRANSITION, NOT THE DESTINATION. A Turbo visit that silently fell
-    // back to a full document load would re-run the parse-time scripts and test
-    // the SAME path as the spec above, passing while asserting nothing about
-    // client-side navigation. This sentinel dies with the document, so its
-    // survival is the proof the navigation stayed client-side.
     await page.evaluate(() => { window.__sameDocument = true; });
     await page.evaluate(() => window.Turbo.visit("/contests/new"));
+    await page.waitForURL("**/contests/new");
     await page.waitForSelector(PICKER);
-    expect(await page.evaluate(() => window.__sameDocument)).toBe(true);
+    expect(await page.evaluate(() => window.__sameDocument)).toBeUndefined();
 
     expect(await page.evaluate(liveComponent)).toEqual(FULL);
   });

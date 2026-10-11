@@ -5,7 +5,9 @@ import { emailChanged } from "turf/email_change_notice"
 // holds an address other than `initial`. connect reads the field, so what was
 // typed before it connected counts. Rendered hidden; bind reset to
 // turbo:before-cache@document so a restored page starts as a fresh one: the
-// address on the account, and no notice.
+// address on the account, and no notice. Bind check to pageshow@window too:
+// /account is a signing page, so Back is a fresh load, and the browser puts a
+// typed address back after connect has read the field.
 export default class extends Controller {
   static targets = [ "field", "notice" ]
   static values = { initial: String }

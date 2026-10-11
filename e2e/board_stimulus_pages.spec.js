@@ -31,9 +31,14 @@ test.beforeEach(async ({ page, request }) => {
 
 test.afterEach(async ({ page }) => await clearRailContests(page));
 
-// A Turbo visit that stays in this document, resolving once the new page's
-// `selector` has rendered (not merely the old one's).
+// A Turbo visit, resolving once the new page's `selector` has rendered (not
+// merely the old one's). It stays in this document unless it enters or leaves
+// a signing page (SigningCsp): those are always full loads, so the press after
+// it is a press straight after a fresh load.
+const onSigningPage = (page) => page.evaluate(() => !!document.querySelector('meta[name="signing-csp"]'));
+
 async function turboVisit(page, path, selector) {
+  const leaving = await onSigningPage(page);
   await page.evaluate((s) => {
     window.__sameDocument = true;
     document.querySelectorAll(s).forEach((el) => (el.__beforeVisit = true));
@@ -43,7 +48,10 @@ async function turboVisit(page, path, selector) {
     const el = document.querySelector(s);
     return !!el && !el.__beforeVisit;
   }, selector);
-  expect(await page.evaluate(() => window.__sameDocument)).toBe(true);
+  const crossed = leaving || (await onSigningPage(page));
+  expect(await page.evaluate(() => window.__sameDocument)).toBe(crossed ? undefined : true);
+  // A full load is pressed after its load event, as page.goto() would be.
+  if (crossed) await page.waitForLoadState("load");
 }
 
 async function signInWithEntry(page, picks = 0) {
