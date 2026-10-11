@@ -40,11 +40,9 @@ module Solana
 
     # The discriminator is STRUCTURAL. `init_governance` exists only in v0.26+,
     # so its presence is a fact about the shape the file describes. It is not
-    # `metadata.version`: turf-vault built v0.26 with `version = "0.25.0"` still
-    # in Cargo.toml, so BOTH shapes report "0.25.0" and a version check returns
-    # a plausible answer while selecting the wrong wire format. Filed as
-    # cargo-version-lies-about-program; this code must not depend on it being
-    # fixed.
+    # `metadata.version`: the first v0.26 build read "0.25.0", so a version
+    # check returned a plausible answer while selecting the wrong wire format.
+    # The files are labelled correctly now; this code still never reads it.
     GOVERNANCE_INSTRUCTION = "init_governance".freeze
 
     # The switch is set to something that is neither on nor off.

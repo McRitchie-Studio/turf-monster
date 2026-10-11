@@ -330,6 +330,9 @@ module Admin
             vault.build_deactivate_currency(cosigner_pubkey: cosigner,
                                             currency_idx: meta["currency_idx"].to_i,
                                             extra_cosigners: extras)
+          when "close_contest"
+            vault.build_close_contest(@tx.target.slug, cosigner_pubkey: cosigner,
+                                                       extra_cosigners: extras)
           when "sweep_operator_revenue"
             mint = meta["currency_mint"]
             vault.build_sweep_operator_revenue(
@@ -483,6 +486,8 @@ module Admin
       case @tx.tx_type
       when "cancel_contest"
         @tx.target.update!(onchain_cancelled: true) if @tx.target.is_a?(Contest)
+      when "close_contest"
+        @tx.target.update!(onchain_closed: true) if @tx.target.is_a?(Contest)
       end
     end
 
@@ -490,7 +495,7 @@ module Admin
     # name equals the tx_type for every supported type today.
     def instruction_for_tx_type(tx_type)
       case tx_type
-      when "settle_contest", "cancel_contest",
+      when "settle_contest", "cancel_contest", "close_contest",
            "register_currency", "deactivate_currency", "sweep_operator_revenue"
         tx_type
       else
@@ -504,7 +509,7 @@ module Admin
     # TxVerifier.verify! then skips the writable assertion.
     def writable_for_target(tx)
       case tx.tx_type
-      when "settle_contest", "cancel_contest"
+      when "settle_contest", "cancel_contest", "close_contest"
         target = tx.target
         return nil unless target.is_a?(Contest)
         target.onchain_contest_id.presence ||

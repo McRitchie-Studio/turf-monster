@@ -415,8 +415,13 @@ module Solana
     # the fee: a repeated key is refused, and the default `cosigner = admin`
     # that `settle_contest` uses to mean "nobody cosigned" collapses to the one
     # distinct key it really is.
-    def unattended_extra_signer_metas(action, required:, signers:, named: nil)
+    #
+    # `required` defaults to the chain's own threshold (#required_signatures),
+    # so a retune reaches this path without a deploy.
+    def unattended_extra_signer_metas(action, signers:, named: nil, required: nil)
       return [] unless Config.governance?
+
+      required ||= required_signatures(action)
 
       named_keys = Array(named || Keypair.admin.public_key_bytes).compact
       keypairs   = Array(signers).compact
@@ -1027,6 +1032,50 @@ module Solana
     rescue StandardError => e
       Rails.logger.warn("[solana] cached_governance failed: #{Config.redact_message(e.message)}")
       nil
+    end
+
+    # Signatures `action` needs on this boot. v0.26 reads the stored
+    # GovernanceConfig table (cached one minute), so a `set_action_threshold`
+    # retune reaches the build; an unreadable or absent account falls back to
+    # the shipped defaults, which fail closed if wrong. v0.25 makes no read.
+    def required_signatures(action)
+      return Governance.required_signatures(action) unless Config.governance?
+
+      Governance.required_signatures(action, thresholds: cached_governance&.dig(:thresholds))
+    end
+
+    # What an unattended v0.26 action needs beyond the `named` signers this
+    # process fills: the count, the server's key, and who VaultState seats.
+    # The QA rehearsal driver answers it with agent keys it files.
+    def unattended_cosign_request(action, named:)
+      { action: action, needed: required_signatures(action) - named,
+        server: Keypair.admin.to_base58, seated: read_vault_state&.dig(:active_signers) }
+    end
+
+    # The two contest-time actions escalate on ON-CHAIN contest state
+    # (set_contest_lock_time.rs, set_contest_conclusion_time.rs): re-opening a
+    # lock that has passed, or amending a conclusion already set, is a
+    # different action id with its own threshold. Rails reads the contest
+    # account to pick, since its own row can disagree with the chain.
+    def contest_time_action(instruction, contest_slug, now: Time.current)
+      onchain = read_contest(contest_slug)
+      return instruction unless onchain
+
+      case instruction
+      when "set_contest_lock_time"
+        lock = onchain[:lock_timestamp].to_i
+        lock.positive? && now.to_i >= lock ? "set_contest_lock_time_reopen" : instruction
+      when "set_contest_conclusion_time"
+        onchain[:conclusion_timestamp].to_i.positive? ? "set_contest_conclusion_time_amend" : instruction
+      else
+        raise ArgumentError, "no escalation rule for #{instruction}"
+      end
+    end
+
+    # The action a server-signed time change is authorized under. v0.25 has no
+    # action ids and makes no read.
+    def governed_time_action(instruction, contest_slug)
+      Config.governance? ? contest_time_action(instruction, contest_slug) : instruction
     end
 
     # The cap window a given moment falls in — `unix_timestamp.div_euclid(
@@ -1925,9 +1974,8 @@ module Solana
     # two when the devnet signer set lands, not before.
     def set_contest_lock_time(contest_slug, lock_timestamp, extra_signers: [])
       admin = Keypair.admin
-      c_pda, _ = contest_pda(contest_slug)
-      vault_pda, _ = vault_state_pda
-      extras = unattended_extra_signer_metas("set_contest_lock_time", required: 2, signers: extra_signers)
+      extras = unattended_extra_signer_metas(governed_time_action("set_contest_lock_time", contest_slug),
+                                             signers: extra_signers)
 
       data = Transaction.anchor_discriminator("set_contest_lock_time") +
              Borsh.encode_i64(lock_timestamp.to_i)
@@ -1936,23 +1984,29 @@ module Solana
       extra_signers.each { |kp| tx.add_signer(kp) } if extras.any?
       tx.add_instruction(
         program_id: @program_id,
-        accounts: [
-          { pubkey: admin.public_key_bytes, is_signer: true,  is_writable: true  },
-          # cosigner: Option<Signer> — None for a routine 1-of-3 pre-lock set
-          # (v0.19, #5). Anchor encodes a None optional account as the program
-          # ID. Amending an ALREADY-PASSED lock needs a real 2-of-3 cosigner
-          # (separate cosign flow) — see ContestsController guard.
-          { pubkey: @program_id,            is_signer: false, is_writable: false },
-          { pubkey: vault_pda,              is_signer: false, is_writable: false },
-          *governance_metas,
-          { pubkey: c_pda,                  is_signer: false, is_writable: true  },
-          *extras
-        ],
+        accounts: server_contest_time_accounts(contest_slug) + extras,
         data: data
       )
       signature = client.send_and_confirm(tx.serialize_base64)
       { signature: signature }
     end
+
+    # The server-signed contest-time account list: the server key as `admin`,
+    # `cosigner: None` (the program id), and any v0.26 cosigners trailing as
+    # remaining accounts. Shared by the two server-signed setters and
+    # #build_agent_cosigned_contest_time.
+    def server_contest_time_accounts(contest_slug)
+      c_pda, _ = contest_pda(contest_slug)
+      vault_pda, _ = vault_state_pda
+      [
+        { pubkey: Keypair.admin.public_key_bytes, is_signer: true,  is_writable: true  },
+        { pubkey: @program_id,                    is_signer: false, is_writable: false },
+        { pubkey: vault_pda,                      is_signer: false, is_writable: false },
+        *governance_metas,
+        { pubkey: c_pda,                          is_signer: false, is_writable: true  }
+      ]
+    end
+    private :server_contest_time_accounts
 
     # Build a Phantom-signable set_contest_lock_time TX (1-of-3). The admin's
     # Phantom wallet (which must be a vault signer — e.g. Mr. McRitchie's key)
@@ -2050,9 +2104,8 @@ module Solana
     # human triggers.
     def set_contest_conclusion_time(contest_slug, conclusion_timestamp, extra_signers: [])
       admin = Keypair.admin
-      c_pda, _ = contest_pda(contest_slug)
-      vault_pda, _ = vault_state_pda
-      extras = unattended_extra_signer_metas("set_contest_conclusion_time", required: 2, signers: extra_signers)
+      extras = unattended_extra_signer_metas(governed_time_action("set_contest_conclusion_time", contest_slug),
+                                             signers: extra_signers)
 
       data = Transaction.anchor_discriminator("set_contest_conclusion_time") +
              Borsh.encode_i64(conclusion_timestamp.to_i)
@@ -2061,16 +2114,7 @@ module Solana
       extra_signers.each { |kp| tx.add_signer(kp) } if extras.any?
       tx.add_instruction(
         program_id: @program_id,
-        accounts: [
-          { pubkey: admin.public_key_bytes, is_signer: true,  is_writable: true  },
-          # cosigner: Option<Signer> — None for a 1-of-3 first set; amending an
-          # already-SET conclusion needs a 2-of-3 cosigner (v0.19, #5).
-          { pubkey: @program_id,            is_signer: false, is_writable: false },
-          { pubkey: vault_pda,              is_signer: false, is_writable: false },
-          *governance_metas,
-          { pubkey: c_pda,                  is_signer: false, is_writable: true  },
-          *extras
-        ],
+        accounts: server_contest_time_accounts(contest_slug) + extras,
         data: data
       )
       signature = client.send_and_confirm(tx.serialize_base64)
@@ -2464,7 +2508,7 @@ module Solana
       # When no cosigner_keypair was supplied the two slots hold the SAME key,
       # which is not two signatures — the helper counts distinct keys and
       # refuses, rather than letting `DuplicateSigner` say it after the fee.
-      extras = unattended_extra_signer_metas("settle_contest", required: 3,
+      extras = unattended_extra_signer_metas("settle_contest",
                                              signers: extra_signers,
                                              named: [admin.public_key_bytes,
                                                      cosigner.public_key_bytes])
@@ -2601,38 +2645,77 @@ module Solana
       # v0.26 raised CLOSE_CONTEST to 2 AND redirected the reclaimed rent to the
       # pinned treasury, so closing is now mildly costly to the caller instead of
       # mildly profitable — the correct incentive for a janitorial action.
-      extras = unattended_extra_signer_metas("close_contest", required: 2,
-                                             signers: extra_signers)
-      c_pda,            _ = contest_pda(contest_slug)
-      prize_pool_addr,  _ = prize_pool_pda(contest_slug)
-      vault_pda,        _ = vault_state_pda
-      op_rev_usdc,      _ = op_rev_ata_pda(Config::USDC_MINT)
-      usdc_mint           = Keypair.decode_base58(Config::USDC_MINT)
-
-      data = Transaction.anchor_discriminator("close_contest")
+      extras = unattended_extra_signer_metas("close_contest", signers: extra_signers)
 
       tx = build_tx(admin)
       extra_signers.each { |kp| tx.add_signer(kp) } if extras.any?
       tx.add_instruction(
         program_id: @program_id,
-        accounts: [
-          { pubkey: admin.public_key_bytes,        is_signer: true,  is_writable: true  },
-          { pubkey: vault_pda,                     is_signer: false, is_writable: false },
-          *governance_metas,
-          *treasury_metas,
-          { pubkey: c_pda,                         is_signer: false, is_writable: true  },
-          { pubkey: prize_pool_addr,               is_signer: false, is_writable: true  },
-          { pubkey: usdc_mint,                     is_signer: false, is_writable: false },
-          { pubkey: op_rev_usdc,                   is_signer: false, is_writable: true  },
-          { pubkey: Transaction::TOKEN_PROGRAM_ID, is_signer: false, is_writable: false },
-          *extras
-        ],
-        data: data
+        accounts: close_contest_accounts(contest_slug) + extras,
+        data: Transaction.anchor_discriminator("close_contest")
       )
 
       signature = client.send_and_confirm(tx.serialize_base64)
       { signature: signature }
     end
+
+    # close_contest for a HUMAN or AGENT cosign (v0.26, CLOSE_CONTEST 2).
+    # close_contest names only `admin`, so every other vault signature rides in
+    # the leading remaining accounts: `cosigner_pubkey` first, then
+    # `extra_cosigners`. The server signs as admin and fee payer and leaves
+    # those slots empty for their holders. Returns { serialized_tx: }.
+    def build_close_contest(contest_slug, cosigner_pubkey:, extra_cosigners: [])
+      cosigners = [cosigner_pubkey, *extra_cosigners].map { |k| Keypair.decode_base58(k) }
+      metas = cosigners.map { |key| { pubkey: key, is_signer: true, is_writable: false } }
+
+      tx = build_tx(Keypair.admin)
+      tx.add_instruction(
+        program_id: @program_id,
+        accounts: close_contest_accounts(contest_slug) + metas,
+        data: Transaction.anchor_discriminator("close_contest")
+      )
+      { serialized_tx: tx.serialize_partial_base64(additional_signers: cosigners) }
+    end
+
+    # A server-signed set_contest_{lock,conclusion}_time with signer slots left
+    # for agent keys this process does not hold: the QA rehearsal builds it on
+    # the dyno and the agents sign where their keys are. The unattended twin of
+    # #set_contest_lock_time. Returns { serialized_tx: }.
+    def build_agent_cosigned_contest_time(instruction, contest_slug, timestamp, cosigner_pubkeys:)
+      raise ArgumentError, "unknown contest time instruction #{instruction}" unless CONTEST_TIME_INSTRUCTIONS.include?(instruction)
+
+      cosigners = Array(cosigner_pubkeys).map { |k| Keypair.decode_base58(k) }
+      metas = cosigners.map { |key| { pubkey: key, is_signer: true, is_writable: false } }
+
+      tx = build_tx(Keypair.admin)
+      tx.add_instruction(
+        program_id: @program_id,
+        accounts: server_contest_time_accounts(contest_slug) + metas,
+        data: Transaction.anchor_discriminator(instruction) + Borsh.encode_i64(timestamp.to_i)
+      )
+      { serialized_tx: tx.serialize_partial_base64(additional_signers: cosigners) }
+    end
+
+    # The close_contest account list up to its remaining accounts. Shared by
+    # the server-signed #close_contest and the cosigned #build_close_contest.
+    def close_contest_accounts(contest_slug)
+      c_pda,           _ = contest_pda(contest_slug)
+      prize_pool_addr, _ = prize_pool_pda(contest_slug)
+      vault_pda,       _ = vault_state_pda
+      op_rev_usdc,     _ = op_rev_ata_pda(Config::USDC_MINT)
+      [
+        { pubkey: Keypair.admin.public_key_bytes,          is_signer: true,  is_writable: true  },
+        { pubkey: vault_pda,                               is_signer: false, is_writable: false },
+        *governance_metas,
+        *treasury_metas,
+        { pubkey: c_pda,                                   is_signer: false, is_writable: true  },
+        { pubkey: prize_pool_addr,                         is_signer: false, is_writable: true  },
+        { pubkey: Keypair.decode_base58(Config::USDC_MINT), is_signer: false, is_writable: false },
+        { pubkey: op_rev_usdc,                             is_signer: false, is_writable: true  },
+        { pubkey: Transaction::TOKEN_PROGRAM_ID,           is_signer: false, is_writable: false }
+      ]
+    end
+    private :close_contest_accounts
 
     # Derive the treasury USDC ATA for a given mint — the ATA owned by
     # VaultState.treasury_authority (the Squads vault PDA). This is the
@@ -2891,8 +2974,7 @@ module Solana
       # signs, and pause does not stop it. Written but NEVER DEPLOYED at 1-of-N,
       # so three regresses nothing — and three is the reversible direction,
       # since lowering it later is one transaction and un-burning a voucher is not.
-      extras = unattended_extra_signer_metas("burn_entry_token", required: 3,
-                                             signers: extra_signers)
+      extras = unattended_extra_signer_metas("burn_entry_token", signers: extra_signers)
 
       # The SAME two derivations mint does, from the same input — see
       # #mint_entry_token. `padded_source_ref` raises rather than truncating past
@@ -3108,8 +3190,7 @@ module Solana
       vault_pda, _ = vault_state_pda
       # CREATE_SEASON went 1 -> 3: the season's per-entry seed schedule has no
       # upper bound checked on chain, so one key must not be able to write it.
-      extras = unattended_extra_signer_metas("create_season", required: 3,
-                                             signers: extra_signers)
+      extras = unattended_extra_signer_metas("create_season", signers: extra_signers)
 
       name_bytes = name.to_s.b.bytes.first(32)
       name_bytes += [0] * (32 - name_bytes.length)
