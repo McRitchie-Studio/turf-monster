@@ -215,4 +215,20 @@ class EntryLandedHoldTest < ActiveSupport::TestCase
     @entry.answer_landed!("declined")
     assert_empty Entry.landed_prompts_for(@user)
   end
+
+  # --- the database's own check -------------------------------------------------
+
+  # Pins entries_landed_answer_known as Postgres enforces it from db/schema.rb,
+  # whichever deparse of the IN list the dump carries: the two answers and NULL
+  # pass, anything else is refused below the model.
+  test "the landed_answer check admits only reauthorized, declined or NULL" do
+    entry = entries(:one)
+
+    [nil, "reauthorized", "declined"].each do |answer|
+      entry.update_columns(landed_answer: answer)
+      assert_equal answer, entry.reload.landed_answer
+    end
+
+    assert_raises(ActiveRecord::StatementInvalid) { entry.update_columns(landed_answer: "accepted") }
+  end
 end
