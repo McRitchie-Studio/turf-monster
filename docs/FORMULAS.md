@@ -91,13 +91,16 @@ Chart/formula visualization colors are defined once at the top of `slates/show.h
   that actually fails moves, so a series keeps its own brand colour wherever it
   already clears: `--fc-goals-ink` is `#B8B0FF` in dark and `--color-violet-ink`
   in light; `--fc-dk-score-ink` is `#15803D` in light and `--color-primary-ink`
-  in dark. Both borrowed inks are **this app's own per-theme tokens**, declared
-  in `app/assets/tailwind/application.css` — `Studio::ThemeResolver` emits
-  neither (it emits `--color-primary` and its scale, plus the danger, warning
-  and success inks). Borrowing them still beats pinning a fourth hex pair,
-  because they move with the ink tokens the rest of the app already reads; but
-  none of the four values here tracks a theme change, and until 2026-09-22 this
-  line claimed they did. What the theme DOES move is the **ground**: the four
+  in dark. `--color-violet-ink` is **this app's own per-theme token**, declared
+  in `app/assets/tailwind/application.css`; `Studio::ThemeResolver` emits none.
+  `--color-primary-ink` is **the engine's**: a studio-engine that derives it
+  emits it in the theme tag, and this app declares the same values (`#97BE99`
+  dark, `#246227` light) only as a zero-specificity `:where()` fallback, which
+  paints on an engine that emits none. Borrowing them still beats pinning a
+  fourth hex pair, because they move with the ink tokens the rest of the app
+  already reads. On a deriving engine the dark-green ink tracks a change to the
+  primary; the other three values here do not track a theme change. What the
+  theme DOES move is the **ground**: the four
   surfaces are resolver-derived, so changing the dark base shifts every ratio
   above while the inks stay put. The guard catches that by reddening.
 - **JS `_fcColors()`** builds `FC.mult` / `FC.goals` / `FC.dkTotal` for the

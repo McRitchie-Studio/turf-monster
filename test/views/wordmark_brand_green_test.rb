@@ -77,7 +77,7 @@ class WordmarkBrandGreenTest < ActiveSupport::TestCase
       assert_equal 1, classes.size, "#{site} should set the word Monster as a logotype exactly once"
       assert_includes classes.first.split, "tm-wordmark", "#{site}: the logotype lost the brand green"
       refute_includes classes.first.split, "text-primary",
-                      "#{site}: text-primary on the logotype repaints it with the per-theme ink (#81C784 in dark)"
+                      "#{site}: text-primary on the logotype repaints it with the per-theme ink (#97BE99 in dark)"
     end
   end
 
