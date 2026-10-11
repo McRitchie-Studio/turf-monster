@@ -11,9 +11,9 @@ module LandedEntryPromptHelper
   LANDED_REASON_DEFAULT = "we could not finish your entry".freeze
 
   def landed_entry_prompts
-    return [] unless logged_in? && !impersonating?
+    return @landed_entry_prompts if defined?(@landed_entry_prompts)
 
-    @landed_entry_prompts ||= Entry.landed_prompts_for(current_user)
+    @landed_entry_prompts = logged_in? && !impersonating? ? Entry.landed_prompts_for(current_user) : []
   end
 
   def landed_entry_reason(entry)
