@@ -638,7 +638,8 @@ work before the signature: vault_state wants a pause reason logged on-chain and
 then a `confirm()` naming the network; vault_init wants four pubkeys and a
 threshold. Learning "your device cannot do this" after all of that is the moment
 somebody starts hunting for a workaround. `shared/_wallet_desktop_only_notice`
-renders hidden, reveals itself on a phone, and disables every
+renders hidden; its `desktop-only-notice` controller (static, so connected as the
+page loads) reveals it on a phone and disables every
 `[data-desktop-only-action]` button; the click-time throw stays as the backstop.
 
 **Lock / conclude is the exception, and it is structural.** Its buttons live in
