@@ -798,4 +798,8 @@ Rails.application.routes.draw do
   end
   # The e2e lane's landed-entry fixture (TestController#set_landed_entry).
   post "test/set_landed_entry", to: "test#set_landed_entry" unless Rails.env.production?
+  # The signing pages' enforce switch, for one e2e spec (TestController#set_signing_csp).
+  post "test/signing_csp", to: "test#set_signing_csp" unless Rails.env.production?
+  # The strict script policy's violation reports (SigningCsp::REPORT_PATH).
+  post "csp_reports", to: "csp_reports#create"
 end

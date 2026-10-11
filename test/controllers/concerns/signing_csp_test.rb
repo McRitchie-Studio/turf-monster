@@ -16,12 +16,13 @@ class SigningCspUnitTest < ActiveSupport::TestCase
                    "https://cdnjs.cloudflare.com", "https://cdn.logr-in.com" ], script_src
   end
 
-  test "every other directive is the app policy's, and the app policy is unchanged" do
+  test "every other directive is the app policy's, it reports, and the app policy is unchanged" do
     before = app_policy.build(nil, nil, [])
     strict = directives(SigningCsp.strict(app_policy))
     app = directives(app_policy)
 
-    assert_equal app.except("script-src"), strict.except("script-src")
+    assert_equal app.except("script-src"), strict.except("script-src", "report-uri")
+    assert_equal [ "/csp_reports" ], strict.fetch("report-uri")
     assert_includes app.fetch("script-src"), "'unsafe-inline'"
     assert_equal before, app_policy.build(nil, nil, [])
   end

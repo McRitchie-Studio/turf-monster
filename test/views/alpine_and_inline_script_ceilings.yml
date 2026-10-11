@@ -20,7 +20,7 @@ admin:
   x_other: 0
   alpine_api: 13
   inline_script: 10
-  inline_handler: 7
+  inline_handler: 0
 entry:
   x_data: 40
   x_show: 75

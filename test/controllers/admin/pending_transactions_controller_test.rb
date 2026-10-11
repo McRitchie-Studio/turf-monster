@@ -788,7 +788,7 @@ class Admin::PendingTransactionsControllerTest < ActionDispatch::IntegrationTest
     assert_match(/data-controller="cosign-button" data-action="cosign-button#cosign"/, response.body)
     controller = Rails.root.join("app/javascript/controllers/cosign_button_controller.js").read
     assert_includes controller,
-      "window.cosignTransaction(button.dataset.txSlug, button.dataset.txLabel, window.collectExtraCosigners(button), button)"
+      "window.cosignTransaction(data.txSlug, data.txLabel, window.collectExtraCosigners(button), button)"
   end
 
   # ── THE THIRD SIGNATURE'S CONTROL ────────────────────────────────────────

@@ -1,6 +1,6 @@
 // Configure your import map in config/importmap.rb. Read more: https://github.com/rails/importmap-rails
 import "@hotwired/turbo-rails"
-import "csp_nonce_carry"
+import "signing_document"
 import "debug_logger"
 import "session_wipe"
 import "base58"

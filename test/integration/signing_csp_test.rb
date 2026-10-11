@@ -58,6 +58,7 @@ class SigningCspTest < ActionDispatch::IntegrationTest
     assert_includes sources, "'unsafe-eval'"
     assert_not_includes sources, "'unsafe-inline'"
     assert_not_includes sources, "https:"
+    assert_includes header, "report-uri /csp_reports"
     nonce = nonce_of(header)
     assert nonce, "no nonce in script-src on #{request.path}"
     assert_page_nonced(Nokogiri::HTML5(html), nonce)
@@ -70,6 +71,10 @@ class SigningCspTest < ActionDispatch::IntegrationTest
     meta = doc.at_css('meta[name="csp-nonce"]')
     assert meta, "no csp-nonce meta"
     assert_equal nonce, meta["content"]
+    # Its own document: Turbo enters it by a full load, and signing_document
+    # leaves by one.
+    assert doc.at_css('meta[name="turbo-visit-control"][content="reload"]'), "no turbo-visit-control reload"
+    assert doc.at_css('meta[name="signing-csp"][content="strict"]'), "no signing-csp marker"
 
     unnonced = doc.css("script").select { |script| executable?(script) && script["nonce"] != nonce }
     assert_empty unnonced.reject { |script| pending_script?(script) }.map { |script| script.to_html[0, 160] }
@@ -99,7 +104,8 @@ class SigningCspTest < ActionDispatch::IntegrationTest
     log_in_as(users(:alex))
     [
       contest_path(contests(:one)), edit_contest_path(contests(:one)), new_contest_path,
-      generator_contests_path, account_path, admin_pending_transactions_path, "/auth/phantom/callback"
+      generator_contests_path, account_path, admin_pending_transactions_path, "/auth/phantom/callback",
+      profile_path, wallet_path, admin_vault_init_path, admin_vault_state_path, admin_authorities_path
     ].each do |path|
       get path
       assert_response :success, path
@@ -125,6 +131,8 @@ class SigningCspTest < ActionDispatch::IntegrationTest
       assert_nil response.headers[ENFORCED], path
       assert_includes script_src(response.headers[REPORT_ONLY]), "'unsafe-inline'"
       assert_nil nonce_of(response.headers[REPORT_ONLY]), path
+      assert_nil page.at_css('meta[name="signing-csp"]'), path
+      assert_nil page.at_css('meta[name="turbo-visit-control"]'), path
     end
   end
 
@@ -164,6 +172,20 @@ class SigningCspTest < ActionDispatch::IntegrationTest
       get contests_path
       assert_equal app_policy, response.headers[ENFORCED]
     end
+  end
+
+  test "the enforce switch enforces the strict policy outside production too" do
+    was = Rails.configuration.x.signing_csp_enforced
+    Rails.configuration.x.signing_csp_enforced = true
+    get contest_path(contests(:one))
+    assert_nil response.headers[REPORT_ONLY]
+    assert_not_includes script_src(response.headers[ENFORCED]), "'unsafe-inline'"
+
+    get contests_path
+    assert_nil response.headers[ENFORCED], "the app policy stays report-only here"
+    assert_equal app_policy, response.headers[REPORT_ONLY]
+  ensure
+    Rails.configuration.x.signing_csp_enforced = was
   end
 
   # Every inline <script> in app/views renders the nonce, so a partial that
