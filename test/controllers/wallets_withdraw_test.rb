@@ -135,8 +135,9 @@ class WalletsWithdrawTest < ActionDispatch::IntegrationTest
     end
     assert_response :success
     assert_select "h2", text: /Cash out/
-    # The collapse trigger is a button with text "Withdraw" or "Cancel"
-    assert_match(/x-text="open \? 'Cancel' : 'Withdraw'"/, response.body)
+    # The collapse trigger: the withdraw-card controller's toggle, reading
+    # "Withdraw" at rest ("Cancel" once open).
+    assert_select '#cash-out button[data-withdraw-card-target="toggle"]', text: "Withdraw"
   end
 
   test "wallet page hides the Withdraw card for a self-custodied user and shows the callout" do
