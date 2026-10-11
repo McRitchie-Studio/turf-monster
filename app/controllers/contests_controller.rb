@@ -1800,19 +1800,25 @@ class ContestsController < ApplicationController
     redirect_to @contest || contests_path, alert: e.message
   end
 
-  # Reclaim on-chain rent (close_contest, 1-of-3 server-signed). The program
-  # only allows close once the Contest PDA is in a terminal state (Settled or
-  # Cancelled — error 6005 otherwise), so we gate on the same. Single vault
-  # signer = the bot's admin keypair signs + broadcasts itself; no
-  # PendingTransaction / cosign needed.
+  # Reclaim on-chain rent (close_contest). The program only allows close once
+  # the Contest PDA is in a terminal state (Settled or Cancelled — error 6005
+  # otherwise), so we gate on the same.
+  #
+  # v0.25: one vault signer, so the server signs and broadcasts itself.
+  # v0.26: CLOSE_CONTEST needs 2, so the server signs its half and queues the
+  # rest for a Phantom cosign in the Treasury, as cancel_onchain does.
   def close_onchain
     rescue_and_log(target: @contest) do
       raise "Contest must be settled or cancelled before closing on-chain" unless @contest.settled? || @contest.onchain_cancelled?
       raise "Contest is already closed on-chain" if @contest.onchain_closed?
 
-      result = Solana::Vault.new.close_contest(@contest.slug)
-      @contest.update!(onchain_closed: true)
-      redirect_to @contest, notice: "On-chain rent reclaimed (close_contest: #{result[:signature]})."
+      if Solana::Config.governance?
+        queue_close_cosign!
+      else
+        result = Solana::Vault.new.close_contest(@contest.slug)
+        @contest.update!(onchain_closed: true)
+        redirect_to @contest, notice: "On-chain rent reclaimed (close_contest: #{result[:signature]})."
+      end
     end
   rescue StandardError => e
     redirect_to @contest || contests_path, alert: e.message
@@ -1858,6 +1864,28 @@ class ContestsController < ApplicationController
   end
 
   private
+
+  # The v0.26 close: one queued row per contest, so a second press does not
+  # stack a second cosign.
+  def queue_close_cosign!
+    existing = PendingTransaction.find_by(target: @contest, tx_type: "close_contest", status: "pending")
+    if existing
+      return redirect_to admin_pending_transactions_path,
+                         notice: "Close is already waiting for a cosign in the Treasury."
+    end
+
+    result = Solana::Vault.new.build_close_contest(@contest.slug,
+                                                   cosigner_pubkey: Solana::Config::MULTISIG_COSIGNER)
+    PendingTransaction.create!(
+      tx_type: "close_contest",
+      serialized_tx: result[:serialized_tx],
+      target: @contest,
+      initiator_address: Solana::Keypair.admin.to_base58,
+      metadata: {}.to_json
+    )
+    redirect_to admin_pending_transactions_path,
+                notice: "Close queued for cosign — reclaims rent to the treasury once co-signed in the Treasury."
+  end
 
   # Gate for TEST_ACTIONS. Runs after require_admin, so only an admin reaches
   # it; a refusal is a flash on the contest page and changes nothing.

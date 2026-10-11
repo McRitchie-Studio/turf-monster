@@ -116,27 +116,26 @@ class Solana::GovernanceSwitchTest < ActiveSupport::TestCase
   # not update the on-chain IDL, so a fetch would return the OLD one and the pin
   # would certify the wrong shape.
   test "the v0.26 IDL hashes match what the runbook tells the operator to pin" do
-    assert_equal "259889ced686875b46062aaabce7e8c45e68710e6c0ae0738f3451cd4673060f",
+    assert_equal "2d9f71517600221859029d0ddb9b7e5d126f8d5cc5a4cf1b4bd5d9392c6ab2c0",
                  Digest::SHA256.hexdigest(File.read(Rails.root.join("config", "turf_vault.v026.idl.json"))),
                  "devnet v0.26 hash drifted from docs/SOLANA.md"
-    assert_equal "d1eea2a48d0a7f0cf711d3da7c85a1653d13e0903be6bebcf7be47be41404ea7",
+    assert_equal "1499f4cf9fd6f161e227965d1ca357a8a919c9f031928573e6607a9d71889f4e",
                  Digest::SHA256.hexdigest(File.read(Rails.root.join("config", "turf_vault.mainnet.v026.idl.json"))),
                  "mainnet v0.26 hash drifted from docs/SOLANA.md"
   end
 
   # ── THE DISCRIMINATOR IS STRUCTURAL, NOT A VERSION STRING ─────────────────
   #
-  # This is the trap. turf-vault built v0.26 with `version = "0.25.0"` still in
-  # programs/turf_vault/Cargo.toml, so BOTH IDLs report metadata.version
-  # "0.25.0". Anything keying on that string would have looked correct, passed
-  # review, and selected the wrong shape in production.
-  test "metadata.version is IDENTICAL across the two shapes and cannot discriminate" do
+  # The v0.26 IDLs now read 0.26.0 (rebuilt from turf-vault origin/main
+  # 8a9fa715). The selection still keys on `init_governance`, never on this
+  # string: the first v0.26 build shipped reading 0.25.0, and the version is a
+  # label, not a shape.
+  test "metadata.version labels each shape" do
     v25 = JSON.parse(File.read(Rails.root.join("config", "turf_vault.idl.json"))).dig("metadata", "version")
     v26 = JSON.parse(File.read(Rails.root.join("config", "turf_vault.v026.idl.json"))).dig("metadata", "version")
 
-    assert_equal v25, v26,
-                 "if turf-vault finally bumps its Cargo version, this test is the place that says so"
-    assert_equal "0.25.0", v26, "the v0.26 IDL still reports 0.25.0 — an unbumped Cargo.toml"
+    assert_equal "0.25.0", v25
+    assert_equal "0.26.0", v26, "the v0.26 IDL must be the build from the bumped crate"
   end
 
   test "the structural probe tells the two IDLs apart" do
@@ -153,13 +152,14 @@ class Solana::GovernanceSwitchTest < ActiveSupport::TestCase
                  "the switch and the pinned IDL must agree, or verify_governance_alignment! refuses the boot"
   end
 
-  test "the v0.26 IDL carries the full 6000-6066 error range and the new accounts" do
+  test "the v0.26 IDL carries the full 6000-6067 error range and the new accounts" do
     idl = JSON.parse(File.read(Rails.root.join("config", "turf_vault.v026.idl.json")))
     codes = idl.fetch("errors").map { |e| e["code"] }
 
     assert_equal 6000, codes.min
-    assert_equal 6066, codes.max
-    assert_equal 67, codes.length, "6000..6066 inclusive is 67 variants"
+    assert_equal 6067, codes.max
+    assert_equal 68, codes.length, "6000..6067 inclusive is 68 variants"
+    assert_equal "VaultPdaNotAWallet", idl.fetch("errors").find { |e| e["code"] == 6067 }&.fetch("name")
 
     accounts = idl.fetch("accounts").map { |a| a["name"] }
     %w[GovernanceConfig MintWindow UsernameRecord].each { |a| assert_includes accounts, a }
