@@ -66,8 +66,8 @@ class SigningCspTest < ActionDispatch::IntegrationTest
   end
 
   def assert_page_nonced(doc, nonce)
-    # The engine's csp_meta_tag: csp_nonce_carry reads the document's nonce
-    # from it, and Turbo gives it to every script it runs.
+    # The engine's csp_meta_tag. Turbo gives this nonce to every script it
+    # activates, which is why signing_document strips frame and stream scripts.
     meta = doc.at_css('meta[name="csp-nonce"]')
     assert meta, "no csp-nonce meta"
     assert_equal nonce, meta["content"]
