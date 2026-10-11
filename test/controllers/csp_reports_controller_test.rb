@@ -25,6 +25,14 @@ class CspReportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "error-log-#{log.id}", log.slug
   end
 
+  test "the same report again inside the window adds no row" do
+    assert_difference -> { ErrorLog.where(parent_name: "csp-report").count }, 1 do
+      3.times { post_report(report_uri_body, "application/csp-report") }
+    end
+    travel(CspReportsController::DEDUPE_WINDOW + 1.minute) { post_report(report_uri_body, "application/csp-report") }
+    assert_equal 2, ErrorLog.where(parent_name: "csp-report").count
+  end
+
   test "a Reporting API batch keeps only its csp-violation bodies" do
     batch = [ { "type" => "csp-violation", "body" => { "documentURL" => "https://turf.test/account", "effectiveDirective" => "script-src-attr",
                                                        "blockedURL" => "inline", "disposition" => "enforce" } },
@@ -42,7 +50,7 @@ class CspReportsControllerTest < ActionDispatch::IntegrationTest
       post_report({ "csp-report" => { "script-sample" => "x" * 9000 } }.to_json, "application/csp-report")
       assert_response :content_too_large
     end
-    many = Array.new(20) { { "type" => "csp-violation", "body" => { "effectiveDirective" => "script-src" } } }.to_json
+    many = Array.new(20) { |i| { "type" => "csp-violation", "body" => { "effectiveDirective" => "script-src", "blockedURL" => "/#{i}" } } }.to_json
     assert_difference -> { ErrorLog.count }, CspReportsController::MAX_REPORTS do
       post_report(many, "application/reports+json")
     end

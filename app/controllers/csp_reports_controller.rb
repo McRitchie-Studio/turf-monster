@@ -11,6 +11,9 @@ class CspReportsController < ActionController::Base
 
   MAX_BODY = 8.kilobytes
   MAX_REPORTS = 5
+  # One row per distinct report a window: a page that trips the policy does on
+  # every view (a gem's un-nonced script does today).
+  DEDUPE_WINDOW = 1.hour
   # report-uri's field => the Reporting API's name for it.
   FIELDS = {
     "document-uri" => "documentURL", "violated-directive" => "effectiveDirective",
@@ -45,12 +48,11 @@ class CspReportsController < ActionController::Base
 
   def record(report)
     fields = FIELDS.to_h { |name, api_name| [ name, (report[name] || report[api_name]).to_s[0, 300] ] }.compact_blank
-    log = ErrorLog.create!(
-      message: "CSP #{fields['disposition'] || 'report'}: #{fields['effective-directive'] || fields['violated-directive']} " \
-               "blocked #{fields['blocked-uri']} on #{fields['document-uri']}"[0, 500],
-      inspect: fields.to_json,
-      parent_name: "csp-report"
-    )
+    message = "CSP #{fields['disposition'] || 'report'}: #{fields['effective-directive'] || fields['violated-directive']} " \
+              "blocked #{fields['blocked-uri']} on #{fields['document-uri']}"[0, 500]
+    return if ErrorLog.where(parent_name: "csp-report", message: message, created_at: DEDUPE_WINDOW.ago..).exists?
+
+    log = ErrorLog.create!(message: message, inspect: fields.to_json, parent_name: "csp-report")
     log.update_column(:slug, "error-log-#{log.id}")
   end
 end
