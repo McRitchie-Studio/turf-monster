@@ -12,7 +12,7 @@ class SigningCspUnitTest < ActiveSupport::TestCase
   test "script-src drops 'unsafe-inline' and https: and names its hosts" do
     script_src = directives(SigningCsp.strict(app_policy)).fetch("script-src")
 
-    assert_equal [ "'self'", "'unsafe-eval'", "https://cdn.jsdelivr.net", "https://unpkg.com",
+    assert_equal [ "'self'", "'unsafe-eval'", "'report-sample'", "https://cdn.jsdelivr.net", "https://unpkg.com",
                    "https://cdnjs.cloudflare.com", "https://cdn.logr-in.com" ], script_src
   end
 

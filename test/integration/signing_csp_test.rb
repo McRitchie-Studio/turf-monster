@@ -25,8 +25,6 @@ class SigningCspTest < ActionDispatch::IntegrationTest
   PENDING = [
     Pending.new(gem: "solana-studio", file: "app/views/solana_studio/_phantom_deeplink.html.erb",
                 unfixed: /^<script>$/, script: /window\.startPhantomDeepLink\s*=/),
-    Pending.new(gem: "solana-studio", file: "app/views/solana_studio/_deeplink_assets.html.erb",
-                unfixed: /^<script>$/, script: /data-studio-nacl/),
     Pending.new(gem: "studio-engine", file: "app/views/solana_sessions/phantom_callback.html.erb",
                 unfixed: /^<script>$/, script: /phantom_dl_secret/),
     Pending.new(gem: "studio-engine", file: "app/views/studio/banners/_button.html.erb",

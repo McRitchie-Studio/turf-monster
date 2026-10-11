@@ -71,6 +71,7 @@ Rails.application.configure do
   signing_script_src = [
     :self,
     :unsafe_eval,
+    :report_sample,               # a report quotes the first 40 characters it blocked
     "https://cdn.jsdelivr.net",   # Alpine, tweetnacl, canvas-confetti, sortablejs
     "https://unpkg.com",          # @solana/web3.js, leaflet (site footer map)
     "https://cdnjs.cloudflare.com", # cropperjs
