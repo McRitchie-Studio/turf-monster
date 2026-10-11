@@ -173,7 +173,7 @@ test.describe("email change notice", () => {
     await settled(page);
     await page.goBack();
     await expect(page).toHaveURL(/\/account$/);
-    await expect(field(page)).toBeVisible();
+    await expect(field(page)).toHaveValue(/^entry-stimulus-email-turbo-/);
     await expect(notice(page)).toBeHidden();
   });
 });
@@ -181,8 +181,16 @@ test.describe("email change notice", () => {
 test.describe("API keys add-another link", () => {
   const CARD = "turbo-frame#api_keys_card";
 
-  async function withOneKey(page, label) {
+  // A fresh player is not yet age verified, and the card offers no form until
+  // they are.
+  async function verified(page, label) {
     await signIn(page, label);
+    const verify = await page.request.post("/test/set_age_verified", { data: { verified: true } });
+    expect(verify.ok()).toBeTruthy();
+  }
+
+  async function withOneKey(page, label) {
+    await verified(page, label);
     await page.goto("/account");
     const card = page.locator(CARD);
     await card.getByLabel("Name").fill("First");
@@ -191,6 +199,18 @@ test.describe("API keys add-another link", () => {
     await card.getByRole("link", { name: "I've copied it" }).click();
     await expect(card.locator("[data-api-key-row]")).toHaveCount(1);
   }
+
+  test("the age gate's event, straight after load, re-fetches the card with its form", async ({ page }) => {
+    await signIn(page, "keys-age");
+    await page.goto("/account");
+    const card = page.locator(CARD);
+    await expect(card.locator('[data-api-key-blocked="age"]')).toBeVisible();
+    const verify = await page.request.post("/test/set_age_verified", { data: { verified: true } });
+    expect(verify.ok()).toBeTruthy();
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("age-verified")));
+    await expect(card.getByLabel("Name")).toBeVisible();
+    await expect(card.locator('[data-api-key-blocked="age"]')).toHaveCount(0);
+  });
 
   test("pressed straight after load opens the form and focuses the name", async ({ page }) => {
     await withOneKey(page, "keys");
@@ -265,6 +285,7 @@ test.describe("cash-out card", () => {
     await turboVisit(page, "/wallet", '[data-controller="withdraw-card"]');
     await toggle(page).click();
     await expect(panel(page)).toBeVisible();
+    await card(page).getByLabel("Amount (USD)").fill("12");
 
     await turboVisit(page, "/help", 'a[href="/help/how-to-play"]');
     await settled(page);
@@ -272,5 +293,6 @@ test.describe("cash-out card", () => {
     await expect(page).toHaveURL(/\/wallet$/);
     await expect(toggle(page)).toHaveText("Withdraw");
     await expect(panel(page)).toBeHidden();
+    await expect(card(page).getByLabel("Amount (USD)")).toHaveValue("");
   });
 });

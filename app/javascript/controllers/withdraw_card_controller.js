@@ -9,7 +9,8 @@ import { enter, leave, settle } from "turf/enter_leave"
 //
 // The markup is the state: form hidden, submit disabled. connect reads both
 // fields, so what was typed before it connected counts. Bind reset to
-// turbo:before-cache@document so a restored page starts closed.
+// turbo:before-cache@document so a restored page starts as a fresh one:
+// closed, with both fields empty.
 export default class extends Controller {
   static targets = [ "toggle", "panel", "amount", "destination", "submit" ]
   static values = { frozen: Boolean }
@@ -40,7 +41,10 @@ export default class extends Controller {
   reset() {
     this.closing = false
     settle(this.panelTarget, false)
+    this.amountTarget.value = this.amountTarget.defaultValue
+    this.destinationTarget.value = this.destinationTarget.defaultValue
     this.renderToggle()
+    this.validate()
   }
 
   get open() {

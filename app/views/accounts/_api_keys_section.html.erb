@@ -200,13 +200,18 @@
         <% if form_error.present? %>
           <%# One refusal at a time: this one is about the LAST answer, and a
               throttled submit is a newer one that says nothing about the name. %>
-          <p id="api_key_name_error" role="alert" class="text-xs mt-2 text-danger-ink" data-submit-busy-target="error" data-api-key-error><%= form_error %></p>
+          <div data-submit-busy-target="error">
+            <p id="api_key_name_error" role="alert" class="text-xs mt-2 text-danger-ink" data-api-key-error><%= form_error %></p>
+          </div>
         <% end %>
         <%# The mint throttle answers from rack-attack, in JSON, before any
-            controller runs: there is no card in that response to swap in. %>
-        <p hidden role="alert" class="text-xs mt-2 text-danger-ink" data-submit-busy-target="throttled" data-api-key-throttled>
-          You've created too many keys in the last hour. Please wait a while and try again.
-        </p>
+            controller runs: there is no card in that response to swap in. The
+            controller shows and hides the wrapper; the sentence is the server's. %>
+        <div hidden data-submit-busy-target="throttled">
+          <p role="alert" class="text-xs mt-2 text-danger-ink" data-api-key-throttled>
+            You've created too many keys in the last hour. Please wait a while and try again.
+          </p>
+        </div>
       <% end %>
     </div>
   <% end %>

@@ -301,8 +301,8 @@ class ApiKeysSectionTest < ActionView::TestCase
     doc = render_section
     message = form(doc).at_css("[data-api-key-throttled]")
 
-    assert_equal "throttled", message["data-submit-busy-target"]
-    assert message.key?("hidden"), "hidden until the submit-busy controller reads a 429"
+    assert_equal "throttled", message.parent["data-submit-busy-target"]
+    assert message.parent.key?("hidden"), "hidden until the submit-busy controller reads a 429"
     assert_equal "alert", message["role"]
     assert_match(/too many keys/i, message.text)
     assert_equal "submit-busy", form(doc)["data-controller"]
@@ -326,7 +326,7 @@ class ApiKeysSectionTest < ActionView::TestCase
   test "the name error stands down while the throttle message is up" do
     doc = render_section(form_error: "Name can't be blank", form_name: " ")
 
-    assert_equal "error", doc.at_css("[data-api-key-error]")["data-submit-busy-target"]
+    assert_equal "error", doc.at_css("[data-api-key-error]").parent["data-submit-busy-target"]
   end
 
   test "a key reloaded from the database reveals nothing" do
