@@ -242,7 +242,11 @@ class TestController < ApplicationController
     return render json: { error: "not logged in" }, status: :unauthorized unless current_user
 
     contest = Contest.find_by!(slug: params[:contest_slug])
-    Entry.create!(user: current_user, contest: contest, status: :active)
+    entry = Entry.create!(user: current_user, contest: contest, status: :active)
+    # `picks: n` also picks the first n teams on the slate, so the entry's
+    # leaderboard row has pills to lay out.
+    picks = params[:picks].to_i.clamp(0, contest.picks_required)
+    contest.matchups.to_a.uniq(&:team_slug).first(picks).each { |matchup| entry.selections.create!(slate_matchup: matchup) }
 
     render json: {
       ok: true,
