@@ -62,6 +62,14 @@ async function enforce(request, enforced) {
 
 const navigationUrl = (page) => page.evaluate(() => new URL(performance.getEntriesByType("navigation")[0].name).pathname);
 const injected = (page) => page.evaluate(() => window.__injected);
+// Turbo runs a frame's or stream's scripts just after it renders, so a probe
+// gets this long to run: the controls poll for it, the refusals wait it out.
+const RUN_WINDOW = 1500;
+const ranWithin = (page, value) => expect.poll(() => injected(page), { timeout: RUN_WINDOW }).toBe(value);
+async function neverRan(page) {
+  await page.waitForTimeout(RUN_WINDOW);
+  expect(await injected(page)).toBeUndefined();
+}
 
 // Adds the probe script to every HTML document the browser fetches for path.
 async function injectInto(page, path) {
@@ -148,7 +156,7 @@ test.describe("enforced", () => {
     await page.waitForURL(`**${CONTEST}`);
     await page.waitForLoadState("load");
     await expect(page.locator("[data-controller~='chat-reactions']")).toHaveCount(1);
-    expect(await injected(page)).toBeUndefined();
+    await neverRan(page);
   });
 
   test("a script injected through a frame or a stream does not run on a signing page", async ({ page, request }) => {
@@ -156,23 +164,23 @@ test.describe("enforced", () => {
     await page.goto(CONTEST);
     await injectThroughFrame(page);
     await injectThroughStream(page);
-    expect(await injected(page)).toBeUndefined();
+    await neverRan(page);
   });
 
   // THE CONTROLS. The same probes, where nothing refuses them.
   test("the same Drive injection runs when the signing policy only reports", async ({ page }) => {
     await injectInto(page, CONTEST);
     await page.goto(CONTEST);
-    expect(await injected(page)).toBe("drive");
+    await ranWithin(page, "drive");
   });
 
   test("the same frame and stream injections run on a page outside the group", async ({ page, request }) => {
     await enforce(request, true);
     await page.goto(LAX);
     await injectThroughFrame(page);
-    expect(await injected(page)).toBe("frame");
+    await ranWithin(page, "frame");
     await injectThroughStream(page);
-    expect(await injected(page)).toBe("stream");
+    await ranWithin(page, "stream");
   });
 });
 

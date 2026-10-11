@@ -86,11 +86,10 @@ module SigningCsp
     flash.keep if request.headers["X-Turbo-Request-Id"].present?
   end
 
-  # Writes the headers itself; the middleware then leaves them alone. Never
-  # stored: Back to a signing page is a fresh load (it is never in Turbo's
-  # cache), and a stored copy would show the cart as it was first rendered.
+  # Writes the headers itself; the middleware then leaves them alone. No
+  # no-store: it would keep a signing page out of the back/forward cache,
+  # which the wallet handoff's swipe back relies on.
   def apply_signing_csp
-    no_store
     keep_flash_for_the_full_load
     policy = request.content_security_policy or return
     nonce = request.content_security_policy_nonce
