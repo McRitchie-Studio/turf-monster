@@ -65,6 +65,20 @@ class LaptopLiveRenderTest < ActionDispatch::IntegrationTest
     assert_includes live.at_css('[data-test="laptop-live-leaderboard"]').text, "👑", "the crown on #1"
   end
 
+  # The leaderboard runs on a Stimulus controller on the real page. In the
+  # snapshot none may connect, so its layout is resolved to the 1280px page:
+  # the full row of six shows, the narrow fan does not, nothing is unfolded.
+  test "the laptop's leaderboard is static: no controller, the full pill row shown" do
+    board = laptop.at_css('[data-test="laptop-live"] [data-test="laptop-live-leaderboard"]')
+
+    assert_empty laptop.css("[data-controller], [data-action]"), "a Stimulus controller would connect inside the laptop"
+    assert_not_empty board.css('[data-leaderboard-target="full"]')
+    board.css('[data-leaderboard-target="full"], [data-leaderboard-target="more"]').each { |node| assert_not node.key?("hidden") }
+    board.css('[data-leaderboard-target="narrow"], [data-leaderboard-target="tail"], [data-leaderboard-target="less"]').each do |node|
+      assert node.key?("hidden"), node.to_html[0, 100]
+    end
+  end
+
   test "no real username, email or chat line reaches the laptop, even with real entries" do
     real_contest_with_players
     html = laptop.to_html

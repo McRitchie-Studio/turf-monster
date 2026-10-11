@@ -283,6 +283,9 @@ class TestController < ApplicationController
   def seed_contests
     count = params[:count].to_i.clamp(1, 12)
     onchain = ActiveModel::Type::Boolean.new.cast(params[:onchain])
+    # `upcoming: true` locks them a week out, so their contest pages show the
+    # board rather than redirect to the live page.
+    upcoming = ActiveModel::Type::Boolean.new.cast(params[:upcoming])
     slate = Slate.order(:id).first
     return render json: { error: "no slate to hang a contest on" }, status: :unprocessable_entity if slate.nil?
 
@@ -300,6 +303,7 @@ class TestController < ApplicationController
         max_entries: 29,
         contest_type: "standard",
         slate: slate,
+        starts_at: (1.week.from_now if upcoming),
         # Newest first inside the rail's open band, so the spec can name the
         # order it expects rather than discover it.
         created_at: i.minutes.ago,

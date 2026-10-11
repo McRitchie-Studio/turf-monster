@@ -285,8 +285,8 @@ const FITTING_NAME_EMAIL = "team@turfmonster.media";
  * one worker against one database, so a leftover contest is paid for by every
  * later spec that measures this page.
  */
-async function seedRailContests(page, count) {
-  const res = await page.request.post("/test/seed_contests", { data: { count } });
+async function seedRailContests(page, count, { upcoming = false } = {}) {
+  const res = await page.request.post("/test/seed_contests", { data: { count, upcoming } });
   if (!res.ok()) {
     throw new Error(`seed_contests failed: ${res.status()} ${await res.text()}`);
   }

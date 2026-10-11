@@ -22,7 +22,7 @@ const player = () => `board-stimulus-${Date.now()}-${seq++}@example.com`;
 
 test.beforeEach(async ({ page, request }) => {
   await reseed(request);
-  await seedRailContests(page, 1);
+  await seedRailContests(page, 1, { upcoming: true });
   await page.route(/\/assets\/(?:controllers|turf)\/[\w-]+\.js/, async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 300));
     await route.continue();
