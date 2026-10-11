@@ -1,7 +1,7 @@
 <%# Orb-glow CSS + JS helper for tokens/_pack_button. Render once per
     page that uses the partial, outside any x-if/x-show wrapper so the
     rules + helper are in the DOM before the button mounts. %>
-<script>
+<script nonce="<%= content_security_policy_nonce %>">
   // Synchronous-user-gesture popup helper for the modal pack-purchase
   // flow. Chrome (esp. in incognito) was silently dropping the new tab
   // when we relied on the form's target attribute, even with a same-

@@ -50,7 +50,7 @@
       first row via cloned chips) → snap to 0 → dwell. Only rotates when the row
       overflows; honors prefers-reduced-motion; pauses under the pointer, because
       the chips are buttons and a moving button is a missed click. %>
-  <script>
+  <script nonce="<%= content_security_policy_nonce %>">
     // WHAT THE READER DID, KEPT OUTSIDE THE THING THAT GETS REPLACED.
     //
     // Contest::LiveBroadcast#replace_games swaps the innerHTML of

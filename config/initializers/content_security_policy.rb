@@ -14,10 +14,10 @@
 #   - Transactional email providers are server-side only
 #
 # Inline scripts/styles are used by Alpine and several inline blocks in the
-# ERB layouts. Rails 7's `:strict_dynamic` + nonce approach would be ideal
-# but requires a refactor of inline script use. For v1 we allow 'unsafe-inline'
-# on script-src/style-src — narrowed via nonce in a follow-up. Report-only
-# in dev so we surface accidental violations without blocking; enforced in
+# ERB layouts, so this policy allows 'unsafe-inline' on script-src/style-src.
+# The signing pages narrow script-src to named hosts plus a nonce
+# (SigningCsp, app/controllers/concerns/signing_csp.rb). Report-only in dev
+# so we surface accidental violations without blocking; enforced in
 # production.
 
 Rails.application.configure do
@@ -59,4 +59,28 @@ Rails.application.configure do
   end
 
   config.content_security_policy_report_only = !Rails.env.production?
+
+  # Per-request nonce. Every inline <script> renders it; only the signing
+  # pages' header carries it (SigningCsp), so nonce_directives stays empty
+  # here and every other page's header is the policy above, unchanged.
+  config.content_security_policy_nonce_generator = ->(_request) { SecureRandom.base64(16) }
+  config.content_security_policy_nonce_directives = []
+
+  # script-src on a signing page: no 'unsafe-inline', no https:, each script
+  # host named. 'unsafe-eval' stays until the engine retires Alpine.
+  signing_script_src = [
+    :self,
+    :unsafe_eval,
+    "https://cdn.jsdelivr.net",   # Alpine, tweetnacl, canvas-confetti, sortablejs
+    "https://unpkg.com",          # @solana/web3.js, leaflet (site footer map)
+    "https://cdnjs.cloudflare.com", # cropperjs
+    "https://cdn.logr-in.com"     # LogRocket
+  ]
+  signing_script_src << "https://www.paypal.com" if paypal_provider
+  config.x.signing_csp_script_src = signing_script_src
+
+  # THE ENFORCE SWITCH. false: a signing page enforces the policy above and
+  # reports the strict one (Content-Security-Policy-Report-Only). true: it
+  # enforces the strict one.
+  config.x.signing_csp_enforced = false
 end

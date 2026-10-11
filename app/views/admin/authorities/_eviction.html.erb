@@ -385,7 +385,7 @@
   <% end %>
 </section>
 
-<script>
+<script nonce="<%= content_security_policy_nonce %>">
   // PROPS LIVE IN THE FACTORY, NOT IN THE ATTRIBUTE. An `x-data` expression
   // carrying interpolated server values needs quoting that survives ERB, and a
   // single stray double quote silently kills the whole component — the element

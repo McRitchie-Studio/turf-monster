@@ -59,7 +59,7 @@
     paired-alpine-factories-can-diverge). Do not re-create one to make this
     "unit-testable": the factory interpolates a server-side constant below, so a
     module could not carry it, and a second copy is what the deleted one was. %>
-<script>
+<script nonce="<%= content_security_policy_nonce %>">
   window.seedsBar = function () {
     return {
       displaySeeds: 0,

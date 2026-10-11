@@ -68,7 +68,7 @@
 }.to_json.html_safe %>
 </script>
 
-<script>
+<script nonce="<%= content_security_policy_nonce %>">
   // Auto-open the cdp-ramp modal at the row's current step. Same wiring as the
   // layout's onboarding-chain auto-open: bind to turbo:load AND the cold-load
   // path, one-shot guard, and poll briefly for the modals store in case this

@@ -33,9 +33,11 @@ every_page = %w[
   controllers/arrival_scroll_controller turf/arrival_scroll
   controllers/auto_submit_controller
   controllers/card_filter_controller turf/card_filter
+  controllers/chat_reactions_controller
   controllers/contest_chain_controller
   controllers/contest_rail_controller turf/contest_rail
   controllers/copy_link_controller turf/copy_link
+  controllers/cosign_button_controller
   controllers/cost_calculator_controller turf/cost_calculator
   controllers/desktop_only_notice_controller turf/desktop_only_notice
   controllers/disclosure_controller turf/transition
@@ -49,6 +51,7 @@ every_page = %w[
   controllers/reveal_controller turf/reveal
   controllers/reveal_follow_up_controller
   controllers/row_link_controller
+  controllers/session_wipe_controller
   controllers/settled_filter_controller turf/settled_filter
   controllers/submit_busy_controller turf/submit_busy
   controllers/swatch_copy_controller turf/swatch_copy

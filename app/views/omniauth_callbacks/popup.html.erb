@@ -12,7 +12,7 @@
       </button>
     <% end %>
 
-    <script>
+    <script nonce="<%= content_security_policy_nonce %>">
       document.getElementById("google-oauth-popup-form").submit();
     </script>
   </body>

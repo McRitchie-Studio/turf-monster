@@ -28,7 +28,7 @@
     <%= raw({ currentEmail: pending[:current_email], newEmail: pending[:new_email] }.to_json) %>
   </script>
 <% end %>
-<script>
+<script nonce="<%= content_security_policy_nonce %>">
   (function() {
     var fired = false;
     function openEmailChangePending() {
@@ -201,7 +201,7 @@
 
   <%# -- Log out + Buy Entry Tokens (side by side) -- %>
   <div class="grid grid-cols-2 gap-4 mb-6">
-    <%= link_to "Log out", logout_path, class: "btn btn-outline w-full", data: { turbo: false }, onclick: "window.wipeClientState && window.wipeClientState()" %>
+    <%= link_to "Log out", logout_path, class: "btn btn-outline w-full", data: { turbo: false, controller: "session-wipe", action: "session-wipe#wipe" } %>
     <%= link_to "Buy Entry Tokens", tokens_buy_path, class: "btn btn-primary w-full" %>
   </div>
 

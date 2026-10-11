@@ -32,7 +32,7 @@
     take() reads and clears in one motion, so a reload or a double-fired listener
     cannot throw the same party twice; the expiry means a slot abandoned midway
     cannot congratulate someone tomorrow for an entry they made today. %>
-<script>
+<script nonce="<%= content_security_policy_nonce %>">
 (function (W) {
   'use strict';
 

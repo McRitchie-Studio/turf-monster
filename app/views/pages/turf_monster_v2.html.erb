@@ -49,7 +49,7 @@
 <% top_score = TurfMonsterRules.turf_score_for_rank(1) %>
 <% low_score = TurfMonsterRules.turf_score_for_rank(TurfMonsterRules::TEAM_COUNT) %>
 
-<script>
+<script nonce="<%= content_security_policy_nonce %>">
   // Inline for the reason every page-level factory in this app is: importmap
   // modules run AFTER Alpine walks x-data, so a factory defined there is not
   // there yet on a fresh load.

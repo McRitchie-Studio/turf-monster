@@ -14,7 +14,7 @@
 <%# The board's Alpine component. Defined inline rather than in the importmap
     so it exists before Alpine processes the x-data below — the same reason
     contests/live.html.erb defines its carousel factory inline. %>
-<script>
+<script nonce="<%= content_security_policy_nonce %>">
   window.nflLiveBoard = function (initialFocus) {
     return {
       focus: initialFocus || '',
@@ -105,7 +105,7 @@
 
 <%= render "live/score_animations" %>
 
-<script>
+<script nonce="<%= content_security_policy_nonce %>">
   (function () {
     var feed = document.getElementById('nfl_live_event_feed');
     if (!feed || feed.dataset.observed) return;  // guard double-attach across Turbo visits

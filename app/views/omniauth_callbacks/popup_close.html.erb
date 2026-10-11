@@ -6,7 +6,7 @@
 </head>
 <body style="margin:0;background:#1a1430;color:#cbd5e1;font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh">
   <p>You can close this window.</p>
-  <script>
+  <script nonce="<%= content_security_policy_nonce %>">
     (function () {
       var payload = <%= @oauth_payload.to_json.html_safe %>;
       payload.source = 'tt-oauth';

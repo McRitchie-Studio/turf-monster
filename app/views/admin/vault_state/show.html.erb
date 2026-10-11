@@ -214,7 +214,7 @@
 <div id="cosign-config" data-rpc-url="<%= @rpc_url %>" style="display:none;"></div>
 
 <% if @vault %>
-<script>
+<script nonce="<%= content_security_policy_nonce %>">
 (function() {
   var csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
   var rpcUrl = document.getElementById('cosign-config').dataset.rpcUrl;

@@ -22,7 +22,7 @@
         memory is keyed by game slug and event id, not by node;
       · flash on a game the reader is not watching — a hidden tile's events
         are recorded and stay silent. %>
-<script>
+<script nonce="<%= content_security_policy_nonce %>">
   (function () {
     var focus = document.getElementById('contest_<%= contest.id %>_focus');
     if (!focus) return;

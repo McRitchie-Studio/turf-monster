@@ -21,7 +21,7 @@
       <button type="button"
               class="chat-admin-only ml-auto flex-shrink-0 text-xs font-medium text-muted hover:text-red-400 transition opacity-0 group-hover:opacity-100"
               data-message-url="<%= contest_message_path(message.contest, message) %>"
-              onclick="hideChatMessage(this)">Hide</button>
+              data-action="chat-reactions#hide">Hide</button>
     </div>
     <p class="text-sm text-secondary break-words whitespace-pre-wrap leading-snug mt-0.5"><%= message.body %></p>
     <%= render "messages/reactions", message: message %>
@@ -37,11 +37,11 @@
     <% [message.contest.sport_emoji, *Reaction::QUICK].each do |e| %>
       <button type="button"
               class="chat-react-quick inline-flex items-center justify-center w-7 h-7 rounded-full text-base leading-none transition"
-              onclick="reactToMessage(this, '<%= e %>')"><%= e %></button>
+              data-action="chat-reactions#react" data-chat-reactions-emoji-param="<%= e %>"><%= e %></button>
     <% end %>
     <button type="button"
             class="chat-react-add inline-flex items-center justify-center w-7 h-7 rounded-full leading-none text-muted transition"
             title="Find another reaction"
-            onclick="openReactionPicker(this)" aria-label="Find another reaction">+</button>
+            data-action="chat-reactions#openPicker" aria-label="Find another reaction">+</button>
   </div>
 </div>
