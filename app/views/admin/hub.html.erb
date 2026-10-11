@@ -36,6 +36,8 @@
     <%= render "hub_tile", name: "Free Entries", url: admin_free_entries_path %>
     <%= render "hub_tile", name: "Entry Gifts",  url: admin_entry_gifts_path,
           note: "Send a friend a paid-for entry by email" %>
+    <%= render "hub_tile", name: "Held Paid Entries", url: admin_landed_entries_path,
+          note: "Paid entries an app gate refused: the player's answer and the operator's replace" %>
     <%= render "hub_tile", name: "Currencies",   url: admin_currencies_path, note: "On-chain accepted_currencies (register / deactivate / sweep)" %>
     <% unless Rails.env.production? %>
       <%= render "hub_tile", name: "Faucet",     url: faucet_path %>

@@ -869,4 +869,25 @@ class TestController < ApplicationController
     end
     render json: { ok: true, slug: current_user.slug, frozen: current_user.reload.frozen? }
   end
+
+  # The landed-entry prompt's fixture (e2e/landed_entry_prompt.spec.js): a held
+  # paid entry for the signed-in player in the first open contest, the row the
+  # verdict leaves when an app gate refuses a paid entry. It is written as rows
+  # only; no chain is touched. `clear=true` removes this fixture's rows.
+  E2E_LANDED_SIGNATURE_PREFIX = "e2e-landed-".freeze
+
+  def set_landed_entry
+    return render json: { error: "not logged in" }, status: :unauthorized unless current_user
+
+    Entry.where("payment_signature LIKE ?", "#{E2E_LANDED_SIGNATURE_PREFIX}%").delete_all
+    return render json: { ok: true, cleared: true } if params[:clear].to_s == "true"
+
+    contest = Contest.where(status: "open").order(:id).first
+    return render json: { error: "no open contest" }, status: :unprocessable_entity unless contest
+
+    entry = Entry.create!(user: current_user, contest: contest, status: :cart, payment_state: "landed",
+                          payment_rail: "managed", payment_refusal_code: "contest_full", payment_landed_at: Time.current,
+                          payment_signature: "#{E2E_LANDED_SIGNATURE_PREFIX}#{SecureRandom.hex(8)}")
+    render json: { ok: true, slug: entry.reload.slug, contest: contest.name }
+  end
 end

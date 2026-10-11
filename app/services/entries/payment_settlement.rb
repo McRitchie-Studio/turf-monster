@@ -214,14 +214,17 @@ module Entries
       # enforces the lock itself, so a ticket that exists was in time; without a
       # readable block time, the moment the attempt was recorded stands in.
       as_of = Solana::TxVerifier.block_time(signature, client: @vault.client) || @entry.payment_submitted_at
+      # A held row the player re-authorized or the operator replaced skips the
+      # capacity and per-user gates (Entry::LandedHold); every other gate stands.
+      held = @entry.landed_hold_authorized?
 
       if @entry.payment_rail == "phantom"
         verify_wallet_signed!(signature, pda)
-        @entry.confirm_onchain!(tx_signature: signature, entry_pda: pda, as_of: as_of)
+        @entry.confirm_onchain!(tx_signature: signature, entry_pda: pda, as_of: as_of, held: held)
       else
         # Durable capture first, so a failed confirm cannot lose the proof.
         @entry.update!(onchain_tx_signature: signature, onchain_entry_id: pda)
-        @entry.confirm!(tx_signature: signature, onchain_entry_id: pda, as_of: as_of)
+        @entry.confirm!(tx_signature: signature, onchain_entry_id: pda, as_of: as_of, held: held)
       end
       Rails.logger.info("[entry-payment] confirmed entry=#{@entry.id} tx=#{signature.to_s.first(8)}...")
       close_wire("confirmed")
