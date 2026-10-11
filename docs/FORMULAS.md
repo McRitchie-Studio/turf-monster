@@ -92,12 +92,16 @@ Chart/formula visualization colors are defined once at the top of `slates/show.h
   already clears: `--fc-goals-ink` is `#B8B0FF` in dark and `--color-violet-ink`
   in light; `--fc-dk-score-ink` is `#15803D` in light and `--color-primary-ink`
   in dark. Both borrowed inks are **this app's own per-theme tokens**, declared
-  in `app/assets/tailwind/application.css` — `Studio::ThemeResolver` emits
-  neither (it emits `--color-primary` and its scale, plus the danger, warning
-  and success inks). Borrowing them still beats pinning a fourth hex pair,
-  because they move with the ink tokens the rest of the app already reads; but
-  none of the four values here tracks a theme change, and until 2026-09-22 this
-  line claimed they did. What the theme DOES move is the **ground**: the four
+  in both theme selectors of `app/assets/tailwind/application.css`.
+  `Studio::ThemeResolver` emits no `--color-violet-ink`. Whether it emits a
+  `--color-primary-ink` depends on the engine: one emits none, and a newer one
+  derives it per theme from the primary. Where the engine emits one, this
+  app's declaration loads later with the same selectors and paints instead;
+  it clears AA on every surface and primary tint, so the shadow never lowers
+  contrast. Borrowing them still beats pinning a fourth hex pair, because they
+  move with the ink tokens the rest of the app already reads; but on either
+  engine none of the four values here tracks a theme change. What the theme
+  DOES move is the **ground**: the four
   surfaces are resolver-derived, so changing the dark base shifts every ratio
   above while the inks stay put. The guard catches that by reddening.
 - **JS `_fcColors()`** builds `FC.mult` / `FC.goals` / `FC.dkTotal` for the

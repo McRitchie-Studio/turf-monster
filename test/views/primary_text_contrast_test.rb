@@ -3,10 +3,11 @@ require "test_helper"
 # Component tier for green TEXT (task: primary-button-fails-contrast).
 #
 # The brand primary #2E7D32 is a FILL: white labels clear AA on it. As TEXT on
-# the dark theme it measured 3.41:1 on the page and 2.18:1 on a card, so this
-# app paints green text with a per-theme ink instead:
+# the dark theme it measures 3.41:1 on the page and 2.18:1 on a card, and in
+# the light theme 4.28:1 on its own chip tint, so this app paints green text
+# with a per-theme ink instead:
 #
-#   --color-primary-ink        dark #81C784, light = the primary
+#   --color-primary-ink        dark #81C784, light the scale's 700 shade
 #   --color-primary-badge-ink  the ink for text ON a primary tint (level-badge-1)
 #
 # Declared at the end of app/assets/tailwind/application.css, and wired into
@@ -23,9 +24,9 @@ require "test_helper"
 # `:root, .dark` and `html:not(.dark)`, and the second wins.
 #
 # THE BAR. Text must clear WCAG AA 4.5:1 on the card (--color-surface) and the
-# page (--color-page), in both themes. Measured on 2026-09-16 and NOT asserted
-# here: the light ink is 4.10:1 on bg-inset, and `bg-primary/15 text-primary`
-# Tailwind badges are 4.21:1 in the light theme (docs/UI_PATTERNS.md, Still open).
+# page (--color-page), in both themes. The other two surfaces and the primary
+# tints are measured by "the primary ink clears AA whichever source paints it"
+# in test/views/violet_text_contrast_test.rb.
 class PrimaryTextContrastTest < ActiveSupport::TestCase
   AA_TEXT = 4.5
   COMPILED_CSS = Rails.root.join("app/assets/builds/tailwind.css").freeze
@@ -194,8 +195,8 @@ class PrimaryTextContrastTest < ActiveSupport::TestCase
     end
   end
 
-  test "control: the plain light ink fails on the level-badge-1 tint" do
-    ratio, = level_badge_ratios(:light, overrides: { "--color-primary-badge-ink" => "var(--color-primary-ink)" })[:card]
+  test "control: the bare light primary fails on the level-badge-1 tint" do
+    ratio, = level_badge_ratios(:light, overrides: { "--color-primary-badge-ink" => "var(--color-primary)" })[:card]
     assert_operator ratio, :<, AA_TEXT,
                     "the primary on its own 15 percent tint is #{format('%.2f', ratio)}:1, which is why the badge ink exists"
   end

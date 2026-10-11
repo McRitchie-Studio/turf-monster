@@ -167,7 +167,7 @@ class VioletTextContrastTest < ActiveSupport::TestCase
   # WHICH OF THEM PAINT A REGISTERED SERIES COLOUR, per theme, with the ground
   # the site actually sits on recorded beside it. LIGHT IS ASSERTED EMPTY and
   # that is a tripwire, not a vacuous pass: `--color-primary-ink` is
-  # `var(--color-primary)` there (#2E7D32), which is nobody's series colour, so
+  # `var(--color-primary-700)` there (#205823), which is nobody's series colour, so
   # a light-theme entry appearing here means a new site started painting one.
   #
   # The ground column is documentation, not the measurement. See the lane.
@@ -855,34 +855,94 @@ class VioletTextContrastTest < ActiveSupport::TestCase
                     "floor it was raised to clear"
   end
 
-  # THE CLAIM THE COMMENTS MAKE ABOUT WHERE THESE INKS COME FROM. Both the
-  # slates/show comment and docs/FORMULAS.md said the borrowed inks were
-  # "derived per theme by Studio::ThemeResolver" and therefore tracked a theme
-  # change. They are not and do not — they are this app's own tokens. That was
-  # corrected in prose, and prose is what went wrong the first time, so the
-  # corrected claim is asserted here: if the resolver ever DOES emit one, this
-  # reds and the comments get to be right again.
-  test "control: the borrowed inks are the app's own tokens, not the resolver's" do
+  # THE CLAIM THE COMMENTS MAKE ABOUT WHERE THESE INKS COME FROM. slates/show and
+  # docs/FORMULAS.md say the borrowed inks are this app's own tokens and that the
+  # four ink values pin rather than track the theme. That has to hold on every
+  # engine this app runs against:
+  #
+  #   * --color-violet-ink: the resolver emits none, so the app's is the only one.
+  #   * --color-primary-ink: one engine emits none, a newer one derives its own.
+  #     The app declares it in BOTH theme selectors, so its value paints either
+  #     way. The light selector matters: the engine's `html:not(.dark)` outranks
+  #     `:root, .dark`, so a dark-only declaration would lose in light.
+  #
+  # The test below this one measures the value that paints, on either engine.
+  test "control: the borrowed inks are the app's own tokens on either engine" do
     colors = ThemeSetting.current.resolved_colors
 
     %i[dark light].each do |mode|
       emitted = engine_tokens(mode, colors)
 
-      [ "--color-primary-ink", "--color-violet-ink" ].each do |token|
-        refute emitted.key?(token),
-               "Studio::ThemeResolver now emits #{token} in the #{mode} theme. slates/show.html.erb and " \
-               "docs/FORMULAS.md both say it does NOT, and that the four ink values pin rather than track — " \
-               "update them, because the resolver-derived version is the better story and would now be true."
-      end
+      refute emitted.key?("--color-violet-ink"),
+             "Studio::ThemeResolver now emits --color-violet-ink in the #{mode} theme. slates/show.html.erb and " \
+             "docs/FORMULAS.md both say it does NOT — update them, and decide whether this app's ink still shadows it."
 
       assert emitted.key?("--color-primary"),
              "the resolver stopped emitting --color-primary in the #{mode} theme, so this control can no longer " \
              "tell 'the resolver does not emit the ink' from 'the resolver emitted nothing'"
+
+      app = app_tokens(compiled_css, THEME_SELECTORS[mode])
+      assert app.key?("--color-primary-ink"),
+             "this app's #{mode} selector (#{THEME_SELECTORS[mode]}) no longer declares --color-primary-ink. " \
+             "On an engine that emits none the chips lose their ink; on one that derives its own, the engine's " \
+             "value paints instead of the one slates/show and docs/FORMULAS.md quote."
     end
 
-    app = app_tokens(compiled_css, THEME_SELECTORS[:dark])
-    assert app.key?("--color-primary-ink"), "--color-primary-ink is no longer declared by this app's own CSS"
-    assert app.key?("--color-violet-ink"), "--color-violet-ink is no longer declared by this app's own CSS"
+    dark_app = app_tokens(compiled_css, THEME_SELECTORS[:dark])
+    assert dark_app.key?("--color-violet-ink"), "--color-violet-ink is no longer declared by this app's own CSS"
+  end
+
+  # THE SHADOW MAY NOT LOWER CONTRAST. Where the engine derives --color-primary-ink,
+  # this app's value replaces it; where it does not, this app's value is the only
+  # one. Either way the ink that paints must clear AA on every surface and on the
+  # primary tints chips and badges sit in: 10 percent as written and as 8-bit
+  # alpha paints it (26/255, the two the engine derives against), and this
+  # app's own 15 and 20 percent badges. The assertion does not branch on the
+  # engine, so it measures on both.
+  PRIMARY_TINT_ALPHAS = [ 0.10, 26 / 255.0, 0.15, 0.20 ].freeze
+
+  def primary_ink_ratios(mode, **opts)
+    toks = tokens(mode, **opts)
+    ink = opaque(toks.fetch("--color-primary-ink"), toks)
+    primary = opaque(toks.fetch("--color-primary"), toks)
+    SURFACES.each_with_object({}) do |(surface, var), out|
+      ground = opaque(toks.fetch(var), toks)
+      out["#{surface}"] = [ contrast(ink, ground), ink, ground ]
+      PRIMARY_TINT_ALPHAS.each do |alpha|
+        tint = composite(primary, alpha, ground)
+        out["primary at #{format('%.3f', alpha)} on #{surface}"] = [ contrast(ink, tint), ink, tint ]
+      end
+    end
+  end
+
+  test "the primary ink clears AA whichever source paints it" do
+    colors = ThemeSetting.current.resolved_colors
+
+    %i[dark light].each do |mode|
+      engine_ink = engine_tokens(mode, colors)["--color-primary-ink"]
+      source = engine_ink ? "this app's value, shadowing the engine's #{engine_ink}" : "this app's value, the only one"
+
+      primary_ink_ratios(mode).each do |ground, (ratio, ink, color)|
+        assert_operator ratio, :>=, AA_TEXT,
+                        "--color-primary-ink (#{ink}, #{source}) is #{format('%.2f', ratio)}:1 on the #{mode} " \
+                        "#{ground} (#{color}); AA needs 4.5:1"
+      end
+    end
+  end
+
+  # The lane above bites: the bare primary as the light ink, the value this app
+  # used to declare, fails on its own chip tint.
+  test "control: the bare primary as the light ink fails the primary ink lane" do
+    ratios = primary_ink_ratios(:light, overrides: { "--color-primary-ink" => "var(--color-primary)" })
+    ink = ratios.values.first[1]
+    assert_equal "#2E7D32", ink.upcase, "the control must measure the bare primary"
+
+    worst = ratios.values.map(&:first).min
+    assert_operator worst, :<, AA_TEXT,
+                    "the bare primary clears every ground at #{format('%.2f', worst)}:1, so the lane above can no " \
+                    "longer tell a shadow below AA from one above it"
+    page_chip = ratios.fetch("primary at #{format('%.3f', 26 / 255.0)} on page").first
+    assert_in_delta 4.28, page_chip, 0.01, "the bare primary on its painted 10 percent tint over the light page measured 4.28:1"
   end
 
   test "the slate bye-line badge uses the benchmarks badge treatment" do
