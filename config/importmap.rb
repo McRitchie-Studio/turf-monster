@@ -37,7 +37,6 @@ every_page = %w[
   controllers/contest_chain_controller
   controllers/contest_rail_controller turf/contest_rail
   controllers/copy_link_controller turf/copy_link
-  controllers/cosign_button_controller
   controllers/cost_calculator_controller turf/cost_calculator
   controllers/desktop_only_notice_controller turf/desktop_only_notice
   controllers/disclosure_controller turf/transition

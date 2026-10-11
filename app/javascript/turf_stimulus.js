@@ -37,7 +37,6 @@ import ChatReactionsController from "controllers/chat_reactions_controller"
 import ContestChainController from "controllers/contest_chain_controller"
 import ContestRailController from "controllers/contest_rail_controller"
 import CopyLinkController from "controllers/copy_link_controller"
-import CosignButtonController from "controllers/cosign_button_controller"
 import CostCalculatorController from "controllers/cost_calculator_controller"
 import DesktopOnlyNoticeController from "controllers/desktop_only_notice_controller"
 import DisclosureController from "controllers/disclosure_controller"
@@ -60,6 +59,7 @@ import UsdcBalanceController from "controllers/usdc_balance_controller"
 import WithdrawCardController from "controllers/withdraw_card_controller"
 
 export const LAZY = {
+  "cosign-button": () => import("controllers/cosign_button_controller"),
   "filter": () => import("controllers/filter_controller"),
   "game-scorer": () => import("controllers/game_scorer_controller"),
   "hub-actions": () => import("controllers/hub_actions_controller"),
@@ -81,7 +81,6 @@ application.register("chat-reactions", ChatReactionsController)
 application.register("contest-chain", ContestChainController)
 application.register("contest-rail", ContestRailController)
 application.register("copy-link", CopyLinkController)
-application.register("cosign-button", CosignButtonController)
 application.register("cost-calculator", CostCalculatorController)
 application.register("desktop-only-notice", DesktopOnlyNoticeController)
 application.register("disclosure", DisclosureController)
