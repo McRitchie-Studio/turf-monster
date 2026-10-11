@@ -745,6 +745,15 @@ class FakeVault
     @cancel_calls ||= []
   end
 
+  def build_close_contest(contest_slug, cosigner_pubkey:, extra_cosigners: [])
+    close_build_calls << { slug: contest_slug, cosigner: cosigner_pubkey, extra_cosigners: extra_cosigners }
+    { serialized_tx: "FAKE_TX_close_#{contest_slug}" }
+  end
+
+  def close_build_calls
+    @close_build_calls ||= []
+  end
+
   # --- Offramp USDC send (Cdp::OfframpSendJob / Cdp::OfframpSendsController) ---
   #
   # Real Vault#build_user_usdc_transfer returns { wire_base64:, signature: }
