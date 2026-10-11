@@ -156,6 +156,56 @@ class EntryLandedHoldTest < ActiveSupport::TestCase
     assert_equal "landed", @entry.reload.payment_state
   end
 
+  # --- a decline is final ---------------------------------------------------
+  #
+  # Each test declines, then opens the seat the row was refused for, so every
+  # ordinary gate clears. Only the decline stands between the row and live.
+
+  def decline_and_open_seat!
+    land!
+    @entry.answer_landed!("declined")
+    @contest.update!(max_entries: 10)
+  end
+
+  def assert_still_declined
+    assert_equal %w[cart landed declined], @entry.reload.values_at(:status, :payment_state, :landed_answer)
+    assert_equal 1, @vault.tickets.size, "nothing was paid again"
+    assert_equal 0, TransactionLog.where(source: @contest, user: @user).count, "no entry fee was booked"
+  end
+
+  test "a declined row stays landed on a settlement retry once its gates clear" do
+    decline_and_open_seat!
+
+    result = settle
+    assert result.landed?
+    assert_equal :landed_declined, result.code
+    on_chain(@vault) { Entries::PaymentSettleJob.perform_now(@entry.id) }
+    assert_still_declined
+  end
+
+  test "a declined row stays landed through the reconciler, stored proof and chain" do
+    decline_and_open_seat!
+    assert_predicate @entry.reload.onchain_tx_signature, :present?, "the managed rail stored its proof"
+
+    assert_not_equal :reconciled, on_chain(@vault) { Entries::OnchainReconciler.reconcile_entry(@entry, vault: @vault) }
+    @entry.update_columns(onchain_tx_signature: nil) # the no-proof path: the verdict reads the chain
+    assert_not_equal :reconciled, on_chain(@vault) { Entries::OnchainReconciler.reconcile_entry(@entry, vault: @vault) }
+    assert_still_declined
+  end
+
+  test "a verdict that loaded the row before the decline cannot activate it after" do
+    land!
+    @contest.update!(max_entries: 10)
+    stale = Entry.find(@entry.id) # unanswered when the racer read it
+    Entry.find(@entry.id).answer_landed!("declined")
+    signature = @vault.tickets.sole[:signature]
+
+    refusal = assert_raises(Entry::Refusal) { stale.confirm!(tx_signature: signature, onchain_entry_id: stale.onchain_entry_id, held: true) }
+    assert_equal :landed_declined, refusal.code
+    assert_raises(Entry::Refusal) { stale.confirm_onchain!(tx_signature: signature, entry_pda: stale.onchain_entry_id, held: true) }
+    assert_still_declined
+  end
+
   test "the prompt asks about unanswered rows inside the hold only" do
     land!
 
@@ -164,5 +214,21 @@ class EntryLandedHoldTest < ActiveSupport::TestCase
     assert_empty Entry.landed_prompts_for(users(:jordan))
     @entry.answer_landed!("declined")
     assert_empty Entry.landed_prompts_for(@user)
+  end
+
+  # --- the database's own check -------------------------------------------------
+
+  # Pins entries_landed_answer_known as Postgres enforces it from db/schema.rb,
+  # whichever deparse of the IN list the dump carries: the two answers and NULL
+  # pass, anything else is refused below the model.
+  test "the landed_answer check admits only reauthorized, declined or NULL" do
+    entry = entries(:one)
+
+    [nil, "reauthorized", "declined"].each do |answer|
+      entry.update_columns(landed_answer: answer)
+      assert_equal answer, entry.reload.landed_answer
+    end
+
+    assert_raises(ActiveRecord::StatementInvalid) { entry.update_columns(landed_answer: "accepted") }
   end
 end

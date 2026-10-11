@@ -777,11 +777,19 @@ stolen: it sits in Heroku config on a running dyno and signs every entry and
 payout. So `Vault#build_update_signers` takes a `lead_signer:` and picks its build:
 
 - **server leads** → `build_partial_signed`, the ordinary shape; account 0 is
-  filled at build time and the operator supplies the rest.
+  filled at build time and the operator supplies the rest. `#rebuild` sends a
+  `signer_queue` of `authorizers[1..]`, so Phantom is asked only for the
+  cosigner (and any extras), and `#broadcast` accepts exactly that queue.
 - **operator leads** → `build_partial_unsigned`; NOTHING is pre-signed, account 0
   is reserved for one of his wallets which pays the network fee, and every
   signature is collected in Phantom. **This is the only shape that can evict the
-  server's key.**
+  server's key.** Its `signer_queue` is the full authorizer list, lead first.
+
+Which shape a row takes is decided on the server, from the armed plan's
+`server_leads` and this process's key, never from what the browser claims;
+`#rebuild` refuses a build that disagrees. `#arm` refuses any slot or authorizer
+that is not a 32-byte base58 key, after stripping whitespace, and names the
+value.
 
 **The shapes the two live programs accept are different, and the chain decides.**
 `Admin::AuthoritiesController#vault_shape!` refuses to build when

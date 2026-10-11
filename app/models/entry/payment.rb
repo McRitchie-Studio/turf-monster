@@ -50,7 +50,7 @@ class Entry
     IN_FLIGHT_MESSAGES = {
       "submitted" => "Your entry was sent and is still confirming on Solana. We are checking it now. " \
                      "You will not be charged twice.",
-      "landed" => "Your payment for this contest arrived, but we could not finish the entry. " \
+      "landed" => "Your payment for this contest arrived, but the entry did not go through. " \
                   "You will not be charged again. If we need your answer, it is at the top of the page. " \
                   "With any question, contact #{SUPPORT_EMAIL}."
     }.freeze

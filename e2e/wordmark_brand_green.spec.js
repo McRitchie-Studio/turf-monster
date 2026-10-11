@@ -19,11 +19,15 @@ const { test, expect } = require("@playwright/test");
 
 const BRAND_GREEN = "rgb(75, 175, 80)"; //   #4BAF50, the logotype
 const PRIMARY_FILL = "rgb(46, 125, 50)"; //  #2E7D32, buttons and fills
-const DARK_INK = "rgb(129, 199, 132)"; //    #81C784, green text on the dark theme
+// The primary ink is the engine's derived --color-primary-ink, and this app's
+// :where() fallback declares the same values, so these hold on an engine that
+// derives it and on one that emits none.
+const DARK_INK = "rgb(151, 190, 153)"; //    #97BE99, green text on the dark theme
+const LIGHT_INK = "rgb(36, 98, 39)"; //      #246227, green text on the light theme
 
 const THEMES = {
   dark: { ink: DARK_INK },
-  light: { ink: PRIMARY_FILL },
+  light: { ink: LIGHT_INK },
 };
 
 for (const [theme, { ink }] of Object.entries(THEMES)) {

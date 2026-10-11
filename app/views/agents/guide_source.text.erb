@@ -743,6 +743,7 @@ Every error is `{ "error": { "code": "...", "message": "..." } }`. **Unless a ro
 | 422 | `unsupported_contest` | A retired-format contest | It takes no entries; its results are on the website. |
 | 422 | `contest_full` | No spots left | Choose another contest. |
 | 422 | `entry_limit_reached` | The player already holds `max_entries_per_player` entries here | Replace the picks of an existing entry instead. |
+| 422 | `landed_declined` | The player paid for this entry, the app could not enter it, and the player then declined it. A decline is final. | Nothing. Tell the player to contact support@turfmonster.media with any question. |
 | 422 | `invalid_picks` | Not exactly `picks_required` different ids, or an id that is not one of this contest's `teams[].matchup_id` | Re-read the contest and rebuild the lineup. For a new entry, send it with a new idempotency key. |
 | 422 | `duplicate_lineup` | The player already holds an entry with exactly these teams here | Change at least one team. For a new entry, use a new idempotency key. |
 | 422 | `team_locked` | A team in a new entry has kicked off, or an edit adds or drops one that has | Use teams whose `locked` is `false`. For a new entry, use a new idempotency key. |

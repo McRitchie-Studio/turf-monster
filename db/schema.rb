@@ -358,9 +358,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_10_160000) do
     t.index ["status"], name: "index_entries_on_status"
     t.index ["user_id", "contest_id", "entry_number"], name: "index_entries_on_user_contest_entry_number", unique: true, where: "(entry_number IS NOT NULL)"
     t.index ["user_id", "contest_id"], name: "index_entries_on_user_id_and_contest_id"
-    t.index ["user_id", "contest_id"], name: "index_entries_one_payment_in_flight", unique: true, where: "((payment_state)::text = ANY ((ARRAY['submitted'::character varying, 'landed'::character varying])::text[]))"
+    t.index ["user_id", "contest_id"], name: "index_entries_one_payment_in_flight", unique: true, where: "((payment_state)::text = ANY (ARRAY[('submitted'::character varying)::text, ('landed'::character varying)::text]))"
     t.index ["user_id"], name: "index_entries_on_user_id"
-    t.check_constraint "landed_answer IS NULL OR (landed_answer::text = ANY (ARRAY['reauthorized'::character varying, 'declined'::character varying]::text[]))", name: "entries_landed_answer_known"
+    t.check_constraint "landed_answer IS NULL OR (landed_answer::text = ANY (ARRAY['reauthorized'::character varying::text, 'declined'::character varying::text]))", name: "entries_landed_answer_known"
   end
 
   create_table "entry_gifts", force: :cascade do |t|
