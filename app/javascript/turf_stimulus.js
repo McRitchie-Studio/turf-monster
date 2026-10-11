@@ -30,11 +30,21 @@
 import { Application } from "@hotwired/stimulus"
 import { watchLazyControllers } from "studio/lazy_controllers"
 import AccordionController from "controllers/accordion_controller"
+import ArrivalScrollController from "controllers/arrival_scroll_controller"
 import AutoSubmitController from "controllers/auto_submit_controller"
 import CardFilterController from "controllers/card_filter_controller"
+import ContestChainController from "controllers/contest_chain_controller"
+import ContestRailController from "controllers/contest_rail_controller"
+import CopyLinkController from "controllers/copy_link_controller"
 import CostCalculatorController from "controllers/cost_calculator_controller"
+import DisclosureController from "controllers/disclosure_controller"
+import LeaderboardController from "controllers/leaderboard_controller"
+import LeaderboardPollController from "controllers/leaderboard_poll_controller"
 import ProofOfReservesController from "controllers/proof_of_reserves_controller"
+import RowLinkController from "controllers/row_link_controller"
+import SettledFilterController from "controllers/settled_filter_controller"
 import SwatchCopyController from "controllers/swatch_copy_controller"
+import TabsController from "controllers/tabs_controller"
 
 export const LAZY = {
   "filter": () => import("controllers/filter_controller"),
@@ -51,11 +61,21 @@ export const LAZY = {
 export const application = Application.start()
 
 application.register("accordion", AccordionController)
+application.register("arrival-scroll", ArrivalScrollController)
 application.register("auto-submit", AutoSubmitController)
 application.register("card-filter", CardFilterController)
+application.register("contest-chain", ContestChainController)
+application.register("contest-rail", ContestRailController)
+application.register("copy-link", CopyLinkController)
 application.register("cost-calculator", CostCalculatorController)
+application.register("disclosure", DisclosureController)
+application.register("leaderboard", LeaderboardController)
+application.register("leaderboard-poll", LeaderboardPollController)
 application.register("proof-of-reserves", ProofOfReservesController)
+application.register("row-link", RowLinkController)
+application.register("settled-filter", SettledFilterController)
 application.register("swatch-copy", SwatchCopyController)
+application.register("tabs", TabsController)
 
 const registered = []
 

@@ -95,7 +95,10 @@ class TurfStimulusTest < ActionDispatch::IntegrationTest
   end
 
   test "the static controllers are the public pages' controllers, and none is lazy" do
-    assert_equal %w[accordion auto-submit card-filter cost-calculator proof-of-reserves swatch-copy], static_controllers.keys.sort
+    assert_equal %w[
+      accordion arrival-scroll auto-submit card-filter contest-chain contest-rail copy-link cost-calculator
+      disclosure leaderboard leaderboard-poll proof-of-reserves row-link settled-filter swatch-copy tabs
+    ], static_controllers.keys.sort
     assert_empty static_controllers.keys & lazy_controllers.keys
   end
 
@@ -132,6 +135,7 @@ class TurfStimulusTest < ActionDispatch::IntegrationTest
 
       source.scan(/(?:data-action=|\baction: )"([^"<]+)"/).flatten.flat_map(&:split).each do |action|
         identifier, method = action.split("->").last.split("#")
+        method = method&.split(":")&.first
         next unless method && registered.key?(identifier)
 
         assert_match(/^  (?:async )?#{method}\(/, controller_source(identifier), "#{view}: #{action} names a missing method")
@@ -153,10 +157,12 @@ class TurfStimulusTest < ActionDispatch::IntegrationTest
       "filter" => "reset", "show-more" => "collapse", "send-gate" => "reset",
       "dev-score-tools" => "reset", "scoring-filter" => "reset", "game-scorer" => "reset",
       "navbar-preview" => "reset", "accordion" => "collapse", "card-filter" => "reset",
-      "cost-calculator" => "reset", "swatch-copy" => "reset"
+      "cost-calculator" => "reset", "swatch-copy" => "reset", "disclosure" => "reset",
+      "copy-link" => "reset", "tabs" => "reset", "leaderboard" => "reset", "settled-filter" => "reset"
     }.each do |identifier, method|
       # The 300 characters after the attribute hold the rest of the opening tag.
-      roots = Dir[VIEWS].sort.flat_map { |file| File.read(file).scan(/data-controller="#{identifier}".{0,300}/m) }
+      # The root may name more than one controller.
+      roots = Dir[VIEWS].sort.flat_map { |file| File.read(file).scan(/data-controller="[^"]*(?<![\w-])#{identifier}(?![\w-])[^"]*".{0,300}/m) }
       assert_not_empty roots, "no view names #{identifier}"
       roots.each { |tag| assert_includes tag, "turbo:before-cache@document->#{identifier}##{method}" }
     end

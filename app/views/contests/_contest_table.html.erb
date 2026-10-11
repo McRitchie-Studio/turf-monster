@@ -1,6 +1,6 @@
 <%# The compact contest table, shared by the two table bands on /contests.
-    The whole row is click-through (CSP allows inline handlers); the name stays
-    a real link for keyboard access, with stopPropagation so it doesn't
+    The whole row is click-through (row-link); the name stays a real link for
+    keyboard access, and a press on it is the link's own, so it does not
     double-fire.
 
     Locals:
@@ -9,7 +9,7 @@
       entered_contest_ids  Set of ids this viewer has entered.
       payouts              contest_id => this viewer's payout_cents, or NIL.
       hide_settled         whether settled rows hide behind the page's
-                           showSettled toggle.
+                           Show Settled toggle (settled-filter).
 
     `payouts` IS THE BAND SWITCH, and nil is a meaning rather than an absence.
     Nil says "this table is nobody's ledger" — the All Contests band — so a
@@ -25,7 +25,7 @@
     contest's RESULT is the only thing that band exists to report. %>
 <% payouts = local_assigns[:payouts] %>
 <% hide_settled = local_assigns.fetch(:hide_settled, false) %>
-<div class="card overflow-x-auto">
+<div class="card overflow-x-auto" data-controller="row-link">
   <table class="w-full text-sm">
     <thead>
       <tr class="border-b border-subtle">
@@ -42,15 +42,15 @@
         <% payout = payouts && (payouts[contest.id] || 0) %>
         <% badge = contest_status_badge(contest, payout_cents: payout) %>
         <% prize = contest_prize_cell(contest, payout_cents: payout) %>
-        <%# A settled row carries x-show + x-cloak so it stays hidden for
-            everyone until an admin flips the toggle. The whole <tr> is the
-            x-show root (a single element), so no parser/template issues. %>
-        <tr class="hover:bg-surface-alt transition cursor-pointer" onclick="window.location='<%= contest_path(contest) %>'"
+        <%# A settled row is hidden for everyone until an admin flips the
+            toggle (settled-filter). %>
+        <tr class="hover:bg-surface-alt transition cursor-pointer"
+            data-action="click->row-link#visit" data-row-link-url-param="<%= contest_path(contest) %>"
             data-contest-row="<%= contest.slug %>"
-            <%== (hide_settled && contest.graded?) ? 'x-show="showSettled" x-cloak' : '' %>>
+            <%== (hide_settled && contest.graded?) ? 'hidden data-settled-filter-target="row"' : '' %>>
           <td class="px-4 py-3">
             <div class="flex items-center gap-2 flex-wrap">
-              <%= link_to contest.name, contest_path(contest), class: "font-semibold text-heading hover:text-primary transition", onclick: "event.stopPropagation()" %>
+              <%= link_to contest.name, contest_path(contest), class: "font-semibold text-heading hover:text-primary transition" %>
               <%# Only worth saying in a table where SOME rows are entered. In
                   My Contests every row is, so the chip would be pure noise. %>
               <% if payouts.nil? && entered_contest_ids.include?(contest.id) %>

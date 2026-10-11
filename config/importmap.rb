@@ -30,11 +30,21 @@ pin "turf_stimulus"
 pin "dev_tools", preload: false
 every_page = %w[
   controllers/accordion_controller turf/accordion
+  controllers/arrival_scroll_controller turf/arrival_scroll
   controllers/auto_submit_controller
   controllers/card_filter_controller turf/card_filter
+  controllers/contest_chain_controller
+  controllers/contest_rail_controller turf/contest_rail
+  controllers/copy_link_controller turf/copy_link
   controllers/cost_calculator_controller turf/cost_calculator
+  controllers/disclosure_controller turf/transition
+  controllers/leaderboard_controller turf/leaderboard
+  controllers/leaderboard_poll_controller turf/leaderboard_poll
   controllers/proof_of_reserves_controller turf/proof_of_reserves
+  controllers/row_link_controller
+  controllers/settled_filter_controller turf/settled_filter
   controllers/swatch_copy_controller turf/swatch_copy
+  controllers/tabs_controller
 ]
 %w[controllers turf].each do |directory|
   Rails.root.glob("app/javascript/#{directory}/*.js").sort.each do |file|
