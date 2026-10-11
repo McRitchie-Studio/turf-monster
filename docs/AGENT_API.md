@@ -850,6 +850,7 @@ spent.**
 | 422 | `unsupported_contest` | both | A retired-format contest (`supported: false`) | It takes no entries; its results are on the website. |
 | 422 | `contest_full` | POST | No spots left | Pick another contest. |
 | 422 | `entry_limit_reached` | POST | The player already holds `max_entries_per_player` entries here | Edit an existing entry instead. |
+| 422 | `landed_declined` | POST | The player paid for this entry, the app could not enter it, and the player then declined it. A decline is final. | Nothing. Tell the player to contact support@turfmonster.media with any question. |
 | 422 | `invalid_picks` | both | Not exactly `picks_required` different ids, or an id that is not one of this contest's `teams[].matchup_id` | Re-read the contest and rebuild the lineup. For POST, send it with a **new** key (the old key is tied to the old picks). |
 | 422 | `duplicate_lineup` | both | The player already holds an entry with exactly these teams in this contest | Change at least one team. For POST, with a new key. |
 | 422 | `team_locked` | both | A team in the request has kicked off (POST), or the edit adds or drops one that has (PATCH) | Choose teams whose `locked` is `false`. For POST, with a new key. |

@@ -139,9 +139,8 @@ class Entry < ApplicationRecord
 
     # H7 prelaunch audit (2026-05-24): enforce contest-wide lock time. Closes
     # the staggered-kickoff information-edge attack — a user could otherwise
-    # wait until 30 min after the contest's stated lock, read live scores from
-    # already-kicked games, then submit picks drawn from later-kickoff matchups
-    # whose individual `locked?` is still false. `comped: true` (admin fill via
+    # wait past the contest's stated lock, read live scores from already-kicked
+    # games, then pick later-kickoff matchups whose `locked?` is still false. `comped: true` (admin fill via
     # Contest#fill!) is exempt; admin seeding may legitimately happen after lock.
     if contest.locks_at && at >= contest.locks_at && !comped
       raise Refusal.new(:contest_locked, "Contest has locked — entries closed")

@@ -75,12 +75,17 @@ class Entry
 
     # A DECLINE IS FINAL. Entry#assert_enterable! asks this first, so every
     # activation (the verdict, the reconciler, the jobs, the operator) refuses a
-    # declined landed row. It reads the row as stored, locked under confirm!'s
-    # transaction, so a caller that loaded the row before the decline is refused too.
+    # declined landed row. It reads the row as stored, so a caller that loaded
+    # the row before the decline is refused too. Only a landed row is locked
+    # (under confirm!'s transaction, against a decline in between): a pre-flight
+    # on any other row takes no lock it did not take before.
     def assert_not_declined!
       return unless persisted?
 
-      state, answer = self.class.where(id: id).lock.pick(:payment_state, :landed_answer)
+      row = self.class.where(id: id)
+      return unless row.pick(:payment_state) == "landed"
+
+      state, answer = row.lock.pick(:payment_state, :landed_answer)
       return unless state == "landed" && answer == "declined"
 
       raise Entry::Refusal.new(:landed_declined, "The player declined this entry.")
