@@ -147,18 +147,19 @@
         changing an existing email is confirmed out-of-band via a link sent to
         the CURRENT address (AccountsController#update), so there's no in-app
         re-auth field. Setting a first email applies directly + verifies. %>
-    <div x-data="{ initial: '<%= j @user.email.to_s %>', current: '<%= j @user.email.to_s %>' }">
+    <div data-controller="email-change-notice" data-email-change-notice-initial-value="<%= @user.email %>"
+         data-action="turbo:before-cache@document->email-change-notice#reset">
       <h3 class="text-sm font-bold text-heading mb-2">Email</h3>
       <%= form_with model: @user, url: account_path, method: :patch do |f| %>
         <div class="flex gap-2">
           <%= f.email_field :email,
                             class: "input-field flex-1",
                             placeholder: "you@example.com",
-                            "x-model": "current" %>
+                            data: { email_change_notice_target: "field", action: "email-change-notice#check" } %>
           <button type="submit" class="btn btn-primary">Save</button>
         </div>
         <% if @user.email.present? %>
-          <p x-show="current.toLowerCase() !== initial.toLowerCase()" x-cloak
+          <p hidden data-email-change-notice-target="notice"
              class="text-xs text-muted mt-2">
             For your security, we'll email a confirmation link to your current address before the change takes effect.
           </p>

@@ -37,14 +37,24 @@ import ContestChainController from "controllers/contest_chain_controller"
 import ContestRailController from "controllers/contest_rail_controller"
 import CopyLinkController from "controllers/copy_link_controller"
 import CostCalculatorController from "controllers/cost_calculator_controller"
+import DesktopOnlyNoticeController from "controllers/desktop_only_notice_controller"
 import DisclosureController from "controllers/disclosure_controller"
+import EmailChangeNoticeController from "controllers/email_change_notice_controller"
+import FrameReloadController from "controllers/frame_reload_controller"
 import LeaderboardController from "controllers/leaderboard_controller"
 import LeaderboardPollController from "controllers/leaderboard_poll_controller"
+import NewsletterStateController from "controllers/newsletter_state_controller"
 import ProofOfReservesController from "controllers/proof_of_reserves_controller"
+import ReferralShareController from "controllers/referral_share_controller"
+import RevealController from "controllers/reveal_controller"
+import RevealFollowUpController from "controllers/reveal_follow_up_controller"
 import RowLinkController from "controllers/row_link_controller"
 import SettledFilterController from "controllers/settled_filter_controller"
+import SubmitBusyController from "controllers/submit_busy_controller"
 import SwatchCopyController from "controllers/swatch_copy_controller"
 import TabsController from "controllers/tabs_controller"
+import UsdcBalanceController from "controllers/usdc_balance_controller"
+import WithdrawCardController from "controllers/withdraw_card_controller"
 
 export const LAZY = {
   "filter": () => import("controllers/filter_controller"),
@@ -68,14 +78,24 @@ application.register("contest-chain", ContestChainController)
 application.register("contest-rail", ContestRailController)
 application.register("copy-link", CopyLinkController)
 application.register("cost-calculator", CostCalculatorController)
+application.register("desktop-only-notice", DesktopOnlyNoticeController)
 application.register("disclosure", DisclosureController)
+application.register("email-change-notice", EmailChangeNoticeController)
+application.register("frame-reload", FrameReloadController)
 application.register("leaderboard", LeaderboardController)
 application.register("leaderboard-poll", LeaderboardPollController)
+application.register("newsletter-state", NewsletterStateController)
 application.register("proof-of-reserves", ProofOfReservesController)
+application.register("referral-share", ReferralShareController)
+application.register("reveal", RevealController)
+application.register("reveal-follow-up", RevealFollowUpController)
 application.register("row-link", RowLinkController)
 application.register("settled-filter", SettledFilterController)
+application.register("submit-busy", SubmitBusyController)
 application.register("swatch-copy", SwatchCopyController)
 application.register("tabs", TabsController)
+application.register("usdc-balance", UsdcBalanceController)
+application.register("withdraw-card", WithdrawCardController)
 
 const registered = []
 

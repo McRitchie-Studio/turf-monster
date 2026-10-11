@@ -95,10 +95,12 @@ class TurfStimulusTest < ActionDispatch::IntegrationTest
   end
 
   test "the static controllers are the public pages' controllers, and none is lazy" do
-    assert_equal %w[
-      accordion arrival-scroll auto-submit card-filter contest-chain contest-rail copy-link cost-calculator
-      disclosure leaderboard leaderboard-poll proof-of-reserves row-link settled-filter swatch-copy tabs
-    ], static_controllers.keys.sort
+    marketing = %w[accordion auto-submit card-filter cost-calculator proof-of-reserves swatch-copy]
+    entry = %w[desktop-only-notice email-change-notice frame-reload newsletter-state referral-share reveal
+               reveal-follow-up submit-busy usdc-balance withdraw-card]
+    board = %w[arrival-scroll contest-chain contest-rail copy-link disclosure leaderboard leaderboard-poll
+               row-link settled-filter tabs]
+    assert_equal (marketing + entry + board).sort, static_controllers.keys.sort
     assert_empty static_controllers.keys & lazy_controllers.keys
   end
 
@@ -157,12 +159,18 @@ class TurfStimulusTest < ActionDispatch::IntegrationTest
       "filter" => "reset", "show-more" => "collapse", "send-gate" => "reset",
       "dev-score-tools" => "reset", "scoring-filter" => "reset", "game-scorer" => "reset",
       "navbar-preview" => "reset", "accordion" => "collapse", "card-filter" => "reset",
-      "cost-calculator" => "reset", "swatch-copy" => "reset", "disclosure" => "reset",
-      "copy-link" => "reset", "tabs" => "reset", "leaderboard" => "reset", "settled-filter" => "reset"
+      "cost-calculator" => "reset", "swatch-copy" => "reset",
+      "email-change-notice" => "reset", "newsletter-state" => "reset", "referral-share" => "reset",
+      "reveal" => "reset", "reveal-follow-up" => "reset", "submit-busy" => "reset", "withdraw-card" => "reset",
+      "disclosure" => "reset", "copy-link" => "reset", "tabs" => "reset", "leaderboard" => "reset",
+      "settled-filter" => "reset"
     }.each do |identifier, method|
-      # The 300 characters after the attribute hold the rest of the opening tag.
-      # The root may name more than one controller.
-      roots = Dir[VIEWS].sort.flat_map { |file| File.read(file).scan(/data-controller="[^"]*(?<![\w-])#{identifier}(?![\w-])[^"]*".{0,300}/m) }
+      # The 300 characters after the attribute (or a helper's controller: key)
+      # hold the rest of the opening tag. The root may name more than one
+      # controller.
+      roots = Dir[VIEWS].sort.flat_map do |file|
+        File.read(file).scan(/(?:data-controller="[^"]*(?<![\w-])|\bcontroller: ")#{identifier}(?![\w-])[^"]*".{0,300}/m)
+      end
       assert_not_empty roots, "no view names #{identifier}"
       roots.each { |tag| assert_includes tag, "turbo:before-cache@document->#{identifier}##{method}" }
     end

@@ -42,14 +42,16 @@ class FrozenAccountFollowupsViewTest < ActionView::TestCase
     assert_includes reason.text, "withdrawals are off"
     assert_equal "cash-out-frozen-reason", reason["id"]
     assert_equal reason["id"], doc.at_css("button[data-frozen-cta]")["aria-describedby"]
-    assert_match(/open: false/, doc.at_css("#cash-out")["x-data"], "a #cash-out link cannot open the form")
+    assert_equal "true", doc.at_css("#cash-out")["data-withdraw-card-frozen-value"], "a #cash-out link cannot open the form"
+    assert_nil doc.at_css('[data-withdraw-card-target="toggle"]')
   end
 
   test "control: a viewer in good standing sees no inline reason and the hash still opens the form" do
     doc = fragment(render(partial: "wallets/withdraw_card"))
 
     assert_nil doc.at_css("[data-frozen-reason]")
-    assert_match(/open: window\.location\.hash === '#cash-out'/, doc.at_css("#cash-out")["x-data"])
-    assert_includes rendered, "open: window.location.hash === '#cash-out'", "rendered unescaped"
+    # The withdraw-card controller opens the form at #cash-out unless frozen.
+    assert_equal "withdraw-card", doc.at_css("#cash-out")["data-controller"]
+    assert_equal "false", doc.at_css("#cash-out")["data-withdraw-card-frozen-value"]
   end
 end

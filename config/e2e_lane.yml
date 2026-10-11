@@ -1275,11 +1275,11 @@
 # press each public page's static controller straight after load and after a Turbo visit, less
 # the cardListFilter case in e2e/alpine_factory_registration.spec.js, whose pages left Alpine.
 # Runs in chromium, no skip. Derived with bin/e2e-lane-derive --write.
-# 446 -> 462 (turf-board-leaves-alpine, merged over the landed-entry spec): sixteen specs in
-# e2e/board_stimulus_pages.spec.js press the contest page's and the lobby's static controllers
-# straight after load and after a Turbo visit. Runs in chromium, no skip. Derived with
-# bin/e2e-lane-derive --write.
-total_specs: 462
+# 459 -> 475 (turf-board-leaves-alpine, merged over the landed-entry and entry-surface specs):
+# sixteen specs in e2e/board_stimulus_pages.spec.js press the contest page's and the lobby's
+# static controllers straight after load and after a Turbo visit. Runs in chromium, no skip.
+# Derived with bin/e2e-lane-derive --write.
+total_specs: 475
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1670,9 +1670,9 @@ allowed_skips: 4
 # above; chromium, no skip, so excluded holds at 17 and allowed_skips at 4.
 # 411 -> 424 (turf-marketing-leaves-alpine): the net thirteen specs beside total_specs above;
 # chromium, no skip, so excluded holds at 17 and allowed_skips at 4.
-# 425 -> 441 (turf-board-leaves-alpine): the sixteen board specs beside total_specs above;
+# 438 -> 454 (turf-board-leaves-alpine): the sixteen board specs beside total_specs above;
 # chromium, no skip, so excluded holds at 17 and allowed_skips at 4.
-executed: 441
+executed: 454
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a
