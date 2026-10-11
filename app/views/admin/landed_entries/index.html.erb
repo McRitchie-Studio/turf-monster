@@ -1,0 +1,53 @@
+<% content_for(:title, "Held Paid Entries — Admin") %>
+
+<div class="max-w-5xl mx-auto py-8 px-4 space-y-6">
+  <div>
+    <h1 class="text-heading text-2xl font-bold mb-1">Held Paid Entries</h1>
+    <p class="text-muted text-sm">
+      Each row paid on Solana and an app gate refused to activate it. The player is asked at login
+      until the hold ends (the first Sunday 9:00 AM ET after it landed). Replace activates the row from
+      its own ticket: nothing is paid again and nothing is refunded. A declined row is a person's call.
+    </p>
+  </div>
+
+  <% if @entries.empty? %>
+    <div class="card p-6 text-muted text-sm" data-landed-entries-empty>No held paid entries.</div>
+  <% else %>
+    <div class="card p-0 overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-muted text-[10px] uppercase tracking-wide text-left">
+            <th class="px-3 py-2">Entry</th>
+            <th class="px-3 py-2">Player</th>
+            <th class="px-3 py-2">Contest</th>
+            <th class="px-3 py-2">Refused for</th>
+            <th class="px-3 py-2">Hold ends</th>
+            <th class="px-3 py-2">Player said</th>
+            <th class="px-3 py-2"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% @entries.each do |entry| %>
+            <tr class="border-t border-subtle text-body" data-landed-entry-row="<%= entry.slug %>">
+              <td class="px-3 py-2 font-mono"><%= entry.slug %></td>
+              <td class="px-3 py-2"><%= entry.user.display_name %></td>
+              <td class="px-3 py-2"><%= entry.contest.name %></td>
+              <td class="px-3 py-2 font-mono"><%= entry.payment_refusal_code.presence || "unknown" %></td>
+              <td class="px-3 py-2"><%= entry.landed_hold_expires_at.in_time_zone(Entry::LandedHold::ZONE).strftime("%a %b %-d, %-l:%M %p ET") %></td>
+              <td class="px-3 py-2"><%= entry.landed_answer || "no answer" %></td>
+              <td class="px-3 py-2 text-right">
+                <% if entry.landed_answer == "declined" %>
+                  <span class="text-muted">refund decision</span>
+                <% elsif entry.landed_answer == "reauthorized" || !entry.landed_hold_open? %>
+                  <%= button_to "Replace", admin_replace_landed_entry_path(entry.slug), class: "btn btn-primary btn-sm" %>
+                <% else %>
+                  <span class="text-muted">in hold</span>
+                <% end %>
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  <% end %>
+</div>

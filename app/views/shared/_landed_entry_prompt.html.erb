@@ -1,0 +1,28 @@
+<%# The landed-entry prompt (Entry::LandedHold): a paid entry an app gate
+    refused, asked about on every signed-in page until the player answers or
+    the hold ends. Server-rendered plain forms, so both buttons work before any
+    script loads and there is no client state to restore. %>
+<% landed_entry_prompts.each do |entry| %>
+  <section class="max-w-7xl mx-auto px-4 mt-4 mb-2" data-landed-entry-prompt="<%= entry.slug %>"
+           aria-labelledby="landed-entry-prompt-<%= entry.id %>">
+    <div class="card p-4 sm:p-5 bg-surface border border-warning/40">
+      <h2 id="landed-entry-prompt-<%= entry.id %>" class="text-heading text-lg font-bold">
+        Your payment arrived. Do you still want this entry?
+      </h2>
+      <p class="text-body mt-2">
+        Your payment for <strong><%= entry.contest.name %></strong> reached Solana, but <%= landed_entry_reason(entry) %>.
+        You will not be charged again.
+      </p>
+      <p class="text-secondary text-sm mt-2">
+        Answer by <strong data-landed-entry-deadline><%= landed_entry_deadline(entry) %></strong>.
+        If we do not hear from you by then, our team will finish the entry for you.
+      </p>
+      <div class="mt-4 flex flex-wrap gap-3">
+        <%= button_to "Yes, keep my entry", reauthorize_landed_entry_path(entry.slug),
+                      class: "btn btn-primary", data: { landed_entry_answer: "reauthorize" } %>
+        <%= button_to "No, I don't want it", decline_landed_entry_path(entry.slug),
+                      class: "btn btn-outline", data: { landed_entry_answer: "decline" } %>
+      </div>
+    </div>
+  </section>
+<% end %>
