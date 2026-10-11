@@ -195,8 +195,8 @@ transaction, some with immovable floors. What changes for Rails:
 | action | today | v0.26 | Rails supplies | consequence |
 |---|---|---|---|---|
 | `create_season` | 1 | **3** | admin + 2 in `remaining_accounts` | admin UI cannot create a season alone |
-| `close_contest` | 1 | **2** | admin + 1 | **the unattended close path stops working** |
-| `set_contest_lock_time` / `..._conclusion_time` | 1 | **2** (3 to re-open/amend) | admin + 1 | **the QA rehearsal's unattended set stops working** |
+| `close_contest` | 1 | **2** | admin + 1 | the admin "Reclaim rent" button queues a Treasury cosign (one Phantom signature) instead of closing server-signed |
+| `set_contest_lock_time` / `..._conclusion_time` | 1 | **2** (3 to re-open/amend) | admin + 1 | the QA rehearsal signs the extra slot with a seated agent key |
 | `burn_entry_token` | (never deployed) | **3** | admin + 2 | operator claw-back needs three |
 | `settle_contest` · `cancel_contest` · `sweep_operator_revenue` | 2 | **3** | admin + cosigner + 1 | the settle cosign flow needs a third wallet |
 | `register_currency` · `deactivate_currency` · `unpause` | 2 | **3** | admin + cosigner + 1 | |
@@ -204,6 +204,23 @@ transaction, some with immovable floors. What changes for Rails:
 | `mint_entry_token` within the day's cap | 1 | **1** | unchanged | Stripe fulfilment untouched |
 | `mint_entry_token` above the cap (250/day) | — | **3** | admin + 2 | a mint spike asks for three humans |
 | `grant_seeds` · `create_contest` · `enter_contest{,_with_token}` | 1 | **1** | unchanged | the player-facing paths are untouched |
+
+**Rails reads the numbers from the chain.** On a v0.26 boot,
+`Solana::Vault#required_signatures` applies `GovernanceConfig::threshold_for` to
+the stored table (`cached_governance`, one minute), so a retune reaches the
+unattended builders without a deploy. An unreadable account falls back to the
+defaults above, which fail closed if wrong. The re-open and amend branches are
+picked from the contest ACCOUNT (`Vault#contest_time_action`), never the row.
+v0.25 reads nothing. The operator cosign paths (`Solana::CosignPlan`) still
+size their slots from the defaults.
+
+**The QA rehearsal on v0.26.** The dyno holds one vault key. For lock, close
+and the agent settle, each remote script first answers what the chain needs
+(`Vault#unattended_cosign_request`); the driver picks seated agent keys it
+files (`Driver::VAULT_AGENTS`), asks for a server-signed wire with their slots
+(`build_agent_cosigned_contest_time`, `build_close_contest`,
+`build_settle_contest`), and signs locally. Too few seated agents stops the step
+by name with nothing sent.
 
 **Extra signatures ride as LEADING `remaining_accounts`** — for this raw client,
 metas appended after the named list, each `is_signer: true`.
