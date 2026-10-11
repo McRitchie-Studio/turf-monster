@@ -3,9 +3,9 @@
     the hold ends. Server-rendered plain forms, so both buttons work before any
     script loads and there is no client state to restore. %>
 <% landed_entry_prompts.each do |entry| %>
-  <section class="max-w-7xl mx-auto px-4 mt-4" data-landed-entry-prompt="<%= entry.slug %>"
+  <section class="max-w-7xl mx-auto px-4 mt-4 mb-2" data-landed-entry-prompt="<%= entry.slug %>"
            aria-labelledby="landed-entry-prompt-<%= entry.id %>">
-    <div class="card bg-surface border border-warning/40">
+    <div class="card p-4 sm:p-5 bg-surface border border-warning/40">
       <h2 id="landed-entry-prompt-<%= entry.id %>" class="text-heading text-lg font-bold">
         Your payment arrived. Do you still want this entry?
       </h2>
