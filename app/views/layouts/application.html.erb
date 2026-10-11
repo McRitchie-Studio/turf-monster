@@ -1905,6 +1905,7 @@
     <%= render "layouts/studio/flash" %>
     <%= render "layouts/navbar" %>
     <%= render "components/gear_sidebar" if logged_in? %>
+    <%= render "shared/landed_entry_prompt" if logged_in? %>
 
     <div class="max-w-7xl mx-auto px-4">
       <%= yield %>
