@@ -796,4 +796,6 @@ Rails.application.routes.draw do
     get  "landed_entries",               to: "landed_entries#index",   as: :landed_entries
     post "landed_entries/:slug/replace", to: "landed_entries#replace", as: :replace_landed_entry
   end
+  # The e2e lane's landed-entry fixture (TestController#set_landed_entry).
+  post "test/set_landed_entry", to: "test#set_landed_entry" unless Rails.env.production?
 end
