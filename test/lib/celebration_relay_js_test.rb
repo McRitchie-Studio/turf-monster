@@ -23,11 +23,11 @@ class CelebrationRelayJsTest < ActiveSupport::TestCase
   # inside its script on purpose, so the raw file IS what a browser receives.
   def relay_source
     src = File.read(PARTIAL)
-    open_at  = src.index("<script>")
+    open_at  = src.index('<script nonce="<%= content_security_policy_nonce %>">')
     close_at = src.index("</script>")
     assert open_at, "the relay partial rendered no script tag"
     assert close_at && close_at > open_at, "could not bound the relay script"
-    src[(open_at + "<script>".length)...close_at]
+    src[(open_at + '<script nonce="<%= content_security_policy_nonce %>">'.length)...close_at]
   end
 
   # storage: :ok      a working store

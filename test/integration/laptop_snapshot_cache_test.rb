@@ -24,8 +24,10 @@ class LaptopSnapshotCacheIntegrationTest < ActionDispatch::IntegrationTest
     @store = ActiveSupport::Cache::MemoryStore.new
   end
 
+  # The scripts the page renders around the cached snapshot carry this
+  # request's CSP nonce, which differs per request by design.
   def laptop_html
-    css_select('[data-test="laptop-canvas"]').first.to_html
+    css_select('[data-test="laptop-canvas"]').first.to_html.gsub(/ nonce="[^"]*"/, "")
   end
 
   def snapshot_keys
