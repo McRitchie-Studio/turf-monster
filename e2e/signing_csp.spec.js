@@ -195,7 +195,9 @@ test.describe("early presses", () => {
     expect(posted).toBe(200);
 
     await page.goto(CONTEST);
-    await page.locator(".chat-react-add").first().click({ force: true });
+    // Dispatched on the button: the chat sits behind a tab and the quick bar
+    // shows on hover, and neither is what this press is about.
+    await page.locator(".chat-react-add").first().dispatchEvent("click");
     await expect(page.locator("#chat-reaction-picker")).toHaveClass(/is-open/);
   });
 

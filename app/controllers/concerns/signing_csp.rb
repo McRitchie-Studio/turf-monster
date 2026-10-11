@@ -78,11 +78,20 @@ module SigningCsp
     ])
   end
 
+  # A Turbo fetch of a signing page is never rendered: Turbo, or
+  # signing_document, answers it with a full load of the same page. A form's
+  # redirect lands here inside that fetch, so the flash it set would be spent
+  # on a body nobody sees; keep it for the full load.
+  def keep_flash_for_the_full_load
+    flash.keep if request.headers["X-Turbo-Request-Id"].present?
+  end
+
   # Writes the headers itself; the middleware then leaves them alone. Never
   # stored: Back to a signing page is a fresh load (it is never in Turbo's
   # cache), and a stored copy would show the cart as it was first rendered.
   def apply_signing_csp
     no_store
+    keep_flash_for_the_full_load
     policy = request.content_security_policy or return
     nonce = request.content_security_policy_nonce
     strict = SigningCsp.strict(policy).build(self, nonce, NONCE_DIRECTIVES)
