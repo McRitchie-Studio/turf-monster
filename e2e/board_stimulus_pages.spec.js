@@ -153,7 +153,7 @@ test.describe("contest header", () => {
     await expect(page.getByRole("link", { name: "Edit Entry" })).toBeVisible();
     await expect(trigger).toHaveAttribute("aria-expanded", "true");
 
-    await page.locator("h1").first().click();
+    await page.getByRole("heading", { name: "Leaderboard", exact: true }).click();
     await expect(page.getByRole("link", { name: "Edit Entry" })).toBeHidden();
     await expect(trigger).toHaveAttribute("aria-expanded", "false");
   });
@@ -207,7 +207,7 @@ test.describe("share invite", () => {
 
     await info.click();
     await expect(page.getByText("How it works")).toBeVisible();
-    await page.locator("h1").first().click();
+    await page.getByRole("heading", { name: "Leaderboard", exact: true }).click();
     await expect(page.getByText("How it works")).toBeHidden();
   });
 
@@ -217,11 +217,16 @@ test.describe("share invite", () => {
     await page.goto("/contests");
     await turboVisit(page, CONTEST, '[data-controller~="copy-link"]');
     const button = page.locator('[data-copy-link-target="button"]');
+    const copied = button.locator('[data-copy-link-target="done"]');
+    const idle = button.locator('[data-copy-link-target="idle"]');
     await button.click();
-    await expect(button).toHaveText("Copied!");
+    await expect(copied).toBeVisible();
+    await expect(idle).toBeHidden();
     await expect(button).toHaveClass(/btn-secondary/);
-    expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("/contests/e2e-rail-1");
-    await expect(button).toHaveText("Copy Link", { timeout: 3000 });
+    const link = await page.locator('[data-controller~="copy-link"]').getAttribute("data-copy-link-text-value");
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(link);
+    await expect(idle).toBeVisible({ timeout: 3000 });
+    await expect(copied).toBeHidden();
     await expect(button).toHaveClass(/btn-primary/);
   });
 });

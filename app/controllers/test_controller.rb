@@ -283,10 +283,11 @@ class TestController < ApplicationController
   def seed_contests
     count = params[:count].to_i.clamp(1, 12)
     onchain = ActiveModel::Type::Boolean.new.cast(params[:onchain])
-    # `upcoming: true` locks them a week out, so their contest pages show the
-    # board rather than redirect to the live page.
+    # `upcoming: true` locks them a week out on the e2e contest's own slate,
+    # whose games have not started, so their pages show the board rather than
+    # redirect to the live page.
     upcoming = ActiveModel::Type::Boolean.new.cast(params[:upcoming])
-    slate = Slate.order(:id).first
+    slate = (Contest.find_by(slug: "world-cup-2026")&.slate if upcoming) || Slate.order(:id).first
     return render json: { error: "no slate to hang a contest on" }, status: :unprocessable_entity if slate.nil?
 
     made = (1..count).map do |i|
