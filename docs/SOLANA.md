@@ -154,17 +154,17 @@ So the slug carries BOTH shapes and picks one at boot:
 
 #### The version string is not the discriminator
 
-turf-vault built v0.26 with `version = "0.25.0"` still in
-`programs/turf_vault/Cargo.toml`, so **both IDLs report `metadata.version`
-`0.25.0`**. Anything keying on that string looks correct and selects the wrong
-shape. `Solana::Config.idl_declares_governance?` therefore probes STRUCTURALLY —
-for an `init_governance` instruction, which exists only in v0.26 and which nobody
-hand-maintains. (turf-vault should bump that version; until it does, do not
-reintroduce a version-string check.)
+The v0.26 IDLs read `metadata.version` `0.26.0` and the v0.25 IDLs read
+`0.25.0`, but the first v0.26 build shipped still reading `0.25.0`, so the
+string is a label, not a shape. `Solana::Config.idl_declares_governance?` probes
+STRUCTURALLY, for an `init_governance` instruction, which exists only in v0.26
+and which nobody hand-maintains. Do not reintroduce a version-string check.
 
 #### IDL hashes — re-pinned from the BUILT IDL
 
-Built with `anchor-cli 0.32.1` at turf-vault `f3edc88`:
+Built offline with the pinned toolchain (Rust 1.89.0, `anchor-cli 0.32.1`) at
+turf-vault `origin/main` `8a9fa715` (crate `0.26.0`), in a detached scratch
+worktree:
 
 ```bash
 anchor idl build -o config/turf_vault.v026.idl.json
@@ -178,10 +178,10 @@ fetch returns the OLD one and the pin would certify the wrong shape.
 |---|---|
 | `config/turf_vault.idl.json` (v0.25 devnet, **unchanged**) | `f11446facec1043cb15b169929aaff3da9e955e05f3c462e86c7b584706246e9` |
 | `config/turf_vault.mainnet.idl.json` (v0.25 mainnet, **unchanged**) | `b9b522635894a42f5434f1faa1cd126d146f3042ae2c233acd1dd76a300f7152` |
-| `config/turf_vault.v026.idl.json` (devnet) | `259889ced686875b46062aaabce7e8c45e68710e6c0ae0738f3451cd4673060f` |
-| `config/turf_vault.mainnet.v026.idl.json` (mainnet) | `d1eea2a48d0a7f0cf711d3da7c85a1653d13e0903be6bebcf7be47be41404ea7` |
+| `config/turf_vault.v026.idl.json` (devnet) | `2d9f71517600221859029d0ddb9b7e5d126f8d5cc5a4cf1b4bd5d9392c6ab2c0` |
+| `config/turf_vault.mainnet.v026.idl.json` (mainnet) | `1499f4cf9fd6f161e227965d1ca357a8a919c9f031928573e6607a9d71889f4e` |
 
-Error codes span **6000-6066** (67 variants, up from 45), and three new account
+Error codes span **6000-6067** (68 variants, up from 45; 6067 is `VaultPdaNotAWallet`), and three new account
 types appear: `GovernanceConfig`, `MintWindow`, `UsernameRecord`. The instruction
 count goes 22 -> 28: eight added, and `admin_create_user_account` +
 `admin_set_username` **DELETED** (not deprecated — Rails never called either, and

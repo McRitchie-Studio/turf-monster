@@ -1,6 +1,6 @@
 require "test_helper"
 
-# The v0.26 error range (6045-6066). Every code the program can emit should
+# The v0.26 error range (6045-6067). Every code the program can emit should
 # reach a person as a sentence, not as 0x17ac.
 #
 # THE ONE THAT MATTERS MOST is 6060. The username registry moved uniqueness from
