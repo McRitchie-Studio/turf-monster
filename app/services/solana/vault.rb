@@ -1044,6 +1044,14 @@ module Solana
       Governance.required_signatures(action, thresholds: cached_governance&.dig(:thresholds))
     end
 
+    # What an unattended v0.26 action needs beyond the `named` signers this
+    # process fills: the count, the server's key, and who VaultState seats.
+    # The QA rehearsal driver answers it with agent keys it files.
+    def unattended_cosign_request(action, named:)
+      { action: action, needed: required_signatures(action) - named,
+        server: Keypair.admin.to_base58, seated: read_vault_state&.dig(:active_signers) }
+    end
+
     # The two contest-time actions escalate on ON-CHAIN contest state
     # (set_contest_lock_time.rs, set_contest_conclusion_time.rs): re-opening a
     # lock that has passed, or amending a conclusion already set, is a
