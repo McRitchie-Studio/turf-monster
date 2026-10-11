@@ -63,6 +63,8 @@ class AdminDesktopOnlyNoticeTest < ActionDispatch::IntegrationTest
       "signs from this page normally and must see nothing new"
     assert_select "#{NOTICE} [data-desktop-only-message]", 1,
       "#{page}: the notice lost the slot the shared sentence is painted into"
+    assert_select %(#{NOTICE}[data-controller="desktop-only-notice"]), 1,
+      "#{page}: the notice lost the controller that paints it on a phone"
   end
 
   def assert_message_not_baked_in(page)
