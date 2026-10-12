@@ -14,22 +14,21 @@ class SigningCspTest < ActionDispatch::IntegrationTest
   NOT_INLINE = /\bsrc\s*=|type\s*=\s*["']application\/(?:ld\+)?json["']/i
   COMMENTS = [ /<%#.*?%>/m, /<!--.*?-->/m, %r{^\s*//.*$} ].freeze
 
-  # Inline script and handlers a gem still renders without the nonce. Each
-  # is excused only while the gem file named still lacks the fix, read from
-  # the locked gem, so it lapses the day the lock takes a fixed release.
-  Pending = Struct.new(:gem, :file, :unfixed, :script, :handler, keyword_init: true) do
-    def open?
-      File.read(File.join(Gem.loaded_specs.fetch(gem).full_gem_path, file)).match?(unfixed)
-    end
+  # Inline script a gem still renders without the nonce: SigningCsp's open
+  # PENDING_GEM_FIXES, read from the locked gems, so each lapses the day the
+  # lock takes the fixed release.
+  def pending = SigningCsp.pending_gem_fixes
+
+  # The signing pages an admin reaches, each by GET.
+  def admin_signing_paths
+    contest = contests(:one)
+    [
+      contest_path(contest), admin_contest_path(contest), live_contest_path(contest), edit_contest_path(contest),
+      new_contest_path, generator_contests_path, account_path, admin_pending_transactions_path,
+      "/auth/phantom/callback", profile_path, wallet_path, admin_vault_init_path, admin_vault_state_path,
+      admin_authorities_path
+    ]
   end
-  PENDING = [
-    Pending.new(gem: "solana-studio", file: "app/views/solana_studio/_phantom_deeplink.html.erb",
-                unfixed: /^<script>$/, script: /window\.startPhantomDeepLink\s*=/),
-    Pending.new(gem: "studio-engine", file: "app/views/solana_sessions/phantom_callback.html.erb",
-                unfixed: /^<script>$/, script: /phantom_dl_secret/),
-    Pending.new(gem: "studio-engine", file: "app/views/studio/banners/_button.html.erb",
-                unfixed: /onmouseover:/, handler: /\Athis\.style\.background=/)
-  ].freeze
 
   def page = Nokogiri::HTML5(response.body)
 
@@ -44,9 +43,9 @@ class SigningCspTest < ActionDispatch::IntegrationTest
     script["type"] == "importmap" || (script["src"].blank? && !script["type"].to_s.include?("json"))
   end
 
-  def pending_script?(script) = PENDING.any? { |item| item.script && item.open? && script.text.match?(item.script) }
+  def pending_script?(script) = pending.any? { |item| item.script && script.text.match?(item.script) }
 
-  def pending_handler?(attribute) = PENDING.any? { |item| item.handler && item.open? && attribute.value.match?(item.handler) }
+  def pending_handler?(attribute) = pending.any? { |item| item.handler && attribute.value.match?(item.handler) }
 
   # The strict header (report-only here: the app policy is report-only
   # outside production), and the page it covers.
@@ -102,11 +101,7 @@ class SigningCspTest < ActionDispatch::IntegrationTest
 
   test "an admin gets the strict policy on every signing page" do
     log_in_as(users(:alex))
-    [
-      contest_path(contests(:one)), admin_contest_path(contests(:one)), edit_contest_path(contests(:one)), new_contest_path,
-      generator_contests_path, account_path, admin_pending_transactions_path, "/auth/phantom/callback",
-      profile_path, wallet_path, admin_vault_init_path, admin_vault_state_path, admin_authorities_path
-    ].each do |path|
+    admin_signing_paths.each do |path|
       get path
       assert_response :success, path
       assert_signing_page
@@ -159,6 +154,87 @@ class SigningCspTest < ActionDispatch::IntegrationTest
   test "the same fetch from any other page spends the flash" do
     log_in_as(users(:alex))
     assert_not_includes save_contest_then_fetch({}), "Contest updated."
+  end
+
+  # The live board is the contest's page once a game has started:
+  # contests#show sends everyone there. It renders the leaderboard compact,
+  # which leaves out the admin Lock buttons (those are on show, #contest and
+  # #admin), so it is listed as the page a player and an admin are on during
+  # play, where the layout's wallet modals open.
+  test "the live board gets the strict policy, for a guest and an admin" do
+    get live_contest_path(contests(:one))
+    assert_response :success
+    assert page.at_css("#contest_#{contests(:one).id}_leaderboard"), "not the live board"
+    assert_signing_page
+
+    log_in_as(users(:alex))
+    get live_contest_path(contests(:one))
+    assert_response :success
+    assert_signing_page
+  end
+
+  # A failed save re-renders a signing template. Posted natively, that render
+  # is a document of its own: it must carry the strict policy and a nonce its
+  # own scripts carry.
+  test "a failed account save renders under the strict policy and its own nonce" do
+    log_in_as(users(:jordan))
+    users(:jordan).update_columns(email: nil)
+    patch account_path, params: { user: { email: "bad@nope" } }
+    assert_response :unprocessable_entity
+    assert_includes response.body, "Failed to update account."
+    assert_signing_page
+  end
+
+  test "a failed contest save renders under the strict policy and its own nonce" do
+    log_in_as(users(:alex))
+    patch contest_path(contests(:one)), params: { contest: { name: "" } }
+    assert_response :unprocessable_entity
+    assert page.at_css("form[action='#{contest_path(contests(:one))}']"), "not the edit page"
+    assert_signing_page
+  end
+
+  # Every action that renders a signing template is itself a signing page,
+  # read from the controllers' source: `render :show` in accounts#update is
+  # what made the re-render above a hazard while update was off the list.
+  RENDER = /\brender\s*\(?\s*(?:action:\s*)?[:"'](\w+)/
+  test "every action that renders a signing template is a signing page" do
+    found = SigningCsp::PAGES.flat_map do |controller_path, actions|
+      file = Rails.root.join("app/controllers/#{controller_path}_controller.rb")
+      next [] unless file.exist?
+
+      controller = "#{controller_path.camelize}Controller".constantize
+      method = nil
+      File.foreach(file).filter_map do |line|
+        method = Regexp.last_match(1) if line =~ /^\s*def (\w+)/
+        template = line[RENDER, 1]
+        next unless template && actions.include?(template) && controller.action_methods.include?(method)
+
+        "#{controller_path}##{method} renders #{template}"
+      end.tap { |renders| renders.each { |render| assert_includes actions, render[/#(\w+)/, 1], render } }
+    end
+    assert_operator found.size, :>=, 5, "the scan found too few renders to mean anything: #{found}"
+  end
+
+  # A form on a signing page that posts to a signing action is a native post.
+  # Through Turbo, a failed save would render in place under the document's
+  # old nonce; with the action listed, Turbo reloads instead and the error is
+  # lost. Native, the re-render is its own document.
+  test "a form on a signing page that posts to a signing action is not a Turbo form" do
+    log_in_as(users(:alex))
+    checked = admin_signing_paths.flat_map do |path|
+      get path
+      page.css("form[action]").filter_map do |form|
+        verb = (form.at_css("input[name='_method']")&.[]("value") || form["method"] || "get").upcase
+        next if verb == "GET"
+
+        route = Rails.application.routes.recognize_path(form["action"], method: verb) rescue next
+        next unless SigningCsp::PAGES.fetch(route[:controller], []).include?(route[:action])
+
+        assert_equal "false", form["data-turbo"], "#{path}: form to #{route[:controller]}##{route[:action]} is a Turbo form"
+        "#{path} -> #{route[:controller]}##{route[:action]}"
+      end
+    end
+    assert_operator checked.size, :>=, 3, "too few forms checked to mean anything: #{checked}"
   end
 
   # The control: an un-nonced inline script on a signing page fails the check.

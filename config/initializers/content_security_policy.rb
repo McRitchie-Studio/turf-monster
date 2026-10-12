@@ -4,7 +4,7 @@
 # loads:
 #   - Phantom wallet from injected window object (no external script)
 #   - YouTube (privacy-mode) player iframe for the wallet-setup explainer video
-#   - Solana web3 + Alpine via CDN (script-src https:)
+#   - Solana web3 and tweetnacl via CDN (script-src https:)
 #   - Stripe Checkout redirect (form POST to checkout.stripe.com — needs a form-action entry)
 #   - Google OAuth (OmniAuth google_oauth2 form POST to accounts.google.com — needs a form-action entry)
 #   - PayPal JS SDK when PAYMENT_PROVIDER=paypal (script-src :https covers the
@@ -66,16 +66,30 @@ Rails.application.configure do
   config.content_security_policy_nonce_generator = ->(_request) { SecureRandom.base64(16) }
   config.content_security_policy_nonce_directives = []
 
-  # script-src on a signing page: no 'unsafe-inline', no https:, each script
-  # host named. 'unsafe-eval' stays until the engine retires Alpine
-  # (engine-retires-alpine).
+  # script-src on a signing page: no 'unsafe-inline', no https:, and each
+  # third-party script named BY FILE, not by host. cdn.jsdelivr.net, unpkg.com
+  # and cdnjs.cloudflare.com mirror every npm package, so a bare host would let
+  # an injected <script src> load any of them; a path source matches only the
+  # one file (each also pinned by SRI where it is loaded). Alpine, confetti,
+  # sortable and leaflet are vendored in studio-engine and load from 'self'.
+  #
+  # 'unsafe-eval' stays while Alpine runs on these pages (engine-retires-alpine
+  # removes it): Alpine evaluates every x-data, x-on and :binding with new
+  # Function, and the layout's <body x-data>, the modal host and the wallet
+  # modals, the avatar and banner croppers, and the contest board are Alpine
+  # on every signing page. What it allows: Alpine attributes in markup that
+  # reaches the page after load run. signing_document strips scripts from
+  # frames and streams; Alpine attributes are not stripped.
+  #
+  # cdn.logr-in.com stays a host: it is LogRocket's own CDN, serving only its
+  # recorder, and loads only when session replay is on.
   signing_script_src = [
     :self,
     :unsafe_eval,
     :report_sample,               # a report quotes the first 40 characters it blocked
-    "https://cdn.jsdelivr.net",   # Alpine, tweetnacl, canvas-confetti, sortablejs
-    "https://unpkg.com",          # @solana/web3.js, leaflet (site footer map)
-    "https://cdnjs.cloudflare.com", # cropperjs
+    "https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js",       # layout, wallet_provider, solana-studio deeplink_assets
+    "https://unpkg.com/@solana/web3.js@1.98.4/lib/index.iife.min.js",       # layout
+    "https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js", # studio/cropper_assets (avatar, contest banner)
     "https://cdn.logr-in.com"     # LogRocket
   ]
   signing_script_src << "https://www.paypal.com" if paypal_provider

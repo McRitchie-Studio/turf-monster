@@ -8,9 +8,9 @@
     carrying { current_email, new_email }; we render it into a JSON script
     tag and open the informational modal on load.
 
-    Timing: the email form is a Turbo form_with, so the redirect lands via
-    Turbo Drive (body swap), NOT a hard load — the open MUST fire on the
-    Turbo render. We bind to turbo:load (fires on every Turbo navigation,
+    Timing: the email form posts natively (data-turbo false), so the redirect
+    lands as a full load; any Turbo arrival here is a full load too, since
+    /account is a signing page (SigningCsp). We bind to turbo:load (fires on every Turbo navigation,
     incl. the post-redirect render AND the initial hard load) with a
     one-shot guard so a back/forward turbo:load can't replay a stale flash.
     Flash is single-render, so the JSON tag is absent on any later visit;
@@ -69,7 +69,9 @@
          @crop-photo-confirmed.window="applyCrop($event.detail.blob)"
          class="flex flex-col items-center">
       <%# Hidden form auto-submitted after the user confirms a crop. %>
-      <%= form_with model: @user, url: account_path, method: :patch,
+      <%# Not a Turbo form, like the email form below: accounts#update
+          re-renders this page on a failure (SigningCsp). %>
+      <%= form_with model: @user, url: account_path, method: :patch, data: { turbo: false },
                     html: { multipart: true, "x-ref": "form", class: "hidden" } do |f| %>
         <input type="file" name="user[avatar]" x-ref="fileInput">
       <% end %>
@@ -150,7 +152,10 @@
     <div data-controller="email-change-notice" data-email-change-notice-initial-value="<%= @user.email %>"
          data-action="turbo:before-cache@document->email-change-notice#reset pageshow@window->email-change-notice#check">
       <h3 class="text-sm font-bold text-heading mb-2">Email</h3>
-      <%= form_with model: @user, url: account_path, method: :patch do |f| %>
+      <%# Not a Turbo form: a failed save re-renders this page
+          (accounts#update), and only a native post makes that render its own
+          document under the nonce it was rendered with (SigningCsp). %>
+      <%= form_with model: @user, url: account_path, method: :patch, data: { turbo: false } do |f| %>
         <div class="flex gap-2">
           <%= f.email_field :email,
                             class: "input-field flex-1",

@@ -886,7 +886,9 @@ class TestController < ApplicationController
 
   def set_signing_csp
     Rails.configuration.x.signing_csp_enforced = params[:enforced].to_s == "true"
-    render json: { ok: true, enforced: SigningCsp.enforced? }
+    # pending: the gem fixes still open in the locked gems (SigningCsp::PENDING_GEM_FIXES),
+    # by gem file, so a spec can tell which state of the enforce hazard it is in.
+    render json: { ok: true, enforced: SigningCsp.enforced?, pending: SigningCsp.pending_gem_fixes.map(&:file) }
   end
 
   def set_landed_entry

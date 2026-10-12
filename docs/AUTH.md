@@ -305,7 +305,7 @@ carries its own. **Count the `data-cosign-controls` blocks, not the call
 sites**, when this list next needs checking — a fourth surface costs one button
 and no new call site. **None of the three renders the account card**, the
 `accounts/solana_wallet_section` partial, which is mounted only by
-`app/views/accounts/show.html.erb:119` and by `/profile` through the engine
+`app/views/accounts/show.html.erb:121` and by `/profile` through the engine
 section registry (`config/initializers/studio.rb:157`). An Alpine store is
 per-document, so `expectedSwitchAddresses`
 (`app/javascript/solana_stores.js:70`) is always empty on the account page and a
