@@ -164,15 +164,17 @@ solana balance "$QA_PUBKEY" --url devnet
 solana airdrop 2 "$QA_PUBKEY" --url devnet                   # only if the balance is low
 ```
 
-**SOL is not all the server key needs on devnet.** The devnet USDC test mint,
-`222Dcu2RgAXE3T8A4mGSG3kQyXaNjqePx7vva1RdWBN9`, names `8K81…` as its mint
-authority (read at `finalized`, 2026-10-08), and the QA key owns no token
-account. After step 8 QA's server signs `mint_spl` as the QA key, so the
-faucet, the devnet deposit credit, `bin/qa-contest-rehearsal create` and an
-operator-funded test contest all fail. **Open: Mr. McRitchie's decision,
-before step 8.** Either move the mint authority to the QA key (one devnet
-signature by `8K81…`; local development, which derives `8K81…`, then loses
-devnet minting), or leave it and accept that QA cannot mint. Re-read it with
+**SOL is not all the server key needs on devnet.** QA's server signs
+`mint_spl` as the QA key, so the faucet, the devnet deposit credit,
+`bin/qa-contest-rehearsal create` and an operator-funded test contest all need
+the QA key to be the devnet USDC test mint's authority. **Done 2026-10-12**
+(card `devnet-exposed-keys-tidy`): the authority of
+`222Dcu2RgAXE3T8A4mGSG3kQyXaNjqePx7vva1RdWBN9` moved from `8K81…` to `2eGs…` in
+one devnet `SetAuthority` signed by `8K81…`
+(`5oW2NZM1MRJ6K5a5Aev7RM1SvfAjxdV1Xt2mfzq6gYamndrcCre7GvBCnPWKqfbWZZYRKCjaEi2NCX2PeW813STm`),
+and `2eGs…` minted itself 2,000 devnet USDC. Local development, which derives
+`8K81…`, can no longer mint devnet USDC. If the QA key is ever replaced, move
+the authority to the new key the same way, signed by `2eGs…`. Re-read it with
 `spl-token display 222Dcu2RgAXE3T8A4mGSG3kQyXaNjqePx7vva1RdWBN9 --url devnet`.
 
 ## Step 5 — Dry run
@@ -391,5 +393,5 @@ Rule: `lib/solana/signer_isolation.rb`. Tests:
 - **Mainnet governance.** Production keeps `8K81…`, which an agent can reach.
   The five-signer redesign (turf-vault `docs/SIGNER_ROTATION.md`) is what takes
   governance out of agent reach.
-- **The USDC mint authority** (step 4). Until it is decided, the rehearsal's
-  `create` stops at the mint once QA signs as its own key.
+- **The USDT test mint.** `9mxkN8Ka…` (supply 0) still names the leaked
+  `F6f8…` as its mint authority (read 2026-10-12). Nothing mints it today.
