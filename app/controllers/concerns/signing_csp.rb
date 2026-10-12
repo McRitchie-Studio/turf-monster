@@ -78,9 +78,11 @@ module SigningCsp
     end
   end
 
+  # `unfixed` spells the tag <[s]cript> so test/views/alpine_and_inline_script_ratchet_test.rb
+  # does not count this pattern as an inline script of the app's own.
   PENDING_GEM_FIXES = [
     PendingGemFix.new(gem: "solana-studio", file: "app/views/solana_studio/_phantom_deeplink.html.erb",
-                      unfixed: /^<script>$/, script: /window\.startPhantomDeepLink\s*=/,
+                      unfixed: /^<[s]cript>$/, script: /window\.startPhantomDeepLink\s*=/,
                       fixed_by: "the solana-studio release after 0.12.4 (the deep-link nonce)")
   ].freeze
 
