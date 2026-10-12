@@ -1,0 +1,114 @@
+# The named keys the signer console can pick from. PUBLIC halves only.
+#
+# Read by Solana::SignerRoster (app/services/solana/signer_roster.rb), which
+# refuses this file outright if any value is shaped like a secret: a base58
+# string that decodes to 64 bytes, or anything longer than an address. A
+# secret here would ship to every browser that opens /admin/authorities.
+#
+# One entry per key. Fields:
+#
+#   address   the base58 public key (32 bytes)
+#   name      what the page calls it
+#   holder    alex | agent. Only `alex` keys are ever asked for in Phantom.
+#             `agent` keys sign on the server or not at all.
+#   signs_in  phantom | server | script. How this key produces a signature.
+#   clusters  where it may be a VaultState signer: mainnet-beta, devnet.
+#   op_item   the 1Password item title (a NAME, never a reference to a field)
+#   role      one line: what the key is for
+#
+# A seated key that is not here renders as "unknown key" on the console. That
+# is the honest answer, and it is the prompt to add the key here (one PR,
+# public half only) rather than to guess.
+#
+# Sources: turf-vault docs/CURRENT_DEPLOYMENT.md and SIGNER_ROTATION.md, the
+# 2026-10-11 signer-console audit (.agents/epics/audits/), and
+# config/mainnet_vault_signers.yml. Read off chain 2026-10-12.
+
+keys:
+  - address: 8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd
+    name: Production server key (Xan)
+    holder: agent
+    signs_in: server
+    clusters: [mainnet-beta]
+    op_item: agent.xan.solana
+    role: turf-monster-mainnet's SOLANA_ADMIN_KEY today; leaves the set at the EVICT
+
+  - address: 4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY
+    name: New production server key
+    holder: agent
+    signs_in: server
+    clusters: [mainnet-beta]
+    op_item: solana.turf.server
+    role: production's next SOLANA_ADMIN_KEY; seated by the ADD, flipped to by Steffon
+
+  - address: 7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr
+    name: Alex, Phantom account 1
+    holder: alex
+    signs_in: phantom
+    clusters: [mainnet-beta]
+    op_item: null
+    role: Mr. McRitchie's first Phantom account; signs every rotation once
+
+  - address: 9gACbzsCLmkYF9Yx1EBGmwMvvyfuTquJ6qs8QsoQvHXf
+    name: Alex, Phantom account 2
+    holder: alex
+    signs_in: phantom
+    clusters: [mainnet-beta, devnet]
+    op_item: null
+    role: Mr. McRitchie's second account in the same Phantom
+
+  - address: 3Qj4v9qjhXgkru6zCRCErRVhy8Q6qU3NrNpvpXLTZboA
+    name: Alex, second wallet
+    holder: alex
+    signs_in: phantom
+    clusters: [mainnet-beta, devnet]
+    op_item: null
+    role: Mr. McRitchie's second wallet (device unconfirmed; a Ledger slows the two-prompt window)
+
+  - address: 4bKNSqkrKeggSyrds16Ak7rcB4ibvGJ4ZLsKjvQgC3Vk
+    name: Governance key
+    holder: agent
+    signs_in: server
+    clusters: [mainnet-beta]
+    op_item: solana.turf.governance
+    role: admin-vault agent key; a mainnet Squads seat (exposed 2026-10-12, slated for replacement)
+
+  - address: CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR
+    name: Mason
+    holder: agent
+    signs_in: server
+    clusters: [mainnet-beta]
+    op_item: agent.mason.solana
+    role: signs the mainnet ADD as a window cosigner, then leaves at the EVICT
+
+  - address: 2eGs8G3wzhEeNQQU2Q86BmmA2xTpDbMMae3Y1bvpZfx9
+    name: QA server key
+    holder: agent
+    signs_in: server
+    clusters: [devnet]
+    op_item: solana.turf.system.devnet
+    role: turf-monster-qa's SOLANA_ADMIN_KEY
+
+  - address: foUuRyeibadQoGdKXZ9pBGDqmkb1jY1jYsu8dZ29nds
+    name: Mack (devnet co-signer)
+    holder: agent
+    signs_in: script
+    clusters: [devnet]
+    op_item: agent.mack.solana
+    role: the devnet-only rehearsal co-signer
+
+  - address: BVQHNwUEo91ePwqPcR6Ro4g9Ejqt3qn3ajKPqJSSTd51
+    name: Governance key (devnet)
+    holder: agent
+    signs_in: server
+    clusters: [devnet]
+    op_item: solana.turf.governance.devnet
+    role: admin-vault devnet-only key
+
+  - address: 7auwTLSvNniSUeAgL6v9RStMXJhWrrUhSJgwFWLpcqC
+    name: System seat (Squads)
+    holder: agent
+    signs_in: script
+    clusters: []
+    op_item: solana.turf.system
+    role: the agent's mainnet Squads seat; in no VaultState target
