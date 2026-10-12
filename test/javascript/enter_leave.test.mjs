@@ -95,3 +95,29 @@ test("settle cancels a running phase and sets the state at once", () => {
   assert.equal(el.hidden, true)
   assert.deepEqual(el.classes, [])
 })
+
+// The start-time tooltip names enter classes and no leave ones: its close has
+// nothing to animate, so it must not wait out a default duration first.
+test("a phase that names no classes lands at once, with nothing scheduled", () => {
+  const el = element({ enter: "transition duration-150", enterStart: "opacity-0", enterEnd: "opacity-100" }, false)
+  const clock = manual()
+  leave(el, clock)
+  assert.equal(el.hidden, true)
+  assert.equal(clock.frames.length, 0)
+
+  const bare = element({}, true)
+  enter(bare, clock)
+  assert.equal(bare.hidden, false)
+  assert.equal(clock.frames.length, 0)
+})
+
+test("a leave with no classes cancels an enter still running", () => {
+  const el = element({ enter: "transition duration-150", enterStart: "opacity-0", enterEnd: "opacity-100" }, true)
+  const clock = manual()
+  enter(el, clock)
+  leave(el, clock)
+  clock.runFrame()
+  assert.equal(el.hidden, true)
+  assert.deepEqual(el.classes, [])
+  assert.equal(clock.timers.length, 0)
+})

@@ -797,7 +797,7 @@ payout. So `Vault#build_update_signers` takes a `lead_signer:` and picks its bui
   filled at build time and the operator supplies the rest. `#rebuild` sends a
   `signer_queue` of `authorizers[1..]`, so Phantom is asked only for the
   cosigner (and any extras), and `#broadcast` accepts exactly that queue.
-- **operator leads** → `build_partial_unsigned`; NOTHING is pre-signed, account 0
+- **operator leads** → `build_lead_paid_unsigned`; NOTHING is pre-signed, account 0
   is reserved for one of his wallets which pays the network fee, and every
   signature is collected in Phantom. **This is the only shape that can evict the
   server's key.** Its `signer_queue` is the full authorizer list, lead first.

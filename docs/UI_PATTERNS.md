@@ -1025,7 +1025,7 @@ The app runs its own Stimulus application on Stimulus' own attributes (`data-con
 | Alpine | Replacement |
 |---|---|
 | `x-show` with `x-cloak` | the `hidden` attribute in the markup, toggled by the controller (Tailwind's preflight makes `[hidden]` win over a display class). Where a responsive class must win back (`hidden md:block`), toggle the `hidden` class instead (`tabs`) |
-| `x-transition` | `data-transition-enter`, `-enter-start`, `-enter-end` and the three `leave` ones on the element; the `disclosure` controller runs them (`turf/transition`) |
+| `x-transition` | `data-enter`, `-enter-start`, `-enter-end` and the three `leave` ones on the element; the `disclosure` controller runs them through `turf/enter_leave` |
 | `@click.outside`, `@keydown.escape.window` | `click@window->disclosure#outside` (a press outside the panel and its triggers), `keydown.esc@window->disclosure#close` |
 | `x-text`, `:class`, `:style`, `:disabled` | a target the controller writes; the first value is server-rendered |
 | `x-model` | a target read on its `input` or `change` action |
