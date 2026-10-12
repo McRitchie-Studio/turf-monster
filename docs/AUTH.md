@@ -293,17 +293,17 @@ did was wrong.** An operator cosign ceremony declares the wallets it will
 legitimately walk through by calling `expectSwitchesTo` on the wallet store
 (`app/javascript/solana_stores.js:349`), which both call sites reach through
 `Alpine.store('wallet')`. That keeps the blocking card from opening
-over a half-collected treasury transaction. The call has exactly two sites —
-`app/javascript/cosign.js:271` and
-`app/views/admin/vault_state/show.html.erb:321` — but **three admin surfaces
-reach them**. `cosignTransaction` is a global, so any page may wire a button to
-it: `/admin/pending_transactions` and `/admin/authorities` both reach the
-`cosign.js` call through a button of their own, the authorities page beside the
-same `admin/pending_transactions/signer_roster` partial it renders
-(`app/views/admin/authorities/_eviction.html.erb:197`), and `/admin/vault_state`
-carries its own. **Count the `data-cosign-controls` blocks, not the call
-sites**, when this list next needs checking — a fourth surface costs one button
-and no new call site. **None of the three renders the account card**, the
+over a half-collected treasury transaction. Three sites declare a suppression:
+`app/javascript/cosign.js:271`,
+`app/views/admin/vault_state/show.html.erb:321`, and the signer console's
+Stimulus controller (`app/javascript/controllers/signer_console_controller.js`,
+through `window.tmWalletSwitches`, the non-Alpine door `solana_stores.js` opens on
+the same store). `cosignTransaction` is a global, so any page may wire a button to
+it: `/admin/pending_transactions` reaches it through a button of its own, and
+`/admin/vault_state` carries its own; `/admin/authorities` collects through
+`cosign_signatures.collect` directly. **Count the `data-cosign-controls` blocks,
+not the call sites**, when this list next needs checking — a fourth surface costs
+one button and no new call site. **None of the three renders the account card**, the
 `accounts/solana_wallet_section` partial, which is mounted only by
 `app/views/accounts/show.html.erb:121` and by `/profile` through the engine
 section registry (`config/initializers/studio.rb:157`). An Alpine store is

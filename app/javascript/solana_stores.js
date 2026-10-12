@@ -38,7 +38,9 @@ function registerWalletStore() {
 
   // --- Wallet Watcher Store ---
   // Detects wallet switches and hands the user into an explicit re-auth flow.
-  Alpine.store('wallet', {
+  // Held in a local first so the switch helper below can reach it without a
+  // second reference to the Alpine global.
+  var store = {
     address: null,
     watching: false,
     pendingAddress: null,
@@ -466,7 +468,20 @@ function registerWalletStore() {
           throw finalError;
         });
     }
-  });
+  };
+  Alpine.store('wallet', store);
+
+  // THE CEREMONY SWITCH DECLARATION, for code that is not Alpine (the signer
+  // console's Stimulus controller). Alpine's store proxy reads through to this
+  // object, so declaring on it is what `_notifySwitch` sees. Same contract as
+  // the store methods: ALWAYS pair expectSwitchesTo with clearExpectedSwitches in a
+  // finally (test/lib/cosign_signatures_js_test.rb scans every caller for it).
+  window.tmWalletSwitches = {
+    expectSwitchesTo: function(addresses) {
+      store.expectedSwitchAddresses = (addresses || []).filter(function(a) { return !!a; });
+    },
+    clearExpectedSwitches: function() { store.expectedSwitchAddresses = []; }
+  };
 
   return true;
 }

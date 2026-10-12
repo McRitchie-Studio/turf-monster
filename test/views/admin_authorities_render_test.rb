@@ -4,7 +4,7 @@ require "open3"
 # [component] /admin/authorities as MARKUP.
 #
 # WHAT THIS TIER CAN AND CANNOT SEE. It cannot watch a signature arrive or a
-# roster row turn green — that is e2e/authority_signer_eviction.spec.js. What it
+# roster row turn green — that is e2e/signer_console.spec.js. What it
 # CAN see is the structure those behaviours depend on, and every piece below is
 # something a well-meaning edit removes with nothing else in the suite noticing:
 #
