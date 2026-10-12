@@ -7,6 +7,10 @@
 // (turbo-visit-control reload) and left by one, and it runs no script that
 // arrives after load: a frame or a stream brings markup, never a program.
 
+// The request header a strict document puts on its Turbo fetches
+// (SigningCsp::DOCUMENT_HEADER reads it).
+export const SIGNING_DOCUMENT_HEADER = "X-Signing-Document"
+
 // True when the page carries the signing-csp marker.
 export function isStrictDocument(meta) {
   return !!meta && meta.content === "strict"

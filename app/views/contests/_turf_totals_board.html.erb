@@ -712,7 +712,7 @@ window.selectionBoard = function() {
     // again"). Its Contest Lobby button gets its address, and however the card
     // goes away (the button, Dismiss) the page then leaves for the contest,
     // because this board's cart is now an entry.
-    _paymentConfirmed(data, message) {
+    _paymentConfirmed(data, message) { this.forgetStoredCart();
       var modal = this._paymentCard("You're In", message);
       modal.success(data.tx_signature, message, {
         variant: 'generic', title: "You're In", subtitle: message,
@@ -1636,13 +1636,13 @@ window.selectionBoard = function() {
       if (window.tmMirrorTokenSpend) window.tmMirrorTokenSpend(payload);
     },
 
-    setHoldSuccess() {
+    setHoldSuccess() { this.forgetStoredCart();
       document.querySelectorAll('.hold-btn').forEach(function(el) {
         el.classList.remove('error', 'process', 'loading');
         el.classList.add('success');
       });
     },
-
+    forgetStoredCart() { try { sessionStorage.setItem(guestCartKey, JSON.stringify({ selections: {}, selectionOrder: [] })); } catch (_) {} }, // A confirmed entry: the cart is an entry now, so Back (a back/forward load, top of this factory) reads an EMPTY stored cart, which also outranks the picks the cached HTML may carry. Called by setHoldSuccess and _paymentConfirmed. On a blank line so docs/workflows' line citations hold.
     // After the hold completes but BEFORE the server confirms the entry.
     // Shows a spinning arc on the button so users don't see "Confirmed!"
     // until the submission actually lands. Cleared by setHoldSuccess/Error
