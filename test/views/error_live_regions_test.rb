@@ -61,12 +61,12 @@ class ErrorLiveRegionsTest < ActiveSupport::TestCase
     # spec reads props.formError on the credentials step — a different paragraph, still
     # listed below — and the two resend specs this adoption added measure the painted
     # CONTRAST and the SPINNER, never the role and never the ordering.
-    # The eviction planner's live verdict. `alert` because it answers an action
-    # the operator is waiting on — and this is the surface where an unannounced
-    # refusal costs the most: he is mid-incident, assembling a rotation that
-    # changes who governs the vault, and the sentence says the chain would
-    # reject the set he just built.
-    ["admin/authorities/_eviction.html.erb", "conflict()"]      => "alert",
+    # The signer console's refusals. `alert` because each answers an action
+    # the operator is waiting on, on the surface where an unannounced refusal
+    # costs the most: he is assembling a rotation that changes who governs the
+    # vault, and the sentence says the chain (or the page) would refuse it.
+    ["admin/authorities/_console.html.erb", "pasteError"]      => "alert",
+    ["admin/authorities/_console.html.erb", "refusal"]         => "alert",
     ["contests/_quest_newsletter.html.erb", "error"]            => "alert",
     ["shared/_auth_card.html.erb", "error"]                     => "alert",
     ["wallet_exports/show.html.erb", "errorText"]               => "alert",

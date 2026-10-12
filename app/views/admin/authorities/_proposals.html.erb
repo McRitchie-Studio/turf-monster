@@ -21,7 +21,7 @@
   <div class="flex flex-wrap items-start justify-between gap-2 mb-1">
     <h2 class="text-lg font-bold text-heading">Open Squads proposals</h2>
     <a href="<%= squads_app_url.sub(%r{/home\z}, "/transactions") %>" target="_blank" rel="noopener"
-       class="text-xs font-bold text-link underline" data-squads-proposals-target="squadsLink">Open in Squads</a>
+       class="text-xs font-bold text-primary underline" data-squads-proposals-target="squadsLink">Open in Squads</a>
   </div>
   <p class="text-secondary text-sm mb-3">
     Program upgrades and vault transfers waiting on a vote. Approve casts your
@@ -45,7 +45,7 @@
         <button type="button" class="btn btn-primary btn-sm hidden" disabled
                 data-approve data-desktop-only-action
                 data-action="squads-proposals#approve">Approve in Phantom (1 prompt)</button>
-        <a class="text-xs text-link underline" target="_blank" rel="noopener" data-link>Open in Squads</a>
+        <a class="text-xs text-primary underline" target="_blank" rel="noopener" data-link>Open in Squads</a>
       </div>
       <p class="mt-1 hidden text-3xs text-warning-ink" data-blocked></p>
     </li>

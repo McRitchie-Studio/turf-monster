@@ -86,14 +86,16 @@ class AdminAuthoritiesRenderTest < ActionDispatch::IntegrationTest
     assert_response :success
   end
 
+  # A rotation row as #create_rotation records it (operator-led, v0.25).
   def arm_a_rotation
     vault = RenderVault.new
-    Solana::Vault.stub :new, vault do
-      post admin_arm_authority_rotation_path,
-           params: { signers: [ALEX, MASON, ALEX2], authorizers: [ALEX, MASON] }
-    end
-    assert_equal 1, PendingTransaction.where(tx_type: "update_signers").count,
-                 "the fixture rotation must arm, or the assertions below test an empty page"
+    rotation = Solana::SignerRotation.for_chain(current_signers: [SYSTEM, ALEX, MASON], proposed: [ALEX, MASON, ALEX2],
+                                                authorizers: [ALEX, MASON], governance: false).validate!
+    plan = rotation.to_plan.merge(lead_signer: ALEX, server_leads: false, server_held: [],
+                                  armed_at: Time.current.iso8601)
+    PendingTransaction.create!(tx_type: "update_signers", serialized_tx: Admin::AuthoritiesController::UNBUILT_WIRE,
+                               target: nil, initiator_address: Solana::CosignPlan.admin_address,
+                               metadata: { plan: plan }.to_json)
     vault
   end
 
@@ -268,7 +270,7 @@ class AdminAuthoritiesRenderTest < ActionDispatch::IntegrationTest
   test "the Squads link says which cluster it serves and why the host is not cluster-flavoured" do
     render_page
 
-    href = css_select("a[href^='https://app.squads.so']").first&.[]("href")
+    href = css_select("a[href^='https://app.squads.so'][href$='/home']").first&.[]("href")
     assert href, "the page offers no Squads link — the assertions below would pass vacuously"
     assert_equal "https://app.squads.so/squads/#{Solana::Config.squads_vault_pda}/home", href
     assert_not_includes href, Solana::Config.squads_multisig,
@@ -280,7 +282,7 @@ class AdminAuthoritiesRenderTest < ActionDispatch::IntegrationTest
 
   test "the page records WHY Squads is out of scope rather than leaving it implicit" do
     render_page
-    assert_match(/Deliberately out of scope for this console/i, response.body)
+    assert_match(/Squads membership is out of scope for this console/i, response.body)
     assert_match(/create and\s+vote on proposals and never carry one out/i, response.body)
   end
 
@@ -299,9 +301,8 @@ class AdminAuthoritiesRenderTest < ActionDispatch::IntegrationTest
     render_page(vault: blind)
 
     assert_match(/The VaultState account could not be read/, response.body)
-    assert_match(/Refusing to guess/i, response.body)
-    assert_select "form[action=?]", admin_arm_authority_rotation_path, false,
-                  "nothing may offer to act on a signer set nobody could read"
+    assert_select "button[data-signer-console-target='cta'][disabled]",
+                  count: 1, message: "nothing may be pressable on a signer set nobody could read"
   end
 
   test "the page renders when EVERY chain read raises" do
@@ -467,136 +468,81 @@ class AdminAuthoritiesRenderTest < ActionDispatch::IntegrationTest
     assert_no_match(/Threshold 3 of/, response.body)
   end
 
-  # ── THE EVICTION CONSOLE ─────────────────────────────────────────────────
+  # ── THE SIGNER CONSOLE ───────────────────────────────────────────────────
+  #
+  # The console renders a SHELL: its state arrives from GET console, so the
+  # markup below is all this tier can see. What it pins is what a well-meaning
+  # edit could remove with nothing else noticing: the endpoints, the disabled
+  # CTA, the desktop gate, the roster hooks, and the absence of Alpine and
+  # inline script (the page is a strict-CSP signing page).
 
-  test "the planner ships before anything is armed, and arms nothing by itself" do
+  def console_html = response.body[/<section[^>]*data-controller="signer-console".*?<\/section>/m]
+
+  test "the console ships its endpoints and a disabled CTA, with no Alpine and no inline script" do
     render_page
+    html = console_html
+    assert html, "the console must render"
 
-    assert_select "form[action=?]", admin_arm_authority_rotation_path
-    # The slot rows live inside an Alpine <template>, so the markup IS in the
-    # response but inert until Alpine clones it. Asserting the CONTAINER rather
-    # than the input is what separates "the planner shipped" from "a row was
-    # server-rendered", which would be a different and wrong page.
-    assert_select "template input[name=?]", "signers[]"
-    assert_select "template select[name=?]", "authorizers[]"
-    assert_match(/Arming records the proposed set and builds nothing/i, response.body)
+    assert_select "[data-signer-console-console-url-value=?]", admin_authority_console_path
+    assert_select "[data-signer-console-plan-url-value=?]", admin_plan_authority_rotation_path
+    assert_select "[data-signer-console-rotations-url-value=?]", admin_authority_rotations_path
+    assert_select "button[data-signer-console-target='cta'][disabled][data-desktop-only-action]"
+    assert_select "[data-controller='signer-console'] [data-cosign-controls]"
+    assert_no_match(/<script/, html)
+    assert_no_match(/\sx-[a-z]+=|\s@click|\s:class=/, html)
   end
 
-  test "the armed panel carries the co-sign wiring cosign.js depends on" do
-    vault = arm_a_rotation
-    render_page(vault: vault)
-
-    # THE SCOPE. Without it every paintSigner call silently no-ops.
-    assert_select "[data-cosign-controls]", 1
-
-    # THE ENDPOINTS. cosign.js defaults to the TREASURY's routes when these are
-    # absent, so losing them misroutes rather than breaks.
-    row = PendingTransaction.where(tx_type: "update_signers").last
-    assert_select "button[data-rebuild-url=?]", admin_rebuild_authority_rotation_path(row.slug)
-    assert_select "button[data-broadcast-url=?]", admin_broadcast_authority_rotation_path(row.slug)
-
-    # THE MOBILE GATE.
-    assert_select "button[data-desktop-only-action]"
-  end
-
-  test "the roster ships with every indicator PENDING, including the lead row" do
-    # A green check standing for a signature that does not exist is the same lie
-    # as an Execute button at 2 of 3. On THIS page the lead is usually one of
-    # the operator's own wallets — nothing is pre-signed at all.
-    vault = arm_a_rotation
-    render_page(vault: vault)
-
-    assert_select "[data-signer-roster]", 1
-    states = response.body.scan(/data-signer-state\s+data-state="(\w+)"/).flatten
-    assert_equal 2, states.length, "one indicator per reserved slot"
-    assert_equal %w[pending pending], states
-    assert_no_match(/Auto<\/span>/, response.body,
-                    "the operator leads here, so no row may claim it signs automatically")
-  end
-
-  test "a server-led roster marks the server's lead Auto and leaves the cosigner pending" do
-    # The server signs account 0 at build time, so its row is the one row that
-    # may claim it signs itself.
-    vault = RenderVault.new(signers: [server_key, ALEX, MASON])
-    Solana::Vault.stub :new, vault do
-      post admin_arm_authority_rotation_path,
-           params: { signers: [server_key, ALEX, ALEX2], authorizers: [server_key, ALEX] }
-    end
-    assert_equal 1, PendingTransaction.where(tx_type: "update_signers").count, "fixture must arm"
-    render_page(vault: vault)
-
-    assert_match(/Server \(fee payer\)/, response.body)
-    assert_match(/Auto<\/span>/, response.body)
-  end
-
-  test "the planner's announced refusal also reports a malformed address" do
+  test "the signer row template keeps the roster indicator, shipped pending" do
     render_page
-
-    assert_select "p[role=alert][x-show=?]", "conflict()"
-    assert_match(/return this\.malformed\(\);/, response.body)
+    template = console_html[/data-signer-console-target="signerRowTemplate".*?<\/template>/m]
+    assert_match(/data-signer-row/, template)
+    assert_match(/data-signer-state data-state="pending"/, template)
   end
 
-  test "the armed panel shows the exact new set, both sides, before signing" do
-    vault = arm_a_rotation
-    render_page(vault: vault)
+  test "an unreadable vault still renders the console shell, which then refuses from its own read" do
+    blind = RenderVault.new
+    blind.define_singleton_method(:read_vault_state) { |**| nil }
+    render_page(vault: blind)
 
-    assert_match(/Signer set now/, response.body)
-    assert_match(/Signer set after/, response.body)
-    assert_match(/Armed — nothing has been signed/, response.body)
-    # The evicted key is struck through in the BEFORE column, so the diff is
-    # readable without comparing two lists by eye.
-    assert_match(/line-through[^>]*>\s*#{SYSTEM}/m, response.body)
+    assert_match(/The VaultState account could not be read/, response.body)
+    assert_select "button[data-signer-console-target='cta'][disabled]"
   end
 
-  test "the armed panel states the rule that decides who may lead" do
-    # Counter-intuitive and load-bearing: continuity means a wallet that signs
-    # cannot be evicted by the transaction it signs, which is why the server
-    # cannot always be the one to sign.
-    vault = arm_a_rotation
-    render_page(vault: vault)
-
-    assert_match(/a wallet that signs this transaction cannot be evicted by it/i, response.body)
-  end
-
-  test "the blockhash window is explained rather than hidden" do
-    vault = arm_a_rotation
-    render_page(vault: vault)
-
-    assert_match(/built when you click, not now/i, response.body)
-    assert_match(/60-90 second/, response.body)
-    assert_match(/click again/i, response.body)
-  end
-
-  # ── ORDER ────────────────────────────────────────────────────────────────
-
-  def heading_at(text)
-    response.body.index(/<h2[^>]*>\s*#{Regexp.escape(text)}/m)
-  end
-
-  test "the eviction console renders ABOVE the read-only authority panels" do
-    # The panels are REFERENCE; the eviction is the act. An operator reaches
-    # this page mid-incident to remove a key, and the control he came for sat
-    # under four panels of material he already knew.
+  test "the console leads the page, then the proposals, then the reference panels" do
     render_page
-
-    console = heading_at("Evict a vault signer")
-    vault   = heading_at("Vault signer set")
-    squads  = heading_at("Program upgrade authority")
-    server  = heading_at("Server signing identity")
-    [console, vault, squads, server].each { |at| assert at, "a panel heading went missing" }
-
-    assert console < vault,  "the console must lead the page"
-    assert vault   < squads, "the panels keep their own order under it"
-    assert squads  < server
-
-    # AND THE PROSE POINTERS MOVED WITH IT. Two panels cite the console's
-    # POSITION in words. A reorder that leaves them saying "below" sends an
-    # operator to the bottom of a page that has nothing there — which is worse
-    # than the original ordering, because it reads as a missing feature.
+    at = ->(text) { response.body.index(/<h2[^>]*>\s*#{Regexp.escape(text)}/m) }
+    console = at.("Vault signer set")
+    proposals = at.("Open Squads proposals")
+    squads = at.("Program upgrade authority")
+    server = at.("Server signing identity")
+    [console, proposals, squads, server].each { |pos| assert pos, "a panel heading went missing" }
+    assert console < proposals
+    assert proposals < squads
+    assert squads < server
     assert_match(/console at the top of this page/, response.body)
-    assert_no_match(/console at the bottom of this page/, response.body)
-    assert_no_match(/cannot be evicted by a rotation it leads<\/strong> \(see below\)/, response.body)
   end
+
+  test "the proposals panel ships its endpoints and links the vault's transactions page" do
+    render_page
+    assert_select "[data-controller='squads-proposals'][data-squads-proposals-url-value=?]", admin_authority_proposals_path
+    assert_select "[data-squads-proposals-approve-url-value=?]", admin_approve_authority_proposal_path(index: "INDEX")
+    assert_select "a[data-squads-proposals-target='squadsLink'][href=?]",
+                  "https://app.squads.so/squads/#{Solana::Config.squads_vault_pda}/transactions"
+  end
+
+  test "the console and proposals name no class the stylesheet leaves undefined" do
+    render_page
+    html = console_html + response.body[/<section[^>]*data-controller="squads-proposals".*?<\/section>/m]
+    names = html.scan(/class="([^"]*)"/).flatten.join(" ").split.uniq
+    assert_operator names.length, :>, 20
+    # Variant-prefixed utilities (dark:, data-[…]:, group-data-[…]/state:, sm:,
+    # aria-pressed:, disabled:, hover:) compile under an escaped selector; the
+    # guard judges the base utilities.
+    base = names.reject { |n| n.include?(":") }
+    phantoms = base.reject { |name| CssClassGuard.defined_in_css?(name) }
+    assert_empty phantoms, "these classes paint nothing: #{phantoms.join(', ')}"
+  end
+
 
   # ── WHO HOLDS EACH WALLET ────────────────────────────────────────────────
   #
@@ -699,247 +645,6 @@ class AdminAuthoritiesRenderTest < ActionDispatch::IntegrationTest
                       "#{address} must render in full whether or not it resolved"
       assert_equal address, row_for(address)[:address]
     end
-  end
-
-  test "the planner hands Alpine only the wallets that actually resolved" do
-    # The slot fields are editable, so the identity beside them is painted in
-    # the browser off this map. It must carry no address it did not find a user
-    # for — an invented entry there would put a face beside a stranger's key.
-    sam = users(:sam)
-    render_page(vault: RenderVault.new(signers: [sam.web3_solana_address, ALEX, MASON]))
-
-    raw = response.body[/data-identities="([^"]*)"/, 1]
-    assert raw, "the planner must ship an identity map"
-    map = JSON.parse(CGI.unescapeHTML(raw))
-
-    assert_equal sam.display_name, map.dig(sam.web3_solana_address, "name")
-    assert_not map.key?(ALEX),  "an unlinked wallet must be ABSENT, not present and blank"
-    assert_not map.key?(MASON)
-  end
-
-  # ── THE PLANNER'S LOOKUP, EXECUTED RATHER THAN READ ──────────────────────
-  #
-  # WHY ONE COMPONENT TEST HERE RUNS JAVASCRIPT. Everything above reads the
-  # markup the server sent. The SLOT identity is painted by Alpine off a map the
-  # page hands over as JSON, so "what does this key resolve to" has no answer in
-  # the response bytes at all: those spans ship empty and are filled after
-  # mount. A source grep for the guard would pass against the broken build and
-  # the fixed one alike — the vacuous green every control in this file exists to
-  # refuse.
-  #
-  # So the factory is lifted OUT OF THE RENDERED PAGE and run in Node against a
-  # stub element carrying this page's own data-* attributes. That certifies the
-  # logic AND that the page ships it: a guard added to some other copy of the
-  # factory leaves this red. The pattern is the repo's rather than a new one —
-  # test/lib/wallet_desktop_only_js_test.rb and six siblings already drive real
-  # JavaScript from Minitest, in this same lane, on the Node the runner image
-  # already carries.
-  #
-  # AND IT NEEDS NO e2e SPEC, so config/e2e_lane.yml does not move. That file is
-  # the reason this was filed rather than zapped; the lowest tier that
-  # reproduces the defect turns out to be this one.
-
-  # The members an operator could plausibly type, plus `__proto__`, which is
-  # spelled differently enough to survive a fix that only blacklists names.
-  PROTOTYPE_KEYS = %w[
-    constructor toString valueOf hasOwnProperty isPrototypeOf
-    propertyIsEnumerable toLocaleString __proto__
-  ].freeze
-
-  # 32 bytes, base58-encoded. The alphabet excludes 0, O, I, l and every
-  # underscore, and the length floor is 32 characters.
-  BASE58_ADDRESS = /\A[1-9A-HJ-NP-Za-km-z]{32,44}\z/
-
-  def self.planner_source(html)
-    chunk = html.split("</script>").find { |c| c.include?("window.evictionPlanner = function") }
-    chunk&.sub(/\A.*?<script[^>]*>/m, "")
-  end
-
-  # One record per probed key: what identityFor decided, and the four painted
-  # consequences hanging off it.
-  #
-  # AN ARRAY OF RECORDS, NOT AN OBJECT KEYED BY THE PROBE. `out[key] = ...` is
-  # the very bug under test — assigning at "__proto__" on a plain object sets
-  # the PROTOTYPE and stores nothing, so that row would come back missing and
-  # the loop over it would assert nothing while reporting green.
-  def probe_planner(keys)
-    body = response.body
-    source = self.class.planner_source(body)
-    assert source, "the eviction planner factory must still ship inside the page"
-
-    dataset = {}
-    %w[identities max-slots required current-signers].each do |name|
-      raw = body[/data-#{name}="([^"]*)"/, 1]
-      assert raw, "the planner must still ship data-#{name}"
-      dataset[name.gsub(/-(.)/) { Regexp.last_match(1).upcase }] = CGI.unescapeHTML(raw)
-    end
-
-    script = <<~JS
-      global.window = global;
-      #{source}
-      var planner = window.evictionPlanner();
-      planner.init({ dataset: #{dataset.to_json} });
-      console.log(JSON.stringify(#{keys.to_json}.map(function (key) {
-        return {
-          key: key,
-          resolved: !!planner.identityFor(key),
-          label: planner.labelFor(key),
-          kind: planner.kindFor(key),
-          initials: planner.initialsFor(key),
-          avatar: planner.avatarStyle(key)
-        };
-      })));
-    JS
-
-    stdout, stderr, status = Open3.capture3("node", "--eval", script)
-    assert status.success?, stderr
-    rows = JSON.parse(stdout.lines.map(&:strip).reject(&:empty?).last)
-    assert_equal keys.length, rows.length, "every probed key must come back, or the sweep below is short"
-    rows.index_by { |row| row["key"] }
-  end
-
-  test "a prototype property name resolves to NOBODY, and a real wallet in the same map still resolves" do
-    # MEASURED IN THE BROWSER 2026-09-15: typing `constructor` into a slot
-    # painted a resolved-looking row labelled "Object" — filled avatar circle
-    # up, dashed ring down, no Unresolved chip. `toString` painted "toString".
-    # The map is JSON.parse output and carried Object.prototype, so a bare index
-    # answered for keys nobody had put in it.
-    sam = users(:sam)
-    render_page(vault: RenderVault.new(signers: [sam.web3_solana_address, ALEX, MASON]))
-
-    rows = probe_planner(PROTOTYPE_KEYS + [ "ZZZnotanaddress", sam.web3_solana_address ])
-
-    PROTOTYPE_KEYS.each do |key|
-      row = rows.fetch(key)
-      assert_not row["resolved"], "#{key} must resolve to nobody"
-      assert_equal "No linked account", row["label"], "#{key} must never be given a name"
-      assert_equal "Unresolved", row["kind"], "#{key} must wear the unresolved chip"
-      assert_equal "", row["initials"], "#{key} must paint no initials"
-      assert_equal "", row["avatar"], "#{key} must paint no avatar circle"
-    end
-
-    # AND IT IS THE ORDINARY MISS PATH, not a fourth state invented for these
-    # keys. A typed string that was never a prototype member has always rendered
-    # this way; the prototype names must be indistinguishable from it.
-    assert_equal rows.fetch("ZZZnotanaddress").except("key"),
-                 rows.fetch("constructor").except("key"),
-                 "a prototype key must render exactly as any other string that matched nobody"
-
-    # THE CONTROL, and the spec is worthless without it: a guard that returned
-    # null for EVERYTHING would satisfy every assertion above. A real seeded
-    # wallet, in the same map, in the same Node run, still resolves.
-    held = rows.fetch(sam.web3_solana_address)
-    assert held["resolved"], "the fix must not cost a real wallet its holder"
-    assert_equal sam.display_name, held["label"]
-    assert_equal "Phantom", held["kind"], "the page must still say WHICH column matched"
-    assert_not_equal "", held["avatar"], "a resolved wallet still paints its circle"
-  end
-
-  test "no Solana address can collide with a prototype member name, which is what bounds this" do
-    # THE CLAIM THE FIX IS ALLOWED TO MAKE, and the one it is not. No WALLET was
-    # ever mislabelled: the leak needed a key that is BOTH an Object.prototype
-    # member AND a thing an operator could paste as an address, and there is no
-    # such string. Asserted against the member list Node itself reports, so a
-    # runtime that grows a member is measured here rather than assumed away.
-    stdout, stderr, status = Open3.capture3(
-      "node", "--eval",
-      "console.log(JSON.stringify(Object.getOwnPropertyNames(Object.prototype)))"
-    )
-    assert status.success?, stderr
-    members = JSON.parse(stdout)
-
-    assert_operator members.length, :>=, 10,
-                    "a truncated member list would make the sweep below vacuous"
-    PROTOTYPE_KEYS.each do |key|
-      assert_includes members, key,
-                      "#{key} must really be a prototype member, or the spec above probes nothing"
-    end
-
-    members.each do |member|
-      assert_no_match BASE58_ADDRESS, member,
-                      "#{member} is shaped like an address, so the bound the view states is wrong"
-    end
-
-    # THE PREDICATE BITES: the same regex accepts the addresses this page
-    # actually handles, so the sweep above is discriminating rather than
-    # uniformly negative.
-    [ SYSTEM, ALEX, MASON, users(:sam).web3_solana_address ].each do |address|
-      assert_match BASE58_ADDRESS, address, "#{address} is a real address and must pass the predicate"
-    end
-  end
-
-  # ── THE DESTRUCTIVE ROW ACTION ───────────────────────────────────────────
-
-  test "the per-row Evict control shares no colour with the affirmative CTA" do
-    # `btn-outline` draws its border from --color-cta, and in this app that is
-    # the same green as `btn-primary` — so three destructive row buttons came
-    # out the colour of "Arm this eviction" directly below them, on the one card
-    # where a mis-click removes a signing key.
-    render_page
-
-    evict = response.body[/<button type="button"[^>]*evict\(i\)[^>]*>/m]
-    assert evict, "the per-row Evict control must still exist"
-    evict_classes = evict[/class="([^"]*)"/, 1].to_s.split
-
-    arm = response.body[/<button type="submit"[^>]*>\s*Arm this eviction/m]
-    assert arm, "the affirmative CTA must still exist"
-    arm_classes = arm[/class="([^"]*)"/, 1].to_s.split
-
-    assert_includes arm_classes, "btn-primary"
-    assert_includes evict_classes, "text-danger-ink"
-    assert_not_includes evict_classes, "btn-outline"
-
-    # THE REAL PROPERTY, stated as a property rather than as a list of forbidden
-    # names: whatever the two buttons wear, they may not share a class that
-    # carries colour. Only the shape utilities are allowed in common.
-    shape = %w[btn btn-sm shrink-0]
-    assert_empty (evict_classes & arm_classes) - shape,
-                 "the destructive row action and the affirmative CTA share a colour class"
-  end
-
-  # ── THE CLASSES THIS CARD'S AFFORDANCES DEPEND ON ────────────────────────
-
-  # The stylesheet now lives behind CssClassGuard (test/support), which owns
-  # both the path and the question asked of it.
-
-  test "the card names no field or colour class the stylesheet leaves undefined" do
-    # `input input-bordered` shipped on the slot fields and NEITHER class
-    # exists — the engine's field primitive is `input-field`. A box- or
-    # colour-shaped class the stylesheet does not define paints NOTHING while
-    # reading perfectly in the markup, so the three base58 fields rendered as
-    # bare text and an operator had no way to tell they were editable.
-    #
-    # Nothing in Ruby can see that failure. The stylesheet can, and CI builds it
-    # before the suite (.github/workflows/ci.yml) for exactly this class of test.
-    #
-    # THE PREDICATE IS SHARED, and it is a boundary regex rather than a
-    # substring match. This lambda used to ask `css.include?(".#{name}")`,
-    # which reports a PREFIX of a real class as DEFINED — `text-danger` reads
-    # as defined because `.text-danger-ink` exists, and so does `input`,
-    # because `.input-field` does. So the guard that caught `input-bordered`
-    # could never have caught its own partner. CssClassGuard closes it in one
-    # place; test/views/admin_vault_phantom_classes_test.rb pins the boundary.
-    defined_in_css = ->(name) { CssClassGuard.defined_in_css?(name) }
-
-    render_page
-
-    field = response.body[/<input type="text" name="signers\[\]"[^>]*class="([^"]*)"/m, 1] ||
-            response.body[/<input[^>]*name="signers\[\]"[^>]*class="([^"]*)"/m, 1]
-    assert field, "the slot field must still exist"
-
-    evict = response.body[/<button type="button"[^>]*evict\(i\)[^>]*>/m][/class="([^"]*)"/, 1]
-
-    phantoms = (field.split + evict.split).uniq.reject { |name| defined_in_css.call(name) }
-    assert_empty phantoms,
-                 "these classes are in the markup and absent from the stylesheet, " \
-                 "so they paint nothing: #{phantoms.join(", ")}"
-
-    # THE CONTROL. The pair that used to ship here must be caught by the same
-    # lambda, or this guard would pass on a stylesheet that defines nothing.
-    assert_not defined_in_css.call("input-bordered"),
-               "the retired phantom must still read as undefined, or the check is inert"
-    assert defined_in_css.call("input-field"),
-           "the engine field primitive must read as defined, or the check is unsatisfiable"
   end
 
   # ── THE STRANDED PANEL ───────────────────────────────────────────────────

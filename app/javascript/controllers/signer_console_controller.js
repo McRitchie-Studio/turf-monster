@@ -568,12 +568,16 @@ export default class extends Controller {
     return String(value || "").split(",").map((v) => v.trim()).filter(Boolean)
   }
 
+  // Both spellings: the error regions ship with the `hidden` ATTRIBUTE (the
+  // live-region guard requires it), the rest with the class.
   show(el, text) {
     if (text !== undefined) el.textContent = text
+    el.hidden = false
     el.classList.remove("hidden")
   }
 
   hide(el) {
+    el.hidden = true
     el.classList.add("hidden")
   }
 }

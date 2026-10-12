@@ -26,7 +26,7 @@
          data-signer-console-add-value="<%= prefill[:add] %>">
   <div class="flex flex-wrap items-start justify-between gap-2 mb-1">
     <h2 class="text-lg font-bold text-heading">Vault signer set</h2>
-    <%= link_to "Rotation checklist", admin_authority_ceremony_path, class: "text-xs font-bold text-link underline" %>
+    <%= link_to "Rotation checklist", admin_authority_ceremony_path, class: "text-xs font-bold text-primary underline" %>
   </div>
   <p class="text-secondary text-sm mb-1" data-signer-console-target="shape">Reading the chain…</p>
   <p class="text-3xs text-muted mb-4" data-signer-console-target="continuity"></p>
@@ -90,13 +90,13 @@
                data-signer-console-target="confirm"
                data-action="input->signer-console#pasted">
       </div>
-      <p class="mt-1 text-3xs text-danger-ink hidden" data-signer-console-target="pasteError"
-         role="alert" aria-live="assertive"></p>
+      <p class="mt-1 text-3xs text-danger-ink" hidden data-signer-console-target="pasteError"
+         role="alert" aria-live="assertive" aria-atomic="true"></p>
     </div>
   </div>
 
   <%# A plan refusal, inline, on the same draft. %>
-  <p class="hidden mb-3 text-sm text-danger-ink" data-signer-console-target="refusal"
+  <p class="mb-3 text-sm text-danger-ink" hidden data-signer-console-target="refusal"
      role="alert" aria-live="assertive" aria-atomic="true"></p>
 
   <%# ── STATES 3 AND 4: THE SIGNERS AND THE REVIEW ────────────────────── %>
@@ -137,7 +137,7 @@
       </thead>
       <tbody data-signer-console-target="readbackRows"></tbody>
     </table>
-    <a class="mt-2 inline-block text-xs text-link underline hidden" target="_blank" rel="noopener"
+    <a class="mt-2 inline-block text-xs text-primary underline hidden" target="_blank" rel="noopener"
        data-signer-console-target="explorer">View the transaction</a>
   </div>
 
