@@ -435,11 +435,13 @@ export default class extends Controller {
     queue.forEach((key) => this.paint(key, "pending"))
     if (this.connected) this.paint(this.connected, "connected")
 
-    const walletStore = window.Alpine && window.Alpine.store && window.Alpine.store("wallet")
+    // No Alpine here (the ratchet refuses a new reference). The wallet store's
+    // expected-switch suppression is therefore not declared: a two-prompt
+    // rotation may show the wallet-changed notice while the operator switches
+    // accounts, which is cosmetic; the queue below is what decides who signs.
     let signed
     try {
       if (window.confirmSolanaNetworkIntent) await window.confirmSolanaNetworkIntent({ action: "Rotate vault signers" })
-      if (walletStore && walletStore.expectSwitchesTo) walletStore.expectSwitchesTo(queue)
       signed = await window.cosignSignatures.collect(provider, built.serialized_tx, queue, {
         onPrompt: (key, i, total) => {
           this.paint(key, "signing")
@@ -456,8 +458,6 @@ export default class extends Controller {
       this.fail(declined ? "You declined in Phantom. Nothing was sent; the draft is kept." : msg)
       this.ctaTarget.disabled = false
       return
-    } finally {
-      if (walletStore && walletStore.clearExpectedSwitches) walletStore.clearExpectedSwitches()
     }
 
     this.say("Broadcasting from the server…")

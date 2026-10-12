@@ -437,6 +437,88 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
     assert_select "[data-controller='signer-console'] [x-data], [data-controller='signer-console'] [x-show]", false
   end
 
+  # ── THE CEREMONY CHECKLIST ────────────────────────────────────────────────
+
+  test "the ceremony page renders this cluster's steps with their verdicts" do
+    steps = [{ "id" => "add", "kind" => "console", "title" => "ADD a key", "who" => "Alex",
+               "start" => [server, ALEX, MASON], "end" => [server, ALEX, MASON, ALEX2],
+               "server" => server, "window_cosigners" => [], "intent" => "replace",
+               "remove" => [MASON], "add" => [ALEX2] },
+             { "id" => "flip", "kind" => "runbook", "title" => "Flip", "who" => "Steffon",
+               "runbook" => "the flip", "done_when" => { "server" => server } }]
+    real = Solana::SignerCeremony.method(:new)
+    with_vault(StubVault.new(signers: [server, ALEX, MASON])) do
+      Solana::SignerCeremony.stub(:new, ->(**kw) { real.call(**kw, steps: steps) }) do
+        get admin_authority_ceremony_path
+      end
+    end
+
+    assert_response :success
+    assert_select "[data-ceremony-step='add'][data-status='ready']"
+    assert_select "a[data-ceremony-link='add'][href=?]", "/admin/authorities?add=#{ALEX2}&intent=replace&remove=#{MASON}"
+    assert_select "[data-ceremony-step='flip'][data-status='done']"
+    assert_select "[data-check='chain_set'][data-ok='true']"
+  end
+
+  test "a red hard check disables the step's console link" do
+    steps = [{ "id" => "add", "kind" => "console", "title" => "ADD", "who" => "Alex",
+               "start" => [server, ALEX, MASON], "end" => [server, ALEX, MASON, ALEX2],
+               "server" => server, "window_cosigners" => [ALEX3], "intent" => "add", "add" => [ALEX2] }]
+    real = Solana::SignerCeremony.method(:new)
+    with_vault(StubVault.new(signers: [server, ALEX, MASON])) do
+      Solana::SignerCeremony.stub(:new, ->(**kw) { real.call(**kw, steps: steps) }) do
+        get admin_authority_ceremony_path
+      end
+    end
+    assert_select "[data-ceremony-step='add'][data-status='blocked']"
+    assert_select "a[data-ceremony-link]", false
+    assert_select "[data-ceremony-link-disabled='add']"
+    assert_select "[data-check='window_cosigners'][data-ok='false']"
+  end
+
+  test "the committed mainnet checklist parses into console and runbook steps" do
+    steps = YAML.safe_load_file(Solana::SignerCeremony::PATH)
+    assert_equal %w[add flip evict unset], steps["mainnet-beta"].map { |s| s["id"] }
+    roster = Solana::SignerRoster.default
+    steps.values.flatten.flat_map { |st| Array(st["start"]) + Array(st["end"]) + Array(st["add"]) }.uniq.each do |key|
+      assert roster.include?(key), "#{key} is in the checklist but not the roster"
+    end
+  end
+
+  # ── SQUADS PROPOSALS ──────────────────────────────────────────────────────
+
+  test "proposals answers the open list as JSON, and approve refuses a malformed member" do
+    fake = Object.new
+    fake.define_singleton_method(:network) { "devnet" }
+    fake.define_singleton_method(:squads_url) { "https://app.squads.so/squads/VAULT/transactions" }
+    fake.define_singleton_method(:vault_pda) { "VAULT" }
+    fake.define_singleton_method(:open_proposals) { |connected:| [{ index: 9, connected: connected }] }
+    Solana::SquadsProposals.stub(:new, fake) do
+      get admin_authority_proposals_path(connected: ALEX), as: :json
+    end
+    body = JSON.parse(response.body)
+    assert_equal [{ "index" => 9, "connected" => ALEX }], body["proposals"]
+
+    post admin_approve_authority_proposal_path(index: 9), params: { member: "#{ALEX}." }, as: :json
+    assert_response :unprocessable_entity
+    assert_equal "bad_address", JSON.parse(response.body)["code"]
+  end
+
+  test "approve answers the unsigned vote, or the page's refusal by code" do
+    fake = Object.new
+    fake.define_singleton_method(:build_approve) do |index:, member:|
+      raise Solana::SquadsProposals::Refusal.new("no", code: "not_approvable") if index == 2
+
+      { serialized_tx: "UNSIGNED", index: index, member: member }
+    end
+    Solana::SquadsProposals.stub(:new, fake) do
+      post admin_approve_authority_proposal_path(index: 1), params: { member: ALEX }, as: :json
+      assert_equal "UNSIGNED", JSON.parse(response.body)["serialized_tx"]
+      post admin_approve_authority_proposal_path(index: 2), params: { member: ALEX }, as: :json
+      assert_equal "not_approvable", JSON.parse(response.body)["code"]
+    end
+  end
+
   # ── REBUILD ──────────────────────────────────────────────────────────────
 
   test "rebuild mints fresh bytes and sends the signing plan with them" do
