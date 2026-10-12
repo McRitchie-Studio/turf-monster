@@ -90,7 +90,9 @@ export default class extends Controller {
     }
     if (!ok) {
       this.state = null
-      this.shapeTarget.textContent = "The signer set could not be read, so nothing can be planned against it."
+      this.shapeTarget.textContent = body.code === "shape_mismatch"
+        ? "This app and the chain disagree about the program, so nothing can be planned until that is fixed."
+        : "The signer set could not be read, so nothing can be planned against it."
       this.show(this.blockedTarget, body.message || "Refusing to plan blind.")
       this.intentGroupTarget.disabled = true
       return
