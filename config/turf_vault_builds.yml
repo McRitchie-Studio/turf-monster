@@ -1,0 +1,34 @@
+# The turf-vault program builds an upgrade proposal may install, per cluster.
+#
+# Read by Solana::SquadsProposals: before the console offers Approve on a
+# Squads upgrade, it reads the proposal's BUFFER off chain, hashes the program
+# bytes, and looks the hash up here. A buffer whose hash is not listed for this
+# cluster is shown as UNVERIFIED and Approve is refused.
+#
+# THE HASH. sha256 of the program ELF with trailing zero bytes trimmed: the
+# buffer account's data after its 37-byte header, or a ProgramData account's
+# after its 45-byte header. `solana-verify get-executable-hash
+# target/deploy/turf_vault.so` prints the same number for the built file.
+# Mainnet and devnet differ: each build compiles its own program id in.
+#
+# ADDING A RELEASE (the program-upgrade SOP): build verifiably, run
+# `solana-verify get-executable-hash` on the .so for each cluster, and add one
+# row per cluster here in the same PR that records the release, BEFORE the
+# proposal is created. A row is a claim that these bytes are the release; the
+# `source` says how that claim was made.
+
+mainnet-beta:
+  - version: v0.26.0
+    sha256: 2c554e2492eae486c202d74d6b54c5f9858dd9838761d6626c75b4e1b30b2ae2
+    source: >-
+      Read off the deployed ProgramData (BCuQ…2iib) at confirmed, 2026-10-12, after
+      Squads mainnet transaction #8 installed v0.26.0. The deployed bytes, not a
+      reproducible build.
+
+devnet:
+  - version: v0.26.0
+    sha256: 549bb9cd969fab8e5c3d2696cb21874479ce2b87b89d5abea7f285bee0dca2d6
+    source: >-
+      Read off the deployed ProgramData (EgVv…2Lcm) at confirmed, 2026-10-12, after
+      Squads devnet transaction #20 installed v0.26.0 (turf-vault
+      docs/CURRENT_DEPLOYMENT.md). The deployed bytes, not a reproducible build.

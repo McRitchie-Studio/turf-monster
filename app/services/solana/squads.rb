@@ -107,6 +107,11 @@ module Solana
 
         threshold  = data.byteslice(THRESHOLD_OFFSET, 2).unpack1("S<")
         time_lock  = data.byteslice(TIME_LOCK_OFFSET, 4).unpack1("L<")
+        # The newest transaction index, and the stale line: a proposal at or
+        # below `stale_transaction_index` can take no further approvals (a
+        # config change executed after it was created).
+        transaction_index = data.byteslice(TX_INDEX_OFFSET, 8).unpack1("Q<")
+        stale_transaction_index = data.byteslice(TX_INDEX_OFFSET + 8, 8).unpack1("Q<")
         create_key = Keypair.encode_base58(data.byteslice(CREATE_KEY_OFFSET, 32))
         config_authority = Keypair.encode_base58(data.byteslice(CONFIG_AUTH_OFFSET, 32))
 
@@ -151,6 +156,8 @@ module Solana
           config_authority: config_authority,
           threshold: threshold,
           time_lock: time_lock,
+          transaction_index: transaction_index,
+          stale_transaction_index: stale_transaction_index,
           bump: bump,
           rent_collector: rent_collector,
           members: members,
