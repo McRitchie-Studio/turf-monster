@@ -26,11 +26,11 @@ Driver: `lib/turf_monster/qa_rehearsal/`. Tests: `test/lib/qa_rehearsal_*_test.r
 | `seed` | Every row the seed would adopt is one it can prove ("What `seed` writes", below). Run once per QA database | `STOPPED — the roster seed would adopt … it cannot prove`, or `… could not save …` |
 | `create` | A user on `team@mcritchie.studio` (the `seed` step writes it) and the slate `NFL 2026 Preseason Weeks 3-4`. Both are read before anything is written | `STOPPED — no user on team@mcritchie.studio …` |
 | `create` | The server key is a signer in the devnet `VaultState`. Read from the chain before anything is written | `STOPPED — the server key … is not a signer in the devnet VaultState` |
-| `create` | The server key holds the prize pool in devnet USDC, or is the test mint's authority | `STOPPED — the server key … and the mint failed` |
+| `create` | The server key holds the prize pool in devnet USDC, or is the test mint's authority (it is both since 2026-10-12: `2eGs…` holds the mint authority and was topped up with 2,000 USDC) | `STOPPED — the server key … and the mint failed` |
 | `enter` | Each cast wallet (`mack`, `turf`, 1Password `studio-agents`; Mason no longer plays, his key is a mainnet signer) holds the entry fee in devnet USDC or an entry token | `FAILED · …` beside that player; the others still enter |
 | `play` | ESPN answers for preseason weeks 3 and 4 (`Driver::POLL_SLOTS`) | `the ESPN poll failed for slot …` |
 | `conclude` (`--cosign agent`, the default) | QA has `SOLANA_VAULT_GOVERNANCE` on (devnet v0.26), a filed agent key (`Driver::VAULT_AGENTS`) is seated in the devnet `VaultState`, is not fenced as a mainnet key, and is in QA's `SOLANA_MULTISIG_SIGNERS` | `STOPPED — --cosign agent needs turf-vault v0.26 …`, `… needs N agent signature(s) …`, `… also holds MAINNET authority …`, or `cosigner … is not in the multisig set` |
-| `conclude --cosign link` | The server key is a devnet `VaultState` signer, and so is the co-signer wallet the Treasury page names | The Co-sign click fails `Unauthorized` on the page |
+| `conclude --cosign link` | The server key is a devnet `VaultState` signer, and so is the co-signer wallet the Treasury page names (QA's `SOLANA_MULTISIG_COSIGNER`, `9gAC…` since 2026-10-12; settle needs 2 signatures on devnet, so his one tap completes it) | The Co-sign click fails `Unauthorized` on the page |
 | `close` | The contest has settled on chain (or was cancelled). Read before the close is sent | `STOPPED — contest … has not settled on chain` |
 
 `create` prints the key the server signs as and the co-signer the settle
@@ -122,7 +122,8 @@ the co-signature lands.
 1. Open the **Magic Link** the step printed, in a desktop browser that has the
    Phantom extension. It signs you in as `alex@mcritchie.studio` and lands on
    **Treasury** (`/admin/pending_transactions`) on `qa.turfmonster.media`.
-2. In Phantom, select the co-signer wallet the step printed (`7ZDJ…`). The
+2. In Phantom, select the co-signer wallet the step printed (`9gAC…`, Phantom
+   account 2; `7ZDJ…` is no longer a devnet `VaultState` signer). The
    **Co-signing wallet** panel at the top of the page shows the connected wallet.
 3. Find the row **Settle Contest - QA Rehearsal …** with a **Pending** badge.
    It lists the settlement count and the total payout.
