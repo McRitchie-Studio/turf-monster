@@ -2032,7 +2032,8 @@ module Solana
     # { accounts:, data: } — ONE definition shared by the builder that hands
     # it to Phantom and the expectation that judges what Phantom hands back, so
     # the two cannot drift. `cosigner: None` (the program id in the optional
-    # slot) is the 1-of-3 first-set shape (v0.19 #5).
+    # slot) is the v0.25 1-of-3 first-set shape (v0.19 #5); on v0.26 the slot
+    # carries the server key (#operator_contest_time_cosigner_meta).
     CONTEST_TIME_INSTRUCTIONS = %w[set_contest_lock_time set_contest_conclusion_time].freeze
 
     def contest_time_instruction(instruction, contest_slug, timestamp, admin_pubkey:)
@@ -2044,7 +2045,7 @@ module Solana
       {
         accounts: [
           { pubkey: admin_bytes, is_signer: true,  is_writable: true  }, # admin == Phantom (vault signer)
-          { pubkey: @program_id, is_signer: false, is_writable: false }, # cosigner: None
+          operator_contest_time_cosigner_meta(instruction, contest_slug, admin_bytes),
           { pubkey: vault_pda,   is_signer: false, is_writable: false }, # vault_state
           *governance_metas,
           { pubkey: c_pda,       is_signer: false, is_writable: true  }  # contest
@@ -2052,6 +2053,51 @@ module Solana
         data: Transaction.anchor_discriminator(instruction) + Borsh.encode_i64(timestamp.to_i)
       }
     end
+
+    # The named `cosigner` slot of an OPERATOR (Phantom-first) contest time
+    # change.
+    #
+    # v0.25: `None` (the program id), as since v0.19 — one signature.
+    #
+    # v0.26: SET_CONTEST_LOCK_TIME and SET_CONTEST_CONCLUSION_TIME are 2, and
+    # `authorize` counts the named signers first. With `cosigner: None` and no
+    # remaining accounts it wanted one more and found none: 6046
+    # InsufficientSigners, the failure this replaces. The second signature is
+    # the SERVER's — the same key that pays the fee and fills account 0 after
+    # Phantom signs, so the operator still taps once and the completer fills
+    # one slot. Naming it here is what turns the fee payer's signature into a
+    # vault signature; the expectation rebuilds this exact list, so a wire that
+    # drops or swaps it is refused before the server signs anything.
+    #
+    # The count is the CHAIN's: `contest_time_action` reads the contest to pick
+    # the escalated action (re-open a passed lock, amend a set conclusion) and
+    # `required_signatures` reads GovernanceConfig. A retune to 1 drops the
+    # server again. Three or more cannot be met by one Phantom prompt plus the
+    # server, so Rails refuses before Phantom opens instead of letting the
+    # chain answer 6046.
+    def operator_contest_time_cosigner_meta(instruction, contest_slug, admin_bytes)
+      return absent_optional_meta unless Config.governance?
+
+      action = contest_time_action(instruction, contest_slug)
+      required = required_signatures(action)
+      return absent_optional_meta if required <= 1
+
+      server = Keypair.admin.public_key_bytes
+      if required > 2
+        raise ThresholdUnreachableError,
+              "#{action} needs #{required} vault signatures under turf-vault v0.26; the operator's " \
+              "Phantom and the server's key make two. Re-opening a passed lock or amending a set " \
+              "conclusion needs a third signer, which this one-prompt flow cannot collect."
+      end
+      if server == admin_bytes
+        raise ThresholdUnreachableError,
+              "#{action} needs #{required} distinct vault signatures and the operator wallet is the " \
+              "server's own key. Sign with a different vault signer."
+      end
+
+      { pubkey: server, is_signer: true, is_writable: false }
+    end
+    private :operator_contest_time_cosigner_meta
 
     # WHAT THE SERVER WILL ACCEPT BACK FROM PHANTOM for a contest time change,
     # rebuilt from server state (the contest slug, the timestamp, the signed-in

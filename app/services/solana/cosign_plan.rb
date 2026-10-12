@@ -76,7 +76,11 @@ module Solana
 
     attr_reader :action, :tx_type
 
-    def initialize(tx_type:)
+    # `vault:` is the reader for the chain's GovernanceConfig. Optional: the
+    # plan builds its own Solana::Vault when none is passed, and only on a
+    # governance boot.
+    def initialize(tx_type:, vault: nil)
+      @vault = vault
       @tx_type = tx_type.to_s
       @action = TX_TYPE_ACTIONS.fetch(@tx_type) do
         raise InvalidCosignerError,
@@ -86,8 +90,25 @@ module Solana
     end
 
     # Total vault signatures the chain will demand for this action.
+    #
+    # ON A GOVERNANCE (v0.26) BOOT THIS IS THE CHAIN'S NUMBER. It used to be the
+    # compiled default, so a `set_action_threshold` retune reached the program
+    # and never reached this plan: retune settle to 2 and the console still
+    # reserved a third slot, which `settle_contest` reads as payload and refuses;
+    # retune anything above the default and the plan reserved too few, which the
+    # chain refuses with 6046. The stored table is read once per plan (one
+    # minute of cache under it, Vault#cached_governance) and goes through the
+    # program's own `threshold_for` (zero reads as the default, floors on read).
+    # An unreadable or absent GovernanceConfig — between the upgrade and
+    # `init_governance` — falls back to the shipped defaults, which fail closed.
+    #
+    # On a v0.25 boot nothing is read: the answer is the compiled default, as it
+    # always was (PendingTransaction#required_signatures documents why that
+    # number is governance-independent there).
     def required_signatures
-      Governance.required_signatures(action)
+      return Governance.required_signatures(action) unless Config.governance?
+
+      Governance.required_signatures(action, thresholds: chain_thresholds)
     end
 
     # How many signatures the browser must collect beyond the one the server
@@ -103,7 +124,26 @@ module Solana
     def extra_cosigners_needed
       return 0 unless Config.governance?
 
-      Governance.extra_cosigners_needed(action, named_count: NAMED_SIGNER_COUNT)
+      Governance.extra_cosigners_needed(action, named_count: NAMED_SIGNER_COUNT, thresholds: chain_thresholds)
+    end
+
+    # The vault's seated signers, which is the set a cosigner must belong to.
+    #
+    # v0.26 has FIVE slots (`signers` + `signers_ext`) and Config::MULTISIG_SIGNERS
+    # is a three-key env default written for v0.25. Judging membership against
+    # the config list would refuse a wallet the ADD step seated in slot 4 or 5
+    # — a valid third signature the chain would accept — so a governance boot
+    # reads VaultState's active slots (Vault.cached_vault_state, one request /
+    # one minute). Unreadable falls back to the config list; v0.25 never reads.
+    def self.signer_set
+      return Config::MULTISIG_SIGNERS unless Config.governance?
+
+      seated = begin
+        Vault.cached_vault_state&.dig(:active_signers)
+      rescue StandardError
+        nil
+      end
+      Array(seated).presence || Config::MULTISIG_SIGNERS
     end
 
     # Vault signers eligible to fill a Phantom slot: the on-chain signer set
@@ -112,7 +152,7 @@ module Solana
     # `validate_threshold` counts DISTINCT members, so admin signing twice is
     # one signature and `DuplicateSigner` rejects the whole transaction.
     def self.eligible_cosigners
-      Config::MULTISIG_SIGNERS - [admin_address].compact
+      signer_set - [admin_address].compact
     end
 
     # The server's own vault signer address, or nil when this process holds no
@@ -153,7 +193,8 @@ module Solana
               "— got #{extras.length}. #{ELIGIBLE_HINT}"
       end
 
-      unknown = extras.reject { |a| Config::MULTISIG_SIGNERS.include?(a) }
+      seated = self.class.signer_set
+      unknown = extras.reject { |a| seated.include?(a) }
       if unknown.any?
         raise InvalidCosignerError,
               "#{unknown.join(', ')} is not in the vault signer set, so turf-vault would " \
@@ -236,6 +277,22 @@ module Solana
       rows
     end
 
-        ELIGIBLE_HINT = "Eligible signers are the vault's on-chain set minus the server's admin key.".freeze
+    private
+
+    # The stored GovernanceConfig threshold table, or nil (defaults) when it
+    # cannot be read. Memoized per plan so one plan never mixes two readings.
+    def chain_thresholds
+      return @chain_thresholds if defined?(@chain_thresholds)
+
+      @chain_thresholds = begin
+        (@vault || Vault.new).cached_governance&.dig(:thresholds)
+      rescue StandardError
+        nil
+      end
+    end
+
+    public
+
+    ELIGIBLE_HINT = "Eligible signers are the vault's on-chain set minus the server's admin key.".freeze
   end
 end
