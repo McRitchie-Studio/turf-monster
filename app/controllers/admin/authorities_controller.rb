@@ -164,7 +164,9 @@ module Admin
         ok: true,
         rules: planner.rules,
         current: planner.current,
-        labels: planner.labels(planner.current + planner.candidates),
+        # Every roster key is labelled, so a pasted roster key from another
+        # cluster reads as named rather than unknown.
+        labels: planner.labels(planner.current + planner.candidates + Solana::SignerRoster.default.entries.map(&:address)),
         candidates: planner.candidates,
         server_held_error: @server_held_error,
         live_rotation: rotation && { slug: rotation.slug, status: rotation.status,

@@ -306,6 +306,9 @@ export default class extends Controller {
   }
 
   async requestPlan() {
+    // Every draft change outdates any answer still in flight, including a
+    // draft that makes no request (a malformed paste, an empty pick).
+    const seq = ++this.planSeq
     this.ctaTarget.disabled = true
     this.hide(this.refusalTarget)
     if (!this.state || !this.chosenIntent) return
@@ -321,7 +324,6 @@ export default class extends Controller {
       return
     }
 
-    const seq = ++this.planSeq
     const { ok, body } = await this.post(this.planUrlValue, this.payload(draft))
     if (seq !== this.planSeq) return // a newer draft answered first
     if (!ok) {
