@@ -17,7 +17,7 @@
 > parser does not read as a definition. None of them offers it a definition to
 > key on.
 > A green citation here proves the quoted words are in the cited lines, not that
-> the code is. Follow all ten to the code before you trust them.
+> the code is. Follow all nine to the code before you trust them.
 
 Turf Monster is passwordless. The live sign-in surface is `GET /signin`
 (`SessionsController#new`), and legacy `GET /login` / `GET /signup` redirect
