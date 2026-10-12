@@ -6,11 +6,11 @@
 > `test/docs/workflow_citation_docs_test.rb` checks every number against the
 > symbol its prose names and reddens when one stops landing on it.
 > **That check comes in three strengths, and this document gets the weakest one
-> throughout.** **0 of the 10 citations** here sit inside a definition the guard
-> can see, and none cites `config/routes.rb`, so the other **10** ride the LITERAL
+> throughout.** **0 of the 9 citations** here sit inside a definition the guard
+> can see, and none cites `config/routes.rb`, so the other **9** ride the LITERAL
 > fallback, which asks only that a code token quoted nearby appear in the cited
 > lines. The cause is mechanical rather than editorial: the guard reads Ruby with
-> Prism and inline JS inside `.erb`, and these ten name `.js` modules, ERB markup,
+> Prism and inline JS inside `.erb`, and these nine name `.js` modules, ERB markup,
 > a registry entry inside a block, a `Gemfile` line, and one line of inline JS in
 > `app/views/admin/vault_state/show.html.erb` whose enclosing function is written
 > `window.vaultAction = async function (…)`, a shape the guard's brace-balance
@@ -291,7 +291,7 @@ since a dim is invisible to a screen reader and means nothing on its own.
 **This notice does not reach the cosign ceremony, and the earlier claim that it
 did was wrong.** An operator cosign ceremony declares the wallets it will
 legitimately walk through by calling `expectSwitchesTo` on the wallet store
-(`app/javascript/solana_stores.js:349`), which both call sites reach through
+(`app/javascript/solana_stores.js:351`), which both call sites reach through
 `Alpine.store('wallet')`. That keeps the blocking card from opening
 over a half-collected treasury transaction. Three sites declare a suppression:
 `app/javascript/cosign.js:271`,
@@ -308,13 +308,13 @@ one button and no new call site. **None of the three renders the account card**,
 `app/views/accounts/show.html.erb:121` and by `/profile` through the engine
 section registry (`config/initializers/studio.rb:157`). An Alpine store is
 per-document, so `expectedSwitchAddresses`
-(`app/javascript/solana_stores.js:70`) is always empty on the account page and a
+(`app/javascript/solana_stores.js:72`) is always empty on the account page and a
 suppressed switch cannot occur there at all.
 
 What actually guards the ceremony is the exemption's narrowness, not a notice:
-`_notifySwitch` (`app/javascript/solana_stores.js:357`) returns early only for
+`_notifySwitch` (`app/javascript/solana_stores.js:359`) returns early only for
 an address the flow declared into `expectedSwitchAddresses`
-(`app/javascript/solana_stores.js:364`), so a switch to any other wallet still
+(`app/javascript/solana_stores.js:366`), so a switch to any other wallet still
 raises the non-dismissible card mid-ceremony.
 
 **The residual this paragraph used to name is closed.** It read "all three

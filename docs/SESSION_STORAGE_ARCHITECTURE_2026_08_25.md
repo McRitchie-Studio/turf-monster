@@ -84,7 +84,7 @@ the first six preserve behaviour exactly and the last five change it deliberatel
 | Store | Registered at | Kind | Owner of |
 |---|---|---|---|
 | `session` | `app/views/layouts/application.html.erb:486` (inline, `alpine:init`) | State | Canonical viewer identity + funding hints: `loggedIn`, `mode`, `phantomLinked`, `userId`, `address`, `usdcCents`, `usdtCents`, `tokensAvailable`, `web2UsdcEntry`, `ageGateRequired`, `ageVerified`, `walletSetupRequired`, `firstNameRequired`, `walletConnected` |
-| `wallet` | `app/javascript/solana_stores.js:41` (module) | State | Live Phantom watcher: `address`, `watching`, `pendingAddress`, `_provider`, `_reauthing` |
+| `wallet` | `app/javascript/solana_stores.js:44` (module) | State | Live Phantom watcher: `address`, `watching`, `pendingAddress`, `_provider`, `_reauthing` |
 | `modals` | **studio-engine** `app/views/studio/modals/_host.html.erb` (resolved from the gem; see the correction below) | UI | Modal stack |
 | `solanaModal` | `app/views/layouts/application.html.erb:631` (inline) | UI façade | Read/write proxy over `modals` for the `onchain-tx` card. Holds no session state. |
 | `sidebars` | `app/views/layouts/application.html.erb:383` (inline) | UI | `gearOpen` |
@@ -497,7 +497,7 @@ has nowhere to attach today. Slice 9 must re-key **both** sites.
 
 Two layers, not one:
 
-1. `app/javascript/solana_stores.js:204` — `_handleAccountChanged` opens
+1. `app/javascript/solana_stores.js:206` — `_handleAccountChanged` opens
    `if (!publicKey) return;`. The comment above it is right that a null event must
    not log the user out; the code then does nothing at all.
 2. **The `disconnect` event is never listened for.** `grep -rn "'disconnect'"
