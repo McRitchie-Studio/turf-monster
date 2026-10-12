@@ -1,0 +1,7 @@
+{
+  "slug": "devnet-v026-upgrade",
+  "pid": 75402,
+  "log": "/private/tmp/claude-501/-Users-alex-projects/fa073812-f21c-4367-bbcf-c276d01107c6/scratchpad/ship-devnet-v026-upgrade-submit.log",
+  "command": "/Users/alex/projects/.agents/tooling/926c6a2c84b6c1c45cca497d95bcb4a33fa5fcba/bin/submit devnet-v026-upgrade -m QA rehearsal: unattended devnet co-sign, mainnet-signer fence\n\nconclude --cosign agent (now the default) settles on devnet v0.26 with the QA\nserver key plus a seated devnet-only agent key (Mack), and confirms on the dyno\nwith the same checks the Treasury confirm runs, so the rehearsal needs no admin\nsession and no human tap. MainnetSignerFence refuses any co-signer key that is\nalso a mainnet VaultState signer, even on devnet (config/mainnet_vault_signers.yml).\nMason leaves VAULT_AGENTS. Tests no longer read the live devnet governance table\nor signer set. Docs: QA signs as 2eGs; devnet runs v0.26.\n\nTask: devnet-v026-upgrade\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>",
+  "started_at": "2026-10-12T14:10:23Z"
+}

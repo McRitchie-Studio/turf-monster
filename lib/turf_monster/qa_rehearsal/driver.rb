@@ -78,14 +78,21 @@ module TurfMonster
       # (docs/AUTH.md, Parked roles).
       COSIGNER_EMAIL = "alex@mcritchie.studio"
 
-      # The admin actor drives the HTTP admin surface, signed in by wallet. It
-      # has NO FILED KEY: no agent-readable wallet signs in as an admin account
-      # (see KeyStore::ITEMS). Only the agent co-sign needs it, and #conclude
-      # refuses that path while the key store files none.
-      ADMIN_ACTOR = "turf-admin"
-      AGENT_COSIGN_REFUSED = "--cosign agent cannot run: it confirms the settle as an admin signed in by " \
-                             "wallet, and the rehearsal files no admin key. Run " \
-                             "`bin/qa-contest-rehearsal conclude --cosign link` and co-sign in Phantom."
+      # THE UNATTENDED CO-SIGN NEEDS NO ADMIN SESSION. It used to confirm the
+      # settle over the admin HTTP surface as a wallet-signed-in admin, and no
+      # agent-readable wallet is an admin (KeyStore::ITEMS files none), so it was
+      # refused. It now confirms ON THE DYNO instead (devnet-v026-upgrade)
+      # (#confirm_settle_script): the same verification primitives
+      # Admin::PendingTransactionsController#confirm runs — the multisig set,
+      # CosignPlan's extras, TxVerifier per signer, then mark_settled! and the
+      # row — through `heroku run`, the access every other step already uses.
+      #
+      # IT IS v0.26-ONLY. On v0.25 the settle is the fixed 2-of-3 whose second
+      # seat is Mr. McRitchie's or a mainnet signer's, so there is no devnet-only
+      # agent to co-sign with; the step refuses rather than guess.
+      AGENT_COSIGN_NEEDS_V026 = "--cosign agent needs turf-vault v0.26 on devnet (SOLANA_VAULT_GOVERNANCE on " \
+                                "turf-monster-qa): only v0.26 seats a devnet-only agent key. Nothing was " \
+                                "sent. Run `bin/qa-contest-rehearsal conclude --cosign link` and co-sign in Phantom."
 
       # Mason and Mack, and the two exclusions are not preferences:
       #
@@ -107,8 +114,11 @@ module TurfMonster
       DEFAULT_CAST = %w[mason mack turf].freeze
 
       # Agents whose filed keys may fill a v0.26 vault signer slot. The driver
-      # uses only those the chain seats, never the server key twice.
-      VAULT_AGENTS = %w[mason mack].freeze
+      # uses only those the chain seats, never the server key twice, and never
+      # a key MainnetSignerFence lists. Mason is not on it (devnet-v026-upgrade): his
+      # key (CytJ…) is a mainnet VaultState signer, and the devnet rotation
+      # evicted it from devnet the same day. Mack (foUu…) is devnet-only.
+      VAULT_AGENTS = %w[mack].freeze
 
       attr_reader :app, :host, :cast, :io
 
@@ -468,7 +478,7 @@ module TurfMonster
       def finish_play(data, result)
         say_urls(data.fetch("contest_slug"), live_first: true)
         hand_back(verify: "the live board built from zero and every game reads FINAL",
-                  next_command: "bin/qa-contest-rehearsal conclude --cosign link")
+                  next_command: "bin/qa-contest-rehearsal conclude --cosign agent   (or --cosign link to co-sign in Phantom)")
         result
       end
 
@@ -674,15 +684,19 @@ module TurfMonster
       # moved "here" long after it moved again, which is how a reader ends up
       # looking for it in the wrong step. The call below stays as a backstop for
       # a run that concludes without a step 3.
-      def conclude(cosign: :link)
-        # Before the lock, the grade and any broadcast: a settle that pays and
-        # is never confirmed is the state this refusal exists to prevent.
-        raise StepError, AGENT_COSIGN_REFUSED if cosign != :link && !KeyStore::ITEMS.key?(ADMIN_ACTOR)
+      def conclude(cosign: :agent)
+        raise StepError, "unknown --cosign #{cosign.inspect}: use agent or link" unless %i[agent link].include?(cosign)
 
         guard!
         data = manifest.read
         slug = data.fetch("contest_slug")
         say "Step 4 · conclude #{slug}"
+
+        # Before the lock, the grade or any broadcast: the unattended path is
+        # v0.26-only, so a v0.25 dyno is refused while nothing has moved.
+        if cosign == :agent && !remote.call("emit(governance: Solana::Config.governance?)")["governance"]
+          raise StepError, AGENT_COSIGN_NEEDS_V026
+        end
 
         graded = remote.call(grade_script(slug))
         if graded["cosign"]
@@ -818,51 +832,86 @@ module TurfMonster
 
       private
 
-      # The unattended half. Mason is the second signer on the vault and the
-      # server already signed as Xan when it built the transaction. v0.25 is
-      # satisfied at 2; v0.26 asks for SETTLE_CONTEST's extra signers, which
-      # come from the other seated agents. Everything the server does
-      # afterwards — TxVerifier, the onchain_settled flip, the winner emails —
-      # is unchanged.
+      # The unattended half, devnet v0.26 only. The dyno answers what the
+      # settle needs beyond the server's own signature (the chain's threshold:
+      # 2 on devnet, devnet-v026-upgrade, so one agent); the driver picks that many
+      # seated, unfenced agent keys, the first of which is the NAMED cosigner and
+      # the rest ride as extras. Everything the server does afterwards —
+      # TxVerifier, the onchain_settled flip, the winner emails — is the same
+      # code the Treasury page's confirm runs (#confirm_settle_script).
       def cosign_with_agent(graded)
         slug = manifest.read.fetch("contest_slug")
-        say "  co-signing as mason (agent key)"
+        request = remote.call(settle_request_script).fetch("cosign")
+        raise StepError, "settle_contest needs no agent signature on this chain; nothing to co-sign" if request["needed"].to_i < 1
 
-        mason = keys.keypair("mason")
+        agents = pick_agents(request)
+        primary, *extras = agents
+        say "  co-signing as #{agents.map { |a| a.to_base58[0, 4] }.join(', ')} (devnet agent key)"
 
         # The stored PendingTransaction reserves a signature slot for whoever
         # Solana::Config::MULTISIG_COSIGNER names -- by default Mr. McRitchie's
-        # Phantom. Mason is a valid vault signer but he is not in THAT
+        # Phantom. The agent is a valid vault signer but not in THAT
         # transaction's account list, so signing it fails with "not a required
-        # signer". The unattended path therefore builds its own wire naming
-        # Mason, and leaves the stored one alone for the browser path to use.
-        wire = remote.call(settle_build_script(slug, mason.to_base58))
-        extras = []
-        if wire["cosign"]
-          extras = pick_agents(wire.fetch("cosign"), exclude: [mason.to_base58])
-          wire = remote.call(settle_build_script(slug, mason.to_base58, extras.map(&:to_base58)))
-        end
+        # signer". The unattended path therefore builds its own wire naming the
+        # agent, and leaves the stored one alone for the browser path to use.
+        wire = remote.call(settle_build_script(slug, primary.to_base58, extras.map(&:to_base58)))
+        raise StepError, "the settle wire did not come back: #{wire.inspect}" unless wire["serialized_tx"]
+
         # Solana::Config.client, never Solana::Client.new: a raw client falls
         # through to the gem's ENV.fetch("SOLANA_RPC_URL", <public devnet>) and
         # so FAILS OPEN, where Solana::Config::RPC_URL fails closed (OPSEC-012).
-        # The repo has a test that enforces exactly this, and it caught this
-        # line in CI.
-        signature = sign_and_send(wire, [mason, *extras])
+        signature = sign_and_send(wire, agents)
         say "  broadcast: #{signature}"
 
-        confirm = { cosigner_address: mason.to_base58, tx_signature: signature }
-        confirm[:extra_cosigners] = extras.map(&:to_base58) if extras.any?
-        response = admin_session.post_json(
-          "/admin/pending_transactions/#{graded.fetch('ptx_slug')}/confirm", **confirm
-        )
-
-        raise StepError, "confirm refused: #{response['error']}" if response["error"].present?
-
-        say "  confirmed: #{response.inspect}"
+        confirmed = remote.call(confirm_settle_script(graded.fetch("ptx_slug"), primary.to_base58,
+                                                      extras.map(&:to_base58), signature))
+        say "  confirmed: #{confirmed.inspect}"
         hand_back(verify: "the payout arithmetic — the pool fell by exactly the sum paid, " \
                           "and each winner rose by exactly their rank",
                   next_command: "bin/qa-contest-rehearsal close")
-        response
+        confirmed
+      end
+
+      # What the settle needs beyond the server's own signature.
+      def settle_request_script
+        <<~RUBY
+          vault = Solana::Vault.new
+          action = "settle_contest"
+          #{cosign_request_ruby(named: 1)}
+        RUBY
+      end
+
+      # THE CONFIRM, ON THE DYNO. The same checks, in the same order, as
+      # Admin::PendingTransactionsController#confirm and
+      # #verify_and_record_cosign!, for the one tx_type this driver settles:
+      # the row is pending, the cosigner is in the multisig set, the extras pass
+      # CosignPlan, and TxVerifier proves each signer and the contest PDA on the
+      # landed transaction BEFORE anything is written. A drift between the two
+      # is caught by test/lib/qa_rehearsal_unattended_settle_test.rb.
+      def confirm_settle_script(ptx_slug, cosigner, extras, signature)
+        <<~RUBY
+          tx = PendingTransaction.find_by!(slug: #{ptx_slug.inspect})
+          refuse("#{ptx_slug} is a " + tx.tx_type + ", not a settle_contest") unless tx.tx_type == "settle_contest"
+          refuse("#{ptx_slug} is " + tx.status + ", not pending") unless tx.pending? || tx.awaiting_reconciliation?
+          cosigner = #{cosigner.inspect}
+          refuse("cosigner " + cosigner + " is not in the multisig set") unless Solana::Config::MULTISIG_SIGNERS.include?(cosigner)
+          extras = Solana::CosignPlan.new(tx_type: tx.tx_type).validate_extras!(#{extras.inspect}, primary: cosigner)
+          contest = tx.target
+          writable = contest.onchain_contest_id.presence ||
+                     Solana::Keypair.encode_base58(Solana::Vault.new.contest_pda(contest.slug).first)
+          signature = #{signature.to_s.inspect}
+          Solana::TxVerifier.verify!(signature: signature, instruction_name: "settle_contest",
+                                     signer_pubkey: cosigner, writable_pubkey: writable)
+          Array(extras).each do |extra|
+            Solana::TxVerifier.verify!(signature: signature, instruction_name: "settle_contest",
+                                       signer_pubkey: extra, writable_pubkey: nil)
+          end
+          tx.settlement_contest&.mark_settled!(signature)
+          tx.update!(status: "confirmed", cosigner_address: cosigner,
+                     cosigner_addresses: [cosigner, *Array(extras)], tx_signature: signature)
+          emit(status: tx.status, contest_status: contest.reload.status,
+               onchain_settled: contest.onchain_settled, tx_signature: signature)
+        RUBY
       end
 
       # The settle wire naming `cosigner` (and, on v0.26, `extras`). With too
@@ -921,26 +970,53 @@ module TurfMonster
       # The filed agent keys that fill a request: seated in VaultState, not
       # the server's own key, not already signing. Refuses a shortfall by name
       # rather than sending a transaction the chain would reject.
+      #
+      # A FENCED KEY IS REFUSED, NOT SKIPPED. A filed agent key that is also a
+      # mainnet VaultState signer means the roster and the fence disagree, and
+      # quietly picking around it would hide that until a run needed the key.
       def pick_agents(request, exclude: [])
         needed = request.fetch("needed").to_i
         seated = Array(request["seated"])
         taken = exclude + [request["server"]]
 
-        picked = VAULT_AGENTS.lazy.filter_map do |who|
-          keys.keypair(who)
+        candidates = vault_agents.filter_map do |who|
+          [who, keys.keypair(who)]
         rescue KeyStore::MissingKeyError
           nil
-        end.select { |kp| seated.include?(kp.to_base58) && !taken.include?(kp.to_base58) }.first(needed)
+        end
+        refuse_mainnet_signers!(candidates.to_h { |who, kp| [kp.to_base58, who] })
+
+        picked = candidates.map(&:last)
+                           .select { |kp| seated.include?(kp.to_base58) && !taken.include?(kp.to_base58) }
+                           .first(needed)
         return picked if picked.size == needed
 
         raise StepError, "#{request['action']} needs #{needed} agent signature(s) beyond the server's on v0.26, " \
-                         "and the filed agents (#{VAULT_AGENTS.join(', ')}) seat #{picked.size} in VaultState. " \
+                         "and the filed agents (#{vault_agents.join(', ')}) seat #{picked.size} in VaultState. " \
                          "Nothing was sent. Seat an agent key, or run this step through the Treasury cosign."
+      end
+
+      def vault_agents
+        VAULT_AGENTS
+      end
+
+      def mainnet_fence
+        @mainnet_fence ||= MainnetSignerFence.default
+      end
+
+      # { pubkey => label } — raises StepError naming every fenced key.
+      def refuse_mainnet_signers!(labelled)
+        mainnet_fence.refuse!(labelled.keys, who: labelled)
+      rescue MainnetSignerFence::Refused => e
+        raise StepError, e.message
       end
 
       # Each agent fills its own slot; the last one completes the wire. Sent
       # through Solana::Config.client (fails closed on a missing RPC URL).
+      # The fence runs again here: every agent signature passes through this
+      # method, whoever picked the key.
       def sign_and_send(answer, signers)
+        refuse_mainnet_signers!(signers.to_h { |kp| [kp.to_base58, nil] })
         wire = answer.fetch("serialized_tx")
         signers.each_with_index do |kp, i|
           wire = Solana::Transaction.cosign_wire_base64(wire, signer: kp, require_complete: i == signers.size - 1)
@@ -973,14 +1049,6 @@ module TurfMonster
                           "and each winner rose by exactly their rank",
                   next_command: "bin/qa-contest-rehearsal close")
         { magic_link: url, ptx_slug: graded["ptx_slug"] }
-      end
-
-      def admin_session
-        @admin_session ||= begin
-          session = WalletSession.new(host: host, keypair: keys.keypair(ADMIN_ACTOR))
-          session.sign_in!
-          session
-        end
       end
 
       # Every step ends by printing where to LOOK. The operator drives this from a
@@ -1021,6 +1089,8 @@ module TurfMonster
         say "  ── STOP ─────────────────────────────────────────────────────"
         say "  Hand the URLs above to Mr. McRitchie and WAIT for his go-ahead."
         say "  Ask him to confirm: #{verify}"
+        say "  (An unattended devnet gauntlet checks this itself, records it, and goes on:"
+        say "   contest-rehearsal SOP, \"Unattended\".)"
         say ""
         say(next_command ? "  Next, once he confirms:  #{next_command}" : "  This was the last step. The rehearsal is complete.")
         say "  ─────────────────────────────────────────────────────────────"
