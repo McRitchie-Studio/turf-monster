@@ -1,6 +1,8 @@
-# Keys the QA rehearsal must NEVER sign with: every key that is, or is slated
-# to become, a signer on the MAINNET turf-vault VaultState
-# (DaFv83yokwTz8msP9CzJ13eazSGk15NuUTxjkfzJzxMM). PUBLIC keys only.
+# Keys the QA rehearsal must NEVER sign with: every key that holds MAINNET
+# authority. That is every key that is, or is slated to become, a signer on the
+# MAINNET turf-vault VaultState (DaFv83yokwTz8msP9CzJ13eazSGk15NuUTxjkfzJzxMM),
+# and every member of the MAINNET Squads multisig that holds the program's
+# upgrade authority (4H3fP3ot…, vault Bk9sS7ii…). PUBLIC keys only.
 #
 # Read by lib/turf_monster/qa_rehearsal/mainnet_signer_fence.rb. The rehearsal
 # co-signs devnet transactions with agent keys it loads from 1Password; a key
@@ -14,7 +16,9 @@
 # goes stale the day mainnet rotates unless that ceremony updates it: the
 # mainnet rotation card (mainnet-v026-upgrade, turf-vault docs/SIGNER_ROTATION.md)
 # owns keeping `seated` true. `incoming` is the agreed rotation target, fenced
-# before it is seated so the fence is never a step behind the chain.
+# before it is seated so the fence is never a step behind the chain. `squad` is
+# the mainnet Squad's membership, as turf-vault scripts/lib/squad-clusters.js
+# files it (AGENT_SEATS and MEMBER_NAMES); a Squads membership change updates it.
 #
 # Read off chain for devnet-v026-upgrade (turf-vault scripts/check-signer-slots.js): mainnet
 # VaultState slots are 8K81, 7ZDJ, CytJ; slots 4 and 5 empty.
@@ -29,3 +33,10 @@ incoming:
   - 9gACbzsCLmkYF9Yx1EBGmwMvvyfuTquJ6qs8QsoQvHXf # Mr. McRitchie, Phantom account 2
   - 3Qj4v9qjhXgkru6zCRCErRVhy8Q6qU3NrNpvpXLTZboA # Mr. McRitchie's second wallet
   - 4bKNSqkrKeggSyrds16Ak7rcB4ibvGJ4ZLsKjvQgC3Vk # solana.turf.governance (exposed; slated for replacement)
+
+squad:
+  - 7auwTLSvNniSUeAgL6v9RStMXJhWrrUhSJgwFWLpcqC # solana.turf.system (agent-held)
+  - 3Qj4v9qjhXgkru6zCRCErRVhy8Q6qU3NrNpvpXLTZboA # Mr. McRitchie's second wallet
+  - 4bKNSqkrKeggSyrds16Ak7rcB4ibvGJ4ZLsKjvQgC3Vk # solana.turf.governance
+  - 7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr # Mr. McRitchie, Phantom account 1
+  - 9gACbzsCLmkYF9Yx1EBGmwMvvyfuTquJ6qs8QsoQvHXf # Mr. McRitchie, Phantom account 2

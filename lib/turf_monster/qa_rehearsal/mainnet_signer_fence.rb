@@ -4,7 +4,8 @@ require "yaml"
 
 module TurfMonster
   module QaRehearsal
-    # Refuses a co-signer key that is also a MAINNET VaultState signer.
+    # Refuses a co-signer key that holds MAINNET authority: a mainnet
+    # VaultState signer (seated or incoming) or a mainnet Squads member.
     #
     # The rehearsal co-signs devnet transactions unattended with agent keys it
     # loads from 1Password. Before devnet-v026-upgrade the devnet and mainnet signer sets
@@ -31,7 +32,7 @@ module TurfMonster
       # nothing would pass every key, which is the one answer it must never give.
       def self.load_keys(fence_path: FENCE_PATH, isolation_path: ISOLATION_PATH)
         filed = YAML.safe_load_file(fence_path)
-        keys = Array(filed["seated"]) + Array(filed["incoming"])
+        keys = Array(filed["seated"]) + Array(filed["incoming"]) + Array(filed["squad"])
         production = YAML.safe_load_file(isolation_path).dig("environments", "production", "system_wallet")
         keys << production if production
         keys = keys.map(&:to_s).map(&:strip).reject(&:empty?).uniq
@@ -59,8 +60,8 @@ module TurfMonster
         return if hits.empty?
 
         named = hits.map { |pk| who[pk] ? "#{who[pk]} (#{pk})" : pk }.join(", ")
-        raise Refused, "#{named} is also a MAINNET VaultState signer; the rehearsal never co-signs with " \
-                       "a mainnet signer, even on devnet. Nothing was signed or sent. Seat a devnet-only " \
+        raise Refused, "#{named} also holds MAINNET authority (a VaultState signer or Squads member); the " \
+                       "rehearsal never co-signs with a mainnet key, even on devnet. Nothing was signed or sent. Seat a devnet-only " \
                        "agent key instead (config/mainnet_vault_signers.yml lists the fence)."
       end
     end

@@ -14,7 +14,7 @@
 #   --cast mason,mack       who plays (default: mason,mack,turf)
 #   --cosign agent|link     step 4: `agent` (default) settles unattended on devnet
 #                           v0.26 with the server key plus a seated devnet-only agent
-#                           key, never a mainnet signer; `link` mints a link you sign
+#                           key, never a mainnet key; `link` mints a link you sign
 #                           in Phantom
 #   --no-reset              step 3: keep the scores already recorded
 #
@@ -22,7 +22,7 @@
 # guard refuses any app but turf-monster-qa running the devnet program. That
 # is not ceremony: the cast's keys are real wallets, and Mason's is a signer on
 # the MAINNET vault too. Mason only plays; MainnetSignerFence refuses any
-# mainnet signer as a co-signer.
+# mainnet signer or Squads member as a co-signer.
 #
 # Steps share state through tmp/qa-rehearsal/current.json, so each one is
 # re-runnable on its own and `create` starts a fresh run.

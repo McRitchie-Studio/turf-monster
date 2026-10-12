@@ -25,6 +25,30 @@ class QaRehearsalMainnetSignerFenceTest < ActiveSupport::TestCase
     assert_includes keys, production
   end
 
+  SYSTEM = "7auwTLSvNniSUeAgL6v9RStMXJhWrrUhSJgwFWLpcqC"
+
+  test "every mainnet Squads member is fenced, including the Squad-only agent seat" do
+    keys = Fence.load_keys
+    squad = YAML.safe_load_file(Rails.root.join("config/mainnet_vault_signers.yml")).fetch("squad")
+    assert_equal 5, squad.size, "the mainnet Squad is 3 of 5"
+    squad.each { |pk| assert_includes keys, pk }
+    assert_includes keys, SYSTEM, "solana.turf.system holds a mainnet Squad seat and no VaultState slot"
+  end
+
+  test "a Squad-only key is refused as a co-signer" do
+    error = assert_raises(Fence::Refused) { Fence.default.refuse!([MACK, SYSTEM], who: { SYSTEM => "system" }) }
+    assert_match(/system \(#{SYSTEM}\) also holds MAINNET authority/, error.message)
+  end
+
+  test "the Squad list is read: dropping it from the file unfences the Squad-only key" do
+    Dir.mktmpdir do |dir|
+      fence = File.join(dir, "fence.yml")
+      filed = YAML.safe_load_file(Rails.root.join("config/mainnet_vault_signers.yml"))
+      File.write(fence, filed.except("squad").to_yaml)
+      refute_includes Fence.load_keys(fence_path: fence), SYSTEM
+    end
+  end
+
   test "the devnet-only keys are not fenced" do
     fence = Fence.default
     refute fence.fenced?(MACK), "Mack is the devnet rehearsal key"
@@ -46,7 +70,7 @@ class QaRehearsalMainnetSignerFenceTest < ActiveSupport::TestCase
     error = assert_raises(Fence::Refused) do
       Fence.new(keys: [MASON]).refuse!([MACK, MASON], who: { MASON => "mason" })
     end
-    assert_match(/mason \(#{MASON}\) is also a MAINNET VaultState signer/, error.message)
+    assert_match(/mason \(#{MASON}\) also holds MAINNET authority/, error.message)
     assert_nil Fence.new(keys: [MASON]).refuse!([MACK])
   end
 
@@ -80,7 +104,7 @@ class QaRehearsalMainnetSignerFenceTest < ActiveSupport::TestCase
 
     error = assert_raises(Driver::StepError) { d.send(:pick_agents, request) }
 
-    assert_match(/mason \(#{mainnet_too.to_base58}\) is also a MAINNET VaultState signer/, error.message)
+    assert_match(/mason \(#{mainnet_too.to_base58}\) also holds MAINNET authority/, error.message)
     assert_match(/Nothing was signed or sent/, error.message)
   end
 

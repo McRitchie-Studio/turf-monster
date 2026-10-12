@@ -10,8 +10,9 @@ and what Mr. McRitchie does when he co-signs by link instead.
 **Agents co-sign on devnet.** Since 2026-10-12 (card `devnet-v026-upgrade`)
 devnet runs turf-vault v0.26 with `settle_contest` retuned to 2 signatures, and
 `conclude` defaults to `--cosign agent`: the QA server key plus a seated
-devnet-only agent key (Mack, `foUu…`) settle with no human tap. A key that is
-also a MAINNET VaultState signer is refused as a co-signer, even on devnet
+devnet-only agent key (Mack, `foUu…`) settle with no human tap. A key that
+holds MAINNET authority (a mainnet VaultState signer, seated or incoming, or a
+mainnet Squads member) is refused as a co-signer, even on devnet
 (`MainnetSignerFence`, `config/mainnet_vault_signers.yml`). First unattended
 run: `qa-rehearsal-oct-12-13-44`, create to close.
 
@@ -28,7 +29,7 @@ Driver: `lib/turf_monster/qa_rehearsal/`. Tests: `test/lib/qa_rehearsal_*_test.r
 | `create` | The server key holds the prize pool in devnet USDC, or is the test mint's authority | `STOPPED — the server key … and the mint failed` |
 | `enter` | Each cast wallet (`mason`, `mack`, `turf`, 1Password `studio-agents`) holds the entry fee in devnet USDC or an entry token | `FAILED · …` beside that player; the others still enter |
 | `play` | ESPN answers for preseason weeks 3 and 4 (`Driver::POLL_SLOTS`) | `the ESPN poll failed for slot …` |
-| `conclude` (`--cosign agent`, the default) | QA has `SOLANA_VAULT_GOVERNANCE` on (devnet v0.26), a filed agent key (`Driver::VAULT_AGENTS`) is seated in the devnet `VaultState`, is not fenced as a mainnet signer, and is in QA's `SOLANA_MULTISIG_SIGNERS` | `STOPPED — --cosign agent needs turf-vault v0.26 …`, `… needs N agent signature(s) …`, `… is also a MAINNET VaultState signer …`, or `cosigner … is not in the multisig set` |
+| `conclude` (`--cosign agent`, the default) | QA has `SOLANA_VAULT_GOVERNANCE` on (devnet v0.26), a filed agent key (`Driver::VAULT_AGENTS`) is seated in the devnet `VaultState`, is not fenced as a mainnet key, and is in QA's `SOLANA_MULTISIG_SIGNERS` | `STOPPED — --cosign agent needs turf-vault v0.26 …`, `… needs N agent signature(s) …`, `… also holds MAINNET authority …`, or `cosigner … is not in the multisig set` |
 | `conclude --cosign link` | The server key is a devnet `VaultState` signer, and so is the co-signer wallet the Treasury page names | The Co-sign click fails `Unauthorized` on the page |
 | `close` | The contest has settled on chain (or was cancelled). Read before the close is sent | `STOPPED — contest … has not settled on chain` |
 
