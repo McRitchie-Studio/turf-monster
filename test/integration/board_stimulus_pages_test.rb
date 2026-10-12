@@ -89,7 +89,7 @@ class BoardStimulusPagesTest < ActionDispatch::IntegrationTest
       assert root.at_css('[data-disclosure-target="panel"][hidden]')
       assert_equal "false", root.at_css('[data-disclosure-target="trigger"]')["aria-expanded"]
     end
-    assert_equal "opacity-0 scale-95", menu.at_css('[data-disclosure-target="panel"]')["data-transition-enter-start"]
+    assert_equal "opacity-0 scale-95", menu.at_css('[data-disclosure-target="panel"]')["data-enter-start"]
     assert_equal "click->disclosure#toggle keydown.enter->disclosure#toggle:prevent keydown.space->disclosure#toggle:prevent",
                  tip.at_css('[role="button"]')["data-action"]
     assert_not_includes response.body, "lockContestViaPhantom("

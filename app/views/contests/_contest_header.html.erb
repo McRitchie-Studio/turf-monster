@@ -49,12 +49,12 @@
           </svg>
         </button>
         <div hidden data-disclosure-target="panel"
-             data-transition-enter="transition ease-out duration-150"
-             data-transition-enter-start="opacity-0 scale-95"
-             data-transition-enter-end="opacity-100 scale-100"
-             data-transition-leave="transition ease-in duration-100"
-             data-transition-leave-start="opacity-100 scale-100"
-             data-transition-leave-end="opacity-0 scale-95"
+             data-enter="transition ease-out duration-150"
+             data-enter-start="opacity-0 scale-95"
+             data-enter-end="opacity-100 scale-100"
+             data-leave="transition ease-in duration-100"
+             data-leave-start="opacity-100 scale-100"
+             data-leave-end="opacity-0 scale-95"
              class="absolute right-0 mt-1 w-48 rounded-lg bg-surface border border-subtle shadow-lg py-1 z-30 origin-top-right">
           <% if has_edit_items %>
             <% editable_entries.each_with_index do |entry, idx| %>
@@ -193,9 +193,9 @@
                   label_after: true, max_units: 2, emphasize: true, compact: true %>
           </div>
           <div hidden data-disclosure-target="panel"
-               data-transition-enter="transition ease-out duration-150"
-               data-transition-enter-start="opacity-0 translate-y-1"
-               data-transition-enter-end="opacity-100 translate-y-0"
+               data-enter="transition ease-out duration-150"
+               data-enter-start="opacity-0 translate-y-1"
+               data-enter-end="opacity-100 translate-y-0"
                class="absolute left-0 top-full mt-1.5 z-30 whitespace-nowrap rounded-lg border border-subtle bg-surface px-3 py-1.5 text-xs font-medium text-secondary shadow-lg">
             <%= @contest.start_time_display %>
           </div>

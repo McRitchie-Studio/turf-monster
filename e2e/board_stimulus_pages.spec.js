@@ -174,6 +174,47 @@ test.describe("contest header", () => {
     await expect(page.getByRole("link", { name: "Edit Entry" })).toBeVisible();
   });
 
+  // The menu names enter classes (opacity-0 scale-95 → opacity-100 scale-100),
+  // and they must be painted, not skipped. A run that swaps start for end before
+  // the browser has styled the start state jumps straight to the end: the menu
+  // is simply there. So nothing reads the style until a frame has passed, and
+  // then each frame's opacity is sampled. Motion is on for this test only; the
+  // suite runs reduced.
+  test.describe(() => {
+    test.use({ contextOptions: { reducedMotion: "no-preference" } });
+
+    test("the actions menu fades in over its transition, and leaves hidden", async ({ page }) => {
+      await signInWithEntry(page);
+      await page.goto(CONTEST);
+      const trigger = page.getByRole("button", { name: "Contest actions" });
+      const menu = page.getByRole("link", { name: "Edit Entry" });
+      await trigger.click();
+      await expect(menu).toBeVisible();
+      await page.getByRole("heading", { name: "Leaderboard", exact: true }).click();
+      await expect(menu).toBeHidden();
+
+      const opacities = await page.evaluate(async () => {
+        const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+        const panel = document.querySelector('[data-controller~="contest-chain"] [data-disclosure-target="panel"]');
+        document.querySelector('[aria-label="Contest actions"]').click();
+        await frame();
+        const seen = [];
+        const start = performance.now();
+        while (performance.now() - start < 400) {
+          seen.push(Number(getComputedStyle(panel).opacity));
+          await frame();
+        }
+        return seen;
+      });
+      expect(opacities.some((o) => o > 0 && o < 1), `opacity passed through the fade: ${opacities.join(" ")}`).toBe(true);
+      expect(opacities.at(-1)).toBe(1);
+
+      await page.getByRole("heading", { name: "Leaderboard", exact: true }).click();
+      await expect(menu).toBeHidden();
+      await expect(trigger).toHaveAttribute("aria-expanded", "false");
+    });
+  });
+
   test("the start time shows from the keyboard", async ({ page }) => {
     await page.goto(CONTEST);
     const start = page.getByRole("button", { name: "Show start time" });
