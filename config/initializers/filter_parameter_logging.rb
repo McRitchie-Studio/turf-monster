@@ -15,6 +15,8 @@ Rails.application.config.filter_parameters += [
   :serialized_tx,   # base64-encoded signed transactions on admin endpoints
   :tx_signature,
   :pubkey,          # not strictly secret but enables user correlation in logs
+  :signers,         # admin/authorities#arm: public keys, but a pasted secret would land here too
+  :authorizers,     # admin/authorities#arm: the same, for the wallets that authorize the rotation
   :nonce,           # solana_sessions nonces — limited TTL, but no need to log
   :recovery_phrase,
   :mnemonic,
