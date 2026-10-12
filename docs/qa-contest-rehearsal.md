@@ -42,9 +42,9 @@ The steps do not check these, except where the table above says so:
 
 - QA's `SeasonConfig.current_season_id` names a season that exists on devnet.
 - QA's server key, `2eGs8G3wzhEeNQQU2Q86BmmA2xTpDbMMae3Y1bvpZfx9`, is a signer
-  in the devnet `VaultState` and holds at least 500 devnet USDC (`create` funds
-  the pool from it; the devnet test mint's authority is still `8K81…`, so QA
-  cannot mint more). Top it up from a devnet-only wallet before a run.
+  in the devnet `VaultState`. `create` funds the pool from its devnet USDC and,
+  when that runs short, mints more: `2eGs…` is the devnet test mint's
+  (`222Dcu…WBN9`) mint authority (read on chain 2026-10-12).
 - QA's `SOLANA_MULTISIG_SIGNERS` lists the devnet set, read 2026-10-12:
   `2eGs…`, `foUu…` (Mack), `BVQH…` (`solana.turf.governance.devnet`),
   `9gAC…`, `3Qj4…`.
@@ -88,9 +88,9 @@ the other credential or the address; rename the username holder), then runs
 ### The server key
 
 QA signs as its own key, `2eGs…`, since 2026-10-12
-(`docs/qa-signing-key-rotation.md`). The devnet test mint's authority did not
-move with it, so `create` stops at the mint unless `2eGs…`'s USDC account
-already holds the pool ($500 on the standard tier).
+(`docs/qa-signing-key-rotation.md`). The devnet test mint's authority moved to
+it the same day, so when `2eGs…`'s USDC account holds less than the pool ($500
+on the standard tier), `create` mints the difference instead of stopping.
 
 ## The unattended settlement (`--cosign agent`, the default)
 
