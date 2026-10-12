@@ -21,8 +21,8 @@
 # public half only) rather than to guess.
 #
 # Sources: turf-vault docs/CURRENT_DEPLOYMENT.md and SIGNER_ROTATION.md, the
-# 2026-10-11 signer-console audit (.agents/epics/audits/), and
-# config/mainnet_vault_signers.yml. Read off chain 2026-10-12.
+# signer-console audit (.agents/epics/audits/), and
+# config/mainnet_vault_signers.yml, checked against the chain.
 
 keys:
   - address: 8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd

@@ -10,9 +10,9 @@
 # when its `done_when` holds. Sets compare as sets: slot order is the
 # program's business, not the checklist's.
 #
-# Source: .agents/epics/audits/signer-console-redesign-2026-10-11.md section
-# 3, and the rotation target Mr. McRitchie set on 2026-10-11 (NEW, 7ZDJ, 9gAC,
-# 3Qj4, 4bKN). 4bKN was marked exposed on 2026-10-12: confirm slot 5 with him
+# Source: the signer-console redesign audit (.agents/epics/audits/), section
+# 3, and the rotation target Mr. McRitchie set (NEW, 7ZDJ, 9gAC, 3Qj4, 4bKN).
+# 4bKN is now marked exposed (config/signer_roster.yml): confirm slot 5 with him
 # before the ADD, and change `add` below (one line) if it moves.
 #
 # Keys are full addresses; config/signer_roster.yml names them.

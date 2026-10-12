@@ -11,7 +11,7 @@ module Solana
   #
   # ── LAYOUTS ──────────────────────────────────────────────────────────────
   #
-  # Squads V4 accounts are Anchor/Borsh. Verified 2026-10-12 against
+  # Squads V4 accounts are Anchor/Borsh. Verified against
   # @sqds/multisig's generated decoders on live accounts (mainnet #5, #7, #8;
   # devnet #16-#21); the raw bytes are test fixtures.
   #

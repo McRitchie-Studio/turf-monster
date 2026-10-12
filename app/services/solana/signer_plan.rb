@@ -5,7 +5,7 @@ module Solana
   # ── WHY DERIVE, NOT ASK ─────────────────────────────────────────────────
   #
   # The console it replaces asked the operator for the whole slot list and the
-  # signing wallets by hand. Every failure of the 2026-10-11 session came from
+  # signing wallets by hand. Every failure of its last live session came from
   # that: a slot left empty, the lead and cosigner swapped, Phantom asked for
   # the server's own key, a trailing full stop accepted. Here the operator says
   # what should change and this class computes the rest from rules:
