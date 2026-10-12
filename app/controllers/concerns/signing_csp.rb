@@ -46,10 +46,13 @@ module SigningCsp
   }.freeze
 
   NONCE_DIRECTIVES = %w[script-src].freeze
+  # signing_document sets it on every Turbo fetch a signing page makes.
+  DOCUMENT_HEADER = "X-Signing-Document".freeze
   REPORT_PATH = "/csp_reports".freeze
 
   included do
     after_action :apply_signing_csp, if: :signing_csp_page?
+    after_action :keep_flash_for_the_full_load, if: :fetched_by_a_signing_document?
     helper_method :signing_csp_page?, :signing_csp_meta_tags
   end
 
@@ -85,8 +88,17 @@ module SigningCsp
   # signing_document, answers it with a full load of the same page. A form's
   # redirect lands here inside that fetch, so the flash it set would be spent
   # on a body nobody sees; keep it for the full load.
+  #
+  # The same holds for any page a signing page's form redirects to (contest
+  # edit's save lands on /contests): the redirect is followed inside the
+  # fetch, and signing_document then leaves by a full load of that page. The
+  # header marks the fetch; only a GET is the followed redirect.
   def keep_flash_for_the_full_load
     flash.keep if request.headers["X-Turbo-Request-Id"].present?
+  end
+
+  def fetched_by_a_signing_document?
+    request.get? && request.headers[DOCUMENT_HEADER] == "strict" && !signing_csp_page?
   end
 
   # Writes the headers itself; the middleware then leaves them alone. No

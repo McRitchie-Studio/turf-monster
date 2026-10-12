@@ -2,7 +2,7 @@ import { test } from "node:test"
 import assert from "node:assert/strict"
 import { loadTurfModule } from "./support/load.mjs"
 
-const { dropTemporary, isStrictDocument, stripScripts } = await loadTurfModule("signing_document")
+const { SIGNING_DOCUMENT_HEADER, dropTemporary, isStrictDocument, stripScripts } = await loadTurfModule("signing_document")
 
 test("only the signing-csp marker reading strict makes a strict document", () => {
   assert.equal(isStrictDocument({ content: "strict" }), true)
@@ -28,4 +28,11 @@ test("every temporary element under the root is dropped", () => {
   assert.equal(dropTemporary(root), 1)
   assert.deepEqual(removed, [ "reveal" ])
   assert.equal(dropTemporary(null), 0)
+})
+
+test("the strict document's fetch header is the one SigningCsp reads", async () => {
+  const { readFileSync } = await import("node:fs")
+  const concern = readFileSync(new URL("../../app/controllers/concerns/signing_csp.rb", import.meta.url), "utf8")
+  assert.equal(SIGNING_DOCUMENT_HEADER, "X-Signing-Document")
+  assert.match(concern, /DOCUMENT_HEADER = "X-Signing-Document"/)
 })

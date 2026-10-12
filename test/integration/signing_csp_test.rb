@@ -136,6 +136,31 @@ class SigningCspTest < ActionDispatch::IntegrationTest
     end
   end
 
+  # A signing page's form whose redirect lands off the signing pages: Turbo
+  # renders the redirect target inside the form's fetch, and signing_document
+  # then leaves by a full load of it. The fetch carries the strict document's
+  # header, so the flash survives for the full load; the control, the same
+  # fetch without the header, spends it.
+  def save_contest_then_fetch(headers)
+    patch contest_path(contests(:one)), params: { contest: { name: contests(:one).name } },
+                                        headers: { "X-Turbo-Request-Id" => "save" }
+    assert_redirected_to contests_path
+    get contests_path, headers: { "X-Turbo-Request-Id" => "save" }.merge(headers)
+    assert_response :success
+    get contests_path
+    response.body
+  end
+
+  test "a redirect a signing page's form follows keeps its flash for the full load" do
+    log_in_as(users(:alex))
+    assert_includes save_contest_then_fetch(SigningCsp::DOCUMENT_HEADER => "strict"), "Contest updated."
+  end
+
+  test "the same fetch from any other page spends the flash" do
+    log_in_as(users(:alex))
+    assert_not_includes save_contest_then_fetch({}), "Contest updated."
+  end
+
   # The control: an un-nonced inline script on a signing page fails the check.
   test "an inline script without the nonce on a signing page fails" do
     get contest_path(contests(:one))

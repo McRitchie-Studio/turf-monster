@@ -10,7 +10,9 @@ import { enter, leave, settle } from "turf/enter_leave"
 // The markup is the state: form hidden, submit disabled. connect reads both
 // fields, so what was typed before it connected counts. Bind reset to
 // turbo:before-cache@document so a restored page starts as a fresh one:
-// closed, with both fields empty.
+// closed, with both fields empty. Bind validate to pageshow@window too:
+// /wallet is a signing page, so Back is a fresh load, and the browser puts
+// the typed fields back after connect has read them.
 export default class extends Controller {
   static targets = [ "toggle", "panel", "amount", "destination", "submit" ]
   static values = { frozen: Boolean }

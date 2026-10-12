@@ -20,7 +20,7 @@
 %>
 <div id="cash-out" class="card shadow p-6 mb-6"
      data-controller="withdraw-card" data-withdraw-card-frozen-value="<%= account_frozen? %>"
-     data-action="turbo:before-cache@document->withdraw-card#reset">
+     data-action="turbo:before-cache@document->withdraw-card#reset pageshow@window->withdraw-card#validate">
   <div class="flex items-center justify-between">
     <div>
       <h2 class="text-lg font-bold text-heading mb-1">Cash out</h2>
