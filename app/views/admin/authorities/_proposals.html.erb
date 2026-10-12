@@ -1,0 +1,53 @@
+<%# locals: (squads_app_url:) %>
+<%#
+  OPEN SQUADS PROPOSALS on this cluster: program upgrades and vault transfers
+  agents queued by script (turf-vault scripts/squad-upgrade.js,
+  scripts/squad-vault-transfer.js) and pre-approved with the agent seats. Each
+  row says what the proposal does, read from the chain; an upgrade's buffer is
+  hashed and checked against config/turf_vault_builds.yml; Approve is one
+  Phantom prompt for the connected seat, offered only when every check passes.
+
+  EXECUTE STAYS IN THE SQUADS APP (agents execute after Mr. McRitchie's
+  approval lands, per his 2026-10-12 grant). A config change (membership,
+  threshold) is never approved here: the row links out.
+
+  Rows come from GET /admin/authorities/proposals; squads_proposals_controller.js
+  renders them from the template below. No inline script, no Alpine.
+%>
+<section class="card p-4 mb-6"
+         data-controller="squads-proposals"
+         data-squads-proposals-url-value="<%= admin_authority_proposals_path %>"
+         data-squads-proposals-approve-url-value="<%= admin_approve_authority_proposal_path(index: "INDEX") %>">
+  <div class="flex flex-wrap items-start justify-between gap-2 mb-1">
+    <h2 class="text-lg font-bold text-heading">Open Squads proposals</h2>
+    <a href="<%= squads_app_url.sub(%r{/home\z}, "/transactions") %>" target="_blank" rel="noopener"
+       class="text-xs font-bold text-link underline" data-squads-proposals-target="squadsLink">Open in Squads</a>
+  </div>
+  <p class="text-secondary text-sm mb-3">
+    Program upgrades and vault transfers waiting on a vote. Approve casts your
+    seat's vote in one Phantom prompt; execution happens in the Squads app.
+  </p>
+  <p class="text-sm text-muted" data-squads-proposals-target="status" role="status" aria-live="polite">Reading proposals…</p>
+  <ol class="space-y-3" data-squads-proposals-target="list"></ol>
+
+  <template data-squads-proposals-target="rowTemplate">
+    <li class="rounded-lg border border-subtle bg-surface-alt p-3" data-proposal>
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <p class="text-sm font-bold text-heading" data-title></p>
+        <span class="rounded bg-surface px-1.5 py-px text-3xs font-bold uppercase tracking-wide text-muted" data-status></span>
+      </div>
+      <p class="mt-1 text-xs text-secondary" data-detail></p>
+      <p class="mt-1 hidden text-xs font-bold" data-verdict></p>
+      <p class="mt-1 font-mono text-3xs text-muted break-all hidden" data-hash></p>
+      <p class="mt-2 text-xs text-heading" data-approvals></p>
+      <p class="mt-1 text-3xs text-secondary" data-seat></p>
+      <div class="mt-2 flex flex-wrap items-center gap-2">
+        <button type="button" class="btn btn-primary btn-sm hidden" disabled
+                data-approve data-desktop-only-action
+                data-action="squads-proposals#approve">Approve in Phantom (1 prompt)</button>
+        <a class="text-xs text-link underline" target="_blank" rel="noopener" data-link>Open in Squads</a>
+      </div>
+      <p class="mt-1 hidden text-3xs text-warning-ink" data-blocked></p>
+    </li>
+  </template>
+</section>

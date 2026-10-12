@@ -47,10 +47,14 @@ class Admin::AuthoritiesSignerQueueTest < ActiveSupport::TestCase
     assert_equal [ALEX, MASON], controller(signer_queue: [ALEX, MASON]).send(:require_signer_queue!, operator_led)
   end
 
-  test "malformed_addresses names every value that is not a 32-byte key" do
-    c = controller
-    assert_equal ["#{ALEX}.", ALEX[0..-5], "0#{ALEX[1..]}"],
-                 c.send(:malformed_addresses, ["#{ALEX}.", " #{MASON} ", "", ALEX[0..-5], "0#{ALEX[1..]}"])
-    assert_empty c.send(:malformed_addresses, [ALEX, "\t#{MASON}\n", Solana::SignerRotation::EMPTY, ""])
+  test "server-held cosigners are never queued for Phantom" do
+    plan = server_led.merge(server_held: [MASON])
+    assert_equal [ALEX], controller.send(:signer_queue_for, plan)
+  end
+
+  test "broadcast refuses a queue that names a server-held key" do
+    plan = server_led.merge(server_held: [MASON])
+    assert_raises(RuntimeError) { controller(signer_queue: [ALEX, MASON]).send(:require_signer_queue!, plan) }
+    assert_equal [server, ALEX, MASON], controller(signer_queue: [ALEX]).send(:require_signer_queue!, plan)
   end
 end

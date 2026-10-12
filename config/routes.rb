@@ -615,7 +615,12 @@ Rails.application.routes.draw do
     # review. The bytes are minted at click time by `rebuild`, which is the same
     # lesson the treasury queue learned the expensive way.
     get  "authorities",                        to: "authorities#show",      as: :authorities
-    post "authorities/arm",                    to: "authorities#arm",       as: :arm_authority_rotation
+    get  "authorities/console",                to: "authorities#console",   as: :authority_console
+    get  "authorities/ceremony",               to: "authorities#ceremony",  as: :authority_ceremony
+    post "authorities/plan",                   to: "authorities#plan",      as: :plan_authority_rotation
+    post "authorities/rotations",              to: "authorities#create_rotation", as: :authority_rotations
+    get  "authorities/proposals",              to: "authorities#proposals", as: :authority_proposals
+    post "authorities/proposals/:index/approve", to: "authorities#approve_proposal", as: :approve_authority_proposal
     post "authorities/:slug/rebuild",          to: "authorities#rebuild",   as: :rebuild_authority_rotation
     post "authorities/:slug/broadcast",        to: "authorities#broadcast", as: :broadcast_authority_rotation
     post "authorities/:slug/cancel",           to: "authorities#cancel",    as: :cancel_authority_rotation

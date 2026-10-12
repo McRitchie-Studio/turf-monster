@@ -69,6 +69,8 @@ export const LAZY = {
   "seeds-lab": () => import("controllers/seeds_lab_controller"),
   "send-gate": () => import("controllers/send_gate_controller"),
   "show-more": () => import("controllers/show_more_controller"),
+  "signer-console": () => import("controllers/signer_console_controller"),
+  "squads-proposals": () => import("controllers/squads_proposals_controller"),
   "toast-demo": () => import("controllers/toast_demo_controller")
 }
 

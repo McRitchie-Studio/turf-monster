@@ -1,0 +1,86 @@
+<% content_for :title, "Rotation checklist" %>
+<%#
+  THE ROTATION CEREMONY FOR THIS CLUSTER, as a checklist whose preconditions
+  are read live (Solana::SignerCeremony, config/signer_ceremony.yml). A
+  console step links to /admin/authorities with its intent pre-filled, and the
+  link is live only when every hard check passes. A runbook step is Steffon's
+  and shows only its verdict; it turns done when the chain or this process
+  shows it done. QA shows the devnet list; production the mainnet one.
+%>
+<div class="max-w-4xl mx-auto px-4 py-8">
+  <div class="flex items-center justify-between mb-2">
+    <h1 class="text-2xl font-bold text-heading">Rotation checklist</h1>
+    <span class="font-mono text-xs text-muted"><%= @network %></span>
+  </div>
+  <p class="text-secondary text-sm mb-6">
+    Each step's preconditions are read from the chain and this server now.
+    <%= link_to "Back to Authorities", admin_authorities_path, class: "text-link underline" %>
+  </p>
+
+  <% if @steps.empty? %>
+    <p class="text-sm text-muted">No ceremony steps are filed for <%= @network %>.</p>
+  <% end %>
+
+  <ol class="space-y-4">
+    <% @steps.each_with_index do |step, i| %>
+      <% tone = { "done" => "border-success", "ready" => "border-primary", "blocked" => "border-danger/40" }
+                  .fetch(step[:status], "border-subtle") %>
+      <li class="card p-4 border <%= tone %>" data-ceremony-step="<%= step[:id] %>" data-status="<%= step[:status] %>">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h2 class="text-base font-bold text-heading"><%= i + 1 %>. <%= step[:title] %></h2>
+          <span class="rounded bg-surface-alt px-1.5 py-px text-3xs font-bold uppercase tracking-wide
+                       <%= step[:status] == "done" ? "text-success-ink" : step[:status] == "blocked" ? "text-danger-ink" : "text-muted" %>">
+            <%= step[:status] %>
+          </span>
+        </div>
+        <p class="text-xs text-secondary"><%= step[:who] %><%= " · runbook: #{step[:runbook]}" if step[:runbook] %></p>
+        <% if step[:note].present? %>
+          <p class="mt-1 text-xs text-muted"><%= step[:note] %></p>
+        <% end %>
+
+        <% if step[:kind] == "console" && !step[:done] %>
+          <ul class="mt-3 space-y-1">
+            <% step[:checks].each do |check| %>
+              <li class="flex items-start gap-2 text-xs" data-check="<%= check.id %>" data-ok="<%= check.ok.inspect %>">
+                <span class="w-14 shrink-0 font-bold uppercase text-3xs
+                             <%= check.ok ? "text-success-ink" : check.level == :hard ? "text-danger-ink" : "text-warning-ink" %>">
+                  <%= check.ok.nil? ? "manual" : check.ok ? "go" : (check.level == :hard ? "no-go" : "note") %>
+                </span>
+                <span class="text-heading"><%= check.label %></span>
+                <span class="text-muted"><%= check.detail %></span>
+              </li>
+            <% end %>
+          </ul>
+          <div class="mt-3">
+            <% if step[:ready] %>
+              <%= link_to "Open the console with this step filled in", step[:console_path],
+                          class: "btn btn-primary btn-sm", data: { ceremony_link: step[:id], turbo: false } %>
+            <% else %>
+              <span class="btn btn-sm border border-subtle text-muted cursor-not-allowed" aria-disabled="true"
+                    data-ceremony-link-disabled="<%= step[:id] %>">Console link opens when every no-go clears</span>
+            <% end %>
+          </div>
+        <% end %>
+
+        <% if step[:end].present? %>
+          <details class="mt-3 text-xs">
+            <summary class="cursor-pointer text-muted">Set before and after</summary>
+            <div class="mt-2 grid gap-3 sm:grid-cols-2">
+              <% [["Before", step[:start]], ["After", step[:end]]].each do |label, keys| %>
+                <div>
+                  <p class="label-upper text-3xs text-muted mb-1"><%= label %></p>
+                  <ul class="space-y-0.5">
+                    <% Array(keys).each do |key| %>
+                      <li><span class="font-bold"><%= @ceremony.name_for(key) %></span>
+                        <span class="font-mono text-3xs text-muted break-all"><%= key %></span></li>
+                    <% end %>
+                  </ul>
+                </div>
+              <% end %>
+            </div>
+          </details>
+        <% end %>
+      </li>
+    <% end %>
+  </ol>
+</div>
