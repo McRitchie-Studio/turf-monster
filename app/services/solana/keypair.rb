@@ -93,6 +93,27 @@ module Solana
       end
     end
 
+    # Window-only server-held vault cosigners: SOLANA_COSIGNER_KEYS, a comma-
+    # separated list of base58 secrets in SOLANA_ADMIN_KEY's format. Set by
+    # Steffon for one sitting and unset after; read only by the callers that
+    # name it (today `contests:nfl_sunday_lock`). Absent or blank is [] — no
+    # cosigner, never a raise, because most runs have none. A repeat of a key,
+    # or of the admin key, is refused: turf-vault rejects a duplicate signer
+    # outright (DuplicateSigner). The message names public keys only.
+    def self.cosigners(env = ENV)
+      keys = env["SOLANA_COSIGNER_KEYS"].to_s.split(",").map(&:strip).reject(&:empty?)
+      pairs = keys.map { |secret| from_base58(secret) }
+      addresses = pairs.map(&:to_base58)
+      repeated = addresses.tally.select { |_, n| n > 1 }.keys
+      repeated << admin.to_base58 if addresses.include?(admin.to_base58)
+      if repeated.any?
+        raise ArgumentError, "SOLANA_COSIGNER_KEYS repeats a vault signer (#{repeated.uniq.join(', ')}); " \
+                             "each cosigner must be a distinct key other than the admin key"
+      end
+
+      pairs
+    end
+
     # Load from an encrypted string. Handles the current "v2:"-tagged scheme
     # (under the current key OR, during a rotation, the previous one) and
     # legacy untagged ciphertexts transparently. Raises InvalidMessage when no

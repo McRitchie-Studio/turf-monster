@@ -1,0 +1,92 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Boot a local solana-test-validator with a turf-vault v0.26 build at the devnet
+# program id, then run test/integration/turf_vault_v026_local_validator_test.rb
+# against it with the app speaking the v0.26 shape. The proof that the operator
+# lock/conclusion, the nfl_sunday_lock server-signed lock and CosignPlan's
+# chain-read sizing LAND on the program (v026-program-readiness-fixes).
+#
+#   bin/v026-local-validator-proof --so <turf-vault>/target/deploy/turf_vault.so [-- -n /pattern/]
+#
+# Build the .so from turf-vault origin/main (default features = devnet id):
+#   git -C ../turf-vault worktree add --detach /tmp/tv origin/main
+#   (cd /tmp/tv && CARGO_NET_OFFLINE=true anchor build)
+#
+# LOCAL ONLY. The RPC is http://127.0.0.1:<port>, a fresh ledger in a temp dir
+# that is deleted afterwards. Every key is derived from a published test seed
+# (TurfVaultV026LocalValidatorTest::SEED); nothing is read from 1Password or
+# Heroku, and nothing is sent to any cluster.
+
+require "bundler/setup"
+require "digest"
+require "fileutils"
+require "json"
+require "net/http"
+require "optparse"
+require "tmpdir"
+require "solana-studio"
+
+ROOT = File.expand_path("..", __dir__)
+TEST_FILE = "test/integration/turf_vault_v026_local_validator_test.rb"
+SEED = "turf-monster v026 local validator proof"
+PROGRAM_ID = "EQGFJAcABtDb6VXtiijTjZ6cE2UqdvhnqJvoharJbpMJ"
+
+so = ENV["TURF_VAULT_V026_SO"]
+port = 18_899
+OptionParser.new do |o|
+  o.on("--so PATH", "turf-vault v0.26 program binary (default features)") { |v| so = v }
+  o.on("--port N", Integer, "RPC port (default 18899; faucet is +1)") { |v| port = v }
+end.parse!
+
+abort "usage: bin/v026-local-validator-proof --so <turf_vault.so>" unless so && File.file?(so)
+abort "solana-test-validator not on PATH" unless system("command -v solana-test-validator >/dev/null 2>&1")
+
+key = ->(role) { Solana::Keypair.from_bytes(Digest::SHA256.digest("#{SEED}:#{role}")) }
+rpc = "http://127.0.0.1:#{port}"
+
+healthy = lambda do
+  res = Net::HTTP.post(URI(rpc), { jsonrpc: "2.0", id: 1, method: "getHealth" }.to_json,
+                       "Content-Type" => "application/json")
+  JSON.parse(res.body)["result"] == "ok"
+rescue StandardError
+  false
+end
+abort "something already answers on #{rpc}; pass --port" if healthy.call
+
+ledger = Dir.mktmpdir("v026-proof-ledger")
+log = File.join(ledger, "validator.log")
+pid = Process.spawn("solana-test-validator", "--reset", "--quiet", "--ledger", ledger,
+                    "--rpc-port", port.to_s, "--faucet-port", (port + 1).to_s,
+                    "--gossip-port", (port + 2).to_s, "--dynamic-port-range", "#{port + 3}-#{port + 40}",
+                    "--bpf-program", PROGRAM_ID, so,
+                    out: log, err: log)
+status = 1
+begin
+  60.times { break if healthy.call; sleep 1 }
+  abort "validator did not come up; see #{log}" unless healthy.call
+  puts "validator up at #{rpc} with #{File.basename(so)} (sha256 #{Digest::SHA256.file(so).hexdigest[0, 16]}…)"
+
+  server, operator, c3 = key.call("server"), key.call("operator"), key.call("cosigner3")
+  env = {
+    "RAILS_ENV" => "test",
+    "TURF_VAULT_V026_VALIDATOR" => "1",
+    "SOLANA_RPC_URL" => rpc,
+    "SOLANA_NETWORK" => "devnet",
+    "SOLANA_PROGRAM_ID" => PROGRAM_ID,
+    "SOLANA_VAULT_GOVERNANCE" => "on",
+    "SOLANA_ADMIN_KEY" => Solana::Keypair.encode_base58(server.to_bytes),
+    "SOLANA_USDC_MINT" => key.call("usdc_mint").address,
+    "SOLANA_USDT_MINT" => key.call("usdt_mint").address,
+    "SOLANA_MULTISIG_SIGNERS" => [server, operator, c3].map(&:address).join(","),
+    "SOLANA_MULTISIG_COSIGNER" => operator.address,
+    "PARALLEL_WORKERS" => "1"
+  }
+  system(env, "bin/rails", "test", TEST_FILE, "-v", *ARGV, chdir: ROOT) # extra test args after `--`
+  status = $?.exitstatus
+ensure
+  Process.kill("TERM", pid) rescue nil
+  Process.wait(pid) rescue nil
+  FileUtils.rm_rf(ledger)
+end
+exit status

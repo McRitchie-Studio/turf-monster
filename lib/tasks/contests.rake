@@ -9,11 +9,16 @@ namespace :contests do
   #   SLUGS=a,b bin/rails contests:nfl_sunday_lock             # dry run, named contests only
   #   WRITE=1 SLUGS=a,b bin/rails contests:nfl_sunday_lock     # move them (chain first, then DB)
   #
+  # Under turf-vault v0.26 a move needs a second vault signature: the run signs
+  # with every key in SOLANA_COSIGNER_KEYS (window-only, see
+  # Solana::Keypair.cosigners). The dry run says how many each move needs.
+  #
   # Exits 1 when a write was attempted and any contest errored.
   desc "Move open NFL contests' lock to 11:00 Denver on the opening Sunday (dry run unless WRITE=1)"
   task nfl_sunday_lock: :environment do
     write = ENV["WRITE"] == "1"
-    rows = Contests::ApplyNflSundayLock.new(write: write, slugs: ENV["SLUGS"].to_s.split(",")).call
+    rows = Contests::ApplyNflSundayLock.new(write: write, slugs: ENV["SLUGS"].to_s.split(","),
+                                            cosigners: Solana::Keypair.cosigners).call
     exit 1 if write && rows.any? { |row| row.action == :error }
   end
 

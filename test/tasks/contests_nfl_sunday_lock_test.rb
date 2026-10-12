@@ -14,10 +14,10 @@ class ContestsNflSundayLockTaskTest < ActiveSupport::TestCase
   BEFORE_TNF = Time.utc(2026, 10, 1, 12, 0)
 
   class FakeChain
-    attr_reader :locks, :sets
-    attr_accessor :unreadable, :refuse_set, :ignore_set
+    attr_reader :locks, :sets, :signers
+    attr_accessor :unreadable, :refuse_set, :ignore_set, :required
 
-    def initialize = (@locks = {}; @sets = [])
+    def initialize = (@locks = {}; @sets = []; @signers = [])
 
     def read_contest(slug)
       raise "rpc down" if unreadable
@@ -25,13 +25,18 @@ class ContestsNflSundayLockTaskTest < ActiveSupport::TestCase
       @locks.key?(slug) ? { lock_timestamp: @locks[slug] } : nil
     end
 
-    def set_contest_lock_time(slug, ts)
+    def set_contest_lock_time(slug, ts, extra_signers: [])
       raise Solana::Vault::ThresholdUnreachableError, "needs 2 vault signatures" if refuse_set
 
+      @signers << extra_signers.map(&:to_base58)
       @sets << [slug, ts]
       @locks[slug] = ts unless ignore_set
       { signature: "sig-#{@sets.size}" }
     end
+
+    # The two reads the v0.26 dry run makes to count signatures.
+    def governed_time_action(instruction, _slug) = instruction
+    def required_signatures(_action) = required || 2
   end
 
   setup do
@@ -58,11 +63,12 @@ class ContestsNflSundayLockTaskTest < ActiveSupport::TestCase
     contest
   end
 
-  def apply_lock(write: false, now: BEFORE_TNF, slugs: nil)
+  def apply_lock(write: false, now: BEFORE_TNF, slugs: nil, cosigners: [])
     rows = nil
     out = StringIO.new
     travel_to(now) do
-      rows = Contests::ApplyNflSundayLock.new(write: write, slugs: slugs || [@contest.slug], vault: @chain, out: out).call
+      rows = Contests::ApplyNflSundayLock.new(write: write, slugs: slugs || [@contest.slug], vault: @chain, out: out,
+                                              cosigners: cosigners).call
     end
     [rows, out.string]
   end
@@ -194,5 +200,56 @@ class ContestsNflSundayLockTaskTest < ActiveSupport::TestCase
     end
     assert_equal [[@contest.slug, SUNDAY.to_i]], @chain.sets
     assert_equal SUNDAY, @contest.reload.starts_at
+  end
+
+  # ── v0.26: the second vault signature (v026-program-readiness-fixes) ──────
+  #
+  # The move needs SET_CONTEST_LOCK_TIME (2) signatures under governance and the
+  # admin key is one. The cosigners ride to the vault as extra_signers, which
+  # sign the transaction and fill the leading remaining account `authorize`
+  # reads. The landing itself is proven on a v0.26 program by
+  # test/integration/turf_vault_v026_local_validator_test.rb.
+
+  test "cosigners are handed to the vault as extra signers" do
+    cosigner = Solana::Keypair.generate
+
+    rows, = apply_lock(write: true, cosigners: [cosigner])
+
+    assert_equal :moved, row_for(rows, @contest).action
+    assert_equal [[cosigner.to_base58]], @chain.signers
+  end
+
+  test "v0.26 dry run says how many signatures the move needs and how many the run holds" do
+    Solana::Config.stub(:governance?, true) do
+      rows, out = apply_lock
+      assert_match(/needs 2 signature\(s\), this run holds 1 — SHORT/, row_for(rows, @contest).reason)
+      assert_includes out, "SOLANA_COSIGNER_KEYS"
+
+      rows, = apply_lock(cosigners: [Solana::Keypair.generate])
+      assert_match(/needs 2 signature\(s\), this run holds 2\z/, row_for(rows, @contest).reason)
+    end
+  end
+
+  test "v0.25 dry run adds no signature note" do
+    rows, = apply_lock
+    refute_match(/signature/, row_for(rows, @contest).reason)
+  end
+
+  test "the rake task signs with SOLANA_COSIGNER_KEYS" do
+    cosigner = Solana::Keypair.generate
+    ENV["SLUGS"] = @contest.slug
+    ENV["WRITE"] = "1"
+    ENV["SOLANA_COSIGNER_KEYS"] = Solana::Keypair.encode_base58(cosigner.to_bytes)
+    task = Rake::Task["contests:nfl_sunday_lock"]
+
+    out = travel_to(BEFORE_TNF) do
+      Solana::Vault.stub(:new, @chain) { task.reenable; capture_io { task.invoke }.first }
+    end
+
+    assert_equal [[cosigner.to_base58]], @chain.signers
+    assert_includes out, cosigner.to_base58, "the run names its cosigners by public key"
+    refute_includes out, ENV["SOLANA_COSIGNER_KEYS"], "and never prints a secret"
+  ensure
+    ENV.delete("SOLANA_COSIGNER_KEYS")
   end
 end

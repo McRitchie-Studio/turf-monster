@@ -174,7 +174,7 @@ Phantom must be installed in the browser or available via mobile deep link.
        admins (`:595`) and, under `AppFlags.web3_only_onboarding?`, for everyone
        (`:589`). The key material itself is read a layer down, in
        `Solana::Keypair.current_encryptor`
-       (`app/services/solana/keypair.rb:214-216`).
+       (`app/services/solana/keypair.rb:235-237`).
      - `after_commit :enqueue_onchain_account_setup`
        (`app/models/user.rb:130`) →
        `CreateOnchainUserAccountJob.perform_later` (`:822-824`). Async — the
@@ -259,7 +259,7 @@ Phantom must be installed in the browser or available via mobile deep link.
        `build_enter_contest_with_token` (`:1106-1112`); otherwise the currency
        is resolved USDC-or-USDT (`:1039-1055`) and it builds
        `vault.build_enter_contest` (`:1123-1129`,
-       `app/services/solana/vault.rb:2302`). Either way the transaction comes
+       `app/services/solana/vault.rb:2348`). Either way the transaction comes
        back FULLY UNSIGNED.
      - Persists a `PendingTransaction` with `tx_type: "enter_contest"`,
        `status: "pending"`, `target: entry` and a metadata blob naming the entry
@@ -287,12 +287,12 @@ Phantom must be installed in the browser or available via mobile deep link.
      (`Solana::Cosign::Completer#complete`).
      - Re-runs `entry.assert_enterable!` BEFORE anything irreversible (`:1348`).
      - `Solana::Vault#cosign_expectation` (`:1377-1381`,
-       `app/services/solana/vault.rb:3624-3645`) rebuilds the expectation from
+       `app/services/solana/vault.rb:3670-3691`) rebuilds the expectation from
        the wire the server stored on the `PendingTransaction`, for this entry
        and wallet, and `Solana::Cosign::Expectation` judges the returned bytes
        against it before anything is signed.
      - `Solana::Vault#cosign_and_broadcast_entry` (definition
-       `app/services/solana/vault.rb:3748-3753`, called at
+       `app/services/solana/vault.rb:3794-3799`, called at
        `app/controllers/contests_controller.rb:1399-1407`) fills the admin
        slot, runs a simulation pre-flight, then sends and waits for
        confirmation.

@@ -27,17 +27,27 @@
 # why no HUMAN-facing route may call it: one always-online key could extend a live
 # window. This is an operator-run one-off whose every move is printed in a dry run
 # first and is bounded by the guards above (future locks only, old default only,
-# later only). Under turf-vault governance (v0.26) the instruction needs two vault
-# signatures and the admin key is one: the vault then raises
-# ThresholdUnreachableError BEFORE broadcasting, this reports it, and the operator
-# moves that contest with Phantom instead — the contest edit page's lock picker
-# (prepare_lock_time / confirm_lock_time) with the timestamp the dry run prints.
+# later only).
+#
+# UNDER turf-vault GOVERNANCE (v0.26) the move needs SET_CONTEST_LOCK_TIME vault
+# signatures (2 by default, read from GovernanceConfig) and the admin key is one.
+# `cosigners:` are the other vault signers' keypairs, passed to the vault as
+# `extra_signers:`; each signs here and rides as a leading remaining account,
+# which is what `authorize` reads. The rake task loads them from
+# SOLANA_COSIGNER_KEYS (comma-separated base58 secrets, Solana::Keypair.cosigners),
+# a window-only config var Steffon sets for the run and unsets after, and prints
+# only their public keys. With too few, the vault raises ThresholdUnreachableError
+# BEFORE broadcasting; the dry run already says how many the move needs and how
+# many the run holds, and the operator can move that contest with Phantom instead
+# — the contest edit page's lock picker (prepare_lock_time / confirm_lock_time),
+# where the server key is the second signer, with the timestamp the dry run prints.
 module Contests
   class ApplyNflSundayLock
     Row = Struct.new(:slug, :action, :current_lock, :new_lock, :reason, keyword_init: true)
 
-    def initialize(write: false, now: Time.current, slugs: nil, vault: nil, out: $stdout)
+    def initialize(write: false, now: Time.current, slugs: nil, vault: nil, out: $stdout, cosigners: [])
       @write = write
+      @cosigners = Array(cosigners).compact
       @now = now
       @slugs = Array(slugs).map(&:to_s).reject(&:blank?)
       @vault = vault
@@ -98,13 +108,29 @@ module Contests
       return row.tap { finish(row, :refuse, "new lock is earlier than the current lock") } if new_lock < chain_lock
       return row.tap { finish(row, :skip, "custom lock (not the old first-kickoff default)") } unless chain_lock.to_i == old_default.to_i
 
-      finish(row, :move, "first kickoff #{fmt(old_default)} -> opening Sunday")
+      finish(row, :move, "first kickoff #{fmt(old_default)} -> opening Sunday#{signature_note(contest)}")
       row
+    end
+
+    # v0.26 only: how many vault signatures this move needs (the chain's own
+    # threshold for the action the contest's state selects) against how many
+    # this run holds, so the dry run says before WRITE=1 whether it can land.
+    # Empty on v0.25, where the admin key alone moves a lock.
+    def signature_note(contest)
+      return "" unless Solana::Config.governance? && contest.onchain_verified?
+
+      action = vault.governed_time_action("set_contest_lock_time", contest.slug)
+      needed = vault.required_signatures(action)
+      held = 1 + @cosigners.map(&:to_base58).uniq.size
+      short = held < needed ? " — SHORT: set SOLANA_COSIGNER_KEYS or use the lock picker" : ""
+      "; v0.26 #{action} needs #{needed} signature(s), this run holds #{held}#{short}"
+    rescue StandardError => e
+      "; v0.26 signature count unreadable (#{e.class})"
     end
 
     def apply(contest, row)
       if row.action == :move && contest.onchain_verified?
-        vault.set_contest_lock_time(contest.slug, row.new_lock.to_i)
+        vault.set_contest_lock_time(contest.slug, row.new_lock.to_i, extra_signers: @cosigners)
         landed = chain_lock_for(contest)
         unless landed != :unreadable && landed&.to_i == row.new_lock.to_i
           return finish(row, :error, "chain did not confirm the new lock (reads #{landed.inspect}); DB left at the old lock")
@@ -140,6 +166,7 @@ module Contests
     def report(rows)
       @out.puts(@write ? "WRITE — moving locks" : "DRY RUN — nothing written (WRITE=1 to apply)")
       @out.puts("now #{fmt(@now)}; #{rows.size} open NFL contest(s)")
+      @out.puts("cosigners: #{@cosigners.map(&:to_base58).join(', ')}") if @cosigners.any?
       rows.each do |row|
         @out.puts(format("  %-10s %-48s current %-24s new %-24s (unix %s) %s",
                          row.action, row.slug, fmt(row.current_lock), fmt(row.new_lock),

@@ -179,11 +179,22 @@ if [ "$SKIP_CHECKS" != "1" ]; then
   REMOTE_HASHES=$(heroku config:get EXPECTED_IDL_HASH --app "$HEROKU_APP" 2>/dev/null || echo "")
   [ -n "$REMOTE_HASHES" ] || fail "EXPECTED_IDL_HASH not set on $HEROKU_APP — boot will fail (OPSEC-014). Set it first."
   # Membership test mirrors Solana::Config.idl_hash_acceptable? (comma allow-list).
-  if printf '%s' "$REMOTE_HASHES" | tr ',' '\n' | sed 's/[[:space:]]//g' | grep -qxF "$LOCAL_HASH"; then
+  pinned() { printf '%s' "$REMOTE_HASHES" | tr ',' '\n' | sed 's/[[:space:]]//g' | grep -qxF "$1"; }
+  if pinned "$LOCAL_HASH"; then
     ok "IDL hash already pinned ($LOCAL_HASH)"
   else
     IDL_BUMP=1
     warn "IDL hash bump: $LOCAL_HASH not in EXPECTED_IDL_HASH set — will widen→tighten across the release"
+  fi
+  # THE OTHER SWITCH POSITION'S HASH IS OWED TOO. The tighten below keeps it,
+  # but the tighten only ran on a bump of the LIVE file — so an app pinned to
+  # the v0.25 hash alone (the state of both apps when v0.26 was staged) never
+  # gained the v0.26 hash, and the forward flip `SOLANA_VAULT_GOVERNANCE=on`
+  # would refuse to boot. A missing sibling hash is a bump: widen keeps every
+  # hash already pinned, and the tighten writes exactly the shape pair.
+  if [ -n "$SIBLING_HASH" ] && ! pinned "$SIBLING_HASH"; then
+    IDL_BUMP=1
+    warn "IDL hash bump: ${SIBLING_IDL_FILE}'s $SIBLING_HASH not in EXPECTED_IDL_HASH set — the other switch position would not boot; will widen→tighten"
   fi
 
   SKIP_IDL=$(heroku config:get SKIP_IDL_VERIFICATION --app "$HEROKU_APP" 2>/dev/null || echo "")

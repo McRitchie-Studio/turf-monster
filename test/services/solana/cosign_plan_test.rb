@@ -15,8 +15,38 @@ class Solana::CosignPlanTest < ActiveSupport::TestCase
   SIGNERS = Solana::Config::MULTISIG_SIGNERS
   PRIMARY = Solana::Config::MULTISIG_COSIGNER
 
-  def with_governance(on = true, &block)
-    Solana::Config.stub(:governance?, on, &block)
+  # The chain reads the plan makes on a governance boot, answered here so no
+  # test reaches an RPC: `thresholds:` is the stored GovernanceConfig table
+  # (nil = unreadable/absent), `seated:` VaultState's active slots (nil =
+  # unreadable, so the config list stands in).
+  class ChainReader
+    attr_reader :reads
+
+    def initialize(thresholds: nil)
+      @thresholds = thresholds
+      @reads = 0
+    end
+
+    def cached_governance
+      @reads += 1
+      @thresholds && { thresholds: @thresholds }
+    end
+  end
+
+  def with_governance(on = true, thresholds: nil, seated: nil, reader: ChainReader.new(thresholds: thresholds), &block)
+    Solana::Config.stub(:governance?, on) do
+      Solana::Vault.stub(:new, reader) do
+        Solana::Vault.stub(:cached_vault_state, seated && { active_signers: seated }, &block)
+      end
+    end
+  end
+
+  # A stored table with `overrides` (action name => value) and zeros elsewhere,
+  # which `threshold_for` reads as the shipped defaults.
+  def table(overrides = {})
+    Array.new(32, 0).tap do |t|
+      overrides.each { |name, value| t[Solana::Governance::ACTION_IDS.fetch(name)] = value }
+    end
   end
 
   # A vault signer that is neither the admin key nor the named cosigner — the
@@ -169,6 +199,112 @@ class Solana::CosignPlanTest < ActiveSupport::TestCase
 
     refute_includes Solana::CosignPlan.eligible_cosigners, admin,
                     "the server already signs with the admin key; offering it again is a duplicate"
+  end
+
+  # ── THE CHAIN'S TABLE, NOT THE DEFAULTS (v0026-program-readiness-fixes) ───
+  #
+  # The plan used to size every slot from DEFAULT_THRESHOLDS, so a retune
+  # reached the program and never the console. Too many slots on settle shift
+  # the settlement payload and the chain refuses it; too few is 6046.
+
+  test "a settle retuned to 2 on chain reserves no extra slot" do
+    with_governance(thresholds: table("settle_contest" => 2)) do
+      plan = Solana::CosignPlan.new(tx_type: "settle_contest")
+      assert_equal 2, plan.required_signatures
+      assert_equal 0, plan.extra_cosigners_needed
+      assert_equal [], plan.validate_extras!([], primary: PRIMARY)
+    end
+  end
+
+  test "a cancel retuned above the default reserves the chain's count" do
+    with_governance(thresholds: table("cancel_contest" => 4)) do
+      plan = Solana::CosignPlan.new(tx_type: "cancel_contest")
+      assert_equal 4, plan.required_signatures
+      assert_equal 2, plan.extra_cosigners_needed
+    end
+  end
+
+  # A stored value under the program's floor reads as the floor, as on chain.
+  test "the floor holds against a stored table" do
+    with_governance(thresholds: table("unpause" => 1)) do
+      assert_equal 3, Solana::CosignPlan.new(tx_type: "unpause").required_signatures
+    end
+  end
+
+  # Between the upgrade and init_governance the account does not exist.
+  test "an unreadable GovernanceConfig falls back to the shipped defaults" do
+    with_governance(thresholds: nil) do
+      plan = Solana::CosignPlan.new(tx_type: "settle_contest")
+      assert_equal 3, plan.required_signatures
+      assert_equal 1, plan.extra_cosigners_needed
+    end
+  end
+
+  test "one plan reads the table once" do
+    reader = ChainReader.new(thresholds: table)
+    with_governance(reader: reader) do
+      plan = Solana::CosignPlan.new(tx_type: "settle_contest")
+      plan.required_signatures
+      plan.extra_cosigners_needed
+      plan.browser_signatures_needed
+    end
+    assert_equal 1, reader.reads
+  end
+
+  test "an injected vault is the reader" do
+    reader = ChainReader.new(thresholds: table("close_contest" => 3))
+    with_governance do
+      assert_equal 3, Solana::CosignPlan.new(tx_type: "close_contest", vault: reader).required_signatures
+    end
+  end
+
+  test "v0.25 reads nothing from the chain" do
+    exploding = Object.new
+    def exploding.cached_governance = raise("v0.25 must not read GovernanceConfig")
+    with_governance(false, reader: exploding) do
+      plan = Solana::CosignPlan.new(tx_type: "settle_contest")
+      assert_equal 3, plan.required_signatures
+      assert_equal 0, plan.extra_cosigners_needed
+    end
+  end
+
+  # ── THE SEATED SET, NOT THE CONFIG LIST ───────────────────────────────────
+  #
+  # v0.26 has five slots; Config::MULTISIG_SIGNERS is a three-key v0.25
+  # default. A wallet the ADD step seated in slot 4 is a valid signer.
+
+  test "a signer seated in slot 4 is eligible and accepted as an extra" do
+    slot4 = Solana::Keypair.generate.address
+    seated = SIGNERS + [slot4]
+    with_governance(seated: seated) do
+      assert_includes Solana::CosignPlan.eligible_cosigners, slot4
+      plan = Solana::CosignPlan.new(tx_type: "settle_contest")
+      assert_equal [slot4], plan.validate_extras!([slot4], primary: PRIMARY)
+    end
+  end
+
+  test "a key evicted on chain is refused even if config still lists it" do
+    evicted = (SIGNERS - [PRIMARY, Solana::CosignPlan.admin_address]).first
+    skip "needs a config signer beyond admin and the named cosigner" if evicted.blank?
+    seated = SIGNERS - [evicted] + [Solana::Keypair.generate.address]
+    with_governance(seated: seated) do
+      error = assert_raises(Solana::CosignPlan::InvalidCosignerError) do
+        Solana::CosignPlan.new(tx_type: "settle_contest").validate_extras!([evicted], primary: PRIMARY)
+      end
+      assert_match(/not in the vault signer set/, error.message)
+    end
+  end
+
+  test "an unreadable vault state falls back to the config list" do
+    with_governance(seated: nil) do
+      assert_equal SIGNERS - [Solana::CosignPlan.admin_address].compact, Solana::CosignPlan.eligible_cosigners
+    end
+  end
+
+  test "v0.25 judges membership against the config list" do
+    with_governance(false, seated: SIGNERS + [Solana::Keypair.generate.address]) do
+      assert_equal SIGNERS, Solana::CosignPlan.signer_set
+    end
   end
 
   # ── AN UNSUPPORTED TYPE MUST NOT SILENTLY PLAN ZERO ───────────────────────

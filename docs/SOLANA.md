@@ -196,7 +196,7 @@ transaction, some with immovable floors. What changes for Rails:
 |---|---|---|---|---|
 | `create_season` | 1 | **3** | admin + 2 in `remaining_accounts` | admin UI cannot create a season alone |
 | `close_contest` | 1 | **2** | admin + 1 | the admin "Reclaim rent" button queues a Treasury cosign (one Phantom signature) instead of closing server-signed |
-| `set_contest_lock_time` / `..._conclusion_time` | 1 | **2** (3 to re-open/amend) | admin + 1 | the QA rehearsal signs the extra slot with a seated agent key |
+| `set_contest_lock_time` / `..._conclusion_time` | 1 | **2** (3 to re-open/amend) | admin + 1 | operator (Phantom-first): Phantom as `admin`, the SERVER key in the named `cosigner` slot (it is the fee payer, so still one Phantom prompt); re-open/amend are refused in Rails. QA rehearsal: a seated agent key. `contests:nfl_sunday_lock`: `SOLANA_COSIGNER_KEYS` |
 | `burn_entry_token` | (never deployed) | **3** | admin + 2 | operator claw-back needs three |
 | `settle_contest` · `cancel_contest` · `sweep_operator_revenue` | 2 | **3** | admin + cosigner + 1 | the settle cosign flow needs a third wallet |
 | `register_currency` · `deactivate_currency` · `unpause` | 2 | **3** | admin + cosigner + 1 | |
@@ -211,8 +211,32 @@ the stored table (`cached_governance`, one minute), so a retune reaches the
 unattended builders without a deploy. An unreadable account falls back to the
 defaults above, which fail closed if wrong. The re-open and amend branches are
 picked from the contest ACCOUNT (`Vault#contest_time_action`), never the row.
-v0.25 reads nothing. The operator cosign paths (`Solana::CosignPlan`) still
-size their slots from the defaults.
+v0.25 reads nothing. The operator cosign paths (`Solana::CosignPlan`) read the
+same stored table (one read per plan) and judge cosigner membership against
+VaultState's seated slots, all five on v0.26, falling back to the defaults and
+`SOLANA_MULTISIG_SIGNERS` when the chain cannot be read.
+
+**The operator lock and conclusion (v0.26).** `Vault#contest_time_instruction`
+names the server key in the `cosigner` slot when the chain's threshold for the
+action the contest's state selects is 2, `None` when it is 1, and raises
+`ThresholdUnreachableError` at 3 (re-open a passed lock, amend a set
+conclusion), because one Phantom prompt plus the server is two signatures.
+`cosigner: None` with no remaining accounts is what the program refused with
+6046.
+
+**`contests:nfl_sunday_lock` on v0.26** needs a second vault signature beyond
+the admin key: it signs with every key in `SOLANA_COSIGNER_KEYS`
+(comma-separated base58 secrets, `Solana::Keypair.cosigners`), a window-only
+config var Steffon sets for the run and unsets after. The dry run prints how
+many signatures each move needs and how many the run holds. Without it, move
+the contest with the Phantom lock picker.
+
+**Proving it lands.** `bin/v026-local-validator-proof --so <turf_vault.so>`
+boots `solana-test-validator` with a v0.26 build at the devnet program id and
+runs `test/integration/turf_vault_v026_local_validator_test.rb` (skipped
+everywhere else): the operator lock and conclusion, the nfl_sunday_lock lock
+and a CosignPlan-sized cancel after an on-chain retune all land, and the
+pre-fix lock shape is refused 6046 by the same program.
 
 **The QA rehearsal on v0.26.** The dyno holds one vault key. For lock, close
 and the agent settle, each remote script first answers what the chain needs
@@ -377,7 +401,9 @@ it has its own preconditions under "Tightening the pin — the one-way door" bel
    and has no default. It takes NO arguments, which is what makes its
    2-signature bootstrap safe: it can only write the shipped defaults.
 3. `heroku config:set EXPECTED_IDL_HASH="<v0.25>,<v0.26>" SOLANA_VAULT_GOVERNANCE=on`
-   and restart. Widening the allow-list first means no unverified window across
+   and restart. (`bin/deploy` now adds the other switch position's hash on any
+   deploy where it is missing, so after one deploy of this slug the pair is
+   already pinned; read 2026-10-12, both apps pinned the v0.25 hash alone.) Widening the allow-list first means no unverified window across
    the flip — and **leaving it widened is what keeps the rollback one command.**
 4. **`update_signers` to widen the set to five** — this is what closes the 3-of-3
    gap. **It cannot be pulled earlier than step 1.** v0.25's `VaultState` holds

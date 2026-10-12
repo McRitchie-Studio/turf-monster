@@ -61,15 +61,25 @@ class DeployIdlDanceTest < ActiveSupport::TestCase
   # ── THE REGRESSION ────────────────────────────────────────────────────────
 
   test "after the ceremony an ordinary deploy rewrites NOTHING" do
-    result = deploy(governance: "on", pin: V026)
+    result = deploy(governance: "on", pin: "#{V026},#{V025}")
 
     assert_equal 0, result[:status], result[:stderr]
     assert_empty result[:config_sets],
-                 "the live IDL is already pinned, so there is no bump and no dance — " \
+                 "both shapes are already pinned, so there is no bump and no dance — " \
                  "the pre-fix script wrote two config:sets here, the second of them fatal"
     assert_includes result[:log], "push heroku-mainnet main"
     assert_match(%r{config/turf_vault\.mainnet\.v026\.idl\.json}, result[:stdout],
                  "the script must name the file the app boots against")
+  end
+
+  # A pin of the live hash alone (the pre-fix tighten could leave one) is
+  # completed with the other shape's hash, and never loses the live one.
+  test "a live-only pin under governance gains the v0.25 hash and keeps v0.26 first" do
+    result = deploy(governance: "on", pin: V026)
+
+    assert_equal 0, result[:status], result[:stderr]
+    result[:config_sets].each { |set| assert_includes set.split(","), V026, "the running app's hash is never dropped" }
+    assert_equal [V026, V025], result[:config_sets].last.split(",")
   end
 
   # ── THE TIGHTEN WRITES THE LIVE HASH ──────────────────────────────────────
@@ -113,6 +123,23 @@ class DeployIdlDanceTest < ActiveSupport::TestCase
     assert_equal V025, tighten.first
     assert_includes tighten, V026
     assert_match(%r{config/turf_vault\.mainnet\.idl\.json}, result[:stdout])
+  end
+
+  # TODAY'S REAL STATE (read 2026-10-12): both apps pin the v0.25 hash ALONE
+  # and the switch is unset. The live file is pinned, so the pre-fix script saw
+  # no bump, wrote nothing, and the v0.26 hash never reached the allow-list —
+  # the forward flip would then have refused to boot. A deploy must add it.
+  test "a v0.25-only pin gains the v0.26 hash without losing its own" do
+    result = deploy(governance: nil, pin: V025)
+
+    assert_equal 0, result[:status], result[:stderr]
+    assert_equal 2, result[:config_sets].length, "widen, then tighten"
+    result[:config_sets].each do |set|
+      hashes = set.split(",")
+      assert_includes hashes, V025, "the switch-off app boots on the v0.25 file at every step"
+      assert_includes hashes, V026, "the forward flip needs the v0.26 hash allow-listed"
+    end
+    assert_equal [V025, V026], result[:config_sets].last.split(",")
   end
 
   # ── REFUSALS HAPPEN BEFORE ANYTHING IS WRITTEN ────────────────────────────
