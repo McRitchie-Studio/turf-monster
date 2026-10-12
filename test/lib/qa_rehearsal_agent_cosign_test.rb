@@ -2,9 +2,10 @@
 
 require "test_helper"
 
-# The agent co-sign ends by confirming the settle over the admin HTTP surface,
-# signed in by wallet. The rehearsal files no admin actor, so that path refuses
-# before it locks, grades or broadcasts anything.
+# Step 4's two exits. `--cosign agent` (the default since 2026-10-12) settles
+# unattended on devnet v0.26 with the server key plus a seated devnet-only agent
+# key, and confirms on the dyno; `--cosign link` mints a Phantom link. Neither
+# signs in as an admin over HTTP: no agent-readable wallet is an admin.
 class QaRehearsalAgentCosignTest < ActiveSupport::TestCase
   Driver = TurfMonster::QaRehearsal::Driver
   CLI = Rails.root.join("bin/qa-contest-rehearsal").read.freeze
@@ -16,27 +17,45 @@ class QaRehearsalAgentCosignTest < ActiveSupport::TestCase
     end
   end
 
-  test "the agent co-sign refuses before the step touches anything" do
-    error = assert_raises(Driver::StepError) { driver.conclude(cosign: :agent) }
-
-    assert_match(/conclude --cosign link/, error.message)
+  test "both co-sign modes reach the network guard first" do
+    %i[agent link].each do |mode|
+      error = assert_raises(RuntimeError) { driver.conclude(cosign: mode) }
+      assert_equal "reached the network guard", error.message
+    end
   end
 
-  test "the attended co-sign is not refused" do
-    error = assert_raises(RuntimeError) { driver.conclude(cosign: :link) }
-
-    assert_equal "reached the network guard", error.message
+  test "an unknown co-sign mode is refused before the guard" do
+    error = assert_raises(Driver::StepError) { driver.conclude(cosign: :phantom) }
+    assert_match(/agent or link/, error.message)
   end
 
-  test "conclude and the CLI default to the attended co-sign" do
+  test "conclude and the CLI default to the unattended agent co-sign" do
     error = assert_raises(RuntimeError) { driver.conclude }
 
     assert_equal "reached the network guard", error.message
-    assert_includes CLI, "cosign: :link,"
-    refute_includes CLI, "cosign: :agent"
+    assert_includes CLI, "cosign: :agent,"
   end
 
-  test "the admin actor has no filed key" do
-    refute TurfMonster::QaRehearsal::KeyStore::ITEMS.key?(Driver::ADMIN_ACTOR)
+  test "on a v0.25 dyno the agent co-sign refuses before it grades or locks anything" do
+    d = Driver.new(io: StringIO.new)
+    d.define_singleton_method(:guard!) { true }
+    d.instance_variable_set(:@manifest, Struct.new(:x) { def read = { "contest_slug" => "c" } }.new(nil))
+    calls = []
+    remote = Object.new
+    remote.define_singleton_method(:call) do |src|
+      calls << src
+      { "governance" => false }
+    end
+    d.instance_variable_set(:@remote, remote)
+
+    error = assert_raises(Driver::StepError) { d.conclude(cosign: :agent) }
+
+    assert_match(/needs turf-vault v0.26/, error.message)
+    assert_equal 1, calls.size, "only the governance probe ran"
+  end
+
+  test "no admin actor is filed or driven" do
+    refute TurfMonster::QaRehearsal::KeyStore::ITEMS.keys.any? { |k| k.include?("admin") }
+    refute_includes Rails.root.join("lib/turf_monster/qa_rehearsal/driver.rb").read, "admin_session"
   end
 end

@@ -361,12 +361,12 @@ to threshold 3 is **3-of-3** until `update_signers` widens the set to five.
 Nothing with fewer than all three signatures works, and there is no slack for a
 lost key. Specifically:
 
-- **The QA rehearsal driver breaks.** `lib/turf_monster/qa_rehearsal/driver.rb`
-  `#cosign_with_agent` loads a second key and settles a contest unattended at
-  2-of-3. `settle_contest` becomes 3, and the driver's KeyStore cannot reach a
-  third VAULT signer, so `conclude --cosign agent` fails with
-  `InsufficientSigners`. Its `#conclude` also calls the server-signed
-  `set_contest_lock_time`, now 2 — that fails first.
+- **The QA rehearsal driver needed the devnet retune.** On devnet this gap
+  closed on 2026-10-12 (card `devnet-v026-upgrade`): the rotation seated a
+  devnet-only agent key (Mack, `foUu…`) and `settle_contest` was retuned to 2
+  on devnet only, so `conclude --cosign agent` settles with the QA server key
+  plus Mack, and the v0.26 lock and close take the same two. Mainnet keeps
+  `settle_contest` at 3. See `docs/qa-contest-rehearsal.md`.
 - **`close_contest` becomes two-signature**, so the unattended close in
   `ContestsController` and `driver.rb#close_contest` both stop.
 - **Admin season creation stops** until three wallets are present.

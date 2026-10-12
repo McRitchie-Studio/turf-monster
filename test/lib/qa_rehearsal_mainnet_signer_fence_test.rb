@@ -1,0 +1,184 @@
+# frozen_string_literal: true
+
+require "test_helper"
+
+# The rehearsal refuses an agent co-signer key that is also a MAINNET
+# VaultState signer, even on devnet (card devnet-v026-upgrade). The fence is
+# filed, never read from mainnet; these tests read only the repo's config.
+class QaRehearsalMainnetSignerFenceTest < ActiveSupport::TestCase
+  Fence = TurfMonster::QaRehearsal::MainnetSignerFence
+  Driver = TurfMonster::QaRehearsal::Driver
+
+  XAN   = "8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd"
+  ALEX  = "7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr"
+  MASON = "CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR"
+  MACK  = "foUuRyeibadQoGdKXZ9pBGDqmkb1jY1jYsu8dZ29nds"
+  QA    = "2eGs8G3wzhEeNQQU2Q86BmmA2xTpDbMMae3Y1bvpZfx9"
+
+  # ── the filed list ────────────────────────────────────────────────────────
+
+  test "the filed fence holds every seated mainnet signer and production's system wallet" do
+    keys = Fence.load_keys
+    [XAN, ALEX, MASON].each { |pk| assert_includes keys, pk }
+    production = YAML.safe_load_file(Rails.root.join("config/solana_signers.yml"))
+                     .dig("environments", "production", "system_wallet")
+    assert_includes keys, production
+  end
+
+  SYSTEM = "7auwTLSvNniSUeAgL6v9RStMXJhWrrUhSJgwFWLpcqC"
+
+  test "every mainnet Squads member is fenced, including the Squad-only agent seat" do
+    keys = Fence.load_keys
+    squad = YAML.safe_load_file(Rails.root.join("config/mainnet_vault_signers.yml")).fetch("squad")
+    assert_equal 5, squad.size, "the mainnet Squad is 3 of 5"
+    squad.each { |pk| assert_includes keys, pk }
+    assert_includes keys, SYSTEM, "solana.turf.system holds a mainnet Squad seat and no VaultState slot"
+  end
+
+  test "a Squad-only key is refused as a co-signer" do
+    error = assert_raises(Fence::Refused) { Fence.default.refuse!([MACK, SYSTEM], who: { SYSTEM => "system" }) }
+    assert_match(/system \(#{SYSTEM}\) also holds MAINNET authority/, error.message)
+  end
+
+  test "the Squad list is read: dropping it from the file unfences the Squad-only key" do
+    Dir.mktmpdir do |dir|
+      fence = File.join(dir, "fence.yml")
+      filed = YAML.safe_load_file(Rails.root.join("config/mainnet_vault_signers.yml"))
+      File.write(fence, filed.except("squad").to_yaml)
+      refute_includes Fence.load_keys(fence_path: fence), SYSTEM
+    end
+  end
+
+  test "the incoming list is read: dropping it unfences the planned server key" do
+    incoming = "4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY"
+    assert_includes Fence.load_keys, incoming
+    Dir.mktmpdir do |dir|
+      fence = File.join(dir, "fence.yml")
+      filed = YAML.safe_load_file(Rails.root.join("config/mainnet_vault_signers.yml"))
+      File.write(fence, filed.except("incoming").to_yaml)
+      refute_includes Fence.load_keys(fence_path: fence), incoming
+    end
+  end
+
+  test "the incoming list names production's next server key and the target set" do
+    incoming = YAML.safe_load_file(Rails.root.join("config/mainnet_vault_signers.yml")).fetch("incoming")
+    %w[4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY 9gACbzsCLmkYF9Yx1EBGmwMvvyfuTquJ6qs8QsoQvHXf
+       3Qj4v9qjhXgkru6zCRCErRVhy8Q6qU3NrNpvpXLTZboA 4bKNSqkrKeggSyrds16Ak7rcB4ibvGJ4ZLsKjvQgC3Vk].each do |pk|
+      assert_includes incoming, pk
+    end
+  end
+
+  # ── every key the driver loads ────────────────────────────────────────────
+
+  test "FencedKeys refuses a fenced PLAYER key as it loads" do
+    fenced = Solana::Keypair.generate
+    store = Struct.new(:kp) { def keypair(_who) = kp }.new(fenced)
+    keys = TurfMonster::QaRehearsal::MainnetSignerFence::FencedKeys.new(store, Fence.new(keys: [fenced.to_base58]))
+
+    error = assert_raises(Fence::Refused) { keys.keypair("mason") }
+    assert_match(/mason \(#{fenced.to_base58}\) also holds MAINNET authority/, error.message)
+  end
+
+  test "FencedKeys hands back an unfenced key" do
+    clean = Solana::Keypair.generate
+    store = Struct.new(:kp) { def keypair(_who) = kp }.new(clean)
+    keys = TurfMonster::QaRehearsal::MainnetSignerFence::FencedKeys.new(store, Fence.new(keys: [MASON]))
+    assert_equal clean.to_base58, keys.address("mack")
+  end
+
+  test "the driver's key store is fenced and Mason is out of the cast" do
+    d = Driver.new(io: StringIO.new)
+    d.define_singleton_method(:guard!) { true }
+    assert_kind_of TurfMonster::QaRehearsal::MainnetSignerFence::FencedKeys, d.keys
+    refute_includes Driver::DEFAULT_CAST, "mason"
+    refute TurfMonster::QaRehearsal::KeyStore::ITEMS.key?("mason")
+  end
+
+  test "the devnet-only keys are not fenced" do
+    fence = Fence.default
+    refute fence.fenced?(MACK), "Mack is the devnet rehearsal key"
+    refute fence.fenced?(QA), "2eGs is QA's own devnet server key"
+  end
+
+  test "an empty or unreadable list refuses every key rather than clearing them" do
+    Dir.mktmpdir do |dir|
+      empty = File.join(dir, "fence.yml")
+      File.write(empty, "seated: []\nincoming: []\n")
+      none = File.join(dir, "none.yml")
+      File.write(none, "environments: {}\n")
+      assert_raises(Fence::Refused) { Fence.load_keys(fence_path: empty, isolation_path: none) }
+      assert_raises(Fence::Refused) { Fence.load_keys(fence_path: File.join(dir, "missing.yml")) }
+    end
+  end
+
+  test "refuse! names the fenced key and its holder" do
+    error = assert_raises(Fence::Refused) do
+      Fence.new(keys: [MASON]).refuse!([MACK, MASON], who: { MASON => "mason" })
+    end
+    assert_match(/mason \(#{MASON}\) also holds MAINNET authority/, error.message)
+    assert_nil Fence.new(keys: [MASON]).refuse!([MACK])
+  end
+
+  # ── the driver ────────────────────────────────────────────────────────────
+
+  class Keys
+    attr_reader :loaded
+
+    def initialize(map) = (@map = map) && (@loaded = [])
+
+    def keypair(who)
+      @loaded << who
+      @map.fetch(who)
+    end
+  end
+
+  def driver_with(agent_keys, fenced:)
+    Driver.new(io: StringIO.new).tap do |d|
+      d.instance_variable_set(:@keys, Keys.new(agent_keys))
+      d.instance_variable_set(:@mainnet_fence, Fence.new(keys: fenced))
+      d.define_singleton_method(:vault_agents) { agent_keys.keys }
+    end
+  end
+
+  test "the driver refuses a filed agent key that is also a mainnet signer, before anything is signed" do
+    devnet_only = Solana::Keypair.generate
+    mainnet_too = Solana::Keypair.generate
+    d = driver_with({ "mack" => devnet_only, "mason" => mainnet_too }, fenced: [mainnet_too.to_base58])
+    request = { "action" => "settle_contest", "needed" => 1, "server" => QA,
+                "seated" => [QA, devnet_only.to_base58, mainnet_too.to_base58] }
+
+    error = assert_raises(Driver::StepError) { d.send(:pick_agents, request) }
+
+    assert_match(/mason \(#{mainnet_too.to_base58}\) also holds MAINNET authority/, error.message)
+    assert_match(/Nothing was signed or sent/, error.message)
+  end
+
+  test "a clean roster picks the seated devnet agent" do
+    devnet_only = Solana::Keypair.generate
+    d = driver_with({ "mack" => devnet_only }, fenced: [MASON, XAN])
+    request = { "action" => "settle_contest", "needed" => 1, "server" => QA, "seated" => [QA, devnet_only.to_base58] }
+
+    assert_equal [devnet_only.to_base58], d.send(:pick_agents, request).map(&:to_base58)
+  end
+
+  test "sign_and_send refuses a fenced signer however it was picked, and broadcasts nothing" do
+    fenced = Solana::Keypair.generate
+    d = driver_with({}, fenced: [fenced.to_base58])
+    sent = []
+    client = Object.new
+    client.define_singleton_method(:send_and_confirm) { |w| sent << w }
+
+    Solana::Config.stub(:client, client) do
+      assert_raises(Driver::StepError) { d.send(:sign_and_send, { "serialized_tx" => "AAAA" }, [fenced]) }
+    end
+    assert_empty sent
+  end
+
+  test "the shipped roster files no fenced key" do
+    fence = Fence.default
+    # Public keys from the filed items' wallet-address fields, as KeyStore
+    # cross-checks them; the roster must not name a mainnet signer's item.
+    assert_equal %w[mack], Driver::VAULT_AGENTS
+    refute fence.fenced?(MACK)
+  end
+end

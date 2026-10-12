@@ -126,14 +126,14 @@ class QaRehearsalV026CosignTest < ActiveSupport::TestCase
   end
 
   test "v0.26 lock is signed by the server and one seated agent" do
-    vault = chain_vault(seated: [admin, mason])
+    vault = chain_vault(seated: [admin, mack])
     run_step(governance: true, vault: vault) { @driver.lock_contest(@contest.slug) }
 
     assert_equal 3, @dyno.scripts.size, "request, build, record"
     assert_empty @server_locks
     assert_equal 1, @broadcasts.wires.size
     signers, signatures = signer_keys(@broadcasts.wires.first)
-    assert_equal [admin, mason], signers
+    assert_equal [admin, mack], signers
     refute_includes signatures, EMPTY, "every slot is filled before the send"
     assert @contest.reload.locked?
   end
@@ -156,11 +156,14 @@ class QaRehearsalV026CosignTest < ActiveSupport::TestCase
                         thresholds: Array.new(32, 0).tap { |t| t[ID["close_contest"]] = 3 })
     @driver.instance_variable_set(:@manifest, Struct.new(:slug) { def read = { "contest_slug" => slug } }.new(@contest.slug))
     @driver.define_singleton_method(:guard!) { true }
+    # Two filed devnet agents (the shipped roster files one, Mack): the
+    # extras path is what this test proves, not the roster.
+    @driver.define_singleton_method(:vault_agents) { %w[mack mason] }
 
     run_step(governance: true, vault: vault) { @driver.close_contest }
 
     signers, signatures = signer_keys(@broadcasts.wires.first)
-    assert_equal [admin, mason, mack], signers
+    assert_equal [admin, mack, mason], signers
     refute_includes signatures, EMPTY
     assert @contest.reload.onchain_closed?
   end
@@ -170,20 +173,25 @@ class QaRehearsalV026CosignTest < ActiveSupport::TestCase
   test "v0.26 settle build asks for the extra signer before it builds" do
     vault = chain_vault(seated: [admin, mason, mack])
     answer = run_step(governance: true, vault: vault) do
-      @dyno.call(@driver.send(:settle_build_script, @contest.slug, mason))
+      @dyno.call(@driver.send(:settle_build_script, @contest.slug, mack))
     end
 
     assert_equal({ "action" => "settle_contest", "needed" => 1, "server" => admin,
                    "seated" => [admin, mason, mack] }, answer["cosign"])
-    assert_equal [mack], @driver.send(:pick_agents, answer["cosign"], exclude: [mason]).map(&:to_base58)
+    @driver.define_singleton_method(:vault_agents) { %w[mack mason] }
+    assert_equal [mason], @driver.send(:pick_agents, answer["cosign"], exclude: [mack]).map(&:to_base58)
+  end
+
+  test "the shipped roster files Mack alone: Mason is a mainnet signer" do
+    assert_equal %w[mack], Driver::VAULT_AGENTS
   end
 
   test "v0.25 settle build is the two-signer wire it always was" do
     answer = run_step(governance: false, vault: chain_vault(seated: [admin])) do
-      @dyno.call(@driver.send(:settle_build_script, @contest.slug, mason))
+      @dyno.call(@driver.send(:settle_build_script, @contest.slug, mack))
     end
 
     signers, = signer_keys(answer.fetch("serialized_tx"))
-    assert_equal [admin, mason], signers
+    assert_equal [admin, mack], signers
   end
 end

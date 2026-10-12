@@ -119,14 +119,14 @@ class QaRehearsalStepHaltTest < ActiveSupport::TestCase
 
     assert_match(/── STOP ─/, out,
                  "the paced re-run ended without handing back — this is the branch an operator uses most")
-    assert_match(/conclude --cosign link/, out, "the halt must still name the next step")
+    assert_match(/conclude --cosign agent/, out, "the halt must still name the next step")
   end
 
   test "the first run of step 3 halts too" do
     out = play_step_output(already_scored: false)
 
     assert_match(/── STOP ─/, out)
-    assert_match(/conclude --cosign link/, out)
+    assert_match(/conclude --cosign agent/, out)
   end
 
   # `conclude` is the step with branches, and one of them is the only step in

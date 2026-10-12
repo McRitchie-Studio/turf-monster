@@ -122,8 +122,12 @@ module TurfMonster
       # THERE IS NO ADMIN ACTOR. No key in this vault signs in as an admin
       # account, and none should: an agent-readable admin wallet is an admin
       # login for every reader of the vault. The house account holds no wallet,
-      # and the archived item solana.turf.admin is not read. Driver refuses the
-      # agent co-sign, the one step that needs an admin session.
+      # and the archived item solana.turf.admin is not read. The agent co-sign
+      # confirms on the dyno, so no step needs an admin session.
+      #
+      # NO MAINNET KEY IS FILED HERE. Mason (agent.mason.solana, CytJ…) is a
+      # mainnet VaultState signer, so he left this list and the cast
+      # (devnet-v026-upgrade). Driver#keys also fences every key it loads.
       #
       # THE DEVNET PAIR IS ITS OWN ITEM (solana.turf.system.devnet, 2eGs8G3w…).
       # SECRET_FIELDS and ADDRESS_FIELDS exclude the devnet-* spellings, so a
@@ -133,7 +137,6 @@ module TurfMonster
       # exists, which is the whole reason it works -- ensure_user_account
       # short-circuits on an existing account and never looks at the username.
       ITEMS = {
-        "mason"      => Item.new(title: "agent.mason.solana"),
         "mack"       => Item.new(title: "agent.mack.solana"),
         "turf"       => Item.new(title: "phantom.turf")
       }.freeze

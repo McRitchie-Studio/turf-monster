@@ -45,8 +45,8 @@ class QaRehearsalDriverOutputTest < ActiveSupport::TestCase
   # stopped filing a key under it on 2026-09-15, so re-adding it here would fail
   # at read time instead of at the signer-count refusal this guards.
   test "the default cast is the three wallets with filed keys" do
-    assert_equal %w[mason mack turf], Driver::DEFAULT_CAST
+    assert_equal %w[mack turf], Driver::DEFAULT_CAST
     refute_includes Driver::DEFAULT_CAST, "alex", "Xan IS the fee payer — it cannot also be a player"
-    refute_includes Driver::DEFAULT_CAST, Driver::ADMIN_ACTOR, "the admin actor drives HTTP, it does not play"
+    refute Driver::DEFAULT_CAST.any? { |who| who.include?("admin") }, "no admin account plays"
   end
 end

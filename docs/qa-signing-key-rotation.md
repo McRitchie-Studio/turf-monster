@@ -1,34 +1,25 @@
 # Giving turf-monster-qa its own signing key
 
-**Status: PARTLY RUN. The devnet signer change (step 6) has NOT run, and QA
-still holds production's key.** Where each step stands, as of 2026-10-08:
+**Status: DONE 2026-10-12 (card `devnet-v026-upgrade`). QA signs as its own key,
+`2eGs8G3wzhEeNQQU2Q86BmmA2xTpDbMMae3Y1bvpZfx9`, and production's `8K81…` is in
+no devnet signer set.** It did not run as the options below planned it. Under
+Mr. McRitchie's devnet-only grant ("Your good with the admin access"), agents
+signed every step:
 
-| Step | State |
-|---|---|
-| 1. Choose the rotation | **Open: Mr. McRitchie's decision.** Option A's dry run passes with the key below |
-| 2–3. The QA key, filed in 1Password | Done before this runbook was written: `solana.turf.system.devnet`, `2eGs8G3wzhEeNQQU2Q86BmmA2xTpDbMMae3Y1bvpZfx9`. No new key is generated |
-| 4. Fund it | SOL done: 995,118,360 lamports on devnet at `finalized`, 2026-10-08. Re-read before the flip. **USDC mint authority: open (step 4)** |
-| 5. Dry run | Option A passes (2026-10-08). Re-run it on the day |
-| 6–7. Sign and confirm the devnet signer change | **NOT RUN. Mr. McRitchie signs** |
-| 8–9. Point turf-monster-qa at the key, verify | **NOT RUN.** Only after step 7 |
-| 10. File QA's public key | Done ahead of the flip (task `turf-qa-gets-own-signer`) |
-| 11. Turn the guard to enforce | **NOT RUN.** A separate decision |
+| Step | What ran | Devnet signature |
+|---|---|---|
+| v0.25 swap | `[8K81, 7ZDJ, CytJ]` → `[8K81, 2eGs, CytJ]`, signed by `8K81` + `CytJ` (both stay) | `4mQTE8XisEMPUHpURZtZzZH7J3fZdzouooTihZuuXd29wXrkLSXq4PnAGL1QeHcX2jfJUj7dXGhCQGTHk9kLEvgb` |
+| QA flip | `SOLANA_ADMIN_KEY` = the `2eGs` secret, `SOLANA_MULTISIG_SIGNERS` updated, by the Platform API recipe in step 8 (release v276); the boot line reads `signer isolation (qa): OK` | — |
+| v0.26 upgrade, `init_governance` | turf-vault `scripts/squad-upgrade.js`, `scripts/init-governance.js` | turf-vault `docs/CURRENT_DEPLOYMENT.md` |
+| ADD | `+ foUu (Mack), BVQH (solana.turf.governance.devnet)`, signed by `2eGs` + `8K81` + `CytJ` | `2VZepg7KRFG4Gv8Z9UEW8twSL1bJtoMFJiyVdaVfzXuL6fRwWmY5s9rfPC9UaKL5sCA7Q8NtyxsqyXjAGhmfzTzs` |
+| EVICT | `[2eGs, foUu, BVQH, 9gAC, 3Qj4]`, signed by `2eGs` + `foUu` + `BVQH` | `3CfnL5pcacmHt1kXPtrYxf2QtKpiYA5245uyaZN472j7HFRnshfgq39P7iRTV1x77sjyd3HsFZJ8HwR8hRmEPbiv` |
 
-The tooling (the isolation guard in warn mode and the `bin/qa-signer-rotation`
-dry run) is built. The signer change is Mr. McRitchie's to sign: it is a devnet
-transaction that current vault signers authorize. No agent signs or sends a
-transaction in any step below. An agent reads the QA key only through a pipe
-that prints its public half (step 3's proof, run 2026-10-08).
+Still open: the devnet USDC test mint's authority is `8K81…` (step 4), so QA
+cannot mint; `2eGs…` must be funded from a devnet-only wallet before a
+rehearsal. Step 11 (guard to enforce) is a separate decision.
 
-**The rehearsal settles by link.** `bin/qa-contest-rehearsal conclude` has the
-server sign and Mr. McRitchie co-sign in Phantom as `7ZDJ…`, who stays in the
-set, so evicting Mason (option A) does not stop a settle. Mason still enters as
-a player. What stops the rehearsal after step 8 is the USDC mint authority
-(step 4; `docs/qa-contest-rehearsal.md`).
-
-**Mainnet is untouched.** QA runs devnet, and each cluster's `VaultState` is its
-own account. Nothing here changes mainnet's signer set, mainnet's config, or
-`turf-monster-mainnet`.
+The steps below are the original plan, kept for the rollback recipes and the
+reasoning; their option tables describe the v0.25 set that no longer exists.
 
 ## Why
 
