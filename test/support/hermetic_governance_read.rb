@@ -15,22 +15,37 @@
 # `CosignPlan.signer_set` reads it live (`cached_vault_state`), so a test's
 # extras were judged against whoever devnet seated that morning.
 #
-# So: a governance or VaultState read through the REAL network client answers
-# nil under test (the shipped defaults; the app's own MULTISIG_SIGNERS). A vault
+# So: a governance or VaultState read through a REAL client pointed at a
+# PUBLIC cluster answers nil under test (the shipped defaults; the app's own MULTISIG_SIGNERS). A vault
 # built with a fake client still decodes whatever that fake returns, and a per-test `stub`/`define_singleton_method`
 # on any of these readers still wins (singleton methods
 # resolve before this prepended module).
 module HermeticGovernanceRead
+  LOOPBACK = %w[127.0.0.1 localhost ::1 [::1]].freeze
+
   def read_governance(**kwargs)
-    return nil if client.is_a?(Solana::Client)
+    return nil if public_cluster_client?
 
     super
   end
 
   def read_vault_state(**kwargs)
-    return nil if client.is_a?(Solana::Client)
+    return nil if public_cluster_client?
 
     super
+  end
+
+  private
+
+  # A real client pointed at a public cluster. The opt-in local-validator proof
+  # (TURF_VAULT_V026_VALIDATOR=1, bin/v026-local-validator-proof) reads a
+  # loopback validator it booted itself, so its reads go through.
+  def public_cluster_client?
+    return false unless client.is_a?(Solana::Client)
+    return false if ENV["TURF_VAULT_V026_VALIDATOR"] == "1"
+
+    host = client.instance_variable_get(:@uri)&.host
+    !LOOPBACK.include?(host)
   end
 end
 

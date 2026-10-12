@@ -5,9 +5,9 @@
 # upgrade authority (4H3fP3ot…, vault Bk9sS7ii…). PUBLIC keys only.
 #
 # Read by lib/turf_monster/qa_rehearsal/mainnet_signer_fence.rb. The rehearsal
-# co-signs devnet transactions with agent keys it loads from 1Password; a key
-# listed here is refused before it signs anything, even on devnet, so a devnet
-# chore can never exercise (or leak through) a key that also moves mainnet money.
+# loads player and co-signer keys from 1Password; a key listed here is refused
+# as it loads, before it signs anything, even on devnet, so a devnet chore can
+# never exercise (or leak through) a key that also moves mainnet money.
 # `production.system_wallet` in config/solana_signers.yml is added to this list
 # automatically.
 #
@@ -35,7 +35,7 @@ incoming:
   - 4bKNSqkrKeggSyrds16Ak7rcB4ibvGJ4ZLsKjvQgC3Vk # solana.turf.governance (exposed; slated for replacement)
 
 squad:
-  - 7auwTLSvNniSUeAgL6v9RStMXJhWrrUhSJgwFWLpcqC # solana.turf.system (agent-held)
+  - 7auwTLSvNniSUeAgL6v9RStMXJhWrrUhSJgwFWLpcqC # solana.turf.system (agent-held); in no VaultState target
   - 3Qj4v9qjhXgkru6zCRCErRVhy8Q6qU3NrNpvpXLTZboA # Mr. McRitchie's second wallet
   - 4bKNSqkrKeggSyrds16Ak7rcB4ibvGJ4ZLsKjvQgC3Vk # solana.turf.governance
   - 7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr # Mr. McRitchie, Phantom account 1

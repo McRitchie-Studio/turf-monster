@@ -49,6 +49,51 @@ class QaRehearsalMainnetSignerFenceTest < ActiveSupport::TestCase
     end
   end
 
+  test "the incoming list is read: dropping it unfences the planned server key" do
+    incoming = "4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY"
+    assert_includes Fence.load_keys, incoming
+    Dir.mktmpdir do |dir|
+      fence = File.join(dir, "fence.yml")
+      filed = YAML.safe_load_file(Rails.root.join("config/mainnet_vault_signers.yml"))
+      File.write(fence, filed.except("incoming").to_yaml)
+      refute_includes Fence.load_keys(fence_path: fence), incoming
+    end
+  end
+
+  test "the incoming list names production's next server key and the target set" do
+    incoming = YAML.safe_load_file(Rails.root.join("config/mainnet_vault_signers.yml")).fetch("incoming")
+    %w[4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY 9gACbzsCLmkYF9Yx1EBGmwMvvyfuTquJ6qs8QsoQvHXf
+       3Qj4v9qjhXgkru6zCRCErRVhy8Q6qU3NrNpvpXLTZboA 4bKNSqkrKeggSyrds16Ak7rcB4ibvGJ4ZLsKjvQgC3Vk].each do |pk|
+      assert_includes incoming, pk
+    end
+  end
+
+  # ── every key the driver loads ────────────────────────────────────────────
+
+  test "FencedKeys refuses a fenced PLAYER key as it loads" do
+    fenced = Solana::Keypair.generate
+    store = Struct.new(:kp) { def keypair(_who) = kp }.new(fenced)
+    keys = TurfMonster::QaRehearsal::MainnetSignerFence::FencedKeys.new(store, Fence.new(keys: [fenced.to_base58]))
+
+    error = assert_raises(Fence::Refused) { keys.keypair("mason") }
+    assert_match(/mason \(#{fenced.to_base58}\) also holds MAINNET authority/, error.message)
+  end
+
+  test "FencedKeys hands back an unfenced key" do
+    clean = Solana::Keypair.generate
+    store = Struct.new(:kp) { def keypair(_who) = kp }.new(clean)
+    keys = TurfMonster::QaRehearsal::MainnetSignerFence::FencedKeys.new(store, Fence.new(keys: [MASON]))
+    assert_equal clean.to_base58, keys.address("mack")
+  end
+
+  test "the driver's key store is fenced and Mason is out of the cast" do
+    d = Driver.new(io: StringIO.new)
+    d.define_singleton_method(:guard!) { true }
+    assert_kind_of TurfMonster::QaRehearsal::MainnetSignerFence::FencedKeys, d.keys
+    refute_includes Driver::DEFAULT_CAST, "mason"
+    refute TurfMonster::QaRehearsal::KeyStore::ITEMS.key?("mason")
+  end
+
   test "the devnet-only keys are not fenced" do
     fence = Fence.default
     refute fence.fenced?(MACK), "Mack is the devnet rehearsal key"

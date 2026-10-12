@@ -27,7 +27,7 @@ Driver: `lib/turf_monster/qa_rehearsal/`. Tests: `test/lib/qa_rehearsal_*_test.r
 | `create` | A user on `team@mcritchie.studio` (the `seed` step writes it) and the slate `NFL 2026 Preseason Weeks 3-4`. Both are read before anything is written | `STOPPED — no user on team@mcritchie.studio …` |
 | `create` | The server key is a signer in the devnet `VaultState`. Read from the chain before anything is written | `STOPPED — the server key … is not a signer in the devnet VaultState` |
 | `create` | The server key holds the prize pool in devnet USDC, or is the test mint's authority | `STOPPED — the server key … and the mint failed` |
-| `enter` | Each cast wallet (`mason`, `mack`, `turf`, 1Password `studio-agents`) holds the entry fee in devnet USDC or an entry token | `FAILED · …` beside that player; the others still enter |
+| `enter` | Each cast wallet (`mack`, `turf`, 1Password `studio-agents`; Mason no longer plays, his key is a mainnet signer) holds the entry fee in devnet USDC or an entry token | `FAILED · …` beside that player; the others still enter |
 | `play` | ESPN answers for preseason weeks 3 and 4 (`Driver::POLL_SLOTS`) | `the ESPN poll failed for slot …` |
 | `conclude` (`--cosign agent`, the default) | QA has `SOLANA_VAULT_GOVERNANCE` on (devnet v0.26), a filed agent key (`Driver::VAULT_AGENTS`) is seated in the devnet `VaultState`, is not fenced as a mainnet key, and is in QA's `SOLANA_MULTISIG_SIGNERS` | `STOPPED — --cosign agent needs turf-vault v0.26 …`, `… needs N agent signature(s) …`, `… also holds MAINNET authority …`, or `cosigner … is not in the multisig set` |
 | `conclude --cosign link` | The server key is a devnet `VaultState` signer, and so is the co-signer wallet the Treasury page names | The Co-sign click fails `Unauthorized` on the page |
@@ -96,12 +96,17 @@ already holds the pool ($500 on the standard tier).
 
 `conclude` asks the dyno what `settle_contest` needs beyond the server's own
 signature (the chain's threshold, 2 on devnet), picks that many seated,
-unfenced agent keys, builds a server-signed wire naming them, signs it locally
-and broadcasts. It then confirms ON THE DYNO with the same checks the Treasury
-page's Confirm runs: the row is pending, the cosigner is in
-`SOLANA_MULTISIG_SIGNERS`, `CosignPlan` passes the extras, `TxVerifier` proves
-each signer and the contest PDA on the landed transaction, and only then the
-contest is marked settled and the row confirmed. No admin web session is used.
+unfenced agent keys, builds a server-signed wire naming them, and signs it
+locally. Before the broadcast it claims the row on the dyno, as the Treasury
+page's broadcast does: the cosigner must be in `SOLANA_MULTISIG_SIGNERS`, and the
+row moves to `submitted` stamped with the wire's own signature. Then it sends,
+and confirms ON THE DYNO with the same checks the Treasury page's Confirm runs:
+`CosignPlan` passes the extras, `TxVerifier` proves each signer and the contest
+PDA on the landed transaction, and only then the contest is marked settled and
+the row confirmed. A send or verification that fails leaves the row `submitted`
+with its signature: press **Reconcile** on Treasury, never re-run the settle.
+No admin web session is used, and every key the driver loads, player or
+co-signer, passes `MainnetSignerFence`.
 
 Check the arithmetic afterwards from the settle transaction's own token
 balances: the prize escrow (owned by the `VaultState` PDA) falls by exactly the

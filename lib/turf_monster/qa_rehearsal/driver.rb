@@ -94,7 +94,11 @@ module TurfMonster
                                 "turf-monster-qa): only v0.26 seats a devnet-only agent key. Nothing was " \
                                 "sent. Run `bin/qa-contest-rehearsal conclude --cosign link` and co-sign in Phantom."
 
-      # Mason and Mack, and the two exclusions are not preferences:
+      # Mack and turf, and the exclusions are not preferences:
+      #
+      #   * MASON cannot play: his key (CytJ…) is a mainnet VaultState signer,
+      #     and the rehearsal loads no key with mainnet authority
+      #     (MainnetSignerFence; devnet-v026-upgrade).
       #
       #   * XAN cannot play, and can no longer even be asked to. Xan (8K81…) is
       #     the fee payer and contest creator, and when the player is also the
@@ -111,7 +115,7 @@ module TurfMonster
       #     "turf" and it has no UserAccount, so the program refuses to
       #     register it; phantom.turf already has one, which sidesteps the
       #     whole question.
-      DEFAULT_CAST = %w[mason mack turf].freeze
+      DEFAULT_CAST = %w[mack turf].freeze
 
       # Agents whose filed keys may fill a v0.26 vault signer slot. The driver
       # uses only those the chain seats, never the server key twice, and never
@@ -133,10 +137,11 @@ module TurfMonster
         @facts ||= NetworkGuard.new(app: app).assert!
       end
 
+      # Every key the driver loads, player or co-signer, passes the fence.
       def keys
         @keys ||= begin
           guard!
-          KeyStore.new
+          MainnetSignerFence::FencedKeys.new(KeyStore.new, mainnet_fence)
         end
       end
 
@@ -860,16 +865,41 @@ module TurfMonster
         # Solana::Config.client, never Solana::Client.new: a raw client falls
         # through to the gem's ENV.fetch("SOLANA_RPC_URL", <public devnet>) and
         # so FAILS OPEN, where Solana::Config::RPC_URL fails closed (OPSEC-012).
-        signature = sign_and_send(wire, agents)
+        #
+        # THE ROW IS STAMPED BEFORE THE BROADCAST, as
+        # Admin::PendingTransactionsController#broadcast does: the signature is
+        # the first 64 bytes of the signed wire, so the row is claimed
+        # `submitted` with it before the bytes leave. A send that then fails
+        # leaves a row naming its transaction (the Treasury page's Reconcile
+        # asks the chain), never a pending row a second run could re-send.
+        ptx_slug = graded.fetch("ptx_slug")
+        signed = sign_wire(wire, agents)
+        signature = Solana::Keypair.encode_base58(Solana::WireMessage.parse_base64(signed).signatures.first)
+        remote.call(claim_settle_script(ptx_slug, primary.to_base58, signature))
+        Solana::Config.client.send_and_confirm(signed)
         say "  broadcast: #{signature}"
 
-        confirmed = remote.call(confirm_settle_script(graded.fetch("ptx_slug"), primary.to_base58,
+        confirmed = remote.call(confirm_settle_script(ptx_slug, primary.to_base58,
                                                       extras.map(&:to_base58), signature))
         say "  confirmed: #{confirmed.inspect}"
         hand_back(verify: "the payout arithmetic — the pool fell by exactly the sum paid, " \
                           "and each winner rose by exactly their rank",
                   next_command: "bin/qa-contest-rehearsal close")
         confirmed
+      end
+
+      # Claim the pending settle row for `signature` before the broadcast. The
+      # cosigner is judged here too, so a key the app does not seat is refused
+      # before anything is sent.
+      def claim_settle_script(ptx_slug, cosigner, signature)
+        <<~RUBY
+          tx = PendingTransaction.find_by!(slug: #{ptx_slug.inspect})
+          refuse("#{ptx_slug} is a " + tx.tx_type + ", not a settle_contest") unless tx.tx_type == "settle_contest"
+          cosigner = #{cosigner.inspect}
+          refuse("cosigner " + cosigner + " is not in the multisig set: nothing was sent") unless Solana::Config::MULTISIG_SIGNERS.include?(cosigner)
+          refuse("#{ptx_slug} is " + tx.status + ", not pending: nothing was sent") unless tx.claim_for_broadcast!(#{signature.inspect})
+          emit(claimed: tx.slug, status: tx.status)
+        RUBY
       end
 
       # What the settle needs beyond the server's own signature.
@@ -892,7 +922,8 @@ module TurfMonster
         <<~RUBY
           tx = PendingTransaction.find_by!(slug: #{ptx_slug.inspect})
           refuse("#{ptx_slug} is a " + tx.tx_type + ", not a settle_contest") unless tx.tx_type == "settle_contest"
-          refuse("#{ptx_slug} is " + tx.status + ", not pending") unless tx.pending? || tx.awaiting_reconciliation?
+          claimed = tx.status == "submitted" && tx.tx_signature == #{signature.to_s.inspect}
+          refuse("#{ptx_slug} is " + tx.status + ", not claimed for this signature") unless claimed || tx.pending? || tx.awaiting_reconciliation?
           cosigner = #{cosigner.inspect}
           refuse("cosigner " + cosigner + " is not in the multisig set") unless Solana::Config::MULTISIG_SIGNERS.include?(cosigner)
           extras = Solana::CosignPlan.new(tx_type: tx.tx_type).validate_extras!(#{extras.inspect}, primary: cosigner)
@@ -1016,12 +1047,17 @@ module TurfMonster
       # The fence runs again here: every agent signature passes through this
       # method, whoever picked the key.
       def sign_and_send(answer, signers)
+        Solana::Config.client.send_and_confirm(sign_wire(answer, signers))
+      end
+
+      # The fully signed wire, every agent slot filled; nothing is sent.
+      def sign_wire(answer, signers)
         refuse_mainnet_signers!(signers.to_h { |kp| [kp.to_base58, nil] })
         wire = answer.fetch("serialized_tx")
         signers.each_with_index do |kp, i|
           wire = Solana::Transaction.cosign_wire_base64(wire, signer: kp, require_complete: i == signers.size - 1)
         end
-        Solana::Config.client.send_and_confirm(wire)
+        wire
       end
 
       # The attended half — the path production actually uses. Mints a signed-in

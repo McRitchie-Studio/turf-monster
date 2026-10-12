@@ -34,9 +34,12 @@ class QaRehearsalUnattendedSettleTest < ActiveSupport::TestCase
 
     def initialize = @wires = []
 
+    attr_accessor :on_send
+
     def send_and_confirm(wire)
+      on_send&.call
       @wires << wire
-      "sig-settle"
+      "rpc-answer-ignored"
     end
   end
 
@@ -106,6 +109,7 @@ class QaRehearsalUnattendedSettleTest < ActiveSupport::TestCase
     signers = message.account_keys.first(message.num_required_signatures).map { |k| Solana::Keypair.encode_base58(k) }
     assert_equal [@admin, @mack.to_base58], signers, "the server leads; the agent is the named cosigner"
     refute_includes message.signatures, ("\x00" * 64).b
+    wire_signature = Solana::Keypair.encode_base58(message.signatures.first)
 
     assert_equal [@mack.to_base58], @verified.map { |kw| kw[:signer_pubkey] }
     assert_equal "settle_contest", @verified.first[:instruction_name]
@@ -113,11 +117,33 @@ class QaRehearsalUnattendedSettleTest < ActiveSupport::TestCase
 
     @ptx.reload
     assert_equal "confirmed", @ptx.status
-    assert_equal "sig-settle", @ptx.tx_signature
+    assert_equal wire_signature, @ptx.tx_signature, "the row names the transaction's own signature"
     assert_equal [@mack.to_base58], @ptx.cosigner_addresses
     assert @contest.reload.onchain_settled?
     assert_equal "settled", @contest.status
     assert_equal "confirmed", result["status"]
+  end
+
+  test "the row is claimed submitted, with its signature, before the bytes leave" do
+    ptx = @ptx
+    seen = []
+    @broadcasts.on_send = -> { seen << [ptx.reload.status, ptx.tx_signature] }
+    settle(vault: chain_vault(seated: [@admin, @mack.to_base58]), signers: [@admin, @mack.to_base58])
+
+    status, signature = seen.first
+    assert_equal "submitted", status
+    assert_equal @ptx.reload.tx_signature, signature
+  end
+
+  test "a send that fails leaves the row submitted and naming its transaction, never pending" do
+    @broadcasts.on_send = -> { raise Solana::Client::RpcError, "connection reset" }
+    assert_raises(Solana::Client::RpcError) do
+      settle(vault: chain_vault(seated: [@admin, @mack.to_base58]), signers: [@admin, @mack.to_base58])
+    end
+
+    assert_equal "submitted", @ptx.reload.status
+    assert @ptx.tx_signature.present?
+    refute @contest.reload.onchain_settled?
   end
 
   test "a cosigner outside the app's multisig set is refused before the row moves" do
@@ -125,12 +151,13 @@ class QaRehearsalUnattendedSettleTest < ActiveSupport::TestCase
       settle(vault: chain_vault(seated: [@admin, @mack.to_base58]), signers: [@admin])
     end
 
-    assert_match(/not in the multisig set/, error.message)
+    assert_match(/not in the multisig set: nothing was sent/, error.message)
     assert_equal "pending", @ptx.reload.status
+    assert_empty @broadcasts.wires, "refused before the broadcast"
     refute @contest.reload.onchain_settled?
   end
 
-  test "a failed verification leaves the row pending and the contest unsettled" do
+  test "a failed verification leaves the row submitted, unconfirmed, and the contest unsettled" do
     vault = chain_vault(seated: [@admin, @mack.to_base58])
     Solana::Config.stub(:governance?, true) do
       Solana::Config.stub(:client, @broadcasts) do
@@ -146,7 +173,7 @@ class QaRehearsalUnattendedSettleTest < ActiveSupport::TestCase
       end
     end
 
-    assert_equal "pending", @ptx.reload.status
+    assert_equal "submitted", @ptx.reload.status, "broadcast but unverified: Reconcile's state, never confirmed"
     refute @contest.reload.onchain_settled?
   end
 

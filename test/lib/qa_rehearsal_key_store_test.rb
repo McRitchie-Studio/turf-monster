@@ -81,7 +81,7 @@ class QaRehearsalKeyStoreTest < ActiveSupport::TestCase
 
   test "every cast member reads from the vault this service account can open" do
     assert_equal "studio-agents", Store::VAULT
-    assert_equal %w[mason mack turf], Store::ITEMS.keys
+    assert_equal %w[mack turf], Store::ITEMS.keys
   end
 
   # --- Addressing: by title, never by id -------------------------------
@@ -136,7 +136,7 @@ class QaRehearsalKeyStoreTest < ActiveSupport::TestCase
   test "the older spaced filing is still read" do
     store = store_for({ "private key" => secret_base58, "wallet address" => keypair.to_base58 })
 
-    assert_equal keypair.to_base58, store.address("mason")
+    assert_equal keypair.to_base58, store.address("mack")
   end
 
   # Both encodings stay live code. Every item in the vault files base58 today,
@@ -191,11 +191,15 @@ class QaRehearsalKeyStoreTest < ActiveSupport::TestCase
 
   # --- Unknown cast ----------------------------------------------------
 
+  test "Mason, a mainnet signer, is not filed" do
+    assert_raises(Store::MissingKeyError) { Store.new(runner: ->(_i) { {} }).keypair("mason") }
+  end
+
   test "an unfiled cast member names the ones that exist" do
     error = assert_raises(Store::MissingKeyError) { Store.new(runner: ->(_i) { {} }).keypair("alex") }
 
     assert_match(/no filed key for "alex"/, error.message)
-    assert_match(/mason, mack, turf\)/, error.message)
+    assert_match(/mack, turf\)/, error.message)
   end
 
   # --- The op boundary (integration) -----------------------------------
@@ -258,10 +262,10 @@ class QaRehearsalKeyStoreTest < ActiveSupport::TestCase
   # missing item want different responses, and only op knows which it was.
   test "any other op failure still surfaces 1Password's own stderr" do
     error = stub_op(stderr: "[ERROR] rate-limited: too many requests") do
-      assert_raises(Store::MissingKeyError) { Store.new.keypair("mason") }
+      assert_raises(Store::MissingKeyError) { Store.new.keypair("mack") }
     end
 
-    assert_match(/op read failed for agent\.mason\.solana/, error.message)
+    assert_match(/op read failed for agent\.mack\.solana/, error.message)
     assert_match(/rate-limited/, error.message)
   end
 end

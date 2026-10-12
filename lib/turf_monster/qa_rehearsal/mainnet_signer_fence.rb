@@ -4,14 +4,16 @@ require "yaml"
 
 module TurfMonster
   module QaRehearsal
-    # Refuses a co-signer key that holds MAINNET authority: a mainnet
-    # VaultState signer (seated or incoming) or a mainnet Squads member.
+    # Refuses any key the rehearsal loads, player or co-signer, that holds
+    # MAINNET authority: a mainnet VaultState signer (seated or incoming) or a
+    # mainnet Squads member.
     #
     # The rehearsal co-signs devnet transactions unattended with agent keys it
-    # loads from 1Password. Before devnet-v026-upgrade the devnet and mainnet signer sets
-    # were the same three keys, so "an agent key the rehearsal may sign with" and
-    # "a key that moves mainnet money" were one population. The devnet rotation
-    # split them; this fence keeps them split. A fenced key is refused before it
+    # loads from 1Password. Before devnet-v026-upgrade the devnet and mainnet
+    # signer sets were the same three keys, so "a key the rehearsal may sign
+    # with" and "a key that moves mainnet money" were one population. The devnet
+    # rotation split them; this fence keeps them split. Driver#keys wraps the
+    # key store in FencedKeys, so a fenced key is refused as it loads, before it
     # signs anything, even on devnet: a devnet chore must never exercise, cache
     # or leak a key whose other job is mainnet.
     #
@@ -55,6 +57,25 @@ module TurfMonster
 
       # Raises naming every fenced key among `pubkeys`, labelled by `who`
       # ({ pubkey => cast slug }) when the caller knows it.
+      # The key store, fenced: a loaded key with mainnet authority is refused
+      # before the caller ever holds it.
+      class FencedKeys
+        def initialize(store, fence)
+          @store = store
+          @fence = fence
+        end
+
+        def keypair(who)
+          kp = @store.keypair(who)
+          @fence.refuse!([kp.to_base58], who: { kp.to_base58 => who.to_s })
+          kp
+        end
+
+        def address(who)
+          keypair(who).to_base58
+        end
+      end
+
       def refuse!(pubkeys, who: {})
         hits = Array(pubkeys).map(&:to_s).select { |pk| fenced?(pk) }
         return if hits.empty?
