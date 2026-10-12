@@ -41,12 +41,12 @@
   <%# Info popover — explainer + terms link. Anchored to the card so it
       drops down below the title. Outside click + Escape both close. %>
   <div hidden data-disclosure-target="panel"
-       data-transition-enter="transition ease-out duration-150"
-       data-transition-enter-start="opacity-0 -translate-y-1"
-       data-transition-enter-end="opacity-100 translate-y-0"
-       data-transition-leave="transition ease-in duration-100"
-       data-transition-leave-start="opacity-100"
-       data-transition-leave-end="opacity-0"
+       data-enter="transition ease-out duration-150"
+       data-enter-start="opacity-0 -translate-y-1"
+       data-enter-end="opacity-100 translate-y-0"
+       data-leave="transition ease-in duration-100"
+       data-leave-start="opacity-100"
+       data-leave-end="opacity-0"
        class="absolute left-5 top-12 z-20 w-72 max-w-[calc(100%-2.5rem)] bg-surface border border-subtle rounded-lg shadow-2xl p-4">
     <div class="flex items-start justify-between mb-2">
       <h4 class="text-heading font-semibold text-sm">How it works</h4>

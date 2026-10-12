@@ -41,7 +41,7 @@ every_page = %w[
   controllers/cosign_button_controller
   controllers/cost_calculator_controller turf/cost_calculator
   controllers/desktop_only_notice_controller turf/desktop_only_notice
-  controllers/disclosure_controller turf/transition
+  controllers/disclosure_controller turf/enter_leave
   controllers/email_change_notice_controller turf/email_change_notice
   controllers/frame_reload_controller turf/frame_reload
   controllers/leaderboard_controller turf/leaderboard

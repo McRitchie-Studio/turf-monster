@@ -34,8 +34,11 @@ const defaults = () => ({
 })
 
 // Runs one phase on `el`. A later call cancels an earlier one still running.
+// A phase that names no classes has nothing to animate, so it lands at once.
 export function transition(el, phase, scheduler = defaults()) {
   const { during, start, end } = phaseClasses(el.dataset, phase)
+  if (!during.length && !start.length && !end.length) return settle(el, phase === "enter")
+
   const token = {}
   el.__enterLeave = token
   const live = () => el.__enterLeave === token
