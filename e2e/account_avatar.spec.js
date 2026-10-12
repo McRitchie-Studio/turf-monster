@@ -6,7 +6,8 @@ const IMG = path.join(__dirname, "..", "test", "fixtures", "files", "banner_wide
 
 // Avatar upload routes its save through the same window.submitFormWithProgress
 // helper as the contest banner: a "saving" loading card shows while the upload
-// is in flight. AccountsController#update REDIRECTS, so the card is opened
+// is in flight. AccountsController#update REDIRECTS (a native post, then a
+// full load of /account), so the card is opened
 // dismissible — the reload's closeAllDismissible() clears it and the server
 // flash toasts. The regression guard is that the card both appears AND clears
 // (a non-dismissible card would survive the reload and stick on screen).
@@ -24,17 +25,26 @@ test.describe("Account avatar upload", () => {
     await page.locator('input[type="file"][accept="image/*"]').first().setInputFiles(IMG);
     await expect(page.locator(".cropper-container")).toBeVisible();
 
-    // /account is a signing page (SigningCsp), so the save's redirect ends in
-    // a full load rather than a Turbo render, and a fast local upload can
-    // finish before the card is seen. Hold the upload long enough to see it.
+    // /account is a signing page (SigningCsp) and the avatar form posts
+    // natively (a failed save re-renders as its own document), so the card is
+    // painted on the OLD document while the upload is in flight, and a
+    // locator waits for the navigation to finish before it looks. Record the
+    // card's appearance on that document instead, in sessionStorage, which
+    // the next document can read. Hold the upload so the card has time to open.
     await page.route("**/account", async (route) => {
       if (route.request().method() !== "GET") await new Promise((resolve) => setTimeout(resolve, 600));
       await route.continue();
     });
+    await page.evaluate(() => {
+      sessionStorage.removeItem("e2e:savingSeen");
+      new MutationObserver(() => {
+        if (document.body.innerText.includes("Saving photo")) sessionStorage.setItem("e2e:savingSeen", "1");
+      }).observe(document.body, { childList: true, subtree: true, characterData: true });
+    });
     await page.getByRole("button", { name: /Crop.*Save/ }).click();
 
-    await expect(page.getByText("Saving photo")).toBeVisible();    // loading card during upload
     await expect(page.getByText("Account updated")).toBeVisible(); // flash toast after reload
+    expect(await page.evaluate(() => sessionStorage.getItem("e2e:savingSeen"))).toBe("1"); // loading card during upload
     await expect(page.getByText("Saving photo")).toBeHidden();     // card cleared (not stuck)
   });
 });
