@@ -416,7 +416,13 @@ export default class extends Controller {
       this.signing = false
       if (outcome !== "landed") this.lock(false)
     }
-    if (outcome === "replan") this.requestPlan()
+    if (outcome === "replan") {
+      // Re-plan from the draft on screen so the operator reviews what the
+      // chain holds now, and keep the refusal that sent him back in view.
+      const why = this.refusalTarget.textContent
+      await this.requestPlan()
+      if (this.refusalTarget.hidden) this.show(this.refusalTarget, why)
+    }
   }
 
   lock(on) {
