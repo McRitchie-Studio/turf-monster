@@ -111,9 +111,9 @@
   <div class="rounded-lg border p-3 <%= breached ? "border-danger/40 bg-danger/10" : "border-subtle bg-surface-alt" %>">
     <p class="text-xs font-bold uppercase tracking-wide mb-1 <%= breached ? "text-danger-ink" : "text-muted" %>">
       <% if breached %>
-        This console does not act on Squads — and right now that is a gap
+        This console does not change Squads membership — and right now that is a gap
       <% else %>
-        Deliberately out of scope for this console
+        Squads membership is out of scope for this console
       <% end %>
     </p>
     <p class="text-xs text-secondary">
@@ -148,7 +148,9 @@
       <% end %>
       Squads already ships a web UI for changing membership, so this page links
       out rather than reimplementing a second, less-tested path to the same
-      account.
+      account. The one Squads act this page performs is your approval of an
+      open proposal it can read (listed above): an upgrade whose buffer matches
+      a verified build, or a vault transfer.
     </p>
     <p class="mt-2 text-xs">
       <%= link_to "Open this cluster’s Squad on app.squads.so", squads_app_url,

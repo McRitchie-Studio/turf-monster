@@ -1035,18 +1035,16 @@
 # have merged clean into a silently under-declared lane — the exact failure this
 # file's header describes. Re-derived with the lister on the MERGED tree.
 #
-# This branch's five specs, in
-# e2e/authority_signer_eviction.spec.js for /admin/authorities — the page renders
-# under an unreachable RPC, the Squads link carries its cluster in the ADDRESS
-# rather than a decommissioned devnet host, the eviction planner's JavaScript
-# parsed and its compact-on-evict and continuity guards run, a clean plan
-# produces NO refusal (the control), and the page is admin-only. The middle
-# three are browser-only by construction: an Alpine factory mangled by ERB
-# quoting leaves byte-identical markup and binds nothing, so no Ruby tier can
-# see it. None is tagged @devnet — deliberately, because devnet-nightly.yml has
-# never once executed and a spec filed there would be a tier that looks strict
-# and collects nothing. Derived with bin/e2e-lane-derive --write, not by
-# arithmetic.
+# e2e/signer_console.spec.js (was authority_signer_eviction.spec.js) for
+# /admin/authorities: the page renders under an unreachable RPC, the Squads link
+# carries its cluster in the ADDRESS, the Stimulus signer console signs a
+# server-led rotation in one Phantom prompt and a two-prompt one in order, a
+# malformed paste makes no request, a refused plan keeps the draft, a read-back
+# mismatch is loud, a queue that differs from the reviewed plan signs nothing, a
+# ceremony link pre-fills the draft, the page is admin-only, and the Squads
+# proposals panel approves a verified upgrade in one prompt and offers no
+# Approve on an unverified one; and the signed set is the reviewed set (picks lock during the connect prompt, the server refuses an unreviewed set, bytes with another set sign nothing). Fifteen specs, none tagged @devnet. Derived with
+# bin/e2e-lane-derive --write, not by arithmetic.
 #
 # 321 -> 323 (duplicate-lock-picker-diverged): two specs in
 # e2e/contest_lock_picker_registration.spec.js, one per ARRIVAL PATH, for a
@@ -1287,7 +1285,7 @@
 # pair a proof and its control: the live board under the enforced policy, a failed account
 # save and a failed contest save re-rendered as their own documents, and the mobile Phantom
 # deep link's flip hazard. Runs in chromium, no skip. Derived with bin/e2e-lane-derive --write.
-total_specs: 500
+total_specs: 506
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1684,7 +1682,7 @@ allowed_skips: 4
 # total_specs above; chromium, no skip, so excluded holds at 17 and allowed_skips at 4.
 # 471 -> 479 (merged over accepted's 471) (strict-csp-enforce-readiness): the eight signing_csp specs beside total_specs
 # above; chromium, no skip.
-executed: 479
+executed: 485
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

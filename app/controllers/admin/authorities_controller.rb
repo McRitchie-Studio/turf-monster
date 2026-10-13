@@ -30,8 +30,11 @@ module Admin
   #   1. VAULT SIGNER SET (`VaultState.signers` ++ `signers_ext`) — signs vault
   #      actions. Changed by `update_signers`. THE ONLY ONE THIS PAGE WRITES.
   #   2. PROGRAM UPGRADE AUTHORITY (a Squads V4 multisig, per cluster) — can
-  #      redeploy the program. Changed through Squads' own web UI; this page
-  #      LINKS OUT and does not reimplement it.
+  #      redeploy the program. Agents create and pre-approve its proposals by
+  #      script; this page LISTS the open ones, checks an upgrade's buffer
+  #      against a verified build, and casts Mr. McRitchie's approval in one
+  #      Phantom prompt (#proposals, #approve_proposal). Execution and every
+  #      config change stay in the Squads app.
   #   3. SERVER SIGNING IDENTITY (`Solana::Keypair.admin`) — which key THIS
   #      process signs as. Named explicitly so it stops being mistaken for (1).
   #
@@ -50,6 +53,12 @@ module Admin
 
     TX_TYPE = "update_signers".freeze
 
+    # A rotation row exists only from the click that signs it. One still
+    # `pending` with no signature after this long was abandoned mid-ceremony
+    # (a closed tab, a declined prompt the browser could not report), and its
+    # blockhash is long dead, so #show and #console expire it before reading.
+    STALE_PENDING_AFTER = 2.minutes
+
     # WHAT `serialized_tx` HOLDS BETWEEN ARM AND FIRST CLICK.
     #
     # Nothing, and it has to SAY nothing. The column is NOT NULL and validated
@@ -63,6 +72,15 @@ module Admin
     UNBUILT_WIRE = "unbuilt".freeze
 
     def show
+      expire_abandoned_rotations!
+      # The console's draft, pre-filled from a ceremony step's link. Read by
+      # the Stimulus controller from data attributes; never trusted: every
+      # value goes through #plan like a typed one.
+      @prefill = {
+        intent: params[:intent].to_s.presence_in(Solana::SignerPlan::INTENTS),
+        remove: params[:remove].to_s,
+        add: params[:add].to_s
+      }
       @network   = Solana::Config::NETWORK
       @rpc_url   = Solana::Config.public_rpc_url
       @program_id = Solana::Config::PROGRAM_ID
@@ -134,54 +152,144 @@ module Admin
       )
     end
 
-    # ARM AN EVICTION. Validates the proposed set against turf-vault's own
-    # guards, in turf-vault's own order, and records a durable row — WITHOUT
-    # building or signing anything. The operator reads the exact new signer set
-    # here, before a wallet is opened.
-    #
-    # NOTHING IS BUILT YET ON PURPOSE. A transaction built now would carry a
-    # blockhash that expires in ~60-90 seconds, and the whole point of this step
-    # is to give him unhurried time to check the set. The bytes are minted at
-    # CLICK time by #rebuild.
-    def arm
-      # A malformed address is an operator typo, not an error: refused before
-      # `rescue_and_log` so it never pages.
-      bad = malformed_addresses(params[:signers]) + malformed_addresses(params[:authorizers])
-      if bad.any?
-        return redirect_to admin_authorities_path, alert: "Refused: #{malformed_address_message(bad)}"
+    # THE CONSOLE'S STATE, as JSON. The Stimulus controller fetches it rather
+    # than reading server-rendered data, so the page stays one document that
+    # renders under a dead RPC, and the browser test can stand in for the
+    # chain. Read-only; it writes nothing but the expiry of abandoned rows.
+    def console
+      expire_abandoned_rotations!
+      planner = planner_for(params[:connected])
+      rotation = live_rotation
+      render json: {
+        ok: true,
+        rules: planner.rules,
+        current: planner.current,
+        # Every roster key is labelled, so a pasted roster key from another
+        # cluster reads as named rather than unknown.
+        labels: planner.labels(planner.current + planner.candidates + Solana::SignerRoster.default.entries.map(&:address)),
+        candidates: planner.candidates,
+        server_held_error: @server_held_error,
+        live_rotation: rotation && { slug: rotation.slug, status: rotation.status,
+                                     signature: rotation.tx_signature }
+      }
+    rescue Solana::SignerPlan::Refusal => e
+      render json: e.to_h, status: :unprocessable_entity
+    rescue StandardError => e
+      log_console_failure(e)
+      render json: { ok: false, code: "unreadable", message: Solana::Config.redact_message(e.message) },
+             status: :service_unavailable
+    end
+
+    # PLAN A ROTATION. JSON, and NO ROW: a draft costs nothing and a refusal
+    # renders inline on the same draft. Every address is checked here
+    # (base58, 32 bytes, not the zero key, seated or not as the intent needs)
+    # and the signers are derived, never chosen. See Solana::SignerPlan.
+    def plan
+      render json: planner_for(params[:connected]).plan!(**plan_params)
+    rescue Solana::SignerPlan::Refusal => e
+      render json: e.to_h, status: :unprocessable_entity
+    rescue StandardError => e
+      log_console_failure(e)
+      render json: { ok: false, code: "unreadable", message: Solana::Config.redact_message(e.message) },
+             status: :service_unavailable
+    end
+
+    # SIGN: re-plan against a FRESH chain read, create the row, and build the
+    # bytes in the same request, so the blockhash window opens when the
+    # operator acts. The browser collects the Phantom signatures and calls
+    # #broadcast; on a decline it calls #cancel at once.
+    def create_rotation
+      if (live = live_rotation)
+        return render json: { ok: false, code: "rotation_in_flight",
+                              message: "Rotation #{live.slug} is #{live.status}; resolve it before starting another." },
+                      status: :conflict
       end
 
+      planned = planner_for(params[:connected]).plan!(**plan_params)
+      vault_shape!
+      require_reviewed_set!(planned)
+
       rescue_and_log do
-        rotation = build_rotation(
-          proposed: params[:signers],
-          authorizers: params[:authorizers]
-        )
-        rotation.validate!
-
-        plan = rotation.to_plan.merge(
-          lead_signer: rotation.authorizers.first,
-          server_leads: rotation.authorizers.first == Solana::CosignPlan.admin_address,
-          armed_at: Time.current.iso8601
-        )
-
-        # The row is created with the UNBUILT sentinel, not a built wire — see
-        # the constant for why a real one here would be worse than none.
-        record = PendingTransaction.create!(
+        plan = planned.slice(:shape, :required_signatures, :max_slots, :current, :proposed, :padded,
+                             :evicted, :retained, :added, :authorizers, :intent, :lead_signer,
+                             :server_leads, :server_held, :prompt_count)
+                      .merge(armed_at: Time.current.iso8601)
+        @tx = PendingTransaction.create!(
           tx_type: TX_TYPE,
           serialized_tx: UNBUILT_WIRE,
           target: nil,
           initiator_address: Solana::CosignPlan.admin_address,
           metadata: { plan: plan }.to_json
         )
-
-        redirect_to admin_authorities_path,
-                    notice: "Eviction armed. Review the new signer set, then collect " \
-                            "#{plan[:required_signatures]} signatures. (#{record.slug})"
+        render json: build_and_store!(plan.deep_symbolize_keys).merge(
+          slug: @tx.slug,
+          rebuild_url: admin_rebuild_authority_rotation_path(@tx.slug),
+          broadcast_url: admin_broadcast_authority_rotation_path(@tx.slug),
+          cancel_url: admin_cancel_authority_rotation_path(@tx.slug),
+          sentence: planned[:sentence]
+        )
       end
+    rescue Solana::SignerPlan::Refusal => e
+      render json: e.to_h, status: :unprocessable_entity
     rescue Solana::SignerRotation::Refusal => e
-      redirect_to admin_authorities_path, alert: "Refused: #{e.message}"
+      render json: { ok: false, code: "chain_rule", chain_code: e.code, message: "Refused: #{e.message}" },
+             status: :unprocessable_entity
     rescue StandardError => e
-      redirect_to admin_authorities_path, alert: "Could not arm the eviction: #{e.message}"
+      log_console_failure(e)
+      @tx&.update(status: "expired", stale: true) if @tx&.pending? && @tx.tx_signature.blank?
+      render json: { ok: false, code: "build_failed", message: Solana::Config.redact_message(e.message) },
+             status: :unprocessable_entity
+    end
+
+    # THE ROTATION CEREMONY for this cluster, every precondition read live.
+    # Read-only. Each read degrades to "unread" rather than failing the page.
+    def ceremony
+      @network = Solana::Config::NETWORK
+      state = read_vault_state_safely
+      @server_address = Solana::CosignPlan.admin_address
+      @ceremony = Solana::SignerCeremony.new(
+        network: @network,
+        chain_set: state&.dig(:active_signers),
+        chain_governance: chain_governance?,
+        config_governance: Solana::Config.governance?,
+        server: @server_address,
+        server_held: server_held_addresses,
+        fee_payer: @server_address && vault.fee_payer_status(required_signatures: required_signatures_for_chain,
+                                                             address: @server_address)
+      )
+      @steps = @ceremony.steps
+    end
+
+    # THE OPEN SQUADS PROPOSALS on this cluster, described and verified. JSON;
+    # read-only. `connected` is the browser's Phantom account.
+    def proposals
+      squads = Solana::SquadsProposals.new
+      render json: { ok: true, network: squads.network, squads_url: squads.squads_url,
+                     vault_pda: squads.vault_pda,
+                     proposals: squads.open_proposals(connected: params[:connected].to_s.strip.presence) }
+    rescue StandardError => e
+      log_console_failure(e)
+      render json: { ok: false, message: Solana::Config.redact_message(e.message) }, status: :service_unavailable
+    end
+
+    # An UNSIGNED Squads approve for the connected member. Phantom signs and
+    # sends it (the member pays); nothing here signs or broadcasts, and the
+    # page reads the proposal back afterwards.
+    def approve_proposal
+      member = params[:member].to_s.strip
+      unless Solana::SignerIsolation.valid_pubkey?(member)
+        return render json: { ok: false, code: "bad_address", message: "Connect Phantom first." },
+                      status: :unprocessable_entity
+      end
+
+      render json: { ok: true }.merge(Solana::SquadsProposals.new.build_approve(index: params[:index].to_i,
+                                                                                member: member))
+    rescue Solana::SquadsProposals::Refusal => e
+      render json: { ok: false, code: e.code, message: e.message }, status: :unprocessable_entity
+    rescue StandardError => e
+      log_console_failure(e)
+      render json: { ok: false, code: "unreadable", message: Solana::Config.redact_message(e.message) },
+             status: :service_unavailable
     end
 
     # Mint the bytes, NOW. Called by cosign.js at click time so the blockhash
@@ -196,63 +304,7 @@ module Admin
       rescue_and_log(target: @tx) do
         raise "This eviction is #{@tx.status}, not pending" unless @tx.pending?
 
-        plan     = armed_plan
-        rotation = revalidate!(plan)
-        shape    = vault_shape!
-
-        result = vault.build_update_signers(
-          new_signers: rotation.live_slots,
-          lead_signer: plan[:lead_signer],
-          cosigner_pubkey: plan[:authorizers][1],
-          extra_cosigners: plan[:authorizers][2..] || []
-        )
-
-        # The queue below and the broadcast check both assume who filled
-        # account 0. If the build disagrees, nothing is written or sent.
-        if result[:server_signed] != server_signs_lead?(plan)
-          raise "The build #{result[:server_signed] ? 'signed' : 'left unsigned'} account 0, but " \
-                "the armed plan expects it #{server_signs_lead?(plan) ? 'signed by this server' : 'left for your wallet'}. " \
-                "Discard and re-arm this eviction."
-        end
-
-        # CONDITIONAL, NOT A BARE WRITE — the same shape the treasury sibling
-        # takes, for the same reason. `pending?` at the top of this action is a
-        # READ; a #broadcast that claims the row in the interval leaves this
-        # write racing a wire that is already going out.
-        #
-        # What the bare `update!` did, measured: it did NOT un-claim — `status`
-        # was already "pending" in memory, so Rails omitted it from the UPDATE —
-        # but it DID replace `serialized_tx` and answer 200, handing a second
-        # caller fresh bytes to sign against a row whose claimed transaction may
-        # be landing. Re-checking the state inside the UPDATE is what makes the
-        # guard hold, rather than the accident of an unchanged attribute.
-        rebuilt = PendingTransaction.where(id: @tx.id, status: "pending")
-                                    .update_all(serialized_tx: result[:serialized_tx],
-                                                updated_at: Time.current) == 1
-        unless rebuilt
-          raise "This eviction is no longer pending (it is now #{@tx.reload.status}) — " \
-                "reconcile it against the chain rather than rebuilding it."
-        end
-        @tx.reload
-
-        render json: {
-          status: "rebuilt",
-          serialized_tx: result[:serialized_tx],
-          # THE SIGNING PLAN TRAVELS WITH THE BYTES IT DESCRIBES, so the browser
-          # collects against the slots THIS build reserved rather than against
-          # whatever the page was rendered believing.
-          required_signatures: rotation.required,
-          signer_queue: signer_queue_for(plan),
-          cosigner_address: plan[:authorizers][1],
-          extra_cosigners: plan[:authorizers][2..] || [],
-          # NIL WHEN THE OPERATOR LEADS. cosign.js paints this row as already
-          # signed, and it is only true when the SERVER filled the slot at build
-          # time. A green check standing for a signature nobody has produced is
-          # the same lie as an Execute button at 2 of 3.
-          fee_payer_address: server_signs_lead?(plan) ? plan[:lead_signer] : nil,
-          shape: shape,
-          new_signers: result[:new_signers]
-        }
+        render json: build_and_store!(armed_plan)
       end
     rescue Solana::SignerRotation::Refusal => e
       render json: { error: "Refused: #{e.message}" }, status: :unprocessable_entity
@@ -346,12 +398,16 @@ module Admin
                     cosigner_address: signers[1],
                     cosigner_addresses: signers)
 
+        # THE READ-BACK. What the chain says the signer set is NOW, not what
+        # we asked it to be — the only answer worth anything on this page. It
+        # is stored on the row so the record carries it after a reload.
+        read_back = read_back_signers
+        @tx.update!(metadata: JSON.parse(@tx.metadata).merge("read_back" => read_back).to_json)
+
         render json: {
           status: "confirmed",
           tx_signature: signature,
-          # THE READ-BACK. What the chain says the signer set is NOW, not what
-          # we asked it to be — the only answer worth anything on this page.
-          signers: read_back_signers,
+          signers: read_back,
           expected: rotation.live_slots
         }
       end
@@ -417,9 +473,8 @@ module Admin
       # button doing exactly what it says. The guard returns; only the WRITE is
       # wrapped, which is what the discipline actually asks for.
       if @tx.tx_signature.present?
-        return redirect_to admin_authorities_path,
-                           alert: "This eviction already broadcast (#{@tx.tx_signature}); " \
-                                  "it cannot be discarded."
+        return cancel_answer("This eviction already broadcast (#{@tx.tx_signature}); it cannot be discarded.",
+                             ok: false)
       end
 
       # A LEGACY CLAIMED ROW WHOSE ANSWER WAS LOST IS NOT A DRAFT EITHER. It
@@ -430,20 +485,193 @@ module Admin
       # stranded row is caught by the `tx_signature.present?` check above and
       # cleared by #reconcile rather than by hand.
       if @tx.awaiting_reconciliation?
-        return redirect_to admin_authorities_path,
-                           alert: "This eviction was broadcast and the result was not read back, " \
-                                  "so it may be on chain. Read the signer set before discarding it."
+        return cancel_answer("This eviction was broadcast and the result was not read back, " \
+                             "so it may be on chain. Read the signer set before discarding it.", ok: false)
       end
 
       rescue_and_log(target: @tx) do
         @tx.update!(status: "expired", stale: true)
-        redirect_to admin_authorities_path, notice: "Armed eviction discarded."
+        cancel_answer("Armed eviction discarded.", ok: true)
       end
     rescue StandardError => e
-      redirect_to admin_authorities_path, alert: e.message
+      cancel_answer(e.message, ok: false)
     end
 
     private
+
+    # THE SIGNED SET MUST BE THE REVIEWED SET. The browser sends the set and
+    # signers the operator READ (`reviewed_proposed`, `reviewed_authorizers`);
+    # a fresh plan that differs (a pick changed after review, or the chain
+    # moved) is refused before a row exists, rather than caught by the
+    # read-back after it lands.
+    def require_reviewed_set!(planned)
+      reviewed = Array(params[:reviewed_proposed]).map { |k| k.to_s.strip }
+      reviewed_signers = Array(params[:reviewed_authorizers]).map { |k| k.to_s.strip }
+      return if reviewed == planned[:proposed] && reviewed_signers == planned[:authorizers]
+
+      raise Solana::SignerPlan::Refusal.new(
+        "The set or signers about to be built differ from the plan you reviewed " \
+        "(reviewed #{reviewed.length} keys, built #{planned[:proposed].length}). Nothing was built; review again.",
+        code: "reviewed_set_mismatch"
+      )
+    end
+
+    # A failed read or build on the console is logged for triage, never
+    # raised: the page answers it inline.
+    def log_console_failure(error)
+      ErrorLog.capture!(error)
+    rescue StandardError
+      nil
+    end
+
+    # The console calls #cancel with fetch the moment Phantom is declined; the
+    # stranded panel still posts a form.
+    def cancel_answer(message, ok:)
+      if request.format.json?
+        render json: { ok: ok, message: message }, status: ok ? :ok : :unprocessable_entity
+      else
+        redirect_to admin_authorities_path, (ok ? :notice : :alert) => message
+      end
+    end
+
+    def plan_params
+      {
+        intent: params[:intent],
+        remove: params[:remove],
+        add: params[:add],
+        confirm_unknown: params[:confirm_unknown]
+      }
+    end
+
+    # The planner for THIS chain: a fresh read of the set and the program
+    # shape. Raises (the caller answers 503) when the vault cannot be read: a
+    # rotation is never planned blind.
+    def planner_for(connected)
+      state = vault.read_vault_state
+      raise "Vault state could not be read; refusing to plan a rotation blind." if state.nil?
+
+      governance = chain_governance!
+      if governance != Solana::Config.governance?
+        raise Solana::SignerPlan::Refusal.new(shape_disagreement_message(governance), code: "shape_mismatch")
+      end
+
+      Solana::SignerPlan.new(
+        network: Solana::Config::NETWORK,
+        governance: governance,
+        current: state[:active_signers],
+        required: governance ? Solana::Governance.required_signatures("update_signers") : Solana::SignerRotation::REQUIRED_V025,
+        max_live_threshold: max_live_threshold,
+        server: Solana::CosignPlan.admin_address,
+        server_held: server_held_addresses,
+        connected: connected
+      )
+    end
+
+    def shape_disagreement_message(chain)
+      if chain
+        "The chain runs turf-vault v0.26 (GovernanceConfig exists) but this app is configured for v0.25. " \
+          "Set #{Solana::Config::GOVERNANCE_ENV_VAR}=on and restart before rotating signers."
+      else
+        "This app is configured for turf-vault v0.26 but the GovernanceConfig PDA does not exist on " \
+          "#{Solana::Config::NETWORK}. Run init_governance after the upgrade, or unset the switch."
+      end
+    end
+
+    # PUBLIC addresses of SOLANA_COSIGNER_KEYS. A malformed list is reported
+    # on the page (its message names public keys only) and holds no key.
+    def server_held_addresses
+      Solana::Keypair.cosigners.map(&:to_base58)
+    rescue StandardError => e
+      @server_held_error = "SOLANA_COSIGNER_KEYS could not be loaded: #{Solana::Config.redact_message(e.message)}"
+      []
+    end
+
+    # The server-held keypairs the armed plan says sign on the server. A key
+    # the plan counted on that this process no longer holds refuses the build
+    # rather than quietly asking Phantom for it (Phantom does not hold it).
+    def server_cosigner_keypairs!(plan)
+      wanted = Array(plan[:server_held])
+      return [] if wanted.empty?
+
+      held = Solana::Keypair.cosigners.index_by(&:to_base58)
+      missing = wanted - held.keys
+      if missing.any?
+        raise "This rotation was planned with #{missing.join(', ')} signing on the server, and this " \
+              "process no longer holds it (SOLANA_COSIGNER_KEYS). Discard it and plan again."
+      end
+
+      wanted.map { |address| held.fetch(address) }
+    end
+
+    # Build the bytes for `plan` against a fresh read, store them on @tx with
+    # a CONDITIONAL write, and answer the signing plan that travels with them.
+    #
+    # THE PLAN IS RE-VALIDATED AGAINST A FRESH CHAIN READ, not trusted from the
+    # row: the set could have moved since the click, by another operator or by
+    # the very thief this page exists to evict.
+    def build_and_store!(plan)
+      rotation = revalidate!(plan)
+      shape    = vault_shape!
+
+      result = vault.build_update_signers(
+        new_signers: rotation.live_slots,
+        lead_signer: plan[:lead_signer],
+        cosigner_pubkey: plan[:authorizers][1],
+        extra_cosigners: plan[:authorizers][2..] || [],
+        server_cosigners: server_cosigner_keypairs!(plan)
+      )
+
+      # THE BYTES CARRY THE RECORDED SET, or nothing is written or sent.
+      built_set = Array(result[:new_signers]).reject { |k| k.blank? || k == Solana::SignerRotation::EMPTY }
+      if built_set != Array(plan[:proposed])
+        raise "The built set (#{built_set.join(', ')}) differs from the recorded plan " \
+              "(#{Array(plan[:proposed]).join(', ')}). Discard and plan again."
+      end
+
+      # The queue below and the broadcast check both assume who filled
+      # account 0. If the build disagrees, nothing is written or sent.
+      if result[:server_signed] != server_signs_lead?(plan)
+        raise "The build #{result[:server_signed] ? 'signed' : 'left unsigned'} account 0, but " \
+              "the armed plan expects it #{server_signs_lead?(plan) ? 'signed by this server' : 'left for your wallet'}. " \
+              "Discard and re-arm this eviction."
+      end
+
+      # CONDITIONAL, NOT A BARE WRITE. `pending?` is a READ; a #broadcast that
+      # claims the row in the interval leaves a bare write racing a wire that
+      # is already going out (a bare `update!` omitted the unchanged status and
+      # replaced the bytes anyway). Re-checking inside the UPDATE holds.
+      rebuilt = PendingTransaction.where(id: @tx.id, status: "pending")
+                                  .update_all(serialized_tx: result[:serialized_tx],
+                                              updated_at: Time.current) == 1
+      unless rebuilt
+        raise "This eviction is no longer pending (it is now #{@tx.reload.status}) — " \
+              "reconcile it against the chain rather than rebuilding it."
+      end
+      @tx.reload
+
+      {
+        status: "rebuilt",
+        serialized_tx: result[:serialized_tx],
+        # THE SIGNING PLAN TRAVELS WITH THE BYTES IT DESCRIBES.
+        required_signatures: rotation.required,
+        signer_queue: signer_queue_for(plan),
+        cosigner_address: plan[:authorizers][1],
+        extra_cosigners: plan[:authorizers][2..] || [],
+        # NIL WHEN THE OPERATOR LEADS: the row is painted signed only when
+        # the SERVER filled the slot at build time.
+        fee_payer_address: server_signs_lead?(plan) ? plan[:lead_signer] : nil,
+        # PUBLIC addresses of the keys the server signed for. Never a secret.
+        server_signed: [server_signs_lead?(plan) ? plan[:lead_signer] : nil, *Array(result[:server_cosigned])].compact,
+        shape: shape,
+        new_signers: result[:new_signers]
+      }
+    end
+
+    def expire_abandoned_rotations!
+      PendingTransaction.where(tx_type: TX_TYPE, status: "pending", tx_signature: nil)
+                        .where(created_at: ...STALE_PENDING_AFTER.ago)
+                        .update_all(status: "expired", stale: true, updated_at: Time.current)
+    end
 
     # ── WHO HOLDS EACH WALLET, AND THE ONE THING THIS MUST NEVER DO ──────────
     #
@@ -516,7 +744,7 @@ module Admin
     def live_rotation
       rotations = PendingTransaction.where(tx_type: TX_TYPE)
       rotations.submitted.order(created_at: :desc).first ||
-        rotations.pending.order(created_at: :desc).first
+        rotations.pending.where(created_at: STALE_PENDING_AFTER.ago..).order(created_at: :desc).first
     end
 
     def set_pending_rotation
@@ -711,9 +939,14 @@ module Admin
     # The wallets the browser collects in Phantom, in slot order. Server-led:
     # [cosigner, *extras], because the build already signed account 0.
     # Operator-led: [lead, cosigner, *extras].
+    #
+    # SERVER-HELD COSIGNERS ARE NEVER QUEUED: the build signed them, and
+    # Phantom does not hold them. They sign only a server-led build.
     def signer_queue_for(plan)
       authorizers = Array(plan[:authorizers])
-      server_signs_lead?(plan) ? authorizers.drop(1) : authorizers
+      return authorizers unless server_signs_lead?(plan)
+
+      authorizers.drop(1) - Array(plan[:server_held])
     end
 
     # Whether the server signs account 0 at build time. Decided from the armed
@@ -745,24 +978,6 @@ module Admin
       end
 
       Array(plan[:authorizers])
-    end
-
-    # Every non-blank value that is not a 32-byte base58 key, stripped.
-    def malformed_addresses(values)
-      values = values.respond_to?(:to_unsafe_h) ? values.to_unsafe_h.values : Array(values)
-      values.map { |value| value.to_s.strip }
-            .reject { |value| value.blank? || Solana::SignerIsolation.valid_pubkey?(value) }
-    end
-
-    # Names each bad value so the operator can see the stray character. A value
-    # far longer than an address is described, not echoed: it may be a secret
-    # key pasted into the wrong field.
-    def malformed_address_message(values)
-      named = values.map do |value|
-        value.length > 50 ? "a #{value.length}-character value (not shown)" : "\"#{value}\""
-      end
-      "#{named.join(', ')} #{values.one? ? 'is' : 'are'} not a Solana address " \
-        "(32 bytes of base58). Check for a character pasted with it."
     end
 
     # EVERY claimed signer is asserted to be in a SIGNER SLOT of what landed —

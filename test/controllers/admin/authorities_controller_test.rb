@@ -82,15 +82,18 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
       { address: address, balance_sol: 1.0, minimum_sol: 0.01, funded: true }
     end
 
-    def build_update_signers(new_signers:, cosigner_pubkey:, lead_signer: nil, extra_cosigners: [])
+    def build_update_signers(new_signers:, cosigner_pubkey:, lead_signer: nil, extra_cosigners: [],
+                             server_cosigners: [])
       @build_calls << { new_signers: new_signers, cosigner: cosigner_pubkey,
-                        lead: lead_signer, extras: extra_cosigners }
+                        lead: lead_signer, extras: extra_cosigners,
+                        server_cosigners: server_cosigners.map(&:to_base58) }
       @on_build&.call
       # The real builder signs account 0 itself exactly when the lead is the
       # server's own key; the stub answers the same way.
       { serialized_tx: "FAKE_WIRE", vault_pda: "VAULTPDA", new_signers: new_signers,
         slot_width: 3, lead_signer: lead_signer,
-        server_signed: lead_signer.present? && lead_signer == Solana::CosignPlan.admin_address }
+        server_signed: lead_signer.present? && lead_signer == Solana::CosignPlan.admin_address,
+        server_cosigned: server_cosigners.map(&:to_base58) }
     end
 
     # A seeded STRING models a PRE-FLIGHT refusal, which the real method raises
@@ -126,10 +129,24 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
     Solana::Vault.stub(:new, vault, &block)
   end
 
-  def arm(vault, signers:, authorizers:)
-    with_vault(vault) do
-      post admin_arm_authority_rotation_path, params: { signers: signers, authorizers: authorizers }
-    end
+  # A rotation row in the shape #create_rotation records, before its build:
+  # the member endpoints (rebuild, broadcast, cancel, reconcile) read exactly
+  # this. Seeded directly, because the form that armed one is gone and the
+  # console creates rows only at the click that signs them.
+  def arm(vault, signers:, authorizers:, server_held: [])
+    rotation = Solana::SignerRotation.for_chain(current_signers: vault.signers, proposed: signers,
+                                                authorizers: authorizers, governance: false).validate!
+    lead = rotation.authorizers.first
+    plan = rotation.to_plan.merge(lead_signer: lead, server_leads: lead == Solana::CosignPlan.admin_address,
+                                  server_held: server_held, armed_at: Time.current.iso8601)
+    PendingTransaction.create!(tx_type: "update_signers", serialized_tx: Admin::AuthoritiesController::UNBUILT_WIRE,
+                               target: nil, initiator_address: Solana::CosignPlan.admin_address,
+                               metadata: { plan: plan }.to_json)
+  end
+
+  def plan_json(vault, **params)
+    with_vault(vault) { post admin_plan_authority_rotation_path, params: params, as: :json }
+    JSON.parse(response.body)
   end
 
   # ── THE OVERVIEW ─────────────────────────────────────────────────────────
@@ -183,187 +200,369 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
     assert_no_match(/Vault signer set/, response.body)
   end
 
-  test "a signed-in non-admin cannot arm an eviction" do
+  test "a signed-in non-admin can neither plan nor sign" do
     log_in_as(users(:jordan))
     assert_no_difference -> { PendingTransaction.count } do
-      post admin_arm_authority_rotation_path,
-           params: { signers: [ALEX, MASON, ALEX2], authorizers: [ALEX, MASON] }
+      post admin_plan_authority_rotation_path, params: { intent: "replace", remove: [MASON], add: [ALEX2] }, as: :json
+      post admin_authority_rotations_path, params: { intent: "replace", remove: [MASON], add: [ALEX2] }, as: :json
     end
     assert_response :redirect
   end
 
-  # ── ARMING: THE REFUSALS ─────────────────────────────────────────────────
+  # ── PLAN: JSON, NO ROW, EVERY REFUSAL NAMED ───────────────────────────────
+  #
+  # In the test env this process's admin key is not seated in the stub set
+  # [SYSTEM, ALEX, MASON], so a plan is operator-led; the test network is
+  # devnet, where that is allowed. The derivation matrix itself is
+  # test/services/solana/signer_plan_test.rb.
 
-  test "arming refuses a set below the threshold, naming the program error" do
-    vault = StubVault.new(signers: [SYSTEM, ALEX, MASON, ALEX2, ALEX3],
-                          governance: { thresholds: Array.new(32, 0) })
+  def server = Solana::CosignPlan.admin_address
 
+  test "plan derives the set, the signers and the prompt count, and writes no row" do
+    vault = StubVault.new(signers: [server, ALEX, MASON])
+    body = nil
     assert_no_difference -> { PendingTransaction.count } do
-      Solana::Config.stub(:governance?, true) do
-        arm(vault, signers: [ALEX, ALEX2], authorizers: [ALEX, ALEX2, ALEX3])
+      body = plan_json(vault, intent: "replace", remove: [MASON], add: [ALEX2])
+    end
+
+    assert_response :success
+    assert body["ok"]
+    assert_equal [server, ALEX, ALEX2], body["proposed"]
+    assert_equal [server, ALEX], body["authorizers"]
+    assert_equal [ALEX], body["phantom_queue"]
+    assert_equal 1, body["prompt_count"]
+    assert body["server_leads"]
+    assert_match(/You sign once in Phantom as 7ZDJ…9Tcr/, body["sentence"])
+    assert_empty vault.build_calls, "planning builds nothing"
+  end
+
+  {
+    "bad_address" => { add: ["#{ALEX2}."] },
+    "zero_key" => { add: [EMPTY] },
+    "already_seated" => { add: [ALEX] },
+    "not_seated" => { remove: [ALEX3] }
+  }.each do |code, extra|
+    test "plan refuses with #{code} and writes nothing" do
+      params = { intent: "replace", remove: [MASON], add: [ALEX2] }.merge(extra)
+      body = nil
+      assert_no_difference -> { PendingTransaction.count } do
+        body = plan_json(StubVault.new(signers: [server, ALEX, MASON]), **params)
+      end
+      assert_response :unprocessable_entity
+      assert_equal code, body["code"]
+      assert_equal false, body["ok"]
+    end
+  end
+
+  test "plan does not echo a value long enough to be a secret" do
+    secret_shaped = ALEX * 2
+    body = plan_json(StubVault.new(signers: [server, ALEX, MASON]), intent: "replace", remove: [MASON], add: [secret_shaped])
+    assert_equal "bad_address", body["code"]
+    assert_match(/88-character value/, body["message"])
+    assert_no_match(/#{secret_shaped}/, response.body)
+  end
+
+  test "plan refuses an intent the deployed program cannot express, and says why" do
+    body = plan_json(StubVault.new(signers: [server, ALEX, MASON]), intent: "add", add: [ALEX2])
+    assert_equal "intent_not_allowed", body["code"]
+    assert_match(/no empty slot/, body["message"])
+  end
+
+  test "plan names the chain rule and its code when the set breaks one" do
+    vault = StubVault.new(signers: [server, ALEX, MASON, ALEX2, ALEX3], governance: { thresholds: Array.new(32, 0) })
+    body = Solana::Config.stub(:governance?, true) do
+      Solana::Governance.stub(:max_live_threshold, 4) do
+        plan_json(vault, intent: "remove", remove: [MASON, ALEX3])
       end
     end
-
-    follow_redirect!
-    assert_match(/SignerSetTooSmall, 6052/, flash[:alert].to_s + response.body)
+    assert_equal "chain_rule", body["code"]
+    assert_equal 6052, body["chain_code"]
   end
 
-  test "arming refuses a set with a gap" do
-    vault = StubVault.new(signers: [SYSTEM, ALEX, MASON, ALEX2, ALEX3],
-                          governance: { thresholds: Array.new(32, 0) })
-
-    assert_no_difference -> { PendingTransaction.count } do
-      Solana::Config.stub(:governance?, true) do
-        arm(vault, signers: [ALEX, "", ALEX2, ALEX3], authorizers: [ALEX, ALEX2, ALEX3])
-      end
+  test "plan refuses when the app switch and the chain disagree about the program" do
+    body = Solana::Config.stub(:governance?, true) do
+      plan_json(StubVault.new(signers: [server, ALEX, MASON], governance: nil),
+                intent: "replace", remove: [MASON], add: [ALEX2])
     end
-
-    assert_match(/earlier slot is empty/, flash[:alert].to_s)
+    assert_equal "shape_mismatch", body["code"]
+    assert_match(/init_governance/, body["message"])
   end
 
-  test "arming refuses a rotation that does not retain its own authorizers" do
-    vault = StubVault.new(signers: [SYSTEM, ALEX, MASON, ALEX2, ALEX3],
-                          governance: { thresholds: Array.new(32, 0) })
-
-    assert_no_difference -> { PendingTransaction.count } do
-      Solana::Config.stub(:governance?, true) do
-        arm(vault, signers: [ALEX, ALEX2, MASON], authorizers: [ALEX, ALEX2, ALEX3])
-      end
-    end
-
-    assert_match(/SignerContinuityRequired, 6017/, flash[:alert].to_s)
-    assert_match(/#{ALEX3}/, flash[:alert].to_s)
-  end
-
-  test "arming refuses an authorizer that is not in the on-chain set" do
-    assert_no_difference -> { PendingTransaction.count } do
-      arm(StubVault.new, signers: [ALEX, MASON, ALEX2], authorizers: [ALEX, ALEX3])
-    end
-
-    assert_match(/Unauthorized, 6000/, flash[:alert].to_s)
-  end
-
-  test "arming refuses to plan blind when the vault state cannot be read" do
+  test "plan refuses to plan blind when the vault state cannot be read" do
     blind = StubVault.new
     blind.define_singleton_method(:read_vault_state) { |**| nil }
-
-    assert_no_difference -> { PendingTransaction.count } do
-      arm(blind, signers: [ALEX, MASON, ALEX2], authorizers: [ALEX, MASON])
-    end
-
-    assert_match(/refusing to plan a rotation blind/i, flash[:alert].to_s)
+    body = plan_json(blind, intent: "replace", remove: [MASON], add: [ALEX2])
+    assert_response :service_unavailable
+    assert_match(/refusing to plan a rotation blind/i, body["message"])
   end
 
-  # ── ARMING: MALFORMED ADDRESSES ──────────────────────────────────────────
-  #
-  # A slot is a 32-byte base58 key or it is refused at the door. QA armed
-  # `<key>.` (a full stop pasted with the key), and the plan stored it.
+  # ── SIGN: ROW AND BYTES IN ONE REQUEST ────────────────────────────────────
 
-  test "arming refuses a signer with a trailing full stop, naming the value" do
-    assert_no_difference -> { PendingTransaction.count } do
-      arm(StubVault.new, signers: [ALEX, MASON, "#{ALEX2}."], authorizers: [ALEX, MASON])
-    end
-
-    assert_match(/#{Regexp.escape("#{ALEX2}.")}/, flash[:alert].to_s)
-    assert_match(/not a Solana address/, flash[:alert].to_s)
+  # What the console sends: the reviewed draft, and the set and signers it
+  # was reviewed as.
+  def reviewed(proposed:, authorizers:, **draft)
+    { intent: "replace", remove: [MASON], add: [ALEX2] }.merge(draft)
+      .merge(reviewed_proposed: proposed, reviewed_authorizers: authorizers)
   end
 
-  test "arming refuses a key one character short" do
-    short = ALEX2[0..-2]
-    assert_no_difference -> { PendingTransaction.count } do
-      arm(StubVault.new, signers: [ALEX, MASON, short], authorizers: [ALEX, MASON])
-    end
-
-    assert_match(/#{short}/, flash[:alert].to_s)
-  end
-
-  test "arming refuses a character outside the base58 alphabet" do
-    # `0`, `O`, `I` and `l` are not base58.
-    bad = "0#{ALEX2[1..]}"
-    assert_no_difference -> { PendingTransaction.count } do
-      arm(StubVault.new, signers: [ALEX, MASON, bad], authorizers: [ALEX, MASON])
-    end
-
-    assert_match(/#{bad}/, flash[:alert].to_s)
-  end
-
-  test "arming refuses a malformed authorizer too" do
-    assert_no_difference -> { PendingTransaction.count } do
-      arm(StubVault.new, signers: [ALEX, MASON, ALEX2], authorizers: [ALEX, "#{MASON}x"])
-    end
-
-    assert_match(/#{MASON}x/, flash[:alert].to_s)
-  end
-
-  test "arming does not echo a value too long to be an address" do
-    # An 88-character base58 string is the shape of a secret key; a mistaken
-    # paste must not travel back into the page.
-    secret_shaped = ALEX * 2
-    assert_no_difference -> { PendingTransaction.count } do
-      arm(StubVault.new, signers: [ALEX, MASON, secret_shaped], authorizers: [ALEX, MASON])
-    end
-
-    assert_match(/88-character value/, flash[:alert].to_s)
-    assert_no_match(/#{secret_shaped}/, flash[:alert].to_s)
-  end
-
-  test "arming strips surrounding whitespace and stores the bare key" do
+  test "rotations creates the row and builds it at once, returning the queue and the urls" do
+    vault = StubVault.new(signers: [server, ALEX, MASON])
     assert_difference -> { PendingTransaction.count }, 1 do
-      arm(StubVault.new, signers: [" #{ALEX}", MASON, "#{ALEX2}\n"], authorizers: [ALEX, " #{MASON} "])
-    end
-
-    plan = JSON.parse(PendingTransaction.last.metadata)["plan"]
-    assert_equal [ALEX, MASON, ALEX2], plan["proposed"]
-    assert_equal [ALEX, MASON], plan["authorizers"]
-  end
-
-  # ── ARMING: THE RECORD ───────────────────────────────────────────────────
-
-  test "arming records the exact new set and builds NOTHING" do
-    # The bytes are minted at click time, not now: a transaction built here
-    # would carry a blockhash dead within ~90 seconds of the operator starting
-    # to read it.
-    vault = StubVault.new
-
-    assert_difference -> { PendingTransaction.count }, 1 do
-      arm(vault, signers: [ALEX, MASON, ALEX2], authorizers: [ALEX, MASON])
-    end
-
-    assert_empty vault.build_calls, "arming must not build a transaction"
-
-    row = PendingTransaction.last
-    plan = JSON.parse(row.metadata)["plan"]
-
-    assert_equal "update_signers", row.tx_type
-    assert_equal "pending", row.status
-    assert_equal Admin::AuthoritiesController::UNBUILT_WIRE, row.serialized_tx,
-                 "the column must say there is no wire yet, not carry a dead one"
-    assert_equal [ALEX, MASON, ALEX2], plan["proposed"]
-    assert_equal [SYSTEM], plan["evicted"]
-    assert_equal [ALEX2], plan["added"]
-    assert_equal [ALEX, MASON], plan["authorizers"]
-    assert_equal ALEX, plan["lead_signer"]
-    assert_equal "v0.25", plan["shape"]
-    assert_equal 2, plan["required_signatures"]
-  end
-
-  test "the armed page shows the exact new signer set before anything is signed" do
-    vault = StubVault.new
-    arm(vault, signers: [ALEX, MASON, ALEX2], authorizers: [ALEX, MASON])
-
-    with_vault(vault) do
-      Solana::Squads.stub :read, nil do
-        get admin_authorities_path
+      with_vault(vault) do
+        post admin_authority_rotations_path,
+             params: reviewed(proposed: [server, ALEX, ALEX2], authorizers: [server, ALEX]), as: :json
       end
     end
 
-    assert_match(/Armed — nothing has been signed/, response.body)
-    assert_match(/Signer set after/, response.body)
-    assert_match(/Evicting 1 key/, response.body)
-    assert_match(/#{SYSTEM}/, response.body)
-    assert_match(/#{ALEX2}/, response.body)
-    # And the rule that decides who may lead, stated where it bites.
-    assert_match(/a wallet that signs this transaction cannot be evicted by it/i, response.body)
+    assert_response :success
+    body = JSON.parse(response.body)
+    row = PendingTransaction.last
+    assert_equal "FAKE_WIRE", body["serialized_tx"]
+    assert_equal "FAKE_WIRE", row.serialized_tx
+    assert_equal [ALEX], body["signer_queue"]
+    assert_equal [server], body["server_signed"]
+    assert_equal row.slug, body["slug"]
+    assert_equal admin_broadcast_authority_rotation_path(row.slug), body["broadcast_url"]
+    assert_equal admin_cancel_authority_rotation_path(row.slug), body["cancel_url"]
+    plan = JSON.parse(row.metadata)["plan"]
+    assert_equal [server, ALEX], plan["authorizers"]
+    assert_equal server, vault.build_calls.first[:lead]
+  end
+
+  test "rotations refuses, building nothing, unless the fresh plan equals the reviewed set and signers" do
+    vault = StubVault.new(signers: [server, ALEX, MASON])
+    assert_no_difference -> { PendingTransaction.count } do
+      with_vault(vault) do
+        # A pick changed after review: the operator reviewed ALEX2 joining,
+        # the live draft now adds ALEX3.
+        post admin_authority_rotations_path,
+             params: reviewed(proposed: [server, ALEX, ALEX2], authorizers: [server, ALEX], add: [ALEX3]), as: :json
+      end
+    end
+    assert_response :unprocessable_entity
+    assert_equal "reviewed_set_mismatch", JSON.parse(response.body)["code"]
+    assert_empty vault.build_calls
+
+    with_vault(vault) do
+      post admin_authority_rotations_path,
+           params: reviewed(proposed: [server, ALEX, ALEX2], authorizers: [ALEX, server]), as: :json
+    end
+    assert_equal "reviewed_set_mismatch", JSON.parse(response.body)["code"], "signer order is part of the review"
+
+    with_vault(vault) { post admin_authority_rotations_path, params: { intent: "replace", remove: [MASON], add: [ALEX2] }, as: :json }
+    assert_equal "reviewed_set_mismatch", JSON.parse(response.body)["code"], "no reviewed set, no build"
+  end
+
+  test "a build whose bytes carry a different set than the recorded plan writes and returns nothing" do
+    vault = StubVault.new(signers: [ALEX, MASON, SYSTEM])
+    row = arm(vault, signers: [ALEX, MASON, ALEX2], authorizers: [ALEX, MASON])
+    vault.define_singleton_method(:build_update_signers) do |**|
+      { serialized_tx: "WRONG_SET_WIRE", new_signers: [ALEX, MASON, ALEX3], server_signed: false, server_cosigned: [] }
+    end
+    with_vault(vault) { post admin_rebuild_authority_rotation_path(row.slug), as: :json }
+    assert_response :unprocessable_entity
+    assert_match(/differs from the recorded plan/, JSON.parse(response.body)["error"])
+    assert_equal Admin::AuthoritiesController::UNBUILT_WIRE, row.reload.serialized_tx
+  end
+
+  test "rotations refuses while another rotation is in flight" do
+    vault = StubVault.new(signers: [server, ALEX, MASON])
+    arm(vault, signers: [server, ALEX, ALEX2], authorizers: [server, ALEX])
+    assert_no_difference -> { PendingTransaction.count } do
+      with_vault(vault) do
+        post admin_authority_rotations_path, params: { intent: "replace", remove: [MASON], add: [ALEX2] }, as: :json
+      end
+    end
+    assert_response :conflict
+    assert_equal "rotation_in_flight", JSON.parse(response.body)["code"]
+  end
+
+  test "a refused plan creates no row on the sign path either" do
+    assert_no_difference -> { PendingTransaction.count } do
+      with_vault(StubVault.new(signers: [server, ALEX, MASON])) do
+        post admin_authority_rotations_path, params: { intent: "replace", remove: [MASON], add: ["#{ALEX2}."] }, as: :json
+      end
+    end
+    assert_equal "bad_address", JSON.parse(response.body)["code"]
+  end
+
+  # ── SERVER-HELD COSIGNERS ─────────────────────────────────────────────────
+
+  test "a server-held cosigner signs on the server and is never queued, echoed or logged" do
+    held = Solana::Keypair.generate
+    secret = Solana::Keypair.encode_base58(held.to_bytes)
+    vault = StubVault.new(signers: [server, ALEX, held.to_base58, MASON, ALEX3],
+                          governance: { thresholds: Array.new(32, 0) })
+    log = StringIO.new
+    Rails.logger.broadcast_to(logger = ActiveSupport::Logger.new(log))
+    begin
+      Solana::Keypair.stub(:cosigners, [held]) do
+        Solana::Config.stub(:governance?, true) do
+          with_vault(vault) do
+            post admin_authority_rotations_path,
+                 params: reviewed(proposed: [server, ALEX, held.to_base58, ALEX2, ALEX3],
+                                  authorizers: [server, held.to_base58, ALEX]), as: :json
+          end
+        end
+      end
+    ensure
+      Rails.logger.stop_broadcasting_to(logger)
+    end
+
+    assert_response :success
+    body = JSON.parse(response.body)
+    assert_equal [ALEX], body["signer_queue"], "Phantom is asked only for Alex"
+    assert_includes body["server_signed"], held.to_base58
+    assert_equal [held.to_base58], vault.build_calls.first[:server_cosigners]
+    refute_includes response.body, secret
+    refute_includes log.string, secret
+    refute_includes PendingTransaction.last.metadata, secret
+  end
+
+  test "a build whose planned window cosigner is no longer held refuses" do
+    gone = Solana::Keypair.generate.to_base58
+    vault = StubVault.new(signers: [server, ALEX, gone])
+    row = arm(vault, signers: [server, ALEX, gone], authorizers: [server, gone])
+    row.update!(metadata: JSON.parse(row.metadata).tap { |m| m["plan"]["server_held"] = [gone] }.to_json)
+
+    with_vault(vault) { post admin_rebuild_authority_rotation_path(row.slug), as: :json }
+    assert_response :unprocessable_entity
+    assert_match(/no longer holds it/, JSON.parse(response.body)["error"])
+    assert_empty vault.build_calls
+  end
+
+  # ── THE CONSOLE STATE AND THE DEAD STATES ─────────────────────────────────
+
+  test "console answers the rules, the set and the labels, unknown keys included" do
+    unknown = Solana::Keypair.generate.to_base58
+    with_vault(StubVault.new(signers: [server, ALEX, unknown])) do
+      get admin_authority_console_path(connected: ALEX), as: :json
+    end
+    body = JSON.parse(response.body)
+    assert body["ok"]
+    assert_equal "v0.25", body["rules"]["shape"]
+    assert_equal 3, body["rules"]["max_slots"]
+    assert body["labels"][unknown]["unknown"]
+    assert body["labels"][ALEX]["connected"]
+    assert_equal "Alex, Phantom account 1", body["labels"][ALEX]["name"]
+  end
+
+  test "an abandoned pending rotation is expired before the page reads; a submitted one never is" do
+    vault = StubVault.new
+    old = arm(vault, signers: [ALEX, MASON, ALEX2], authorizers: [ALEX, MASON])
+    old.update_columns(created_at: 3.minutes.ago)
+    stranded = arm(vault, signers: [ALEX, MASON, ALEX3], authorizers: [ALEX, MASON])
+    stranded.update_columns(created_at: 3.minutes.ago, status: "submitted", tx_signature: "SIG")
+
+    with_vault(vault) { get admin_authority_console_path, as: :json }
+
+    assert_equal "expired", old.reload.status
+    assert_equal "submitted", stranded.reload.status
+    assert_equal stranded.slug, JSON.parse(response.body).dig("live_rotation", "slug")
+  end
+
+  test "cancel answers JSON for the console's decline path" do
+    row = arm(StubVault.new, signers: [ALEX, MASON, ALEX2], authorizers: [ALEX, MASON])
+    post admin_cancel_authority_rotation_path(row.slug), as: :json
+    assert_response :success
+    assert JSON.parse(response.body)["ok"]
+    assert_equal "expired", row.reload.status
+  end
+
+  test "the page pre-fills the console from a ceremony link and ships its CTA disabled" do
+    with_vault(StubVault.new) do
+      Solana::Squads.stub :read, nil do
+        get admin_authorities_path(intent: "add", add: "#{ALEX2},#{ALEX3}")
+      end
+    end
+    assert_select "[data-controller='signer-console'][data-signer-console-intent-value='add']"
+    assert_select "[data-signer-console-add-value='#{ALEX2},#{ALEX3}']"
+    assert_select "button[data-signer-console-target='cta'][disabled]"
+    assert_select "[data-controller='signer-console'] script", false, "no inline script in the console"
+    assert_select "[data-controller='signer-console'] [x-data], [data-controller='signer-console'] [x-show]", false
+  end
+
+  # ── THE CEREMONY CHECKLIST ────────────────────────────────────────────────
+
+  test "the ceremony page renders this cluster's steps with their verdicts" do
+    steps = [{ "id" => "add", "kind" => "console", "title" => "ADD a key", "who" => "Alex",
+               "start" => [server, ALEX, MASON], "end" => [server, ALEX, MASON, ALEX2],
+               "server" => server, "window_cosigners" => [], "intent" => "replace",
+               "remove" => [MASON], "add" => [ALEX2] },
+             { "id" => "flip", "kind" => "runbook", "title" => "Flip", "who" => "Steffon",
+               "runbook" => "the flip", "done_when" => { "server" => server } }]
+    real = Solana::SignerCeremony.method(:new)
+    with_vault(StubVault.new(signers: [server, ALEX, MASON])) do
+      Solana::SignerCeremony.stub(:new, ->(**kw) { real.call(**kw, steps: steps) }) do
+        get admin_authority_ceremony_path
+      end
+    end
+
+    assert_response :success
+    assert_select "[data-ceremony-step='add'][data-status='ready']"
+    assert_select "a[data-ceremony-link='add'][href=?]", "/admin/authorities?add=#{ALEX2}&intent=replace&remove=#{MASON}"
+    assert_select "[data-ceremony-step='flip'][data-status='done']"
+    assert_select "[data-check='chain_set'][data-ok='true']"
+  end
+
+  test "a red hard check disables the step's console link" do
+    steps = [{ "id" => "add", "kind" => "console", "title" => "ADD", "who" => "Alex",
+               "start" => [server, ALEX, MASON], "end" => [server, ALEX, MASON, ALEX2],
+               "server" => server, "window_cosigners" => [ALEX3], "intent" => "add", "add" => [ALEX2] }]
+    real = Solana::SignerCeremony.method(:new)
+    with_vault(StubVault.new(signers: [server, ALEX, MASON])) do
+      Solana::SignerCeremony.stub(:new, ->(**kw) { real.call(**kw, steps: steps) }) do
+        get admin_authority_ceremony_path
+      end
+    end
+    assert_select "[data-ceremony-step='add'][data-status='blocked']"
+    assert_select "a[data-ceremony-link]", false
+    assert_select "[data-ceremony-link-disabled='add']"
+    assert_select "[data-check='window_cosigners'][data-ok='false']"
+  end
+
+  test "the committed mainnet checklist parses into console and runbook steps" do
+    steps = YAML.safe_load_file(Solana::SignerCeremony::PATH)
+    assert_equal %w[add flip evict unset], steps["mainnet-beta"].map { |s| s["id"] }
+    roster = Solana::SignerRoster.default
+    keys = steps.values.flatten.flat_map { |st| Array(st["start"]) + Array(st["end"]) + Array(st["add"]) }.uniq
+    keys.reject { |key| Solana::SignerCeremony.unminted?(key) }.each do |key|
+      assert roster.include?(key), "#{key} is in the checklist but not the roster"
+    end
+  end
+
+  # ── SQUADS PROPOSALS ──────────────────────────────────────────────────────
+
+  test "proposals answers the open list as JSON, and approve refuses a malformed member" do
+    fake = Object.new
+    fake.define_singleton_method(:network) { "devnet" }
+    fake.define_singleton_method(:squads_url) { "https://app.squads.so/squads/VAULT/transactions" }
+    fake.define_singleton_method(:vault_pda) { "VAULT" }
+    fake.define_singleton_method(:open_proposals) { |connected:| [{ index: 9, connected: connected }] }
+    Solana::SquadsProposals.stub(:new, fake) do
+      get admin_authority_proposals_path(connected: ALEX), as: :json
+    end
+    body = JSON.parse(response.body)
+    assert_equal [{ "index" => 9, "connected" => ALEX }], body["proposals"]
+
+    post admin_approve_authority_proposal_path(index: 9), params: { member: "#{ALEX}." }, as: :json
+    assert_response :unprocessable_entity
+    assert_equal "bad_address", JSON.parse(response.body)["code"]
+  end
+
+  test "approve answers the unsigned vote, or the page's refusal by code" do
+    fake = Object.new
+    fake.define_singleton_method(:build_approve) do |index:, member:|
+      raise Solana::SquadsProposals::Refusal.new("no", code: "not_approvable") if index == 2
+
+      { serialized_tx: "UNSIGNED", index: index, member: member }
+    end
+    Solana::SquadsProposals.stub(:new, fake) do
+      post admin_approve_authority_proposal_path(index: 1), params: { member: ALEX }, as: :json
+      assert_equal "UNSIGNED", JSON.parse(response.body)["serialized_tx"]
+      post admin_approve_authority_proposal_path(index: 2), params: { member: ALEX }, as: :json
+      assert_equal "not_approvable", JSON.parse(response.body)["code"]
+    end
   end
 
   # ── REBUILD ──────────────────────────────────────────────────────────────

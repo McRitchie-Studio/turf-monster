@@ -222,7 +222,10 @@ class VioletTextContrastTest < ActiveSupport::TestCase
     # surface is unresolvable from here BY CONSTRUCTION: it is a partial, so the
     # background comes from whichever view renders it. What makes it safe is the
     # `dark:` scoping, and that is what gets asserted.
-    "app/views/admin/pending_transactions/_signer_roster.html.erb" => { count: 2, kind: :graphical }
+    "app/views/admin/pending_transactions/_signer_roster.html.erb" => { count: 2, kind: :graphical },
+    # The same status dot, in the signer console's row template (the console
+    # renders its signing order client-side from it). Same markup, same reason.
+    "app/views/admin/authorities/_console.html.erb" => { count: 2, kind: :graphical }
   }.freeze
 
   # ── colour arithmetic, deliberately independent of Studio::ColorScale ──────

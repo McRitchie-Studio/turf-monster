@@ -1360,7 +1360,18 @@ module Solana
     # `new_signers` is the LEFT-PACKED live set; this pads to the slot count the
     # selected shape declares. Validate it with `Solana::SignerRotation` before
     # calling — the guards it mirrors are the program's, in the program's order.
-    def build_update_signers(new_signers:, cosigner_pubkey:, lead_signer: nil, extra_cosigners: [])
+    #
+    # ── SERVER-HELD COSIGNERS (`server_cosigners:`) ───────────────────────
+    #
+    # Keypairs from SOLANA_COSIGNER_KEYS (Keypair.cosigners) that are among
+    # this rotation's authorizers sign HERE, at build time, so Phantom is asked
+    # only for the keys the server does not hold. They are never the fee payer:
+    # they sign only when the SERVER leads (admin pays), and a cosigner that is
+    # also the lead is refused. An operator-led build refuses them outright,
+    # because Phantom alters a transaction it pays for and a signature made
+    # over the original bytes would no longer verify.
+    def build_update_signers(new_signers:, cosigner_pubkey:, lead_signer: nil, extra_cosigners: [],
+                             server_cosigners: [])
       server_address = begin
         Keypair.admin.to_base58
       rescue StandardError
@@ -1398,10 +1409,24 @@ module Solana
       ]
       extra_bytes = extras.map { |m| m[:pubkey] }
 
+      held = Array(server_cosigners)
+      held_bytes = held.map(&:public_key_bytes)
+      if held.any? && !server_signed
+        raise ArgumentError, "server-held cosigners sign only a rotation the server leads; " \
+                             "this one is led by #{lead}"
+      end
+      if held_bytes.include?(lead_bytes)
+        raise ArgumentError, "a server-held cosigner cannot lead (it would pay the fee)"
+      end
+      unless (held_bytes - [cosigner_bytes, *extra_bytes]).empty?
+        raise ArgumentError, "a server-held cosigner was passed that is not an authorizer of this rotation"
+      end
+
       serialized =
         if server_signed
           build_partial_signed(accounts: accounts, data: data,
-                               additional_signers: [cosigner_bytes, *extra_bytes])
+                               additional_signers: [cosigner_bytes, *extra_bytes] - held_bytes,
+                               local_signers: held)
         else
           # The LEAD pays here, not the house — see #build_lead_paid_unsigned for
           # why this shape cannot go through Solana::Cosign. The fee payer MUST be
@@ -1418,7 +1443,10 @@ module Solana
         lead_signer: lead,
         # Whether account 0 is ALREADY filled. The roster paints that row as
         # done up front and must only do so when it is true.
-        server_signed: server_signed
+        server_signed: server_signed,
+        # PUBLIC addresses of the server-held cosigners that signed. Never the
+        # keypairs: this hash is rendered to JSON.
+        server_cosigned: held.map(&:to_base58)
       }
     end
 
@@ -4276,8 +4304,11 @@ module Solana
       tx
     end
 
-    def build_partial_signed(accounts:, data:, additional_signers:, durable_nonce: nil)
+    def build_partial_signed(accounts:, data:, additional_signers:, durable_nonce: nil, local_signers: [])
       tx = build_tx(Keypair.admin, durable_nonce: durable_nonce)
+      # Server-held cosigners (build_update_signers) sign here beside admin.
+      # Admin was added first, so it stays the fee payer.
+      Array(local_signers).each { |keypair| tx.add_signer(keypair) }
       # ComputeBudget ixs (priority fee + CU cap) give the TX a non-zero priority
       # fee so a mainnet leader picks it up under load — the fix for the fee-less
       # create_contest drops. When a durable nonce is set, build_tx already

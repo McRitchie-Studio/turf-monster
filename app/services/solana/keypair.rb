@@ -102,6 +102,10 @@ module Solana
     # outright (DuplicateSigner). The message names public keys only.
     def self.cosigners(env = ENV)
       keys = env["SOLANA_COSIGNER_KEYS"].to_s.split(",").map(&:strip).reject(&:empty?)
+      # None set is no cosigner, and asks nothing of the admin key: a box with
+      # no SOLANA_ADMIN_KEY still renders the signer console.
+      return [] if keys.empty?
+
       pairs = keys.map { |secret| from_base58(secret) }
       addresses = pairs.map(&:to_base58)
       repeated = addresses.tally.select { |_, n| n > 1 }.keys

@@ -208,9 +208,10 @@ still the real gate.
 ## Step 6 — Sign the devnet signer change (Mr. McRitchie)
 
 For option A or B, on the v0.25 program: sign in to **turf-monster-qa** as an
-admin, open `/admin/authorities`, and enter the slots and authorizers exactly as
-the dry run printed them. Arm, collect the signatures, broadcast, and the page
-reads the set back. For option C, on v0.26, use turf-vault's
+admin, open `/admin/authorities`, choose **Replace**, pick the key leaving and
+the key joining, and check the review against the dry run: the same new set and
+the same signers (the page derives them; you do not enter slots or authorizers).
+Press **Sign in Phantom**, and the page broadcasts and reads the set back. For option C, on v0.26, use turf-vault's
 `scripts/rotate-devnet-signers.js`, which is a dry run until `--send`.
 
 ## Step 7 — Confirm the chain accepted it
@@ -308,22 +309,23 @@ heroku config:set --app turf-monster-qa \
 ```
 
 or seat Mason again with a reverse rotation, after which the restored list is
-true: on `/admin/authorities`, slots `8K81…`, `7ZDJ…`, `CytJ…`, authorizers
-`8K81…` (the QA server leads on its restored key) and `7ZDJ…`.
+true: on `/admin/authorities`, Replace the QA key with `CytJ…`; the console
+derives the signers, `8K81…` (the QA server leads on its restored key) and `7ZDJ…`.
 
 **Option B** (the QA key took Xan's slot). `heroku rollback` alone does **not**
 recover QA: it restores `8K81…`, which is **no longer a devnet signer**, so every
 admin instruction fails `Unauthorized`. Recovery needs a reverse rotation that
 seats `8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd` again, chain first:
 
-1. On `/admin/authorities` (turf-monster-qa, still on the QA key), enter slots
-   `8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd`,
-   `7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr`,
-   `CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR`, and authorizers `7ZDJ…` (lead)
-   and `CytJ…`, both Phantom signatures. The QA key cannot authorize it, because
-   this rotation evicts it (6017). The page checks the same v0.25 rules as the
-   dry run; `bin/qa-signer-rotation` cannot plan this one, because it refuses to
-   seat production's key.
+1. Seat `8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd`,
+   `7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr` and
+   `CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR`, signed by `7ZDJ…` (lead) and
+   `CytJ…`. The QA key cannot authorize it, because this rotation evicts it
+   (6017). The `/admin/authorities` console cannot plan this one: it asks Phantom
+   only for Mr. McRitchie's roster keys, and `CytJ…` is an agent key. Use
+   turf-vault `scripts/rotate-devnet-signers.js` (a dry run until `--send`);
+   `bin/qa-signer-rotation` cannot plan it either, because it refuses to seat
+   production's key.
 2. `bin/qa-signer-rotation --show` must list `8K81…` and not the QA key.
 3. Then `heroku rollback <the release you noted> --app turf-monster-qa`. The
    restored list, `8K81…,7ZDJ…,CytJ…`, now matches the chain. QA is dead between

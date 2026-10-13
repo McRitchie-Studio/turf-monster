@@ -225,7 +225,8 @@ conclusion), because one Phantom prompt plus the server is two signatures.
 6046.
 
 **`contests:nfl_sunday_lock` on v0.26** needs a second vault signature beyond
-the admin key: it signs with every key in `SOLANA_COSIGNER_KEYS`
+the admin key (the signer console on `/admin/authorities` reads the same keys; see
+there): it signs with every key in `SOLANA_COSIGNER_KEYS`
 (comma-separated base58 secrets, `Solana::Keypair.cosigners`), a window-only
 config var Steffon sets for the run and unsets after. The dry run prints how
 many signatures each move needs and how many the run holds. Without it, move
@@ -706,17 +707,85 @@ bin/deploy
 
 ### The authorities console — `/admin/authorities`
 
-**It is one of the three cosign ceremony surfaces, and the one that hides it.**
-Its eviction console wires its Co-sign button to the GLOBAL `cosignTransaction`
-(`app/javascript/cosign.js`), so this page reaches the same wallet-changed card
-suppression as `/admin/pending_transactions` and `/admin/vault_state` while
-nothing on it says the word. All three render `shared/_wallet_signal`, which
-names the wallet the browser is holding and tells a switch the ceremony declared
-from one nobody did — for an admin who signed in by wallet signature **and** for
-one who signed in by magic link or Google, who reaches this page and can co-sign
-on it (`require_admin` has no session-mode requirement) but whom the
-wallet-changed card cannot see at all. The words differ between the two; the
-distinction does not. See **Wallet Signal (app-wide)** in `docs/UI_PATTERNS.md`.
+**The signer console (intent first).** The operator says what should change
+(Replace, Add, Remove), picks keys from the committed public roster
+(`config/signer_roster.yml`, `Solana::SignerRoster`; a seated key it does not
+know renders "Unknown key", and a pasted unknown key must be entered twice), reads
+a before/after diff with every address in full, and presses one CTA that states
+the Phantom prompt count. The server derives everything else
+(`Solana::SignerPlan`): the new left-packed set; the signers (the server leads
+whenever its key is seated and stays, server-held cosigners sign next, Mr.
+McRitchie's seated `holder: alex` keys fill the rest, the connected account
+first, and the last signature is always his); and the prompt count. Only keys
+that stay sign, which satisfies continuity on both shapes. Operator-led rotations
+(the server's own key removed) are refused on mainnet.
+
+| Endpoint | What it does | Writes |
+|---|---|---|
+| `GET /admin/authorities/console` | rules (shape, slots, required, allowed intents and why not), the seated set, roster labels, candidates, any live rotation | expires abandoned rows only |
+| `POST /admin/authorities/plan` | the plan, or a refusal with a stable `code` (`bad_address`, `zero_key`, `already_seated`, `not_seated`, `unknown_key_unconfirmed`, `not_enough_signers`, `no_human_signer`, `operator_led_mainnet`, `intent_not_allowed`, `shape_mismatch`, `chain_rule` + the turf-vault code) | nothing |
+| `POST /admin/authorities/rotations` | re-plans the REVIEWED draft on a fresh read and refuses (`reviewed_set_mismatch`, no row) unless the set and signers equal the `reviewed_proposed` / `reviewed_authorizers` the operator read; then creates the `PendingTransaction` and builds the bytes in the same request, refusing bytes that carry any other set | the row |
+| `…/:slug/rebuild`, `/broadcast`, `/cancel`, `/reconcile` | unchanged guards; `cancel` answers JSON for a declined prompt; `broadcast` stores the chain read-back on the row (`metadata.read_back`) | the row |
+
+**The signed set is the reviewed set.** The console freezes the draft with the
+plan it reviewed and sends exactly that; from the click until the rotation lands
+or fails, intent, picks and paste are locked. Before Phantom is asked, the browser
+checks the built bytes' set and queue against the review and cancels the row on
+any difference. Added keys must be on the ed25519 curve (`off_curve`: a
+program-derived address can never sign).
+
+A `pending` rotation with no signature older than two minutes is expired before
+the page reads, so no armed row ever greets the operator; a `submitted` (stranded)
+row is never expired and still outranks everything.
+
+**Server-held cosigners.** `SOLANA_COSIGNER_KEYS` (comma-separated base58
+secrets, `Solana::Keypair.cosigners`, handled exactly like `SOLANA_ADMIN_KEY`:
+set through the Platform API pipe, never an argument, never echoed or logged) are
+keys the SERVER signs with at build time when they authorize a rotation the
+server leads. They are never the fee payer, never queued for Phantom
+(`signer_queue_for`), and their public halves only appear in a response. Two uses:
+**window** (set by Steffon for one ceremony sitting and unset after; e.g. Mason
+for the mainnet ADD, `4bKN` for the EVICT) and **standing** (Q2 option (b), Mr.
+McRitchie's call). A plan counted on a held key the process no longer holds
+refuses to build.
+
+**The ceremony checklist** is `/admin/authorities/ceremony`
+(`Solana::SignerCeremony`, data in `config/signer_ceremony.yml`, this cluster's
+steps only). A console step shows its go/no-go read live (chain set equals the
+step's start, shape agrees with the switch, server identity, window cosigners
+held, no open transaction row, fee payer funded; contests in the next six hours
+as a soft note) and links the console with the intent pre-filled only when every
+hard check passes. A runbook step (Steffon's lane) shows only its verdict. A key
+the ceremony needs that does not exist yet is written `UNMINTED:<what>`: mainnet
+slot 5 is `UNMINTED:fresh-governance`, a fresh governance key, because `4bKN` was
+exposed. The page names it "(unminted)", and the `keys_minted` check blocks every
+step that needs it until its public half replaces the placeholder.
+
+**Open Squads upgrade proposals.** The page lists this cluster's open PROGRAM
+UPGRADE proposals (`Solana::SquadsProposals`, the last ten indices) with their
+approvals against the threshold and whether the connected Phantom account is a
+voting seat. Vault transfers are not listed (they keep the squad-vault-ops link
+flow); config changes stay in the Squads app. Each upgrade's buffer is read and
+its program bytes hashed (trailing zeros trimmed, as
+`solana-verify get-executable-hash` does) and looked up in
+`config/turf_vault_builds.yml` for this cluster; it shows as verified only when
+the program is turf-vault and the upgrade authority, the spill (where the
+buffer's rent goes) and the buffer's own authority are all this Squad's vault.
+**Approve** is one Phantom prompt (`signAndSendTransaction`; the member pays the
+fee and no server key is on it), offered only when every check passes, and it
+stays disabled while the vote is read back, so a double click raises one prompt.
+**Execute stays in the Squads app**, and a config change is never approved here.
+**Adding a release:** before the proposal is created, add one row per cluster to
+`config/turf_vault_builds.yml` with the `solana-verify get-executable-hash` of
+the verifiable build.
+
+**It is a cosign ceremony surface.** The console collects signatures through
+`cosign_signatures.collect` from its own Stimulus controller
+(`signer_console_controller.js`) and declares the accounts it moves through with
+`window.tmWalletSwitches`, so the wallet-changed card does not rise over a
+half-collected rotation. It renders `shared/_wallet_signal`, like
+`/admin/pending_transactions` and `/admin/vault_state`. See **Wallet Signal
+(app-wide)** in `docs/UI_PATTERNS.md`.
 
 **One page that reads all three authorities off the chain, and the only place a
 compromised `VaultState` signer can be evicted.** Built for a specific threat
@@ -752,12 +821,13 @@ against the program's upgrade authority is proven rather than asserted.
 |---|---|---|
 | Vault signer set | `VaultState.signers` ++ `signers_ext`, all five slots | `update_signers` — **this page** |
 | Per-action thresholds | the `GovernanceConfig` PDA, or "not on chain" | `set_action_threshold` |
-| Program upgrade authority | the Squads V4 multisig account | Squads' own web UI — **link out** |
+| Program upgrade authority | the Squads V4 multisig account | Squads' own web UI — **link out**; this page only approves a listed proposal |
 | Server signing identity | `Solana::Keypair.admin` | nothing on chain |
 
-**Squads is deliberately out of scope for the ACTION** — because Squads already
-ships a web UI for membership, and a second, less-tested path to the same account
-would be a liability. That reason holds unconditionally.
+**Squads MEMBERSHIP is deliberately out of scope** — because Squads already
+ships a web UI for it, and a second, less-tested path to the same account would
+be a liability. That reason holds unconditionally. The one Squads act here is an
+approval of a proposal the page has read (above).
 
 **Whether a stolen key can EXECUTE there is computed, never assumed.** The page
 intersects the Squads *voting* seats with the live vault signer set and compares

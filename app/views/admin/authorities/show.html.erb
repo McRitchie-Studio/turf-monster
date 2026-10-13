@@ -20,25 +20,25 @@
   </div>
   <p class="text-secondary text-sm mb-6">
     Who can do what to this platform, decoded from the chain rather than from
-    config. The eviction console leads because it is the only thing this page can
-    change; the three authorities are listed under it, and two of them are
-    read-only here.
+    config. The signer console leads because it is what this page changes; the
+    open Squads proposals follow, then the three authorities for reference.
   </p>
 
   <%# ── THE MAIN EVENT, FIRST ────────────────────────────────────────────────
-      The panels below are REFERENCE; this is the act. An operator reaches this
-      page mid-incident to remove a key, and burying that control under four
-      read-only panels made him scroll past everything he already knew to reach
-      the one thing he came for. Ordering is not decoration on a page like this:
-      it is what the page says its job is.
+      The panels below are REFERENCE; the console is the act. A claimed row
+      whose broadcast answer was lost outranks everything: it is answered
+      first, with no chain read, and the console does not render beside it. %>
+  <% if @rotation_stranded %>
+    <section class="card p-4 mb-6 border-danger/30">
+      <h2 class="text-lg font-bold text-heading mb-1">Vault signer set</h2>
+      <%= render "stranded", rotation: @rotation, plan: @rotation_plan, identities: @identities %>
+    </section>
+  <% else %>
+    <%= render "shared/wallet_signal", variant: :panel, label: "Signing wallet" %>
+    <%= render "console", prefill: @prefill %>
+  <% end %>
 
-      The panels still follow rather than move elsewhere, because the console
-      cites them — the slot count, the required signatures and the eligible
-      wallets all come from the reads rendered underneath. %>
-  <%= render "eviction", rotation: @rotation, plan: @rotation_plan, roster: @roster,
-                         vault: @vault, eligible: @eligible_signers,
-                         required: @required_signatures, max_slots: @max_slots,
-                         server_address: @server_address, identities: @identities %>
+  <%= render "proposals", squads_app_url: @squads_app_url %>
 
   <%= render "authority_vault", vault: @vault, vault_error: @vault_error,
                                 server_address: @server_address,

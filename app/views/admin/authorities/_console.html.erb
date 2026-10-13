@@ -1,0 +1,207 @@
+<%# locals: (prefill:) %>
+<%#
+  THE SIGNER CONSOLE. Intent first: the operator says what should change
+  (replace, add, remove), picks keys from the roster, reads the diff, and signs
+  once. The server derives the new set, who signs it and how many Phantom
+  prompts that costs (POST /admin/authorities/plan, Solana::SignerPlan); this
+  page renders what it answers and carries no program-shape literal.
+
+  ONE STIMULUS CONTROLLER (signer_console_controller.js), no inline script, no
+  Alpine: the page is a strict-CSP signing page and a full document load. The
+  markup the controller fills lives in <template>s below so every class is in
+  source text for Tailwind to see.
+
+  ITS STATE COMES FROM GET /admin/authorities/console, not from this render, so
+  the page renders under a dead RPC and the browser test can stand in for the
+  chain. Nothing here is pressable until that answer arrives: the CTA ships
+  disabled.
+%>
+<section class="card p-4 mb-6 border-danger/30"
+         data-controller="signer-console"
+         data-signer-console-console-url-value="<%= admin_authority_console_path %>"
+         data-signer-console-plan-url-value="<%= admin_plan_authority_rotation_path %>"
+         data-signer-console-rotations-url-value="<%= admin_authority_rotations_path %>"
+         data-signer-console-intent-value="<%= prefill[:intent] %>"
+         data-signer-console-remove-value="<%= prefill[:remove] %>"
+         data-signer-console-add-value="<%= prefill[:add] %>">
+  <div class="flex flex-wrap items-start justify-between gap-2 mb-1">
+    <h2 class="text-lg font-bold text-heading">Vault signer set</h2>
+    <%= link_to "Rotation checklist", admin_authority_ceremony_path, class: "text-xs font-bold text-primary underline" %>
+  </div>
+  <p class="text-secondary text-sm mb-1" data-signer-console-target="shape">Reading the chain…</p>
+  <p class="text-3xs text-muted mb-4" data-signer-console-target="continuity"></p>
+
+  <%= render "shared/wallet_desktop_only_notice" %>
+
+  <%# A refusal to plan at all (unreadable vault, shape mismatch). Announced. %>
+  <p class="hidden mb-3 rounded-md border border-warning bg-warning/10 p-2 text-sm text-warning-ink"
+     data-signer-console-target="blocked" role="alert"></p>
+
+  <%# ── STATE 0: THE CURRENT SET ──────────────────────────────────────── %>
+  <div class="mb-4">
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-1">
+      <p class="label-upper text-3xs text-muted">Seated now</p>
+      <button type="button" class="btn btn-outline btn-sm"
+              data-signer-console-target="connect"
+              data-action="signer-console#connectPhantom">Connect Phantom</button>
+    </div>
+    <ol class="space-y-1.5" data-signer-console-target="current"></ol>
+    <p class="mt-1 text-3xs text-warning-ink hidden" data-signer-console-target="heldError"></p>
+  </div>
+
+  <%# ── STATE 1: THE INTENT ───────────────────────────────────────────── %>
+  <fieldset class="mb-4" data-signer-console-target="intentGroup" disabled>
+    <legend class="label-upper text-3xs text-muted mb-1">What should change</legend>
+    <div class="flex flex-wrap gap-2">
+      <% %w[replace add remove].each do |intent| %>
+        <button type="button"
+                class="btn btn-sm border border-strong bg-transparent text-heading
+                       aria-pressed:border-primary aria-pressed:bg-primary/10
+                       disabled:opacity-50 disabled:cursor-not-allowed"
+                aria-pressed="false"
+                data-signer-console-target="intent"
+                data-intent="<%= intent %>"
+                data-action="signer-console#chooseIntent"><%= intent.capitalize %></button>
+      <% end %>
+    </div>
+    <ul class="mt-1 space-y-0.5 text-3xs text-muted" data-signer-console-target="intentReasons"></ul>
+  </fieldset>
+
+  <%# ── STATE 2: THE KEYS ─────────────────────────────────────────────── %>
+  <div class="mb-4 hidden grid gap-4 sm:grid-cols-2" data-signer-console-target="keys">
+    <div data-signer-console-target="removeBox">
+      <p class="label-upper text-3xs text-muted mb-1">Remove (pick from the seated set)</p>
+      <ul class="space-y-1" data-signer-console-target="removeList"></ul>
+    </div>
+    <div data-signer-console-target="addBox">
+      <p class="label-upper text-3xs text-muted mb-1">Add (pick from the roster)</p>
+      <ul class="space-y-1 mb-2" data-signer-console-target="addList"></ul>
+      <label class="block text-3xs text-muted" for="signer-console-paste">Or paste a key not on the roster</label>
+      <input id="signer-console-paste" type="text" autocomplete="off" spellcheck="false"
+             class="input-field w-full rounded-md px-2 py-1.5 font-mono text-2xs"
+             data-signer-console-target="paste"
+             data-action="input->signer-console#pasted">
+      <div class="hidden mt-1" data-signer-console-target="confirmBox">
+        <label class="block text-3xs text-warning-ink" for="signer-console-confirm">
+          Unknown key. Enter it again to confirm you mean it.
+        </label>
+        <input id="signer-console-confirm" type="text" autocomplete="off" spellcheck="false"
+               class="input-field w-full rounded-md px-2 py-1.5 font-mono text-2xs"
+               data-signer-console-target="confirm"
+               data-action="input->signer-console#pasted">
+      </div>
+      <p class="mt-1 text-3xs text-danger-ink" hidden data-signer-console-target="pasteError"
+         role="alert" aria-live="assertive" aria-atomic="true"></p>
+    </div>
+  </div>
+
+  <%# A plan refusal, inline, on the same draft. %>
+  <p class="mb-3 text-sm text-danger-ink" hidden data-signer-console-target="refusal"
+     role="alert" aria-live="assertive" aria-atomic="true"></p>
+
+  <%# ── STATES 3 AND 4: THE SIGNERS AND THE REVIEW ────────────────────── %>
+  <div class="hidden mb-4 rounded-lg border border-subtle bg-surface-alt p-3" data-signer-console-target="review">
+    <p class="text-xs font-bold uppercase tracking-wide text-muted mb-2">Review. Nothing has been signed.</p>
+    <div class="grid gap-4 sm:grid-cols-2">
+      <div>
+        <p class="label-upper text-3xs text-muted mb-1">Before</p>
+        <ol class="space-y-1.5" data-signer-console-target="before"></ol>
+      </div>
+      <div>
+        <p class="label-upper text-3xs text-muted mb-1">After</p>
+        <ol class="space-y-1.5" data-signer-console-target="after"></ol>
+      </div>
+    </div>
+    <p class="mt-3 text-sm text-heading" data-signer-console-target="sentence"></p>
+    <div class="mt-3" data-cosign-controls>
+      <p class="label-upper text-3xs text-muted mb-1">Signing order</p>
+      <ol class="space-y-1.5" data-signer-console-target="signers"></ol>
+    </div>
+    <div class="mt-3 flex flex-wrap gap-2">
+      <button type="button" class="btn btn-primary btn-sm" disabled
+              data-signer-console-target="cta"
+              data-desktop-only-action
+              data-action="signer-console#sign">Sign in Phantom</button>
+      <button type="button" class="btn btn-outline btn-sm"
+              data-action="signer-console#changePlan">Change plan</button>
+    </div>
+  </div>
+
+  <%# ── STATE 5: SIGNING AND THE READ-BACK ────────────────────────────── %>
+  <p class="hidden mb-3 text-sm text-heading" data-signer-console-target="status" role="status" aria-live="polite"></p>
+  <div class="hidden mb-2" data-signer-console-target="readback">
+    <p class="text-sm font-bold mb-1" data-signer-console-target="readbackTitle"></p>
+    <table class="w-full text-2xs">
+      <thead>
+        <tr class="text-left text-muted"><th class="py-1 pr-2">Slot</th><th class="py-1 pr-2">Expected</th><th class="py-1 pr-2">On chain</th><th class="py-1">Match</th></tr>
+      </thead>
+      <tbody data-signer-console-target="readbackRows"></tbody>
+    </table>
+    <a class="mt-2 inline-block text-xs text-primary underline hidden" target="_blank" rel="noopener"
+       data-signer-console-target="explorer">View the transaction</a>
+  </div>
+
+  <%# ── TEMPLATES THE CONTROLLER CLONES ────────────────────────────────── %>
+  <template data-signer-console-target="keyRowTemplate">
+    <li class="flex items-start gap-2 rounded-md border border-subtle bg-surface px-2 py-1.5" data-key-row>
+      <span class="w-5 shrink-0 text-3xs font-bold uppercase text-muted" data-slot></span>
+      <div class="min-w-0 flex-1">
+        <div class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+          <span class="text-xs font-bold text-heading" data-name></span>
+          <span class="hidden rounded bg-surface-alt px-1 py-px text-3xs font-bold uppercase tracking-wide text-muted" data-badge="server">This server</span>
+          <span class="hidden rounded bg-surface-alt px-1 py-px text-3xs font-bold uppercase tracking-wide text-muted" data-badge="held">Signs on the server</span>
+          <span class="hidden rounded bg-violet-600/15 px-1 py-px text-3xs font-bold uppercase tracking-wide text-violet-ink" data-badge="connected">Connected in Phantom</span>
+          <span class="hidden rounded border border-dashed border-strong px-1 py-px text-3xs font-bold uppercase tracking-wide text-warning-ink" data-badge="unknown">Unknown key</span>
+          <span class="hidden rounded bg-danger/15 px-1 py-px text-3xs font-bold uppercase tracking-wide text-danger-ink" data-badge="removed">Removed</span>
+          <span class="hidden rounded bg-success/15 px-1 py-px text-3xs font-bold uppercase tracking-wide text-success-ink" data-badge="added">Added</span>
+        </div>
+        <p class="font-mono text-2xs text-secondary break-all" data-address></p>
+        <p class="hidden text-3xs" data-match></p>
+      </div>
+    </li>
+  </template>
+
+  <template data-signer-console-target="emptyRowTemplate">
+    <li class="flex items-center gap-2 rounded-md border border-dashed border-subtle px-2 py-1.5 text-3xs text-muted" data-key-row>
+      <span class="w-5 shrink-0 font-bold uppercase" data-slot></span><span>empty</span>
+    </li>
+  </template>
+
+  <template data-signer-console-target="pickTemplate">
+    <li>
+      <label class="flex items-start gap-2 rounded-md border border-subtle bg-surface px-2 py-1.5 cursor-pointer">
+        <input type="checkbox" class="mt-0.5" data-pick data-action="change->signer-console#picked">
+        <span class="min-w-0">
+          <span class="block text-xs font-bold text-heading" data-name></span>
+          <span class="block font-mono text-3xs text-muted break-all" data-address></span>
+        </span>
+      </label>
+    </li>
+  </template>
+
+  <template data-signer-console-target="signerRowTemplate">
+    <li class="flex items-start gap-2 rounded-md border border-subtle bg-surface px-2 py-1.5" data-signer-row>
+      <span data-signer-state data-state="pending"
+            class="group/state relative mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center
+                   rounded-full border text-3xs font-bold leading-none
+                   data-[state=pending]:border-strong data-[state=pending]:text-muted
+                   data-[state=connected]:border-violet-600 data-[state=connected]:text-violet-600
+                   dark:data-[state=connected]:border-violet dark:data-[state=connected]:text-violet
+                   data-[state=signing]:border-violet-600/40 data-[state=signing]:text-violet-600
+                   dark:data-[state=signing]:border-violet/40 dark:data-[state=signing]:text-violet
+                   data-[state=signed]:border-success data-[state=signed]:bg-success/15 data-[state=signed]:text-success-ink
+                   data-[state=failed]:border-danger data-[state=failed]:bg-danger/15 data-[state=failed]:text-danger-ink">
+        <span class="hidden group-data-[state=pending]/state:block h-1.5 w-1.5 rounded-full bg-current opacity-60"></span>
+        <span class="hidden group-data-[state=connected]/state:block h-2 w-2 rounded-full bg-current"></span>
+        <span class="hidden group-data-[state=signing]/state:block h-3 w-3 animate-spin rounded-full border-2 border-transparent border-t-current motion-reduce:animate-none"></span>
+        <span aria-hidden="true" class="hidden group-data-[state=signed]/state:block">&check;</span>
+        <span aria-hidden="true" class="hidden group-data-[state=failed]/state:block">&times;</span>
+      </span>
+      <div class="min-w-0 flex-1">
+        <span class="text-xs font-bold text-heading" data-name></span>
+        <span class="font-mono text-2xs text-muted" data-short></span>
+        <p class="text-3xs text-secondary" data-role></p>
+      </div>
+    </li>
+  </template>
+</section>
