@@ -724,8 +724,15 @@ that stay sign, which satisfies continuity on both shapes. Operator-led rotation
 |---|---|---|
 | `GET /admin/authorities/console` | rules (shape, slots, required, allowed intents and why not), the seated set, roster labels, candidates, any live rotation | expires abandoned rows only |
 | `POST /admin/authorities/plan` | the plan, or a refusal with a stable `code` (`bad_address`, `zero_key`, `already_seated`, `not_seated`, `unknown_key_unconfirmed`, `not_enough_signers`, `no_human_signer`, `operator_led_mainnet`, `intent_not_allowed`, `shape_mismatch`, `chain_rule` + the turf-vault code) | nothing |
-| `POST /admin/authorities/rotations` | re-plans on a fresh read, creates the `PendingTransaction` and builds the bytes in the same request; answers the wire, the Phantom queue and the member URLs | the row |
+| `POST /admin/authorities/rotations` | re-plans the REVIEWED draft on a fresh read and refuses (`reviewed_set_mismatch`, no row) unless the set and signers equal the `reviewed_proposed` / `reviewed_authorizers` the operator read; then creates the `PendingTransaction` and builds the bytes in the same request, refusing bytes that carry any other set | the row |
 | `…/:slug/rebuild`, `/broadcast`, `/cancel`, `/reconcile` | unchanged guards; `cancel` answers JSON for a declined prompt; `broadcast` stores the chain read-back on the row (`metadata.read_back`) | the row |
+
+**The signed set is the reviewed set.** The console freezes the draft with the
+plan it reviewed and sends exactly that; from the click until the rotation lands
+or fails, intent, picks and paste are locked. Before Phantom is asked, the browser
+checks the built bytes' set and queue against the review and cancels the row on
+any difference. Added keys must be on the ed25519 curve (`off_curve`: a
+program-derived address can never sign).
 
 A `pending` rotation with no signature older than two minutes is expired before
 the page reads, so no armed row ever greets the operator; a `submitted` (stranded)
@@ -748,18 +755,25 @@ steps only). A console step shows its go/no-go read live (chain set equals the
 step's start, shape agrees with the switch, server identity, window cosigners
 held, no open transaction row, fee payer funded; contests in the next six hours
 as a soft note) and links the console with the intent pre-filled only when every
-hard check passes. A runbook step (Steffon's lane) shows only its verdict.
+hard check passes. A runbook step (Steffon's lane) shows only its verdict. A key
+the ceremony needs that does not exist yet is written `UNMINTED:<what>`: mainnet
+slot 5 is `UNMINTED:fresh-governance`, a fresh governance key, because `4bKN` was
+exposed. The page names it "(unminted)", and the `keys_minted` check blocks every
+step that needs it until its public half replaces the placeholder.
 
-**Open Squads proposals.** The page lists this cluster's open Squads proposals
-(`Solana::SquadsProposals`, the last ten indices): what each does (an upgrade, a
-SOL or token transfer, a config change), its approvals against the threshold, and
-whether the connected Phantom account is a voting seat. For an upgrade it reads
-the buffer, hashes the program bytes (trailing zeros trimmed, as
-`solana-verify get-executable-hash` does) and looks the hash up in
-`config/turf_vault_builds.yml` for this cluster; it also checks the program id,
-the upgrade authority and the buffer's own authority are this Squad's vault.
+**Open Squads upgrade proposals.** The page lists this cluster's open PROGRAM
+UPGRADE proposals (`Solana::SquadsProposals`, the last ten indices) with their
+approvals against the threshold and whether the connected Phantom account is a
+voting seat. Vault transfers are not listed (they keep the squad-vault-ops link
+flow); config changes stay in the Squads app. Each upgrade's buffer is read and
+its program bytes hashed (trailing zeros trimmed, as
+`solana-verify get-executable-hash` does) and looked up in
+`config/turf_vault_builds.yml` for this cluster; it shows as verified only when
+the program is turf-vault and the upgrade authority, the spill (where the
+buffer's rent goes) and the buffer's own authority are all this Squad's vault.
 **Approve** is one Phantom prompt (`signAndSendTransaction`; the member pays the
-fee and no server key is on it) and is offered only when every check passes.
+fee and no server key is on it), offered only when every check passes, and it
+stays disabled while the vote is read back, so a double click raises one prompt.
 **Execute stays in the Squads app**, and a config change is never approved here.
 **Adding a release:** before the proposal is created, add one row per cluster to
 `config/turf_vault_builds.yml` with the `solana-verify get-executable-hash` of
