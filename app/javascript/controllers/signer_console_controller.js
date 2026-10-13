@@ -248,7 +248,7 @@ export default class extends Controller {
   }
 
   selectIntent(intent) {
-    if (!this.state) return
+    if (!this.state || this.signing) return
     if (this.state.rules.intents[intent]) return
     this.chosenIntent = intent
     this.renderIntents()
@@ -260,6 +260,7 @@ export default class extends Controller {
 
   picked(event) {
     const box = event.currentTarget
+    if (this.signing) return
     const set = box.dataset.side === "remove" ? this.removePicks : this.addPicks
     if (box.checked) set.add(box.value)
     else set.delete(box.value)
@@ -267,6 +268,7 @@ export default class extends Controller {
   }
 
   pasted() {
+    if (this.signing) return
     this.requestPlan()
   }
 
@@ -308,6 +310,7 @@ export default class extends Controller {
   async requestPlan() {
     // Every draft change outdates any answer still in flight, including a
     // draft that makes no request (a malformed paste, an empty pick).
+    if (this.signing) return
     const seq = ++this.planSeq
     this.ctaTarget.disabled = true
     this.hide(this.refusalTarget)
@@ -333,7 +336,11 @@ export default class extends Controller {
       this.refusalTarget.dataset.code = body.code || ""
       return
     }
+    // THE REVIEWED DRAFT IS FROZEN WITH ITS PLAN. Sign sends exactly this,
+    // never the live picks, so a pick changed after review cannot reach the
+    // bytes Phantom signs.
     this.plan = body
+    this.reviewedPayload = this.payload(draft)
     this.renderReview(body)
   }
 
@@ -388,6 +395,7 @@ export default class extends Controller {
   }
 
   changePlan() {
+    if (this.signing) return
     this.hide(this.reviewTarget)
     this.ctaTarget.disabled = true
     this.intentGroupTarget.scrollIntoView({ block: "nearest" })
@@ -395,9 +403,31 @@ export default class extends Controller {
 
   // ── signing ──────────────────────────────────────────────────────────────
 
+  // The draft is LOCKED from the click until the rotation lands or fails:
+  // intent, picks and paste are disabled, and any change event is ignored.
   async sign() {
-    if (!this.plan) return
-    const plan = this.plan
+    if (!this.plan || !this.reviewedPayload || this.signing) return
+    this.signing = true
+    this.lock(true)
+    let outcome = "failed"
+    try {
+      outcome = await this.signReviewed(this.plan, this.reviewedPayload)
+    } finally {
+      this.signing = false
+      if (outcome !== "landed") this.lock(false)
+    }
+    if (outcome === "replan") this.requestPlan()
+  }
+
+  lock(on) {
+    this.intentGroupTarget.disabled = on
+    this.keysTarget.querySelectorAll("input, button").forEach((el) => { el.disabled = on })
+    this.element.querySelectorAll("[data-action*='changePlan']").forEach((el) => { el.disabled = on })
+    this.element.dataset.signing = String(on)
+  }
+
+  // "landed", "failed" or "replan".
+  async signReviewed(plan, reviewed) {
     this.ctaTarget.disabled = true
     this.hide(this.readbackTarget)
 
@@ -405,12 +435,12 @@ export default class extends Controller {
       if (window.walletProvider && window.walletProvider.requireDesktop) window.walletProvider.requireDesktop()
     } catch (gate) {
       this.fail(gate.message)
-      return
+      return "failed"
     }
     const provider = window.solana
     if (!provider || !provider.isPhantom) {
       this.fail("Phantom is required to sign. Unlock the Phantom extension, then reload.")
-      return
+      return "failed"
     }
 
     this.say("Building a fresh transaction…")
@@ -418,21 +448,34 @@ export default class extends Controller {
       await provider.connect()
     } catch (e) {
       this.fail("Phantom did not connect.")
-      return
+      return "failed"
     }
 
-    const { ok, body: built } = await this.post(this.rotationsUrlValue, this.payload(this.draft()))
+    // The reviewed draft, and the set and signers it was reviewed as: the
+    // server refuses (reviewed_set_mismatch) unless a fresh plan equals them.
+    const { ok, body: built } = await this.post(this.rotationsUrlValue, {
+      ...reviewed,
+      connected: this.connected,
+      reviewed_proposed: plan.proposed,
+      reviewed_authorizers: plan.authorizers
+    })
     if (!ok) {
       this.fail(built.message || "The rotation could not be built.")
-      this.requestPlan()
-      return
+      return "replan"
     }
 
+    // And the BYTES carry the reviewed set and queue, or nothing is signed.
+    const builtSet = (built.new_signers || []).filter((k) => k && !/^1{32}$/.test(k))
     const queue = built.signer_queue || []
+    if (builtSet.join(",") !== plan.proposed.join(",")) {
+      await this.cancel(built)
+      this.fail("The built signer set differs from the set you reviewed. Nothing was signed; plan again.")
+      return "failed"
+    }
     if (queue.join(",") !== plan.phantom_queue.join(",")) {
       await this.cancel(built)
       this.fail("The server's signing queue differs from the plan you reviewed. Nothing was signed; plan again.")
-      return
+      return "failed"
     }
 
     ;(built.server_signed || []).forEach((key) => this.paint(key, "signed"))
@@ -462,7 +505,7 @@ export default class extends Controller {
       const declined = /user rejected|user declined/i.test(msg) || (err && err.code === 4001)
       this.fail(declined ? "You declined in Phantom. Nothing was sent; the draft is kept." : msg)
       this.ctaTarget.disabled = false
-      return
+      return "failed"
     } finally {
       if (switches) switches.clearExpectedSwitches()
     }
@@ -476,9 +519,10 @@ export default class extends Controller {
     })
     if (!landed) {
       this.fail(result.error || result.message || "The server could not broadcast the rotation.")
-      return
+      return "failed"
     }
     this.renderReadback(result, plan)
+    return "landed"
   }
 
   async cancel(built) {

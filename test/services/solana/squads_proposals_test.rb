@@ -171,6 +171,39 @@ class Solana::SquadsProposalsTest < ActiveSupport::TestCase
     assert_match(/already approved/, voted[:approve_blocked])
   end
 
+  test "an upgrade whose spill is not the vault is NOT verified" do
+    elf = "verified-build".b
+    # The live #8 upgrade's account indexes are [1, 2, 3, 0, 5, 6, 0]; the
+    # fourth (spill) points at 0, the vault. Repoint it at 2, the program.
+    tx = fixture("mainnet_vault_tx_8_upgrade").dup
+    at = tx.index([7].pack("L<") + [1, 2, 3, 0, 5, 6, 0].pack("C*"))
+    assert at, "fixture layout moved"
+    tx.setbyte(at + 4 + 3, 2)
+    assert_equal PROGRAM, Solana::SquadsProposals.summarize(Solana::SquadsProposals.decode_vault_transaction(tx))[:spill]
+
+    probe = service({})
+    accounts = open_upgrade_accounts(probe, elf: elf).merge(probe.transaction_pda(8) => tx)
+    row = Solana::SquadsProposals.stub(:builds, [{ "version" => "v", "sha256" => Digest::SHA256.hexdigest(elf) }]) do
+      service(accounts).open_proposals(connected: ALEX).first
+    end
+    refute row[:verification][:ok]
+    refute row[:can_approve]
+    assert_match(/spill/, row[:approve_blocked])
+  end
+
+  test "only upgrade proposals are listed; an open vault transfer is not, and cannot be approved here" do
+    probe = service({})
+    accounts = {
+      MULTISIG => fixture("mainnet_multisig"),
+      probe.proposal_pda(8) => proposal_bytes(8, approved: [SYSTEM_SEAT]),
+      probe.transaction_pda(8) => fixture("mainnet_vault_tx_7_sol_transfer")
+    }
+    svc = service(accounts)
+    assert_equal [], svc.open_proposals(connected: ALEX)
+    error = assert_raises(Solana::SquadsProposals::Refusal) { svc.build_approve(index: 8, member: ALEX) }
+    assert_match(/Only program upgrades/, error.message)
+  end
+
   test "executed proposals are not listed" do
     probe = service({})
     svc = service(MULTISIG => fixture("mainnet_multisig"), probe.proposal_pda(8) => fixture("mainnet_proposal_8"))

@@ -175,6 +175,7 @@ module Admin
     rescue Solana::SignerPlan::Refusal => e
       render json: e.to_h, status: :unprocessable_entity
     rescue StandardError => e
+      log_console_failure(e)
       render json: { ok: false, code: "unreadable", message: Solana::Config.redact_message(e.message) },
              status: :service_unavailable
     end
@@ -188,6 +189,7 @@ module Admin
     rescue Solana::SignerPlan::Refusal => e
       render json: e.to_h, status: :unprocessable_entity
     rescue StandardError => e
+      log_console_failure(e)
       render json: { ok: false, code: "unreadable", message: Solana::Config.redact_message(e.message) },
              status: :service_unavailable
     end
@@ -205,6 +207,7 @@ module Admin
 
       planned = planner_for(params[:connected]).plan!(**plan_params)
       vault_shape!
+      require_reviewed_set!(planned)
 
       rescue_and_log do
         plan = planned.slice(:shape, :required_signatures, :max_slots, :current, :proposed, :padded,
@@ -232,6 +235,7 @@ module Admin
       render json: { ok: false, code: "chain_rule", chain_code: e.code, message: "Refused: #{e.message}" },
              status: :unprocessable_entity
     rescue StandardError => e
+      log_console_failure(e)
       @tx&.update(status: "expired", stale: true) if @tx&.pending? && @tx.tx_signature.blank?
       render json: { ok: false, code: "build_failed", message: Solana::Config.redact_message(e.message) },
              status: :unprocessable_entity
@@ -250,7 +254,8 @@ module Admin
         config_governance: Solana::Config.governance?,
         server: @server_address,
         server_held: server_held_addresses,
-        fee_payer: @server_address && vault.fee_payer_status(required_signatures: 3, address: @server_address)
+        fee_payer: @server_address && vault.fee_payer_status(required_signatures: required_signatures_for_chain,
+                                                             address: @server_address)
       )
       @steps = @ceremony.steps
     end
@@ -263,6 +268,7 @@ module Admin
                      vault_pda: squads.vault_pda,
                      proposals: squads.open_proposals(connected: params[:connected].to_s.strip.presence) }
     rescue StandardError => e
+      log_console_failure(e)
       render json: { ok: false, message: Solana::Config.redact_message(e.message) }, status: :service_unavailable
     end
 
@@ -281,6 +287,7 @@ module Admin
     rescue Solana::SquadsProposals::Refusal => e
       render json: { ok: false, code: e.code, message: e.message }, status: :unprocessable_entity
     rescue StandardError => e
+      log_console_failure(e)
       render json: { ok: false, code: "unreadable", message: Solana::Config.redact_message(e.message) },
              status: :service_unavailable
     end
@@ -492,6 +499,31 @@ module Admin
 
     private
 
+    # THE SIGNED SET MUST BE THE REVIEWED SET. The browser sends the set and
+    # signers the operator READ (`reviewed_proposed`, `reviewed_authorizers`);
+    # a fresh plan that differs (a pick changed after review, or the chain
+    # moved) is refused before a row exists, rather than caught by the
+    # read-back after it lands.
+    def require_reviewed_set!(planned)
+      reviewed = Array(params[:reviewed_proposed]).map { |k| k.to_s.strip }
+      reviewed_signers = Array(params[:reviewed_authorizers]).map { |k| k.to_s.strip }
+      return if reviewed == planned[:proposed] && reviewed_signers == planned[:authorizers]
+
+      raise Solana::SignerPlan::Refusal.new(
+        "The set or signers about to be built differ from the plan you reviewed " \
+        "(reviewed #{reviewed.length} keys, built #{planned[:proposed].length}). Nothing was built; review again.",
+        code: "reviewed_set_mismatch"
+      )
+    end
+
+    # A failed read or build on the console is logged for triage, never
+    # raised: the page answers it inline.
+    def log_console_failure(error)
+      ErrorLog.capture!(error)
+    rescue StandardError
+      nil
+    end
+
     # The console calls #cancel with fetch the moment Phantom is declined; the
     # stranded panel still posts a form.
     def cancel_answer(message, ok:)
@@ -588,6 +620,13 @@ module Admin
         extra_cosigners: plan[:authorizers][2..] || [],
         server_cosigners: server_cosigner_keypairs!(plan)
       )
+
+      # THE BYTES CARRY THE RECORDED SET, or nothing is written or sent.
+      built_set = Array(result[:new_signers]).reject { |k| k.blank? || k == Solana::SignerRotation::EMPTY }
+      if built_set != Array(plan[:proposed])
+        raise "The built set (#{built_set.join(', ')}) differs from the recorded plan " \
+              "(#{Array(plan[:proposed]).join(', ')}). Discard and plan again."
+      end
 
       # The queue below and the broadcast check both assume who filled
       # account 0. If the build disagrees, nothing is written or sent.

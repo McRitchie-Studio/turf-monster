@@ -71,7 +71,7 @@ keys:
     signs_in: server
     clusters: [mainnet-beta]
     op_item: solana.turf.governance
-    role: admin-vault agent key; a mainnet Squads seat (exposed 2026-10-12, slated for replacement)
+    role: admin-vault agent key and a mainnet Squads seat; exposed, so in no VaultState target (slot 5 takes a fresh governance key)
 
   - address: CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR
     name: Mason

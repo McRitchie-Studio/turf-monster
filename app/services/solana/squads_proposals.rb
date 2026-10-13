@@ -90,7 +90,10 @@ module Solana
         proposal = read_proposal(index)
         next unless proposal && OPEN.include?(proposal[:status])
 
-        describe(index, proposal, ms, connected: connected)
+        row = describe(index, proposal, ms, connected: connected)
+        # UPGRADES ONLY. Vault transfers keep the squad-vault-ops link flow and
+        # config changes stay in the Squads app; neither is listed here.
+        row if row[:summary][:kind] == "upgrade"
       end
     end
 
@@ -271,16 +274,11 @@ module Solana
       return "This proposal is #{row[:status]}, so it takes no more approvals." unless row[:status] == "active"
       return "A config change executed after this proposal, so it can never take another approval." if row[:stale]
 
-      case row[:kind]
-      when "config" then "A config change rewrites the Squad's membership. Read and approve it in the Squads app."
-      when "vault"
-        v = row[:verification]
-        return nil if v.nil? && row[:summary][:kind] != "other" && row[:summary][:kind] != "unreadable"
-        return "This page cannot read what the transaction does; review it in the Squads app." if v.nil?
-
-        v[:ok] ? nil : v[:reason]
-      else "This page cannot read this transaction; review it in the Squads app."
+      unless row[:summary][:kind] == "upgrade"
+        return "Only program upgrades are approved here. Use the Squads app (or the squad-vault-ops link) for this one."
       end
+
+      row[:verification][:ok] ? nil : row[:verification][:reason]
     end
 
     def classify(raw)
@@ -299,6 +297,7 @@ module Solana
     def verify_upgrade(summary)
       result = { program_matches: summary[:program] == @program_id,
                  authority_is_vault: summary[:authority] == vault_pda,
+                 spill_is_vault: summary[:spill] == vault_pda,
                  buffer: summary[:buffer] }
       raw = account_bytes(summary[:buffer])
       if raw.nil?
@@ -313,6 +312,7 @@ module Solana
       reason =
         if !result[:program_matches] then "This upgrade targets #{summary[:program]}, not turf-vault (#{@program_id})."
         elsif !result[:authority_is_vault] then "The upgrade authority it names is not this Squad's vault."
+        elsif !result[:spill_is_vault] then "The buffer's rent refund (spill) goes to #{summary[:spill]}, not this Squad's vault."
         elsif result[:buffer_authority] != vault_pda then "The buffer's authority is not this Squad's vault, so someone else could still rewrite it."
         elsif build.nil? then "The buffer's hash #{result[:buffer_hash]} matches no verified build in config/turf_vault_builds.yml for #{network}."
         end

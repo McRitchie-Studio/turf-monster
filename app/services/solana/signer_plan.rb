@@ -208,6 +208,12 @@ module Solana
         if bytes == ("\x00" * 32).b
           raise Refusal.new("The zero key is the empty slot, not a signer.", code: "zero_key", field: "add")
         end
+        # A program-derived (off-curve) address has no private key, so a slot
+        # holding one can never sign.
+        unless Transaction.on_curve?(bytes)
+          raise Refusal.new("#{short(key)} is not on the ed25519 curve (a program-derived address), so " \
+                            "no wallet can ever sign for it.", code: "off_curve", field: "add")
+        end
         if current.include?(key)
           raise Refusal.new("#{short(key)} is already seated.", code: "already_seated", field: "add")
         end

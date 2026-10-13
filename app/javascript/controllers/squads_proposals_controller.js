@@ -12,6 +12,7 @@ export default class extends Controller {
   static values = { url: String, approveUrl: String }
 
   connect() {
+    this.approving = new Set()
     this.onConnected = () => this.load()
     this.onPageShow = (event) => { if (event.persisted) this.load() }
     window.addEventListener("signer-console:connected", this.onConnected)
@@ -29,7 +30,7 @@ export default class extends Controller {
     return key && key.toBase58 ? key.toBase58() : null
   }
 
-  async load() {
+  async load({ keepStatus = false } = {}) {
     const url = new URL(this.urlValue, window.location.origin)
     if (this.connected) url.searchParams.set("connected", this.connected)
     let body = {}
@@ -44,7 +45,7 @@ export default class extends Controller {
     }
     if (body.squads_url) this.squadsLinkTarget.href = body.squads_url
     this.rows = body.proposals || []
-    this.statusTarget.textContent = this.rows.length ? "" : "No open proposals."
+    if (!keepStatus) this.statusTarget.textContent = this.rows.length ? "" : "No open proposals."
     this.listTarget.replaceChildren(...this.rows.map((row) => this.render(row)))
     return this.rows
   }
@@ -86,7 +87,9 @@ export default class extends Controller {
     const button = node.querySelector("[data-approve]")
     if (row.can_approve) {
       button.classList.remove("hidden")
-      button.disabled = false
+      // A vote in flight keeps its button disabled through every re-render of
+      // the read-back, so a second click can never raise a second prompt.
+      button.disabled = this.approving.has(String(row.index))
       button.dataset.index = String(row.index)
     } else if (row.approve_blocked) {
       const blocked = node.querySelector("[data-blocked]")
@@ -96,31 +99,22 @@ export default class extends Controller {
     return node
   }
 
-  title(row) {
-    const s = row.summary || {}
-    switch (s.kind) {
-      case "upgrade": return "Program upgrade"
-      case "sol_transfer": return "SOL transfer from the Squad vault"
-      case "token_transfer": return "Token transfer from the Squad vault"
-      case "config": return "Squad config change (membership or threshold)"
-      default: return "Transaction this page cannot read"
-    }
+  // The server lists program upgrades only; vault transfers keep the
+  // squad-vault-ops link flow and config changes stay in the Squads app.
+  title() {
+    return "Program upgrade"
   }
 
   detail(row) {
     const s = row.summary || {}
-    switch (s.kind) {
-      case "upgrade": return `Installs buffer ${s.buffer} into program ${s.program}. Rent refund to ${short(s.spill)}.`
-      case "sol_transfer": return `${(s.lamports / 1e9).toFixed(4)} SOL to ${s.to}.`
-      case "token_transfer": return `${(s.amount / 10 ** s.decimals).toFixed(s.decimals)} of mint ${short(s.mint)} to ${s.destination}.`
-      case "config": return "Read and vote on it in the Squads app."
-      default: return s.text || "Review it in the Squads app."
-    }
+    return `Installs buffer ${s.buffer} into program ${s.program}. Buffer rent refund (spill) to ${s.spill}.`
   }
 
   async approve(event) {
     const button = event.currentTarget
     const index = button.dataset.index
+    if (this.approving.has(index)) return
+    this.approving.add(index)
     button.disabled = true
     const provider = window.solana
     try {
@@ -150,13 +144,16 @@ export default class extends Controller {
       const msg = err && err.message ? err.message : String(err)
       const declined = /user rejected|user declined/i.test(msg) || (err && err.code === 4001)
       this.statusTarget.textContent = declined ? "You declined in Phantom. Nothing was sent." : msg
-      button.disabled = false
+    } finally {
+      this.approving.delete(index)
+      // Re-read so the button reflects the chain, not this click.
+      await this.load({ keepStatus: true })
     }
   }
 
   async readBack(index, member) {
     for (let i = 0; i < 10; i++) {
-      const rows = await this.load()
+      const rows = await this.load({ keepStatus: true })
       const row = rows.find((r) => String(r.index) === String(index))
       if (!row || (row.approved || []).includes(member)) {
         this.statusTarget.textContent = row

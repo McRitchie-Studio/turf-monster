@@ -14,6 +14,13 @@ module Solana
 
     Check = Struct.new(:id, :label, :level, :ok, :detail, keyword_init: true)
 
+    # A key the ceremony needs that does not exist yet, written in the YAML as
+    # `UNMINTED:<what>`. It names nothing on chain, so any step that names one
+    # is blocked until the real address replaces it.
+    UNMINTED = "UNMINTED:".freeze
+
+    def self.unminted?(key) = key.to_s.start_with?(UNMINTED)
+
     attr_reader :network
 
     # Every input is a READ the caller made (or nil when it failed), so this
@@ -36,7 +43,11 @@ module Solana
       @steps.map { |step| evaluate(step) }
     end
 
-    def name_for(address) = @roster[address]&.name || "Unknown key"
+    def name_for(address)
+      return "#{address.to_s.delete_prefix(UNMINTED).tr('-', ' ').capitalize} key (unminted)" if self.class.unminted?(address)
+
+      @roster[address]&.name || "Unknown key"
+    end
 
     private
 
@@ -64,7 +75,13 @@ module Solana
       locking = Contest.where(starts_at: Time.current..LOCK_WINDOW.from_now).where.not(status: "settled").count
       owed = Contest.where(status: "settlement_pending").count
 
+      unminted = step_keys(step).select { |key| self.class.unminted?(key) }.uniq
       [
+        Check.new(id: "keys_minted", label: "Every key this step names exists", level: :hard,
+                  ok: unminted.empty?,
+                  detail: unminted.empty? ? "All minted." :
+                          "Not minted yet: #{unminted.map { |k| name_for(k) }.join(', ')} " \
+                          "(Steffon mints it into the admin vault and files its public half in config/signer_roster.yml)."),
         Check.new(id: "chain_set", label: "The chain's set is this step's starting set", level: :hard,
                   ok: same_set?(@chain_set, step["start"]) == true,
                   detail: @chain_set.nil? ? "The vault could not be read." : "Chain holds #{@chain_set.length} keys."),
@@ -88,6 +105,10 @@ module Solana
         Check.new(id: "manual", label: "No deploy in flight; Phantom on a desktop as the signing account",
                   level: :manual, ok: nil, detail: "Not readable here.")
       ]
+    end
+
+    def step_keys(step)
+      %w[start end add remove window_cosigners].flat_map { |field| Array(step[field]) } + [step["server"]].compact
     end
 
     def missing_cosigners(step)

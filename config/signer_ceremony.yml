@@ -11,9 +11,15 @@
 # program's business, not the checklist's.
 #
 # Source: the signer-console redesign audit (.agents/epics/audits/), section
-# 3, and the rotation target Mr. McRitchie set (NEW, 7ZDJ, 9gAC, 3Qj4, 4bKN).
-# 4bKN is now marked exposed (config/signer_roster.yml): confirm slot 5 with him
-# before the ADD, and change `add` below (one line) if it moves.
+# 3, and the rotation target Mr. McRitchie set (NEW, 7ZDJ, 9gAC, 3Qj4, and a
+# governance key in slot 5).
+#
+# SLOT 5 IS A FRESH GOVERNANCE KEY, NOT 4bKN: 4bKN was exposed, so it is in no
+# VaultState target. `UNMINTED:fresh-governance` is the placeholder until
+# Steffon mints the key into the admin vault and files its public half in
+# config/signer_roster.yml; replace every occurrence below with that address.
+# Until then the page shows the key as unminted and every step naming it is
+# blocked by the `keys_minted` check.
 #
 # Keys are full addresses; config/signer_roster.yml names them.
 
@@ -23,18 +29,18 @@ mainnet-beta:
     title: ADD the new server key and slot 5
     who: Mr. McRitchie, one Phantom prompt
     start: [8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd, 7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr, CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR]
-    end: [8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd, 7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr, CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR, 4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY, 4bKNSqkrKeggSyrds16Ak7rcB4ibvGJ4ZLsKjvQgC3Vk]
+    end: [8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd, 7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr, CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR, 4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY, UNMINTED:fresh-governance]
     server: 8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd
     window_cosigners: [CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR]
     intent: add
-    add: [4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY, 4bKNSqkrKeggSyrds16Ak7rcB4ibvGJ4ZLsKjvQgC3Vk]
+    add: [4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY, UNMINTED:fresh-governance]
     note: Steffon sets Mason's key as a window cosigner (SOLANA_COSIGNER_KEYS) for the sitting first.
 
   - id: flip
     kind: runbook
     title: Flip production to the new server key
     who: Steffon
-    runbook: turf-vault docs/SIGNER_ROTATION.md (the flip); SOLANA_ADMIN_KEY and the window cosigner (4bKN) through the Platform API pipe
+    runbook: turf-vault docs/SIGNER_ROTATION.md (the flip); SOLANA_ADMIN_KEY and the window cosigner (the fresh governance key) through the Platform API pipe
     done_when:
       server: 4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY
 
@@ -42,10 +48,10 @@ mainnet-beta:
     kind: console
     title: EVICT 8K81 and Mason, seat Alex's second and third accounts
     who: Mr. McRitchie, one Phantom prompt
-    start: [8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd, 7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr, CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR, 4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY, 4bKNSqkrKeggSyrds16Ak7rcB4ibvGJ4ZLsKjvQgC3Vk]
-    end: [7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr, 4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY, 4bKNSqkrKeggSyrds16Ak7rcB4ibvGJ4ZLsKjvQgC3Vk, 9gACbzsCLmkYF9Yx1EBGmwMvvyfuTquJ6qs8QsoQvHXf, 3Qj4v9qjhXgkru6zCRCErRVhy8Q6qU3NrNpvpXLTZboA]
+    start: [8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd, 7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr, CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR, 4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY, UNMINTED:fresh-governance]
+    end: [7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr, 4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY, UNMINTED:fresh-governance, 9gACbzsCLmkYF9Yx1EBGmwMvvyfuTquJ6qs8QsoQvHXf, 3Qj4v9qjhXgkru6zCRCErRVhy8Q6qU3NrNpvpXLTZboA]
     server: 4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY
-    window_cosigners: [4bKNSqkrKeggSyrds16Ak7rcB4ibvGJ4ZLsKjvQgC3Vk]
+    window_cosigners: [UNMINTED:fresh-governance]
     intent: remove
     remove: [8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd, CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR]
     add: [9gACbzsCLmkYF9Yx1EBGmwMvvyfuTquJ6qs8QsoQvHXf, 3Qj4v9qjhXgkru6zCRCErRVhy8Q6qU3NrNpvpXLTZboA]

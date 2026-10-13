@@ -298,11 +298,19 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
 
   # ── SIGN: ROW AND BYTES IN ONE REQUEST ────────────────────────────────────
 
+  # What the console sends: the reviewed draft, and the set and signers it
+  # was reviewed as.
+  def reviewed(proposed:, authorizers:, **draft)
+    { intent: "replace", remove: [MASON], add: [ALEX2] }.merge(draft)
+      .merge(reviewed_proposed: proposed, reviewed_authorizers: authorizers)
+  end
+
   test "rotations creates the row and builds it at once, returning the queue and the urls" do
     vault = StubVault.new(signers: [server, ALEX, MASON])
     assert_difference -> { PendingTransaction.count }, 1 do
       with_vault(vault) do
-        post admin_authority_rotations_path, params: { intent: "replace", remove: [MASON], add: [ALEX2] }, as: :json
+        post admin_authority_rotations_path,
+             params: reviewed(proposed: [server, ALEX, ALEX2], authorizers: [server, ALEX]), as: :json
       end
     end
 
@@ -319,6 +327,42 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
     plan = JSON.parse(row.metadata)["plan"]
     assert_equal [server, ALEX], plan["authorizers"]
     assert_equal server, vault.build_calls.first[:lead]
+  end
+
+  test "rotations refuses, building nothing, unless the fresh plan equals the reviewed set and signers" do
+    vault = StubVault.new(signers: [server, ALEX, MASON])
+    assert_no_difference -> { PendingTransaction.count } do
+      with_vault(vault) do
+        # A pick changed after review: the operator reviewed ALEX2 joining,
+        # the live draft now adds ALEX3.
+        post admin_authority_rotations_path,
+             params: reviewed(proposed: [server, ALEX, ALEX2], authorizers: [server, ALEX], add: [ALEX3]), as: :json
+      end
+    end
+    assert_response :unprocessable_entity
+    assert_equal "reviewed_set_mismatch", JSON.parse(response.body)["code"]
+    assert_empty vault.build_calls
+
+    with_vault(vault) do
+      post admin_authority_rotations_path,
+           params: reviewed(proposed: [server, ALEX, ALEX2], authorizers: [ALEX, server]), as: :json
+    end
+    assert_equal "reviewed_set_mismatch", JSON.parse(response.body)["code"], "signer order is part of the review"
+
+    with_vault(vault) { post admin_authority_rotations_path, params: { intent: "replace", remove: [MASON], add: [ALEX2] }, as: :json }
+    assert_equal "reviewed_set_mismatch", JSON.parse(response.body)["code"], "no reviewed set, no build"
+  end
+
+  test "a build whose bytes carry a different set than the recorded plan writes and returns nothing" do
+    vault = StubVault.new(signers: [ALEX, MASON, SYSTEM])
+    row = arm(vault, signers: [ALEX, MASON, ALEX2], authorizers: [ALEX, MASON])
+    vault.define_singleton_method(:build_update_signers) do |**|
+      { serialized_tx: "WRONG_SET_WIRE", new_signers: [ALEX, MASON, ALEX3], server_signed: false, server_cosigned: [] }
+    end
+    with_vault(vault) { post admin_rebuild_authority_rotation_path(row.slug), as: :json }
+    assert_response :unprocessable_entity
+    assert_match(/differs from the recorded plan/, JSON.parse(response.body)["error"])
+    assert_equal Admin::AuthoritiesController::UNBUILT_WIRE, row.reload.serialized_tx
   end
 
   test "rotations refuses while another rotation is in flight" do
@@ -356,7 +400,8 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
         Solana::Config.stub(:governance?, true) do
           with_vault(vault) do
             post admin_authority_rotations_path,
-                 params: { intent: "replace", remove: [MASON], add: [ALEX2] }, as: :json
+                 params: reviewed(proposed: [server, ALEX, held.to_base58, ALEX2, ALEX3],
+                                  authorizers: [server, held.to_base58, ALEX]), as: :json
           end
         end
       end
@@ -480,7 +525,8 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
     steps = YAML.safe_load_file(Solana::SignerCeremony::PATH)
     assert_equal %w[add flip evict unset], steps["mainnet-beta"].map { |s| s["id"] }
     roster = Solana::SignerRoster.default
-    steps.values.flatten.flat_map { |st| Array(st["start"]) + Array(st["end"]) + Array(st["add"]) }.uniq.each do |key|
+    keys = steps.values.flatten.flat_map { |st| Array(st["start"]) + Array(st["end"]) + Array(st["add"]) }.uniq
+    keys.reject { |key| Solana::SignerCeremony.unminted?(key) }.each do |key|
       assert roster.include?(key), "#{key} is in the checklist but not the roster"
     end
   end

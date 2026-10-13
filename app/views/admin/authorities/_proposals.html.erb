@@ -1,10 +1,12 @@
 <%# locals: (squads_app_url:) %>
 <%#
-  OPEN SQUADS PROPOSALS on this cluster: program upgrades and vault transfers
-  agents queued by script (turf-vault scripts/squad-upgrade.js,
-  scripts/squad-vault-transfer.js) and pre-approved with the agent seats. Each
+  OPEN SQUADS UPGRADE PROPOSALS on this cluster, queued by agents with turf-vault
+  scripts/squad-upgrade.js and pre-approved with the agent seats. Vault
+  transfers are not listed: they keep the squad-vault-ops link flow. Each
   row says what the proposal does, read from the chain; an upgrade's buffer is
-  hashed and checked against config/turf_vault_builds.yml; Approve is one
+  hashed and checked against config/turf_vault_builds.yml, and its program,
+  upgrade authority, spill and buffer authority must all be this Squad's vault
+  or program; Approve is one
   Phantom prompt for the connected seat, offered only when every check passes.
 
   EXECUTE STAYS IN THE SQUADS APP (agents execute after Mr. McRitchie's
@@ -24,8 +26,9 @@
        class="text-xs font-bold text-primary underline" data-squads-proposals-target="squadsLink">Open in Squads</a>
   </div>
   <p class="text-secondary text-sm mb-3">
-    Program upgrades and vault transfers waiting on a vote. Approve casts your
-    seat's vote in one Phantom prompt; execution happens in the Squads app.
+    Program upgrades waiting on a vote. Approve casts your seat's vote in one
+    Phantom prompt; execution happens in the Squads app. Vault transfers keep
+    their squad-vault-ops link.
   </p>
   <p class="text-sm text-muted" data-squads-proposals-target="status" role="status" aria-live="polite">Reading proposals…</p>
   <ol class="space-y-3" data-squads-proposals-target="list"></ol>

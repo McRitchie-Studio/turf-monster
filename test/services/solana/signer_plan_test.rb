@@ -158,6 +158,14 @@ class Solana::SignerPlanTest < ActiveSupport::TestCase
     refute_includes error.message, secret
   end
 
+  test "an off-curve key (a program-derived address) is refused: nothing can ever sign for it" do
+    pda = Solana::Keypair.encode_base58(Solana::Transaction.find_pda(["vault_state".b],
+                                                                     Solana::Keypair.decode_base58(XAN)).first)
+    error = refusal(planner(current: [XAN, ALEX, MASON], held: [MASON]), intent: "add", add: [pda],
+                    confirm_unknown: [pda])
+    assert_equal "off_curve", error.code
+  end
+
   test "the zero key is refused" do
     error = refusal(planner(current: [XAN, ALEX, MASON], held: [MASON]), intent: "add",
                     add: [Solana::SignerRotation::EMPTY])
