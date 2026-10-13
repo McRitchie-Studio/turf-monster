@@ -39,7 +39,14 @@ async function installPhantomLab(page) {
         const key = activeKey();
         return key ? key.publicKey : null;
       },
-      connect: async () => ({ publicKey: window.solana.publicKey }),
+      // `lab.holdConnect = true` keeps the connect prompt "open" until the
+      // spec calls lab.releaseConnect(), so it can act while Phantom waits.
+      connect: () => {
+        if (!lab.holdConnect) return Promise.resolve({ publicKey: window.solana.publicKey });
+        return new Promise((resolve) => {
+          lab.releaseConnect = () => { lab.holdConnect = false; resolve({ publicKey: window.solana.publicKey }); };
+        });
+      },
       signTransaction: async (tx) => {
         const key = activeKey();
         lab.signed.push(key.publicKey.toBase58());
@@ -147,8 +154,13 @@ async function routeConsole(page, overrides = {}) {
   });
   await page.route("**/admin/authorities/rotations", (route) => {
     state.rotations++;
+    state.rotationBodies = (state.rotationBodies || []).concat([route.request().postDataJSON()]);
+    const refused = overrides.rotations && overrides.rotations(state);
+    if (refused) return json(route, 422, refused);
     const plan = planFor(state.cast);
+    const built = overrides.builtSet ? overrides.builtSet(plan.proposed) : plan.proposed;
     return json(route, 200, {
+      new_signers: [...built, ...Array(5 - built.length).fill("11111111111111111111111111111111")],
       status: "rebuilt", serialized_tx: state.cast.wire,
       signer_queue: overrides.queue ? overrides.queue(state) : plan.phantom_queue,
       server_signed: [state.cast.server, state.cast.held], slug: "ptx-e2e",
@@ -306,6 +318,60 @@ test.describe("Signer console", () => {
     expect(routes.broadcasts).toHaveLength(0);
   });
 
+  test("a pick changed while the connect prompt is open never reaches the build", async ({ page }) => {
+    const routes = await openConsole(page);
+    await draftAdd(page, routes);
+    await page.evaluate(() => { window.__consoleLab.holdConnect = true; });
+    await page.locator("[data-signer-console-target='cta']").click();
+
+    // Phantom's connect prompt is open. The picks are locked, and even a
+    // forced change event is ignored by the console.
+    const pick = page.locator(`input[data-pick][value="${routes.cast.added}"]`);
+    await expect(pick).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Remove", exact: true })).toBeDisabled();
+    await page.evaluate((key) => {
+      const box = document.querySelector(`input[data-pick][value="${key}"]`);
+      box.checked = false;
+      box.dispatchEvent(new Event("change", { bubbles: true }));
+    }, routes.cast.added);
+    const plansBefore = routes.plans.length;
+    await page.evaluate(() => window.__consoleLab.releaseConnect());
+
+    await expect(page.getByText("Landed. The chain now holds:")).toBeVisible();
+    const body = routes.rotationBodies[0];
+    expect(body.add).toEqual([routes.cast.added]);
+    expect(body.reviewed_proposed).toEqual(planFor(routes.cast).proposed);
+    expect(body.reviewed_authorizers).toEqual(planFor(routes.cast).authorizers);
+    expect(routes.plans.length).toBe(plansBefore);
+  });
+
+  test("the server refusing an unreviewed set signs nothing and keeps the draft", async ({ page }) => {
+    const routes = await openConsole(page, {
+      overrides: { rotations: () => ({ ok: false, code: "reviewed_set_mismatch",
+                                       message: "The set or signers about to be built differ from the plan you reviewed." }) }
+    });
+    await draftAdd(page, routes);
+    await page.locator("[data-signer-console-target='cta']").click();
+
+    await expect(page.getByText(/differ from the plan you reviewed/)).toBeVisible();
+    expect(await page.evaluate(() => window.__consoleLab.signed)).toEqual([]);
+    expect(routes.broadcasts).toHaveLength(0);
+    await expect(page.locator(`input[data-pick][value="${routes.cast.added}"]`)).toBeEnabled();
+  });
+
+  test("control: bytes carrying a set other than the reviewed one sign nothing and cancel", async ({ page }) => {
+    const routes = await openConsole(page, {
+      overrides: { builtSet: (proposed) => [...proposed.slice(0, -1), proposed[1]] }
+    });
+    await draftAdd(page, routes);
+    await page.locator("[data-signer-console-target='cta']").click();
+
+    await expect(page.getByText(/built signer set differs from the set you reviewed/)).toBeVisible();
+    expect(await page.evaluate(() => window.__consoleLab.signed)).toEqual([]);
+    expect(routes.cancels).toBe(1);
+    expect(routes.broadcasts).toHaveLength(0);
+  });
+
   test("a ceremony link pre-fills the intent and the keys", async ({ page }) => {
     // Public roster keys stand in for the cast: nothing signs in this test.
     const routes = await routeConsole(page);
@@ -382,11 +448,11 @@ test.describe("Squads proposals", () => {
     const card = page.locator("[data-proposal='9']");
     await expect(card.getByText("Buffer verified: matches build v0.27.0.")).toBeVisible();
     await expect(card.getByText(/2 of 3 approvals/)).toBeVisible();
-    await card.getByRole("button", { name: "Approve in Phantom (1 prompt)" }).click();
+    await card.getByRole("button", { name: "Approve in Phantom (1 prompt)" }).dblclick();
 
     await expect(page.getByText(/Your approval on #9 is on chain: 3 of 3/)).toBeVisible();
     const sent = await page.evaluate(() => window.__consoleLab.sent);
-    expect(sent).toEqual([{ signer: built.member, verifies: true }]);
+    expect(sent).toEqual([{ signer: built.member, verifies: true }]); // a double click raised ONE prompt
     expect(state.approvals).toBe(1);
   });
 
