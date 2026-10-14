@@ -15,11 +15,10 @@
 # governance key in slot 5).
 #
 # SLOT 5 IS A FRESH GOVERNANCE KEY, NOT 4bKN: 4bKN was exposed, so it is in no
-# VaultState target. `UNMINTED:fresh-governance` is the placeholder until
-# Steffon mints the key into the admin vault and files its public half in
-# config/signer_roster.yml; replace every occurrence below with that address.
-# Until then the page shows the key as unminted and every step naming it is
-# blocked by the `keys_minted` check.
+# VaultState target. The fresh key is 3LTLPG1s… (solana.turf.governance.v2),
+# filed in config/signer_roster.yml; it replaced the `3LTLPG1s952sdNatZWtnfM7r9F3ivWSnPSqfhQLBepJ9`
+# placeholder below. Mainnet ran this checklist to the end on 2026-10-14: the
+# chain read 3LTL, 7ZDJ, 4S39, 9gAC, 3Qj4 at 11:10 MDT, the EVICT's end set.
 #
 # Keys are full addresses; config/signer_roster.yml names them.
 
@@ -29,11 +28,11 @@ mainnet-beta:
     title: ADD the new server key and slot 5
     who: Mr. McRitchie, one Phantom prompt
     start: [8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd, 7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr, CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR]
-    end: [8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd, 7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr, CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR, 4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY, UNMINTED:fresh-governance]
+    end: [8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd, 7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr, CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR, 4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY, 3LTLPG1s952sdNatZWtnfM7r9F3ivWSnPSqfhQLBepJ9]
     server: 8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd
     window_cosigners: [CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR]
     intent: add
-    add: [4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY, UNMINTED:fresh-governance]
+    add: [4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY, 3LTLPG1s952sdNatZWtnfM7r9F3ivWSnPSqfhQLBepJ9]
     note: Steffon sets Mason's key as a window cosigner (SOLANA_COSIGNER_KEYS) for the sitting first.
 
   - id: flip
@@ -48,10 +47,10 @@ mainnet-beta:
     kind: console
     title: EVICT 8K81 and Mason, seat Alex's second and third accounts
     who: Mr. McRitchie, one Phantom prompt
-    start: [8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd, 7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr, CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR, 4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY, UNMINTED:fresh-governance]
-    end: [7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr, 4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY, UNMINTED:fresh-governance, 9gACbzsCLmkYF9Yx1EBGmwMvvyfuTquJ6qs8QsoQvHXf, 3Qj4v9qjhXgkru6zCRCErRVhy8Q6qU3NrNpvpXLTZboA]
+    start: [8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd, 7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr, CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR, 4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY, 3LTLPG1s952sdNatZWtnfM7r9F3ivWSnPSqfhQLBepJ9]
+    end: [7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr, 4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY, 3LTLPG1s952sdNatZWtnfM7r9F3ivWSnPSqfhQLBepJ9, 9gACbzsCLmkYF9Yx1EBGmwMvvyfuTquJ6qs8QsoQvHXf, 3Qj4v9qjhXgkru6zCRCErRVhy8Q6qU3NrNpvpXLTZboA]
     server: 4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY
-    window_cosigners: [UNMINTED:fresh-governance]
+    window_cosigners: [3LTLPG1s952sdNatZWtnfM7r9F3ivWSnPSqfhQLBepJ9]
     intent: remove
     remove: [8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd, CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR]
     add: [9gACbzsCLmkYF9Yx1EBGmwMvvyfuTquJ6qs8QsoQvHXf, 3Qj4v9qjhXgkru6zCRCErRVhy8Q6qU3NrNpvpXLTZboA]

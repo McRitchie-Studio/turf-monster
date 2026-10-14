@@ -50,11 +50,13 @@ environments:
     network: mainnet-beta
     deployed: true
     heroku_app: turf-monster-mainnet
-    # Xan (the key formerly called Alex Bot): VaultState signer slot 0 on
-    # mainnet, and the fee payer on the server's mainnet transactions (read off
-    # chain 2026-09-27: CreateUserAccount, EnterContest, GrantSeeds, SetUsername
-    # all paid by this key). Derived from the chain, never from the secret.
-    system_wallet: 8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd
+    # solana.turf.server: production's SOLANA_ADMIN_KEY since 08:11 MDT on
+    # 2026-10-14, the fee payer on the server's mainnet transactions, and
+    # VaultState signer slot 2 on mainnet (read off chain 2026-10-14 by turf-vault
+    # scripts/check-signer-slots.js: 3LTL, 7ZDJ, 4S39, 9gAC, 3Qj4). It replaced
+    # 8K81w4e6… (Xan), which that rotation removed from the mainnet set.
+    # Derived from the chain, never from the secret.
+    system_wallet: 4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY
 
   qa:
     network: devnet
@@ -72,8 +74,8 @@ environments:
     network: devnet
     deployed: false
     # Local machines and the devnet e2e lane. No key of its own is filed yet:
-    # the primary checkout's .env derives production's 8K81… (measured
-    # 2026-09-27, public key only), and a development identity needs a
+    # the primary checkout's .env derived 8K81…, then production's key, when
+    # measured 2026-09-27 (public key only; 8K81 left the mainnet set 2026-10-14), and a development identity needs a
     # VaultState slot the deployed v0.25 program does not have (see the
     # runbook, "What this ceremony does not fix"). The boot guard does not run
     # in development.

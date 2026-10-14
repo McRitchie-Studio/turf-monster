@@ -9,9 +9,14 @@ class QaRehearsalMainnetSignerFenceTest < ActiveSupport::TestCase
   Fence = TurfMonster::QaRehearsal::MainnetSignerFence
   Driver = TurfMonster::QaRehearsal::Driver
 
-  XAN   = "8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd"
+  XAN   = "8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd" # retired from mainnet 2026-10-14
   ALEX  = "7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr"
-  MASON = "CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR"
+  MASON = "CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR" # retired from mainnet 2026-10-14
+  SERVER = "4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY"
+  GOV_V2 = "3LTLPG1s952sdNatZWtnfM7r9F3ivWSnPSqfhQLBepJ9"
+  # Mainnet VaultState, read 2026-10-14 11:10 MDT by turf-vault scripts/check-signer-slots.js.
+  MAINNET_SLOTS = [GOV_V2, ALEX, SERVER, "9gACbzsCLmkYF9Yx1EBGmwMvvyfuTquJ6qs8QsoQvHXf",
+                   "3Qj4v9qjhXgkru6zCRCErRVhy8Q6qU3NrNpvpXLTZboA"].freeze
   MACK  = "foUuRyeibadQoGdKXZ9pBGDqmkb1jY1jYsu8dZ29nds"
   QA    = "2eGs8G3wzhEeNQQU2Q86BmmA2xTpDbMMae3Y1bvpZfx9"
 
@@ -19,7 +24,7 @@ class QaRehearsalMainnetSignerFenceTest < ActiveSupport::TestCase
 
   test "the filed fence holds every seated mainnet signer and production's system wallet" do
     keys = Fence.load_keys
-    [XAN, ALEX, MASON].each { |pk| assert_includes keys, pk }
+    MAINNET_SLOTS.each { |pk| assert_includes keys, pk }
     production = YAML.safe_load_file(Rails.root.join("config/solana_signers.yml"))
                      .dig("environments", "production", "system_wallet")
     assert_includes keys, production
@@ -49,23 +54,21 @@ class QaRehearsalMainnetSignerFenceTest < ActiveSupport::TestCase
     end
   end
 
-  test "the incoming list is read: dropping it unfences the planned server key" do
-    incoming = "4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY"
-    assert_includes Fence.load_keys, incoming
+  test "the incoming list is read: a key filed only there is fenced" do
+    planned = Solana::Keypair.generate.to_base58
+    refute_includes Fence.load_keys, planned
     Dir.mktmpdir do |dir|
       fence = File.join(dir, "fence.yml")
       filed = YAML.safe_load_file(Rails.root.join("config/mainnet_vault_signers.yml"))
-      File.write(fence, filed.except("incoming").to_yaml)
-      refute_includes Fence.load_keys(fence_path: fence), incoming
+      File.write(fence, filed.merge("incoming" => [planned]).to_yaml)
+      assert_includes Fence.load_keys(fence_path: fence), planned
     end
   end
 
-  test "the incoming list names production's next server key and the target set" do
-    incoming = YAML.safe_load_file(Rails.root.join("config/mainnet_vault_signers.yml")).fetch("incoming")
-    %w[4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY 9gACbzsCLmkYF9Yx1EBGmwMvvyfuTquJ6qs8QsoQvHXf
-       3Qj4v9qjhXgkru6zCRCErRVhy8Q6qU3NrNpvpXLTZboA 4bKNSqkrKeggSyrds16Ak7rcB4ibvGJ4ZLsKjvQgC3Vk].each do |pk|
-      assert_includes incoming, pk
-    end
+  test "seated is exactly the mainnet set read after the 2026-10-14 rotation, and nothing is incoming" do
+    filed = YAML.safe_load_file(Rails.root.join("config/mainnet_vault_signers.yml"))
+    assert_equal MAINNET_SLOTS.sort, filed.fetch("seated").sort
+    assert_equal [], filed.fetch("incoming"), "the rotation seated its whole target; file the next one here when agreed"
   end
 
   # ── every key the driver loads ────────────────────────────────────────────
