@@ -118,4 +118,14 @@ class QaRehearsalReplayScriptTest < ActiveSupport::TestCase
       remove_method :__real_goal_scored
     end
   end
+
+  test "an empty board fails the check instead of reading as caught up" do
+    Goal.where(game_slug: [@g1.slug, @g2.slug]).delete_all
+    @contest.entries.update_all(status: "abandoned")
+
+    out, = capture_io { assert_raises(RuntimeError) { Object.new.instance_eval(Driver.new(io: StringIO.new).replay_script(nil)) } }
+
+    assert_match(/CATCH-UP FAILED — no plays were captured/, out)
+    assert_match(/CATCH-UP FAILED — no entry in an open contest/, out)
+  end
 end

@@ -780,6 +780,11 @@ module TurfMonster
             end
           end
 
+          # An empty board must not read as caught up: no plays, or no entry
+          # checked, means the comparisons above proved nothing.
+          problems << "no plays were captured on the slate, so nothing was replayed" if captured.empty?
+          problems << "no entry in an open contest on the slate was checked" if entries_checked.zero?
+
           logged = ErrorLog.where("created_at >= ?", started_at)
           unless logged.none?
             problems << "\#{logged.count} error(s) rescued into ErrorLog during the replay: " +
