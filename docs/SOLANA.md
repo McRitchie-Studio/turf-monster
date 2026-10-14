@@ -900,11 +900,39 @@ broadcast Phantom's own returned bytes) landed as
 Phantom's bytes: it keeps only each wallet's 64-byte signature, and
 `#broadcast` refuses any message other than the stored one.
 
-A nonce row is not expired at two minutes (`NONCE_PENDING_AFTER`, 30 minutes),
-`#broadcast` refuses a wire whose nonce has advanced, and `#reconcile` never
-calls an unlanded nonce wire dead while its nonce still holds the built value:
-past the lapse it advances the nonce (the server is the authority), reads the
-signature again, and only then rewinds.
+A nonce row is not expired at two minutes: it has `NONCE_PENDING_AFTER`
+(30 minutes) from its last BUILD (`built_at`; arm time would expire a slow
+sitting mid-ceremony). `#broadcast` refuses a wire whose nonce has advanced, and
+`#reconcile` never calls an unlanded nonce wire dead while its nonce still holds
+the built value: past the lapse it advances the nonce (the server is the
+authority), reads the signature again, and only then rewinds.
+
+**Every ending kills the wire.** turf-vault's `update_signers` takes only
+`new_signers` and pins nothing about the set it replaces, so a signed rotation
+that never landed would re-apply its old set whenever someone sent it, for as
+long as its authorizers stay seated and its nonce holds the built value.
+Advancing the nonce is its only death, so `Solana::VoidConsoleNonceJob`
+advances it (server-signed) whenever a nonce row ends without landing: a cancel,
+the 30-minute expiry, a simulation the chain rejected, and any broadcast refusal
+after the signatures (the row not pending, the set moved, the signer queue
+wrong, the nonce unreadable). A build also refuses to reuse a value an ended row,
+or the same row's earlier build, was signed on: it advances the nonce first,
+synchronously, and builds on the new value. The request log filters `signed_tx`.
+
+**A server-key change strands the old key's nonce**: the new key is not its
+authority and cannot advance it. The rule is to ADVANCE BEFORE THE SWITCH.
+Because every ending voids at once, only a live row (inside its window) or a
+broadcast awaiting its verdict can hold an unspent value. Any other is an
+OUTSTANDING wire: the console names it, and the ceremony's
+`no_outstanding_wires` hard check blocks every console step until it is gone.
+One left on an old key's nonce is reported, never "voided": advance it with the
+old key, or unseat one of its authorizers (it carries exactly `required`
+signatures, so with one of them unseated it cannot authorize).
+
+**Dust blocks Prepare.** CreateAccountWithSeed refuses an address that already
+holds lamports, and anyone can send some to the derived address. The console
+then reads `occupied` and Prepare refuses; the remedy is a nonce created by hand
+with the server key as its authority, named in `SOLANA_DURABLE_NONCE_PUBKEY`.
 
 **An operator-led build takes a fresh blockhash.** Its account 0 is Phantom's, so
 Phantom sees it unsigned and may inject Lighthouse ahead of an advance (the

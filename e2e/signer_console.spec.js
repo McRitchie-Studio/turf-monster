@@ -142,7 +142,7 @@ function planFor(cast) {
 // which is itself the dead-RPC path. Connecting Phantom re-reads.
 async function routeConsole(page, overrides = {}) {
   const state = { cast: null, plans: [], rotations: 0, broadcasts: [], cancels: 0, prepares: 0,
-                  nonceReady: !!overrides.nonceReady };
+                  nonceReady: !!overrides.nonceReady, outstanding: overrides.outstanding };
   const json = (route, status, body) =>
     route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 
@@ -193,6 +193,7 @@ async function routeConsole(page, overrides = {}) {
 
 // The console nonce as the server reports it: ready once prepared.
 function withNonce(body, state) {
+  if (state.outstanding) body.outstanding_wires = state.outstanding;
   if (state.nonceReady) {
     body.console_nonce = { state: "ready", pubkey: "NonceAcct1111111111111111111111111111111111",
                            prepare_url: "/admin/authorities/console_nonce" };
@@ -324,6 +325,17 @@ test.describe("Signer console", () => {
     await page.clock.runFor(1000);
     await expect(page.getByText("Landed. The chain now holds:")).toBeVisible();
     expect(await verifies(page, routes.broadcasts[0].signed_tx)).toBe(true);
+  });
+
+  // A signed rotation that ended without landing stays landable until its
+  // nonce moves. One the server cannot kill (another key's nonce) is named.
+  test("an ended rotation stranded on another key's nonce is named on the console", async ({ page }) => {
+    await openConsole(page, {
+      overrides: { outstanding: [{ slug: "ptx-old", nonce: "NonceOld111111111111111111111111111111111", voidable: false }] }
+    });
+    const nonce = page.locator("[data-signer-console-target='nonce']");
+    await expect(nonce).toHaveText(/1 ended rotation\(s\) could still land \(ptx-old\)/);
+    await expect(nonce).toHaveText(/advance it with the old server key/);
   });
 
   test("a malformed paste is refused in the field and makes no request", async ({ page }) => {

@@ -154,10 +154,24 @@ export default class extends Controller {
       text = `No time limit: a server-led rotation waits on durable nonce ${short(nonce.pubkey)} until you finish signing.`
     } else if (nonce.state === "missing") {
       text = "Signing has about 45 seconds from the first prompt. Prepare the console nonce once to remove the limit."
+    } else if (nonce.state === "occupied") {
+      text = "The console nonce address already holds another account, so it cannot be created there. " +
+        "Steffon can make a nonce with this server key as authority and name it in SOLANA_DURABLE_NONCE_PUBKEY."
     } else if (nonce.state === "unreadable") {
       text = "The console nonce could not be read; signing falls back to about 45 seconds from the first prompt."
     } else {
       text = "This server holds no key, so there is no console nonce."
+    }
+    // An ENDED rotation whose signed bytes could still land. Voidable ones are
+    // being killed by the server; an unvoidable one needs the old server key.
+    const outstanding = this.state.outstanding_wires || []
+    if (outstanding.length) {
+      const stuck = outstanding.filter((w) => !w.voidable).map((w) => w.slug)
+      text = `${outstanding.length} ended rotation(s) could still land (${outstanding.map((w) => w.slug).join(", ")}). ` +
+        (stuck.length
+          ? `${stuck.join(", ")} sit on a nonce this server no longer controls: advance it with the old server key, ` +
+            "or unseat one of its signers, before anything else. "
+          : "The server is advancing their nonce now; reload in a minute. ") + text
     }
     this.nonceTarget.textContent = text
     this.noncePrepareTarget.hidden = nonce.state !== "missing"

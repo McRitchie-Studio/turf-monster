@@ -59,8 +59,22 @@ class Solana::ConsoleNonceTest < ActiveSupport::TestCase
       server: server, env_pubkey: nil
     )
 
-    assert_equal Solana::ConsoleNonce::MISSING, nonce.status[:state]
+    # The address is taken, so it reads OCCUPIED rather than offering a
+    # prepare that CreateAccountWithSeed would refuse.
+    assert_equal Solana::ConsoleNonce::OCCUPIED, nonce.status[:state]
     assert_nil nonce.config
+  end
+
+  test "dust on the derived address blocks prepare with the env-var remedy, before anything is signed" do
+    derived = Solana::ConsoleNonce.address_for(server)
+    dust = { "value" => { "owner" => SYSTEM_OWNER, "lamports" => 1, "data" => ["", "base64"] } }
+    vault, sent = sending_vault({ derived => dust })
+    nonce = Solana::ConsoleNonce.new(vault: vault, server: server, env_pubkey: nil)
+
+    assert_equal Solana::ConsoleNonce::OCCUPIED, nonce.status[:state]
+    error = assert_raises(Solana::ConsoleNonce::Refused) { nonce.prepare! }
+    assert_match(/SOLANA_DURABLE_NONCE_PUBKEY/, error.message)
+    assert_empty sent
   end
 
   test "an account not owned by the System program, or not initialized, is not a nonce" do
@@ -142,13 +156,74 @@ class Solana::ConsoleNonceTest < ActiveSupport::TestCase
   end
 
   test "advance! sends one server-signed advanceNonceAccount" do
-    vault, sent = sending_vault
     derived = Solana::ConsoleNonce.address_for(server)
+    vault, sent = sending_vault({ derived => nonce_info(authority: server, value: Solana::Keypair.generate.to_base58) })
     Solana::ConsoleNonce.new(vault: vault, server: server, env_pubkey: nil).advance!(derived)
 
     wire = Solana::WireMessage.parse_base64(sent.sole)
     ix = wire.instructions.sole
     assert_equal 4, ix[:data].unpack1("V")
     assert_equal [derived, server], [ix[:accounts][0], ix[:accounts][2]].map { |k| Solana::Keypair.encode_base58(k) }
+  end
+
+  test "advance! refuses a nonce whose ON-CHAIN authority is not this key, and sends nothing" do
+    derived = Solana::ConsoleNonce.address_for(server)
+    vault, sent = sending_vault({ derived => nonce_info(authority: BASE, value: Solana::Keypair.generate.to_base58) })
+    assert_raises(Solana::ConsoleNonce::Refused) do
+      Solana::ConsoleNonce.new(vault: vault, server: server, env_pubkey: nil).advance!(derived)
+    end
+    assert_empty sent
+  end
+
+  # ── void!: the only death of a nonce wire ─────────────────────────────────
+
+  # A nonce whose value moves when the server sends an advance.
+  def moving_vault(authority:, value:)
+    current = value
+    info = ->(_c) { nonce_info(authority: authority, value: current) }
+    vault, sent = sending_vault({ Solana::ConsoleNonce.address_for(server) => info })
+    vault.client.define_singleton_method(:send_and_confirm) do |wire, **|
+      sent << wire
+      current = Solana::Keypair.generate.to_base58
+      "ADVANCED"
+    end
+    [vault, sent]
+  end
+
+  test "void! advances a nonce that still holds the built value, and confirms it moved" do
+    value = Solana::Keypair.generate.to_base58
+    vault, sent = moving_vault(authority: server, value: value)
+    nonce = Solana::ConsoleNonce.new(vault: vault, server: server, env_pubkey: nil)
+
+    assert_equal :advanced, nonce.void!(pubkey: nonce.derived_address, value: value)
+    assert_equal 1, sent.length
+  end
+
+  test "void! leaves a nonce that already moved alone" do
+    vault, sent = moving_vault(authority: server, value: Solana::Keypair.generate.to_base58)
+    nonce = Solana::ConsoleNonce.new(vault: vault, server: server, env_pubkey: nil)
+
+    assert_equal :already_moved, nonce.void!(pubkey: nonce.derived_address, value: Solana::Keypair.generate.to_base58)
+    assert_empty sent
+  end
+
+  # THE SERVER-KEY CHANGE. A wire left on the OLD key's nonce cannot be killed
+  # by the new key; void! says so instead of pretending, and sends nothing.
+  test "void! reports a nonce held by another key as unvoidable, never sending" do
+    value = Solana::Keypair.generate.to_base58
+    vault, sent = moving_vault(authority: BASE, value: value)
+    nonce = Solana::ConsoleNonce.new(vault: vault, server: server, env_pubkey: nil)
+
+    assert_equal :unvoidable, nonce.void!(pubkey: nonce.derived_address, value: value)
+    assert_empty sent
+    found = nonce.outstanding([Struct.new(:parsed_metadata).new(
+      { "console_nonce" => { "pubkey" => nonce.derived_address, "value" => value } }
+    )])
+    refute found.sole[:voidable], "the console and the ceremony show it as a hard stop"
+  end
+
+  test "void! on an unreadable chain answers :unread, never :advanced" do
+    nonce = Solana::ConsoleNonce.new(vault: vault_with(raises: true), server: server, env_pubkey: nil)
+    assert_equal :unread, nonce.void!(pubkey: Solana::ConsoleNonce.address_for(server), value: BASE)
   end
 end

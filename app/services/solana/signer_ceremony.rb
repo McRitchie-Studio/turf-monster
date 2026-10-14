@@ -27,7 +27,7 @@ module Solana
     # class does no I/O of its own beyond the database counts and is testable
     # with plain values.
     def initialize(network:, chain_set:, chain_governance:, config_governance:, server:, server_held:,
-                   fee_payer: nil, steps: nil, roster: SignerRoster.default)
+                   fee_payer: nil, steps: nil, roster: SignerRoster.default, outstanding_wires: 0)
       @network = network.to_s
       @chain_set = chain_set
       @chain_governance = chain_governance
@@ -35,6 +35,10 @@ module Solana
       @server = server
       @server_held = Array(server_held)
       @fee_payer = fee_payer
+      # Ended signer-console rotations whose signed bytes could still land
+      # (Solana::ConsoleNonce#outstanding). Any is a hard stop, above all before
+      # a server-key switch strands the nonce that could kill them.
+      @outstanding_wires = outstanding_wires.to_i
       @roster = roster
       @steps = steps || Array(YAML.safe_load_file(PATH)[@network])
     end
@@ -97,6 +101,10 @@ module Solana
                   detail: missing_cosigners(step)),
         Check.new(id: "no_open_rows", label: "No transaction is pending or in flight", level: :hard,
                   ok: open_rows.zero?, detail: "#{open_rows} open."),
+        Check.new(id: "no_outstanding_wires", label: "No ended rotation's signed bytes can still land", level: :hard,
+                  ok: @outstanding_wires.zero?,
+                  detail: @outstanding_wires.zero? ? "None." :
+                          "#{@outstanding_wires} outstanding; the console names them. Void them before anything else."),
         Check.new(id: "fee_payer", label: "The server can pay the fee", level: :hard,
                   ok: @fee_payer && @fee_payer[:funded] == true,
                   detail: @fee_payer&.dig(:balance_sol) ? format("%.4f SOL", @fee_payer[:balance_sol]) : "Balance unread."),

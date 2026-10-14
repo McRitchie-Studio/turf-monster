@@ -360,10 +360,12 @@ The durable-nonce settlement (section 5) has two built and two owed:
 - That a hardware signer leaves instruction order intact. A CLI keypair does:
   `bin/settle-nonce sign` fills its slot and leaves the message unchanged, which
   the localnet run in section 5 shows.
-- `SOLANA_DURABLE_NONCE_PUBKEY` is reported set in production to
-  `2bSnZ9d8NLJyGT3VgsjnU4Ncmm8yHcXnNKmepCeNDyiV`; the config var itself is not
-  read here. That account reads initialised on mainnet with authority `8K81…`,
-  and nothing in turf reads the variable.
+- `SOLANA_DURABLE_NONCE_PUBKEY` is UNSET in production since the 2026-10-14
+  rotation (the server key is now `4S39…`). Its old value, the account
+  `2bSnZ9d8NLJyGT3VgsjnU4Ncmm8yHcXnNKmepCeNDyiV`, reads initialised on mainnet
+  with authority `8K81…`, which no running app holds. The signer console reads
+  the variable only as a fallback (`Solana::ConsoleNonce`), and only while its
+  authority is the server key.
 - Who holds the `CytJ…` key, and whether it can sign a nonce-anchored settle
   without reordering it. It matters for the third signature `v0.26` asks of every
   settle; if it is a Phantom, it meets the same prerequisite as Alex's.

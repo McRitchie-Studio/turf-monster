@@ -25,6 +25,7 @@ require "minitest/mock"
 #      and reads to the operator like his eviction did not work, mid-incident,
 #      on the one control he has.
 class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
+  include ActiveJob::TestHelper
   SYSTEM = "8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd".freeze
   ALEX   = "7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr".freeze
   MASON  = "CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR".freeze
@@ -1158,10 +1159,11 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
     vault
   end
 
-  def nonce_row(value, created_at: Time.current)
+  def nonce_row(value, created_at: Time.current, built_at: created_at)
     row = server_led_row(server_led_vault)
     meta = JSON.parse(row.metadata).merge(
-      "console_nonce" => { "pubkey" => derived_nonce, "authority" => server, "value" => value }
+      "console_nonce" => { "pubkey" => derived_nonce, "authority" => server, "value" => value },
+      "built_at" => built_at.iso8601(6)
     )
     row.update_columns(metadata: meta.to_json, created_at: created_at)
     row
@@ -1231,7 +1233,8 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
     assert_equal "expired", blockhash_row.reload.status
     assert_equal fresh.slug, JSON.parse(response.body).dig("live_rotation", "slug")
 
-    fresh.update_columns(created_at: 31.minutes.ago)
+    meta = fresh.parsed_metadata.merge("built_at" => 31.minutes.ago.iso8601(6))
+    fresh.update_columns(created_at: 31.minutes.ago, metadata: meta.to_json)
     with_vault(StubVault.new) { get admin_authority_console_path, as: :json }
     assert_equal "expired", fresh.reload.status
   end
@@ -1372,6 +1375,264 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
     sent = []
     teach_send(vault) { |wire| sent << wire }
     with_vault(vault) { post admin_authority_console_nonce_path, as: :json }
+    assert_empty sent
+  end
+
+  # ── EVERY ENDING KILLS THE WIRE ────────────────────────────────────────────
+  #
+  # turf-vault's update_signers pins nothing about the set it replaces, so a
+  # signed nonce rotation that ended without landing would re-apply its old set
+  # whenever someone sent it. Advancing the nonce is its only death; each way a
+  # nonce row can end is pinned here to enqueue Solana::VoidConsoleNonceJob,
+  # and the job (run under the stub vault) to send the advance.
+
+  # A server-led vault whose console nonce moves when the server advances it.
+  # Returns [vault, sent_wires, value_ref].
+  def moving_nonce_vault(value, authority: nil, **opts)
+    current = value
+    vault = server_led_vault(account_infos: {
+      derived_nonce => ->(_c) { nonce_account(current, **(authority ? { authority: authority } : {})) }
+    }, **opts)
+    vault.nonce_value_at_build = value
+    sent = []
+    teach_send(vault) { |wire| sent << wire; current = Solana::Keypair.generate.to_base58 }
+    [vault, sent, -> { current }]
+  end
+
+  def advances(sent)
+    sent.count { |wire| Solana::WireMessage.parse_base64(wire).instructions.sole[:data].unpack1("V") == 4 }
+  end
+
+  def assert_voids(row, vault, sent)
+    assert_enqueued_with(job: Solana::VoidConsoleNonceJob, args: [row.id])
+    with_vault(vault) { perform_enqueued_jobs }
+    assert_equal 1, advances(sent), "the server advanced the nonce, so the signed bytes can never land"
+  end
+
+  test "CANCEL of a nonce row voids its nonce" do
+    value = Solana::Keypair.generate.to_base58
+    vault, sent, = moving_nonce_vault(value)
+    row = nonce_row(value)
+
+    with_vault(vault) { post admin_cancel_authority_rotation_path(row.slug), as: :json }
+
+    assert_equal "expired", row.reload.status
+    assert_voids(row, vault, sent)
+  end
+
+  test "the 30-minute EXPIRY voids an expired nonce row's nonce" do
+    value = Solana::Keypair.generate.to_base58
+    vault, sent, = moving_nonce_vault(value)
+    row = nonce_row(value, created_at: 31.minutes.ago)
+
+    # The PAGE (not the console JSON, which also re-queues outstanding wires),
+    # so this pins the expiry's own enqueue.
+    with_vault(vault) { Solana::Squads.stub(:read, nil) { get admin_authorities_path } }
+
+    assert_equal "expired", row.reload.status
+    assert_voids(row, vault, sent)
+  end
+
+  test "a REJECTED simulation ends a nonce row and voids its nonce" do
+    value = Solana::Keypair.generate.to_base58
+    vault, sent, = moving_nonce_vault(value, broadcast_raises: "custom program error: 0x1770")
+    row = nonce_row(value)
+
+    with_vault(vault) do
+      post admin_broadcast_authority_rotation_path(row.slug), params: { signed_tx: WIRE, signer_queue: [ALEX] }, as: :json
+    end
+
+    assert_response :unprocessable_entity
+    row.reload
+    assert_equal "expired", row.status, "signed bytes the chain rejected today could pass tomorrow"
+    assert_nil row.tx_signature
+    assert_voids(row, vault, sent)
+  end
+
+  test "a broadcast REFUSED after the signatures (the chain moved) ends the row and voids its nonce" do
+    value = Solana::Keypair.generate.to_base58
+    vault, sent, = moving_nonce_vault(value)
+    row = nonce_row(value)
+    vault.signers = [server, MASON, ALEX3] # ALEX was unseated since the build: revalidate! refuses
+
+    assert_no_difference -> { ErrorLog.count }, "an expected refusal is answered, not paged" do
+      with_vault(vault) do
+        post admin_broadcast_authority_rotation_path(row.slug), params: { signed_tx: WIRE, signer_queue: [ALEX] }, as: :json
+      end
+    end
+    assert_match(/Refused/, JSON.parse(response.body)["error"])
+
+    assert_response :unprocessable_entity
+    assert_empty vault.broadcast_calls
+    assert_equal "expired", row.reload.status
+    assert_voids(row, vault, sent)
+  end
+
+  test "a broadcast refused for a wrong signer queue ends the row and voids its nonce" do
+    value = Solana::Keypair.generate.to_base58
+    vault, sent, = moving_nonce_vault(value)
+    row = nonce_row(value)
+
+    with_vault(vault) do
+      post admin_broadcast_authority_rotation_path(row.slug), params: { signed_tx: WIRE, signer_queue: [MASON] }, as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_equal "expired", row.reload.status
+    assert_voids(row, vault, sent)
+  end
+
+  test "a broadcast refused on an UNREADABLE nonce ends the row, and the void job retries until it can read" do
+    value = Solana::Keypair.generate.to_base58
+    vault = server_led_vault(account_infos: { derived_nonce => ->(_c) { raise Solana::Client::RpcError, "down" } })
+    row = nonce_row(value)
+
+    with_vault(vault) do
+      post admin_broadcast_authority_rotation_path(row.slug), params: { signed_tx: WIRE, signer_queue: [ALEX] }, as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_match(/unreadable/, JSON.parse(response.body)["error"])
+    assert_equal "expired", row.reload.status
+    assert_enqueued_with(job: Solana::VoidConsoleNonceJob, args: [row.id])
+    with_vault(vault) { perform_enqueued_jobs(only: Solana::VoidConsoleNonceJob) rescue nil }
+    assert_enqueued_jobs 1, only: Solana::VoidConsoleNonceJob # re-enqueued by retry_on StillLandable
+  end
+
+  test "a broadcast to an EXPIRED nonce row is refused and re-queues the void" do
+    value = Solana::Keypair.generate.to_base58
+    vault, sent, = moving_nonce_vault(value)
+    row = nonce_row(value)
+    row.update_columns(status: "expired", stale: true)
+
+    with_vault(vault) do
+      post admin_broadcast_authority_rotation_path(row.slug), params: { signed_tx: WIRE, signer_queue: [ALEX] }, as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_voids(row, vault, sent)
+  end
+
+  test "a refused broadcast never touches a row another request has claimed" do
+    value = Solana::Keypair.generate.to_base58
+    vault, _sent, = moving_nonce_vault(value)
+    row = nonce_row(value)
+    row.update_columns(status: "submitted", tx_signature: "LANDED_SIGNATURE", broadcast_at: Time.current)
+
+    with_vault(vault) do
+      post admin_broadcast_authority_rotation_path(row.slug), params: { signed_tx: WIRE, signer_queue: [ALEX] }, as: :json
+    end
+
+    assert_equal "submitted", row.reload.status
+    assert_no_enqueued_jobs only: Solana::VoidConsoleNonceJob
+  end
+
+  # THE BACKSTOP: a build never reuses a value an ended row was signed on.
+  test "a build on a value an expired row still holds advances the nonce FIRST" do
+    value = Solana::Keypair.generate.to_base58
+    vault, sent, = moving_nonce_vault(value)
+    old = nonce_row(value)
+    old.update_columns(status: "expired", stale: true)
+    row = server_led_row(vault)
+    order = []
+    vault.define_singleton_method(:build_update_signers) do |**kw|
+      order << [:build, sent.length]
+      { serialized_tx: WIRE, new_signers: kw[:new_signers], server_signed: true, server_cosigned: [],
+        durable_nonce: kw[:durable_nonce]&.merge(value: "NEW") }
+    end
+
+    with_vault(vault) { post admin_rebuild_authority_rotation_path(row.slug), as: :json }
+
+    assert_response :success
+    assert_equal 1, advances(sent)
+    assert_equal [[:build, 1]], order, "the advance went out before the bytes were built"
+  end
+
+  test "a REBUILD of a nonce row advances past its own earlier bytes" do
+    value = Solana::Keypair.generate.to_base58
+    vault, sent, = moving_nonce_vault(value)
+    row = nonce_row(value)
+
+    with_vault(vault) { post admin_rebuild_authority_rotation_path(row.slug), as: :json }
+
+    assert_response :success
+    assert_equal 1, advances(sent), "the first build's bytes (maybe signed) die before new ones exist"
+  end
+
+  test "a build refuses while a broadcast on the same value awaits its verdict" do
+    value = Solana::Keypair.generate.to_base58
+    vault, sent, = moving_nonce_vault(value)
+    stranded_nonce_row(value)
+    row = server_led_row(vault)
+
+    with_vault(vault) { post admin_rebuild_authority_rotation_path(row.slug), as: :json }
+
+    assert_response :unprocessable_entity
+    assert_match(/reconcile it first/, JSON.parse(response.body)["error"])
+    assert_empty sent
+  end
+
+  # THE WINDOW RUNS FROM THE BUILD, not from arm time.
+  test "a nonce row rebuilt recently is live even though it was armed long ago" do
+    row = nonce_row(Solana::Keypair.generate.to_base58, created_at: 45.minutes.ago, built_at: 5.minutes.ago)
+
+    with_vault(StubVault.new) { get admin_authority_console_path, as: :json }
+
+    assert row.reload.pending?
+    assert_equal row.slug, JSON.parse(response.body).dig("live_rotation", "slug")
+  end
+
+  test "a successful build stamps built_at" do
+    value = Solana::Keypair.generate.to_base58
+    vault, = moving_nonce_vault(value)
+    row = server_led_row(vault)
+
+    freeze_time do
+      with_vault(vault) { post admin_rebuild_authority_rotation_path(row.slug), as: :json }
+      assert_equal Time.current.iso8601(6), row.reload.parsed_metadata["built_at"]
+    end
+  end
+
+  # THE SERVER-KEY CHANGE: the old key's nonce cannot be advanced by the new
+  # one. The job says so loudly and sends nothing; the console and the ceremony
+  # show the wire as a hard stop, so a key is never switched over one.
+  test "a wire stranded on another key's nonce is reported, never 'voided', and blocks the ceremony" do
+    value = Solana::Keypair.generate.to_base58
+    vault, sent, = moving_nonce_vault(value, authority: ALEX3)
+    row = nonce_row(value)
+    row.update_columns(status: "expired", stale: true)
+
+    assert_difference -> { ErrorLog.count }, 1 do
+      with_vault(vault) { Solana::VoidConsoleNonceJob.perform_now(row.id) }
+    end
+    assert_empty sent
+
+    with_vault(vault) { get admin_authority_console_path, as: :json }
+    wires = JSON.parse(response.body)["outstanding_wires"]
+    assert_equal [{ "slug" => row.slug, "nonce" => derived_nonce, "voidable" => false }], wires
+
+    steps = [{ "id" => "flip-guard", "kind" => "console", "title" => "Next step", "who" => "Alex",
+               "start" => [server, ALEX, MASON], "end" => [server, ALEX, MASON, ALEX2],
+               "server" => server, "window_cosigners" => [], "intent" => "add", "add" => [ALEX2] }]
+    real = Solana::SignerCeremony.method(:new)
+    with_vault(vault) do
+      Solana::SignerCeremony.stub(:new, ->(**kw) { real.call(**kw, steps: steps) }) do
+        get admin_authority_ceremony_path
+      end
+    end
+    assert_select "[data-check='no_outstanding_wires'][data-ok='false']"
+    assert_select "[data-ceremony-step='flip-guard'][data-status='blocked']"
+  end
+
+  test "the void job leaves live and landed rows alone" do
+    value = Solana::Keypair.generate.to_base58
+    vault, sent, = moving_nonce_vault(value)
+    pending_row = nonce_row(value)
+
+    with_vault(vault) { Solana::VoidConsoleNonceJob.perform_now(pending_row.id) }
+    pending_row.update_columns(status: "confirmed")
+    with_vault(vault) { Solana::VoidConsoleNonceJob.perform_now(pending_row.id) }
+
     assert_empty sent
   end
 end

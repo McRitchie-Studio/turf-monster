@@ -41,6 +41,7 @@ mainnet-beta:
     title: Flip production to the new server key
     who: Steffon
     runbook: turf-vault docs/SIGNER_ROTATION.md (the flip); SOLANA_ADMIN_KEY and the window cosigner (the fresh governance key) through the Platform API pipe
+    note: Before the flip, the console must show no outstanding rotation wire. The old key's console nonce can only be advanced by the old key, so a wire left on it would stay landable.
     done_when:
       server: 4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY
 
