@@ -6,7 +6,8 @@ module TurfMonster
   module QaRehearsal
     # Refuses any key the rehearsal loads, player or co-signer, that holds
     # MAINNET authority: a mainnet VaultState signer (seated or incoming) or a
-    # mainnet Squads member.
+    # mainnet Squads member. A key a mainnet rotation retired stays fenced
+    # (`retired`) until someone decides on purpose that the rehearsal may load it.
     #
     # The rehearsal co-signs devnet transactions unattended with agent keys it
     # loads from 1Password. Before devnet-v026-upgrade the devnet and mainnet
@@ -34,7 +35,7 @@ module TurfMonster
       # nothing would pass every key, which is the one answer it must never give.
       def self.load_keys(fence_path: FENCE_PATH, isolation_path: ISOLATION_PATH)
         filed = YAML.safe_load_file(fence_path)
-        keys = Array(filed["seated"]) + Array(filed["incoming"]) + Array(filed["squad"])
+        keys = Array(filed["seated"]) + Array(filed["incoming"]) + Array(filed["squad"]) + Array(filed["retired"])
         production = YAML.safe_load_file(isolation_path).dig("environments", "production", "system_wallet")
         keys << production if production
         keys = keys.map(&:to_s).map(&:strip).reject(&:empty?).uniq

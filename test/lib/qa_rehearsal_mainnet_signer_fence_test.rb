@@ -65,6 +65,18 @@ class QaRehearsalMainnetSignerFenceTest < ActiveSupport::TestCase
     end
   end
 
+  test "the keys the mainnet rotation retired stay fenced, and the retired list is read" do
+    keys = Fence.load_keys
+    assert_includes keys, XAN, "8K81 left the mainnet set but was not cleared to play"
+    assert_includes keys, MASON, "Mason left the mainnet set but was not cleared to play"
+    Dir.mktmpdir do |dir|
+      fence = File.join(dir, "fence.yml")
+      filed = YAML.safe_load_file(Rails.root.join("config/mainnet_vault_signers.yml"))
+      File.write(fence, filed.except("retired").to_yaml)
+      refute_includes Fence.load_keys(fence_path: fence), MASON
+    end
+  end
+
   test "seated is exactly the mainnet set read after the 2026-10-14 rotation, and nothing is incoming" do
     filed = YAML.safe_load_file(Rails.root.join("config/mainnet_vault_signers.yml"))
     assert_equal MAINNET_SLOTS.sort, filed.fetch("seated").sort
