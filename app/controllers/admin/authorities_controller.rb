@@ -533,7 +533,7 @@ module Admin
       end
 
       rescue_and_log(target: @tx) do
-        @tx.update!(status: "expired", stale: true)
+        next cancel_answer("This eviction is #{@tx.status} now, not an unsent draft.", ok: false) unless expire_unclaimed!(@tx)
         # Its bytes may already carry signatures; a nonce wire would outlive
         # the discard unless its nonce moves.
         void_nonce_later(@tx)
@@ -587,11 +587,18 @@ module Admin
     def end_refused_nonce_row!
       return unless @tx && self.class.console_nonce_of(@tx)
 
-      @tx.reload
-      @tx.update!(status: "expired", stale: true) if @tx.pending?
+      expire_unclaimed!(@tx)
       void_nonce_later(@tx)
     rescue StandardError => e
       log_console_failure(e)
+    end
+
+    # Expire only an UNCLAIMED draft: a broadcast that claimed it since it was loaded keeps it.
+    def expire_unclaimed!(row)
+      won = PendingTransaction.where(id: row.id, status: "pending", tx_signature: nil)
+                              .update_all(status: "expired", stale: true, updated_at: Time.current) == 1
+      row.reload
+      won
     end
 
     # Kill an ENDED nonce row's wire (Solana::VoidConsoleNonceJob). A row with

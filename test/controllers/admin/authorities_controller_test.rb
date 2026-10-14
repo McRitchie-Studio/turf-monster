@@ -1409,6 +1409,19 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
     assert_equal 1, advances(sent), "the server advanced the nonce, so the signed bytes can never land"
   end
 
+  test "CANCEL loses to a broadcast that claimed the row after it was loaded: no expiry, no void" do
+    value = Solana::Keypair.generate.to_base58
+    vault, = moving_nonce_vault(value)
+    row = nonce_row(value)
+    stale = PendingTransaction.find(row.id) # what cancel loaded before the claim
+    assert row.claim_for_broadcast!("sig-in-flight")
+    PendingTransaction.stub(:find_by, stale) do
+      with_vault(vault) { post admin_cancel_authority_rotation_path(row.slug), as: :json }
+    end
+    assert_equal ["submitted", "sig-in-flight"], [row.reload.status, row.tx_signature]
+    assert_no_enqueued_jobs only: Solana::VoidConsoleNonceJob
+  end
+
   test "CANCEL of a nonce row voids its nonce" do
     value = Solana::Keypair.generate.to_base58
     vault, sent, = moving_nonce_vault(value)
