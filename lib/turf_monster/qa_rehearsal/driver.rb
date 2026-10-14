@@ -611,7 +611,7 @@ module TurfMonster
         say "  polling ESPN slots #{POLL_SLOTS.join(', ')} …"
 
         POLL_SLOTS.each do |slot|
-          next if system("heroku", "run", "--app", app, "--no-tty", "--",
+          next if system("heroku", "run", "--app", app, "--no-tty", "--exit-code", "--",
                          "bin/nfl-live-poll", "--slot", slot)
 
           raise StepError, "the ESPN poll failed for slot #{slot} — the board is CLEARED and " \
@@ -652,7 +652,9 @@ module TurfMonster
           raise StepError, "replay script contains a shell-expandable name — see RemoteRunner::SHELL_EXPANDABLE"
         end
 
-        return if system("heroku", "run", "--app", app, "--no-tty", "--", "bin/rails", "runner", script)
+        # --exit-code: without it `heroku run` exits 0 whatever the dyno's command
+        # returned, so a CATCH-UP FAILED raise would hand on to conclude.
+        return if system("heroku", "run", "--app", app, "--no-tty", "--exit-code", "--", "bin/rails", "runner", script)
 
         raise StepError, "the replay failed partway, or its catch-up check did not pass (the replay: lines " \
                          "above say which). Do not conclude on this board. Re-run step 3."

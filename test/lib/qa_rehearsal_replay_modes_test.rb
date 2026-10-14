@@ -86,4 +86,13 @@ class QaRehearsalReplayModesTest < ActiveSupport::TestCase
       refute_match TurfMonster::QaRehearsal::RemoteRunner::SHELL_EXPANDABLE, driver.replay_script(pace)
     end
   end
+
+  test "a failed catch-up check on the dyno stops the step: heroku run passes the exit code through" do
+    driver = Driver.new(io: StringIO.new)
+    argv = nil
+    driver.define_singleton_method(:system) { |*args| argv = args; false }
+
+    assert_raises(Driver::StepError) { driver.replay(nil) }
+    assert_includes argv, "--exit-code", "without it heroku run exits 0 whatever the dyno returned"
+  end
 end
