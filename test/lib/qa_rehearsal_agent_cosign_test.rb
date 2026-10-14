@@ -8,7 +8,6 @@ require "test_helper"
 # signs in as an admin over HTTP: no agent-readable wallet is an admin.
 class QaRehearsalAgentCosignTest < ActiveSupport::TestCase
   Driver = TurfMonster::QaRehearsal::Driver
-  CLI = Rails.root.join("bin/qa-contest-rehearsal").read.freeze
 
   # A driver whose first outside reach fails the test by name.
   def driver
@@ -33,7 +32,8 @@ class QaRehearsalAgentCosignTest < ActiveSupport::TestCase
     error = assert_raises(RuntimeError) { driver.conclude }
 
     assert_equal "reached the network guard", error.message
-    assert_includes CLI, "cosign: :agent,"
+    # The CLI's default now lives in Options; read it parsed, not as source text.
+    assert_equal :agent, TurfMonster::QaRehearsal::Options.parse(%w[conclude]).last[:cosign]
   end
 
   test "on a v0.25 dyno the agent co-sign refuses before it grades or locks anything" do
