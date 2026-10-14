@@ -630,9 +630,9 @@ module TurfMonster
       #
       # THE PACE IS ONLY FOR EYES. `pace: nil` (the unattended gauntlet) runs
       # the same loop with no pause: the same rows, the same order, the same
-      # callbacks, the same conclude after each game's last play. Measured
-      # 2026-10-14 the 4 s pause was ~4 of every ~5.3 s per play, so the week
-      # took ~20 minutes to wait, not to compute.
+      # callbacks, the same conclude after each game's last play. At --pace 4
+      # the pause was ~4 of every ~5.3 s per play on QA, so the week took ~20
+      # minutes to wait, not to compute.
       #
       # It runs entirely on the dyno, in ONE invocation, and streams. A version
       # that reached back to Rails per play would cost a dyno per touchdown.

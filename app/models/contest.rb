@@ -798,13 +798,8 @@ class Contest < ApplicationRecord
     game
   end
 
-  # On a span slate every selection reads the slate's team view, so the whole
-  # re-score shares one load of it (Slate#with_matchups_by_team_snapshot).
-  # Scoring writes selections and entries, never a slate_matchup, so the scores
-  # are exactly the ones a fresh load per selection gave.
   def score_entries!
-    rescore = -> { entries.where(status: [:active, :complete]).includes(selections: :slate_matchup).find_each(&:score!) }
-    slate ? slate.with_matchups_by_team_snapshot(&rescore) : rescore.call
+    with_slate_team_view { entries.where(status: [:active, :complete]).includes(selections: :slate_matchup).find_each(&:score!) }
     touch # Bust show page cache after scoring
   end
 
@@ -1262,6 +1257,16 @@ class Contest < ApplicationRecord
     errors.add(:base, "Payout table has #{ranks} paid ranks; one settlement pays at most #{MAX_PAID_RANKS}")
   end
   private :payout_table_settles
+
+  # #score_entries! runs inside this. On a span slate every selection reads the
+  # slate's team view, so the whole re-score shares one load of it
+  # (Slate#with_matchups_by_team_snapshot). Scoring writes selections and
+  # entries, never a slate_matchup, so the scores are exactly the ones a fresh
+  # load per selection gave. Down here because docs/workflows cites by line.
+  def with_slate_team_view(&)
+    slate ? slate.with_matchups_by_team_snapshot(&) : yield
+  end
+  private :with_slate_team_view
 
   # The settlement lifecycle (settlement_pending, #mark_settled!, #graded?).
   # Included at the foot: docs/workflows cites this file by line.
