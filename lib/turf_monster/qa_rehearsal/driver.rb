@@ -397,7 +397,7 @@ module TurfMonster
         say failed.empty? ? "  all #{results.size} entered" : "  #{failed.size} of #{results.size} FAILED"
         say_urls(slug)
         hand_back(verify: "entries read #{results.count { |r| r[:ok] }}/29 and every player sits on the leaderboard at 0",
-                  next_command: "bin/qa-contest-rehearsal play --pace 4")
+                  next_command: "bin/qa-contest-rehearsal play   (unattended; add --pace 4 to watch it)")
         results
       end
 
@@ -410,7 +410,17 @@ module TurfMonster
       # `live-score-watch` entry point, unchanged and pointed at one slot, so
       # what lands here is real ESPN data through the real chain: Goal rows,
       # Game#update_slate_matchups!, contest re-score, live broadcast.
-      def play_preseason(reset: true, pace: 0)
+      #
+      # THREE MODES, named by the flags (Options):
+      #   pace: nil, replay: true   unattended — every play re-laid back to back,
+      #                             then the catch-up check (#replay_script)
+      #   pace: 4,   replay: true   watched — the same replay, 4 s apart
+      #   replay: false             poll only — the burst, no per-play chain
+      # A pace of 0 is refused: it used to MEAN poll-only, so a run that looked
+      # fast had skipped the very chain it was meant to rehearse.
+      def play_preseason(reset: true, pace: nil, replay: true)
+        per_play = replay
+        check_pace!(pace, per_play)
         guard!
         data = manifest.read
         say "Step 3 · run the preseason for #{data['contest_slug']}"
@@ -429,7 +439,9 @@ module TurfMonster
         # over — a spoiler followed by a rewind. The replay captures, clears and
         # re-lays what is already there, so on a slate that has been fetched
         # before, the fetch is not just redundant, it is the thing that ruins it.
-        if pace.positive? && slate_already_scored?
+        # An unattended replay skips it for the same reason and one more: two
+        # dyno boots and a full ESPN fetch buy nothing the captured rows lack.
+        if per_play && slate_already_scored?
           say "  slate already holds its real plays — skipping the fetch and replaying from a clean board"
 
           # UNSHIFT ON THIS PATH TOO. Step 1 nudges the whole week into the
@@ -475,7 +487,19 @@ module TurfMonster
         say ""
         poll_slots!
 
-        finish_play(data, pace.positive? ? replay(pace) : nil)
+        finish_play(data, per_play ? replay(pace) : nil)
+      end
+
+      PACE_REFUSED = "a replay pace must be nil (unattended, no pause) or more than 0 seconds; " \
+                     "got %<pace>s. For poll-only, pass replay: false (--no-replay)."
+
+      def check_pace!(pace, per_play)
+        return if pace.nil?
+        return if pace.is_a?(Numeric) && pace.positive? && per_play
+
+        raise StepError, format(PACE_REFUSED, pace: pace.inspect) unless pace.is_a?(Numeric) && pace.positive?
+
+        raise StepError, "a pace was given with replay: false — a poll-only run re-lays nothing to pace"
       end
 
       # The one tail step 3 has. Both exits return through it, so a branch added
@@ -488,19 +512,6 @@ module TurfMonster
         result
       end
 
-      # Replay the week one scoring play at a time, so an operator can watch
-      # the board move instead of reading a log of 145 things that already
-      # happened.
-      #
-      # This is a REPLAY, not a simulation. The poll above has already written
-      # the real Goal rows; this captures them, deletes them, and writes them
-      # back one at a time. Every re-created Goal fires the same callbacks the
-      # feed fires — refresh_game_scores, the contest re-score, and BOTH live
-      # broadcasts — so what appears on /live is the real touchdown, arriving
-      # on a clock we choose.
-      #
-      # It runs entirely on the dyno, in ONE invocation, and streams. A version
-      # that reached back to Rails per play would cost a dyno per touchdown.
       # Put the fixture's clock back where step 1 found it.
       #
       # Extracted so the paced path and the reset path cannot drift: the poller
@@ -600,7 +611,7 @@ module TurfMonster
         say "  polling ESPN slots #{POLL_SLOTS.join(', ')} …"
 
         POLL_SLOTS.each do |slot|
-          next if system("heroku", "run", "--app", app, "--no-tty", "--",
+          next if system("heroku", "run", "--app", app, "--no-tty", "--exit-code", "--",
                          "bin/nfl-live-poll", "--slot", slot)
 
           raise StepError, "the ESPN poll failed for slot #{slot} — the board is CLEARED and " \
@@ -608,14 +619,74 @@ module TurfMonster
         end
       end
 
+      # Replay the week one scoring play at a time.
+      #
+      # This is a REPLAY, not a simulation. The poll has already written the
+      # real Goal rows; this captures them, deletes them, and writes them back
+      # one at a time. Every re-created Goal fires the same callbacks the feed
+      # fires — refresh_game_scores, the contest re-score, and BOTH live
+      # broadcasts — so what appears on /live is the real touchdown, arriving
+      # on a clock we choose.
+      #
+      # THE PACE IS ONLY FOR EYES. `pace: nil` (the unattended gauntlet) runs
+      # the same loop with no pause: the same rows, the same order, the same
+      # callbacks, the same conclude after each game's last play. At --pace 4
+      # the pause was ~4 of every ~5.3 s per play on QA, so the week took ~20
+      # minutes to wait, not to compute.
+      #
+      # It runs entirely on the dyno, in ONE invocation, and streams. A version
+      # that reached back to Rails per play would cost a dyno per touchdown.
       def replay(pace)
         say ""
-        say "  replaying #{POLL_SLOTS.join(' + ')} at #{pace}s per scoring play — watch https://#{host}/live"
+        if pace
+          say "  replaying #{POLL_SLOTS.join(' + ')} at #{pace}s per scoring play — watch https://#{host}/live"
+        else
+          say "  replaying #{POLL_SLOTS.join(' + ')} unattended: every scoring play, back to back, then the catch-up check"
+        end
 
-        script = <<~RUBY
+        script = replay_script(pace)
+
+        # The streaming path bypasses RemoteRunner, so it borrows its guard
+        # rather than rediscovering the shell-expansion bug on its own.
+        if script.match?(RemoteRunner::SHELL_EXPANDABLE)
+          raise StepError, "replay script contains a shell-expandable name — see RemoteRunner::SHELL_EXPANDABLE"
+        end
+
+        # --exit-code: without it `heroku run` exits 0 whatever the dyno's command
+        # returned, so a CATCH-UP FAILED raise would hand on to conclude.
+        return if system("heroku", "run", "--app", app, "--no-tty", "--exit-code", "--", "bin/rails", "runner", script)
+
+        raise StepError, "the replay failed partway, or its catch-up check did not pass (the replay: lines " \
+                         "above say which). Do not conclude on this board. Re-run step 3."
+      end
+
+      # The Ruby the dyno runs for step 3's replay. Public so a test can run
+      # it against a real database: it is the step's whole behaviour.
+      #
+      # THE CATCH-UP CHECK closes it, and it is what makes dropping the pause
+      # safe. The per-play chain is synchronous today (Goal callbacks, the
+      # contest re-score and both broadcasts run inline; nothing is enqueued),
+      # so a fast replay cannot outrun it — but that is a fact about today's
+      # code, and a sleep would only have hidden the day it stopped being true.
+      # So before `conclude` may grade, the board must PROVE it caught up:
+      #   * every captured play is back on the slate, and every game that had
+      #     one reads completed;
+      #   * each game's score equals the sum of its plays, and each of its
+      #     slate matchups carries that score, marked completed;
+      #   * every entry in every open contest on the slate scores what a fresh
+      #     recompute gives (Selection#computed_points, the same formula
+      #     Entry#score! writes);
+      #   * nothing was rescued into ErrorLog while it ran — a broadcast that
+      #     raises is swallowed, and the log is the only thing that notices.
+      # Any miss prints `replay: CATCH-UP FAILED — …` and exits non-zero.
+      def replay_script(pace)
+        pause = pace ? "sleep #{Float(pace)}" : "# unattended: no pause; the catch-up check below proves the chain kept up"
+
+        <<~RUBY
           slate = Slate.find_by!(name: #{SLATE_NAME.inspect})
           slugs = slate.slate_matchups.pluck(:game_slug).compact.uniq
           kickoffs = Game.where(slug: slugs).pluck(:slug, :kickoff_at).to_h
+          started_at = Time.current
 
           # Capture the real plays, then take them off the board. Ordered by
           # kickoff then game clock, so simultaneous games interleave the way a
@@ -635,12 +706,18 @@ module TurfMonster
           # paced replay.
           zeroed = Entry.where(contest_id: Contest.where(slate_id: slate.id).select(:id))
                         .where.not(score: 0).update_all(score: 0)
-          puts "replay: board cleared, \#{captured.size} plays queued, \#{zeroed} score(s) zeroed"
+          open_contests = Contest.where(slate_id: slate.id, status: "open").count
+          puts "replay: board cleared, \#{captured.size} plays queued, \#{zeroed} score(s) zeroed, " \
+               "\#{open_contests} open contest(s) re-scored per play"
           STDOUT.flush
 
           remaining = captured.group_by { |g| g["game_slug"] }.transform_values(&:size)
+          clock = -> { Process.clock_gettime(Process::CLOCK_MONOTONIC) }
+          work = []
+          began = clock.call
 
           captured.each_with_index do |attrs, i|
+            t = clock.call
             goal = Goal.create!(attrs)
             game = goal.game
             puts format("replay: %3d/%d  %-4s %-12s +%-2s  %s %s-%s %s",
@@ -659,22 +736,70 @@ module TurfMonster
               puts "replay: FINAL  \#{game.slug}"
               STDOUT.flush
             end
+            work << (clock.call - t)
 
-            sleep #{pace}
+            #{pause}
           end
 
-          puts "replay: done — \#{captured.size} plays, \#{remaining.size} games"
+          sorted = work.sort
+          mean_ms = sorted.empty? ? 0 : (sorted.sum / sorted.size * 1000).round
+          p95_ms = sorted.empty? ? 0 : (sorted[(sorted.size * 0.95).ceil - 1] * 1000).round
+          puts "replay: done — \#{captured.size} plays, \#{remaining.size} games in \#{(clock.call - began).round}s " \
+               "(work per play \#{mean_ms}ms mean, \#{p95_ms}ms p95)"
+          STDOUT.flush
+
+          # THE CATCH-UP CHECK (see Driver#replay_script).
+          problems = []
+          on_board = Goal.where(game_slug: slugs).count
+          problems << "\#{on_board} plays on the slate, \#{captured.size} replayed" unless on_board == captured.size
+
+          Game.where(slug: remaining.keys).includes(:goals).find_each do |g|
+            problems << "\#{g.slug} reads \#{g.status}, not completed" unless g.status == "completed"
+            home = g.goals.select { |x| x.team_slug == g.home_team_slug }.sum(&:points)
+            away = g.goals.select { |x| x.team_slug == g.away_team_slug }.sum(&:points)
+            next if g.home_score == home && g.away_score == away
+
+            problems << "\#{g.slug} reads \#{g.away_score}-\#{g.home_score}, its plays sum to \#{away}-\#{home}"
+          end
+
+          slate.slate_matchups.where(game_slug: remaining.keys).includes(:game).find_each do |m|
+            want = m.team_slug == m.game.home_team_slug ? m.game.home_score : m.game.away_score
+            next if m.goals == want && m.status == "completed"
+
+            problems << "matchup \#{m.id} (\#{m.team_slug}) reads \#{m.goals.inspect} \#{m.status}, its game says \#{want.inspect} completed"
+          end
+
+          entries_checked = 0
+          Contest.where(slate_id: slate.id, status: "open").find_each do |contest|
+            contest.entries.where(status: [:active, :complete]).includes(:selections).find_each do |entry|
+              fresh = entry.selections.sum { |s| s.computed_points || s.points || 0 }.to_f
+              entries_checked += 1
+              next if (entry.score.to_f - fresh).abs < 0.001
+
+              problems << "entry \#{entry.id} in \#{contest.slug} scores \#{entry.score}, a fresh recompute gives \#{fresh}"
+            end
+          end
+
+          # An empty board must not read as caught up: no plays, or no entry
+          # checked, means the comparisons above proved nothing.
+          problems << "no plays were captured on the slate, so nothing was replayed" if captured.empty?
+          problems << "no entry in an open contest on the slate was checked" if entries_checked.zero?
+
+          logged = ErrorLog.where("created_at >= ?", started_at)
+          unless logged.none?
+            problems << "\#{logged.count} error(s) rescued into ErrorLog during the replay: " +
+                        logged.order(:id).limit(3).pluck(:message).map { |m| m.to_s[0, 120] }.join(" | ")
+          end
+
+          if problems.empty?
+            puts "replay: caught up — \#{on_board} plays on the board, \#{remaining.size} games final, " \
+                 "\#{entries_checked} entry score(s) equal a fresh recompute, no errors logged"
+          else
+            problems.each { |problem| puts "replay: CATCH-UP FAILED — " + problem }
+            STDOUT.flush
+            raise "replay catch-up check failed: \#{problems.size} problem(s)"
+          end
         RUBY
-
-        # The streaming path bypasses RemoteRunner, so it borrows its guard
-        # rather than rediscovering the shell-expansion bug on its own.
-        if script.match?(RemoteRunner::SHELL_EXPANDABLE)
-          raise StepError, "replay script contains a shell-expandable name — see RemoteRunner::SHELL_EXPANDABLE"
-        end
-
-        return if system("heroku", "run", "--app", app, "--no-tty", "--", "bin/rails", "runner", script)
-
-        raise StepError, "the replay failed partway — the board holds a partial week. Re-run step 3."
       end
 
       # --- Step 4 --------------------------------------------------------

@@ -108,8 +108,8 @@ class QaRehearsalStepHaltTest < ActiveSupport::TestCase
 
   # THE LOAD-BEARING TEST, and it RUNS the branch rather than reading it.
   #
-  # `play --pace 4` is the string the SOP's step 3 and the driver's own step-2
-  # hand-back both name, so this is the command an operator actually types. The
+  # `play --pace 4` is the watched form of step 3 (the unattended gauntlet runs
+  # a bare `play` down the same branch), so this is a command operators type. The
   # evergreen slate is one shared Slate and `replay` re-lays the Goal rows it
   # captured, so `slate_already_scored?` is false exactly once and true forever
   # after: the branch that skipped the halt is the one used every run but the
