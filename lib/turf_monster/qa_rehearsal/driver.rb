@@ -51,7 +51,8 @@ module TurfMonster
       #
       # This address is XAN (8K81…) — the shared server identity, called "Alex
       # Bot" until it was renamed on 2026-09-15. Same wallet, same key, new
-      # name: an 8K81… reference elsewhere in this repo is current, not stale.
+      # name. It is the team@ account's wallet; the mainnet rotation
+      # (mainnet-signer-records-rotation) took it off the mainnet VaultState.
       #
       # THE REHEARSAL NAMES XAN AS CREATOR BUT CANNOT SIGN AS IT, and that is
       # deliberate. The SERVER signs as Xan from SOLANA_ADMIN_KEY on the dyno;
@@ -96,9 +97,9 @@ module TurfMonster
 
       # Mack and turf, and the exclusions are not preferences:
       #
-      #   * MASON cannot play: his key (CytJ…) is a mainnet VaultState signer,
-      #     and the rehearsal loads no key with mainnet authority
-      #     (MainnetSignerFence; devnet-v026-upgrade).
+      #   * MASON cannot play: his key (CytJ…) was a mainnet VaultState signer
+      #     until the mainnet rotation retired it, and the rehearsal loads no
+      #     key with mainnet authority and no retired one (MainnetSignerFence).
       #
       #   * XAN cannot play, and can no longer even be asked to. Xan (8K81…) is
       #     the fee payer and contest creator, and when the player is also the
@@ -120,8 +121,8 @@ module TurfMonster
       # Agents whose filed keys may fill a v0.26 vault signer slot. The driver
       # uses only those the chain seats, never the server key twice, and never
       # a key MainnetSignerFence lists. Mason is not on it (devnet-v026-upgrade): his
-      # key (CytJ…) is a mainnet VaultState signer, and the devnet rotation
-      # evicted it from devnet the same day. Mack (foUu…) is devnet-only.
+      # key (CytJ…) is fenced as a retired mainnet signer, and the devnet
+      # rotation evicted it from devnet. Mack (foUu…) is devnet-only.
       VAULT_AGENTS = %w[mack].freeze
 
       attr_reader :app, :host, :cast, :io

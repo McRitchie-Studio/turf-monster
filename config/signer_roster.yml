@@ -25,21 +25,21 @@
 # config/mainnet_vault_signers.yml, checked against the chain.
 
 keys:
-  - address: 8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd
-    name: Production server key (Xan)
-    holder: agent
-    signs_in: server
-    clusters: [mainnet-beta]
-    op_item: agent.xan.solana
-    role: turf-monster-mainnet's SOLANA_ADMIN_KEY today; leaves the set at the EVICT
-
   - address: 4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY
-    name: New production server key
+    name: Production server key
     holder: agent
     signs_in: server
     clusters: [mainnet-beta]
     op_item: solana.turf.server
-    role: production's next SOLANA_ADMIN_KEY; seated by the ADD, flipped to by Steffon
+    role: turf-monster-mainnet's SOLANA_ADMIN_KEY since 2026-10-14; mainnet VaultState slot 2
+
+  - address: 3LTLPG1s952sdNatZWtnfM7r9F3ivWSnPSqfhQLBepJ9
+    name: Governance key v2
+    holder: agent
+    signs_in: server
+    clusters: [mainnet-beta]
+    op_item: solana.turf.governance.v2
+    role: the fresh governance key that replaced exposed 4bKN in the VaultState target; mainnet slot 0 since 2026-10-14
 
   - address: 7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr
     name: Alex, Phantom account 1
@@ -71,15 +71,23 @@ keys:
     signs_in: server
     clusters: [mainnet-beta]
     op_item: solana.turf.governance
-    role: admin-vault agent key and a mainnet Squads seat; exposed, so in no VaultState target (slot 5 takes a fresh governance key)
+    role: admin-vault agent key and a mainnet Squads seat; exposed, so in no VaultState target (3LTL, Governance key v2, took that slot)
 
   - address: CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR
-    name: Mason
+    name: Mason (retired)
     holder: agent
     signs_in: server
-    clusters: [mainnet-beta]
+    clusters: []
     op_item: agent.mason.solana
-    role: signs the mainnet ADD as a window cosigner, then leaves at the EVICT
+    role: retired; the mainnet EVICT removed him on 2026-10-14, and he holds no VaultState slot on either cluster
+
+  - address: 8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd
+    name: Retired server key (Xan)
+    holder: agent
+    signs_in: server
+    clusters: []
+    op_item: agent.xan.solana
+    role: retired; production's SOLANA_ADMIN_KEY until 2026-10-14, when the mainnet EVICT removed it; on no VaultState
 
   - address: 2eGs8G3wzhEeNQQU2Q86BmmA2xTpDbMMae3Y1bvpZfx9
     name: QA server key

@@ -125,9 +125,10 @@ module TurfMonster
       # and the archived item solana.turf.admin is not read. The agent co-sign
       # confirms on the dyno, so no step needs an admin session.
       #
-      # NO MAINNET KEY IS FILED HERE. Mason (agent.mason.solana, CytJ…) is a
+      # NO MAINNET KEY IS FILED HERE. Mason (agent.mason.solana, CytJ…) was a
       # mainnet VaultState signer, so he left this list and the cast
-      # (devnet-v026-upgrade). Driver#keys also fences every key it loads.
+      # (devnet-v026-upgrade); the mainnet rotation retired his key, and it stays
+      # fenced. Driver#keys also fences every key it loads.
       #
       # THE DEVNET PAIR IS ITS OWN ITEM (solana.turf.system.devnet, 2eGs8G3w…).
       # SECRET_FIELDS and ADDRESS_FIELDS exclude the devnet-* spellings, so a

@@ -176,7 +176,8 @@ class SignerIsolationTest < ActiveSupport::TestCase
   test "the committed registry loads, warns by default, and files production as the chain's server signer" do
     committed = GUARD::Registry.load
     assert_equal "warn", committed.mode, "shipping in enforce would freeze every production deploy until the ceremony"
-    assert_equal "8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd", committed.system_wallet("production")
+    assert_equal "4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY", committed.system_wallet("production"),
+                 "production loads solana.turf.server since 2026-10-14; 8K81 left the mainnet set"
     assert_equal COMMITTED_QA_WALLET, committed.system_wallet("qa")
     refute_equal committed.system_wallet("production"), committed.system_wallet("qa"),
                  "QA's filed wallet must be a key production does not hold"

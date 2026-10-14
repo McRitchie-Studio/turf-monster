@@ -1,5 +1,5 @@
 # Keys the QA rehearsal must NEVER sign with: every key that holds MAINNET
-# authority. That is every key that is, or is slated to become, a signer on the
+# authority, and every key a mainnet rotation retired. That is every key that is, or is slated to become, a signer on the
 # MAINNET turf-vault VaultState (DaFv83yokwTz8msP9CzJ13eazSGk15NuUTxjkfzJzxMM),
 # and every member of the MAINNET Squads multisig that holds the program's
 # upgrade authority (4H3fP3ot…, vault Bk9sS7ii…). PUBLIC keys only.
@@ -20,19 +20,29 @@
 # the mainnet Squad's membership, as turf-vault scripts/lib/squad-clusters.js
 # files it (AGENT_SEATS and MEMBER_NAMES); a Squads membership change updates it.
 #
-# Read off chain for devnet-v026-upgrade (turf-vault scripts/check-signer-slots.js): mainnet
-# VaultState slots are 8K81, 7ZDJ, CytJ; slots 4 and 5 empty.
+# Read off chain 2026-10-14 for mainnet-signer-records-rotation (turf-vault
+# scripts/check-signer-slots.js --cluster mainnet), after the mainnet rotation:
+# VaultState slots are 3LTL, 7ZDJ, 4S39, 9gAC, 3Qj4, all five occupied. That
+# rotation seated every key `incoming` named except 4bKN (exposed, so slot 0
+# took the fresh governance key 3LTL instead), so `incoming` is empty until the
+# next rotation is agreed. It retired 8K81w4e6… (production's previous
+# SOLANA_ADMIN_KEY) and CytJS23p… (Mason): they hold no mainnet VaultState slot
+# and no seat in the squad list below. They stay fenced under `retired`, so the
+# rotation does not unfence them as a side effect; letting the rehearsal load a
+# retired key is its own decision, made by removing it from that list.
 
 seated:
-  - 8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd # Xan, production SOLANA_ADMIN_KEY
+  - 3LTLPG1s952sdNatZWtnfM7r9F3ivWSnPSqfhQLBepJ9 # solana.turf.governance.v2, the fresh governance key
   - 7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr # Mr. McRitchie, Phantom account 1
-  - CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR # Mason (agent.mason.solana)
-
-incoming:
-  - 4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY # solana.turf.server, production's next key
+  - 4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY # solana.turf.server, production SOLANA_ADMIN_KEY
   - 9gACbzsCLmkYF9Yx1EBGmwMvvyfuTquJ6qs8QsoQvHXf # Mr. McRitchie, Phantom account 2
   - 3Qj4v9qjhXgkru6zCRCErRVhy8Q6qU3NrNpvpXLTZboA # Mr. McRitchie's second wallet
-  - 4bKNSqkrKeggSyrds16Ak7rcB4ibvGJ4ZLsKjvQgC3Vk # solana.turf.governance (exposed; slated for replacement)
+
+incoming: []
+
+retired:
+  - 8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd # production's previous SOLANA_ADMIN_KEY (agent.xan.solana)
+  - CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR # Mason (agent.mason.solana)
 
 squad:
   - 7auwTLSvNniSUeAgL6v9RStMXJhWrrUhSJgwFWLpcqC # solana.turf.system (agent-held); in no VaultState target

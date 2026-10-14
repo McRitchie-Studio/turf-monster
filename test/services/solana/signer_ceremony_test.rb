@@ -7,14 +7,15 @@ class Solana::SignerCeremonyTest < ActiveSupport::TestCase
   NEW   = "4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY".freeze
   ALEX  = "7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr".freeze
   MASON = "CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR".freeze
-  # Stands in for the fresh governance key once minted: the committed file
-  # carries a placeholder (UNMINTED:fresh-governance) until then.
-  GOV   = "BVQHNwUEo91ePwqPcR6Ro4g9Ejqt3qn3ajKPqJSSTd51".freeze
+  # The fresh governance key (solana.turf.governance.v2), filed 2026-10-14.
+  GOV   = "3LTLPG1s952sdNatZWtnfM7r9F3ivWSnPSqfhQLBepJ9".freeze
+  P2    = "9gACbzsCLmkYF9Yx1EBGmwMvvyfuTquJ6qs8QsoQvHXf".freeze
+  W2    = "3Qj4v9qjhXgkru6zCRCErRVhy8Q6qU3NrNpvpXLTZboA".freeze
+  # Mainnet VaultState, read 2026-10-14 11:10 MDT by turf-vault scripts/check-signer-slots.js.
+  ROTATED = [GOV, ALEX, NEW, P2, W2].freeze
 
   def self.minted_steps
-    YAML.safe_load_file(Solana::SignerCeremony::PATH)["mainnet-beta"].map do |step|
-      step.transform_values { |v| v.is_a?(Array) ? v.map { |k| k == "UNMINTED:fresh-governance" ? GOV : k } : v }
-    end
+    YAML.safe_load_file(Solana::SignerCeremony::PATH)["mainnet-beta"]
   end
 
   FUNDED = { balance_sol: 0.4, funded: true }.freeze
@@ -80,16 +81,26 @@ class Solana::SignerCeremonyTest < ActiveSupport::TestCase
     assert_includes evict[:console_path], "intent=remove"
   end
 
-  test "the committed checklist's slot 5 is unminted, so the ADD and EVICT are blocked and say why" do
-    c = Solana::SignerCeremony.new(network: "mainnet-beta", chain_set: [XAN, ALEX, MASON], chain_governance: true,
-                                   config_governance: true, server: XAN, server_held: [MASON], fee_payer: FUNDED)
-    add = step(c, "add")
+  test "an unminted key blocks a step and says why" do
+    steps = self.class.minted_steps.map do |s|
+      s.transform_values { |v| v.is_a?(Array) ? v.map { |k| k == GOV ? "UNMINTED:fresh-governance" : k } : v }
+    end
+    add = step(ceremony(steps: steps), "add")
     assert_equal "blocked", add[:status]
     refute check(add, "keys_minted").ok
     assert_match(/Fresh governance key \(unminted\)/, check(add, "keys_minted").detail)
-    assert_equal "Fresh governance key (unminted)", c.name_for("UNMINTED:fresh-governance")
-    refute_includes YAML.safe_load_file(Solana::SignerCeremony::PATH).to_s, "4bKNSqkrKeggSyrds16Ak7rcB4ibvGJ4ZLsKjvQgC3Vk",
-                    "4bKN was exposed and is in no VaultState target"
+    assert_equal "Fresh governance key (unminted)", ceremony.name_for("UNMINTED:fresh-governance")
+  end
+
+  test "the committed checklist names the minted governance key, and the rotated chain finishes it" do
+    filed = YAML.safe_load_file(Solana::SignerCeremony::PATH).to_s
+    refute_includes filed, "UNMINTED", "3LTL is minted and filed; no placeholder remains"
+    refute_includes filed, "4bKNSqkrKeggSyrds16Ak7rcB4ibvGJ4ZLsKjvQgC3Vk", "4bKN was exposed and is in no VaultState target"
+    c = Solana::SignerCeremony.new(network: "mainnet-beta", chain_set: ROTATED.reverse, chain_governance: true,
+                                   config_governance: true, server: NEW, server_held: [], fee_payer: FUNDED)
+    assert_equal "Governance key v2", c.name_for(GOV)
+    assert_equal "done", step(c, "evict")[:status], "the EVICT's end set is the chain read 2026-10-14"
+    assert_equal "done", step(c, "flip")[:status], "production's server key is 4S39"
   end
 
   test "the soft contest check reports without blocking" do
