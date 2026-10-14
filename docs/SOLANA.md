@@ -101,10 +101,10 @@ Separate project at `/Users/alex/projects/turf-vault/`. Current deployment ident
 - **User signature** required for `set_username` and the **user** slot of `enter_contest{,_with_token}` (the user must consent to spending from / consuming their own funds — OPSEC-004).
 - `create_user_account` is permissionless (payer only); `initialize` is gated to `INIT_AUTHORITY` on mainnet builds.
 
-Signers (`VaultState.signers`, threshold 2) — the same set on **devnet and mainnet**, re-verified on-chain 2026-09-05 in both `VaultState` PDAs:
-- Xan (server) — `8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd`
-- Mr. McRitchie (human Phantom, = `INIT_AUTHORITY`) — `7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr`
-- Mason — `CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR`
+Signers (`VaultState` slots) on **mainnet**, read 2026-10-14 at 11:10 MDT by turf-vault `scripts/check-signer-slots.js --cluster mainnet`, after the rotation: slot 0 governance key v2 (`solana.turf.governance.v2`) `3LTLPG1s952sdNatZWtnfM7r9F3ivWSnPSqfhQLBepJ9`; slot 1 Mr. McRitchie, Phantom account 1 (= `INIT_AUTHORITY`) `7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr`; slot 2 production server key (`solana.turf.server`, `SOLANA_ADMIN_KEY` since 2026-10-14) `4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY`; slot 3 Mr. McRitchie, Phantom account 2 `9gACbzsCLmkYF9Yx1EBGmwMvvyfuTquJ6qs8QsoQvHXf`; slot 4 Mr. McRitchie, second wallet `3Qj4v9qjhXgkru6zCRCErRVhy8Q6qU3NrNpvpXLTZboA`.
+- That rotation retired Xan (`8K81w4e6…`, the previous server key) and Mason (`CytJS23p…`).
+- Devnet is a different set, read the same day: `2eGs`, `foUu`, `BVQH`, `9gAC`, `3Qj4`.
+- The filed copies live in `config/mainnet_vault_signers.yml`, `config/solana_signers.yml` and `config/signer_roster.yml`.
 
 ### turf-vault v0.26 — governance-as-data, and how Rails carries TWO program shapes
 

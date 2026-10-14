@@ -20,14 +20,14 @@
 # the mainnet Squad's membership, as turf-vault scripts/lib/squad-clusters.js
 # files it (AGENT_SEATS and MEMBER_NAMES); a Squads membership change updates it.
 #
-# Read off chain 2026-10-14 at 11:10 MDT (turf-vault scripts/check-signer-slots.js
-# --cluster mainnet), after the mainnet rotation: VaultState slots are 3LTL, 7ZDJ,
-# 4S39, 9gAC, 3Qj4, all five occupied. That rotation seated every key `incoming`
-# named except 4bKN (exposed, so slot 0 took the fresh governance key 3LTL
-# instead), so `incoming` is empty until the next rotation is agreed. It retired
-# 8K81w4e6… (Xan, production's previous SOLANA_ADMIN_KEY) and CytJS23p…
-# (Mason): they hold no mainnet VaultState slot and no seat in the squad list below, so
-# they are no longer fenced here.
+# Read off chain 2026-10-14 for mainnet-signer-records-rotation (turf-vault
+# scripts/check-signer-slots.js --cluster mainnet), after the mainnet rotation:
+# VaultState slots are 3LTL, 7ZDJ, 4S39, 9gAC, 3Qj4, all five occupied. That
+# rotation seated every key `incoming` named except 4bKN (exposed, so slot 0
+# took the fresh governance key 3LTL instead), so `incoming` is empty until the
+# next rotation is agreed. It retired 8K81w4e6… (production's previous
+# SOLANA_ADMIN_KEY) and CytJS23p… (Mason): they hold no mainnet VaultState slot
+# and no seat in the squad list below, so they are no longer fenced here.
 
 seated:
   - 3LTLPG1s952sdNatZWtnfM7r9F3ivWSnPSqfhQLBepJ9 # solana.turf.governance.v2, the fresh governance key

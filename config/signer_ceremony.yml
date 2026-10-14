@@ -17,8 +17,8 @@
 # SLOT 5 IS A FRESH GOVERNANCE KEY, NOT 4bKN: 4bKN was exposed, so it is in no
 # VaultState target. The fresh key is 3LTLPG1s… (solana.turf.governance.v2),
 # filed in config/signer_roster.yml; it replaced the `3LTLPG1s952sdNatZWtnfM7r9F3ivWSnPSqfhQLBepJ9`
-# placeholder below. Mainnet ran this checklist to the end on 2026-10-14: the
-# chain read 3LTL, 7ZDJ, 4S39, 9gAC, 3Qj4 at 11:10 MDT, the EVICT's end set.
+# placeholder below. Mainnet has run this checklist to the end: the chain reads
+# 3LTL, 7ZDJ, 4S39, 9gAC, 3Qj4, the EVICT's end set.
 #
 # Keys are full addresses; config/signer_roster.yml names them.
 
