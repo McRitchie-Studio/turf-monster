@@ -84,6 +84,23 @@ class Solana::SignerPlanTest < ActiveSupport::TestCase
     assert_match(/You sign twice: first as 9gAC…vHXf, then switch Phantom to 7ZDJ…9Tcr/, plan[:sentence])
   end
 
+  # The rotation ptx-432 and ptx-433 lost to the blockhash (2026-10-14): two
+  # prompts and an account switch. On the console nonce it has no clock, and
+  # the sentence says so; without one, it keeps the honest warning.
+  test "the two-prompt rotation promises no time limit only when the console nonce is ready" do
+    args = { current: [NEW, ALEX, ALEX2, ALEX3, GOV], server: NEW, connected: ALEX2 }
+    draft = { intent: "replace", remove: [GOV], add: [MASON] }
+    timed = planner(**args).plan!(**draft)
+    untimed = Solana::SignerPlan.new(network: "mainnet-beta", governance: true, current: args[:current], required: 3,
+                                     server: NEW, roster: ROSTER, connected: ALEX2, max_live_threshold: 3,
+                                     nonce_ready: true).plan!(**draft)
+
+    assert_match(/about 45 seconds/, timed[:sentence])
+    refute timed[:no_time_limit]
+    assert_match(/no time limit/, untimed[:sentence])
+    assert untimed[:no_time_limit]
+  end
+
   test "agent keys never fill every slot: the last signature is always Alex's" do
     plan = planner(current: [XAN, ALEX, MASON, GOV], held: [MASON, GOV])
              .plan!(intent: "add", add: [NEW])

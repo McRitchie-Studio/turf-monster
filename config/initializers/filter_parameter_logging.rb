@@ -13,6 +13,7 @@ Rails.application.config.filter_parameters += [
   # Web3 / Solana
   :signature,       # also catches tx_signature, webhook_signature, signatures
   :serialized_tx,   # base64-encoded signed transactions on admin endpoints
+  :signed_tx,       # the fully-signed wire every cosign broadcast posts; a nonce-anchored one stays landable
   :tx_signature,
   :pubkey,          # not strictly secret but enables user correlation in logs
   :signers,         # admin/authorities#arm: public keys, but a pasted secret would land here too

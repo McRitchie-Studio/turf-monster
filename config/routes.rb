@@ -619,6 +619,7 @@ Rails.application.routes.draw do
     get  "authorities/ceremony",               to: "authorities#ceremony",  as: :authority_ceremony
     post "authorities/plan",                   to: "authorities#plan",      as: :plan_authority_rotation
     post "authorities/rotations",              to: "authorities#create_rotation", as: :authority_rotations
+    post "authorities/console_nonce",          to: "authorities#prepare_nonce", as: :authority_console_nonce
     get  "authorities/proposals",              to: "authorities#proposals", as: :authority_proposals
     post "authorities/proposals/:index/approve", to: "authorities#approve_proposal", as: :approve_authority_proposal
     post "authorities/:slug/rebuild",          to: "authorities#rebuild",   as: :rebuild_authority_rotation

@@ -271,9 +271,9 @@ header, the durable-nonce note in `Solana::Vault#build_enter_contest`, and
 the message as built. Decided: on mainnet Alex cosigns with a Ledger through the
 Solana CLI; on devnet, with a CLI keypair. The nonce path has no Phantom leg. It
 is off until a cluster's cosigner is seated as a vault signer and its entry is
-turned on; until then settle runs as today. Whether Phantom also rewrites a
-transaction that already carries the server's signature is not verified
-(section 8).
+turned on; until then settle runs as today. Phantom does not rewrite a
+transaction that already carries the server's signature (measured on mainnet;
+section 8).
 
 **Considered and not chosen.**
 - **(b) Automatic settlement by two agent-held keys.** No human in the loop. A
@@ -346,20 +346,26 @@ The durable-nonce settlement (section 5) has two built and two owed:
 
 ## 8. Not verified
 
-- That Phantom puts Lighthouse instructions ahead of the advance when it cosigns a
-  vault transaction the server has already signed (the shape of settle and of
-  `build_create_contest`'s retired nonce branch), as opposed to the entry transaction the
-  2026-06-11 incident was on.
-  This page relies on the repo's own record of the 2026-06-11 incident. If
-  Phantom leaves a pre-signed wire's order intact, the prerequisite in section 5
-  may not apply to it; that needs a devnet test before anyone relies on it.
+- ANSWERED 2026-10-14 (signer-console-durable-nonce), from mainnet rather than
+  devnet: Phantom leaves a server-PRE-SIGNED nonce wire's order intact. The
+  retired `build_create_contest` nonce branch landed four times
+  (2026-06-03, 06-05, 06-08, 06-13) as `advanceNonce | ComputeBudget |
+  ComputeBudget | create_contest`, signed 8K81 then 7ZDJ, broadcast from
+  Phantom's own returned bytes, with no Lighthouse instruction; e.g.
+  `5BhL9AfUnukZFBzjmtHsKPzBHXnMArLLYTgsUhVr6G37C6rEwk7Swz8KpKzpHtvhi3iRBaKrUnTagFpzQNVMb2mV`.
+  The 2026-06-11 incident was on a Phantom-FIRST (unsigned) entry. So the
+  section 5 prerequisite (no Phantom leg) is a choice for settle, not a wallet
+  constraint, provided the server signs first. The signer console now relies on
+  this (`Solana::ConsoleNonce`).
 - That a hardware signer leaves instruction order intact. A CLI keypair does:
   `bin/settle-nonce sign` fills its slot and leaves the message unchanged, which
   the localnet run in section 5 shows.
-- `SOLANA_DURABLE_NONCE_PUBKEY` is reported set in production to
-  `2bSnZ9d8NLJyGT3VgsjnU4Ncmm8yHcXnNKmepCeNDyiV`; the config var itself is not
-  read here. That account reads initialised on mainnet with authority `8K81…`,
-  and nothing in turf reads the variable.
+- `SOLANA_DURABLE_NONCE_PUBKEY` is UNSET in production since the 2026-10-14
+  rotation (the server key is now `4S39…`). Its old value, the account
+  `2bSnZ9d8NLJyGT3VgsjnU4Ncmm8yHcXnNKmepCeNDyiV`, reads initialised on mainnet
+  with authority `8K81…`, which no running app holds. The signer console reads
+  the variable only as a fallback (`Solana::ConsoleNonce`), and only while its
+  authority is the server key.
 - Who holds the `CytJ…` key, and whether it can sign a nonce-anchored settle
   without reordering it. It matters for the third signature `v0.26` asks of every
   settle; if it is a Phantom, it meets the same prerequisite as Alex's.

@@ -77,7 +77,7 @@
       Reconcile asks the chain about this exact signature. If it landed, the row
       is left alone and you read the signer set back below — that read, not a
       status flag, is the authoritative answer on this page. If it failed on
-      chain, or its blockhash window has lapsed so it can never land, the
+      chain, or it can never land (its blockhash lapsed, or its nonce advanced), the
       eviction is armed again and can be rebuilt. While it may still land,
       nothing changes and you reconcile again shortly.
     </p>

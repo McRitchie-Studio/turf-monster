@@ -31,4 +31,15 @@ class FilterParameterLoggingTest < ActiveSupport::TestCase
     assert_equal "2", out["lead_signer_row"]
     assert_equal "update_signers", out["tx_type"], "a VALUE that says signers is not a key that does"
   end
+
+  # A signer-console broadcast posts the fully-signed rotation. On the console
+  # nonce it never expires, so the request log must not hold a copy anyone with
+  # log access could send (signer-console-durable-nonce).
+  test "a signed wire posted to a broadcast endpoint is filtered" do
+    out = filtered("signed_tx" => "AQIDBAUG", "signer_queue" => ["7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr"],
+                   "slug" => "ptx-1")
+
+    assert_equal "[FILTERED]", out["signed_tx"]
+    assert_equal "ptx-1", out["slug"]
+  end
 end

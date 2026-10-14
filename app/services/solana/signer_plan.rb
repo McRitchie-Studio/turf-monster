@@ -47,12 +47,13 @@ module Solana
     end
 
     attr_reader :network, :governance, :current, :required, :max_live_threshold,
-                :server, :server_held, :roster, :connected
+                :server, :server_held, :roster, :connected, :nonce_ready
 
     # `governance:` is the CHAIN's shape (GovernanceConfig present), never the
     # app switch. `server_held:` are PUBLIC addresses only.
     def initialize(network:, governance:, current:, required:, server:, server_held: [],
-                   roster: SignerRoster.default, max_live_threshold: nil, connected: nil)
+                   roster: SignerRoster.default, max_live_threshold: nil, connected: nil,
+                   nonce_ready: false)
       @network = network.to_s
       @governance = governance
       @current = Array(current).map { |k| k.to_s.strip }.reject { |k| k.blank? || k == SignerRotation::EMPTY }
@@ -62,6 +63,10 @@ module Solana
       @server_held = Array(server_held).map(&:to_s) - [@server]
       @roster = roster
       @connected = connected.to_s.strip.presence
+      # Whether the signer console's durable nonce is ready (Solana::ConsoleNonce).
+      # A server-led rotation then has no signing clock; an operator-led one
+      # never anchors on it.
+      @nonce_ready = nonce_ready == true
     end
 
     def mainnet? = network == "mainnet-beta"
@@ -154,6 +159,7 @@ module Solana
         server_held: lead_is_server ? held : [],
         phantom_queue: queue,
         prompt_count: queue.length,
+        no_time_limit: lead_is_server && nonce_ready,
         sentence: sentence(lead_is_server, lead_is_server ? held : [], queue),
         labels: labels(current + proposed + authorizers)
       )
@@ -309,13 +315,21 @@ module Solana
           "Nothing is signed on the server; the first account pays the network fee. "
         end
 
+      # The clock is the blockhash's (about 60-90 seconds from the click), unless
+      # the server leads on the console's durable nonce, which never expires.
+      clock =
+        if lead_is_server && nonce_ready
+          " There is no time limit: the transaction waits on a durable nonce until you finish."
+        else
+          " You have about 45 seconds from the first prompt."
+        end
+
       phantom_part =
         case queue.length
         when 1 then "You sign once in Phantom as #{short(queue.first)}."
         when 2 then "You sign twice: first as #{short(queue[0])}, then switch Phantom to #{short(queue[1])} " \
-                    "and sign again. You have about 45 seconds from the first prompt."
-        else "You sign #{queue.length} times in Phantom, in this order: #{queue.map { |k| short(k) }.join(', ')}. " \
-             "You have about 45 seconds from the first prompt."
+                    "and sign again.#{clock}"
+        else "You sign #{queue.length} times in Phantom, in this order: #{queue.map { |k| short(k) }.join(', ')}.#{clock}"
         end
 
       server_part + phantom_part

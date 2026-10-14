@@ -82,7 +82,11 @@
   // connected to this site — in which case the page has to ask for a fresh
   // `connect()` before it can see the key at all. Polling `provider.publicKey`
   // covers both shapes and needs no listener teardown on the error paths.
-  function awaitAccount(provider, wanted, onWaiting) {
+  // `timeoutMs` defaults to ACCOUNT_SWITCH_TIMEOUT_MS. A nonce-anchored wire
+  // (Solana::ConsoleNonce) has no blockhash to outlive, so its caller passes a
+  // longer one rather than cut the operator off while the bytes are still good.
+  function awaitAccount(provider, wanted, onWaiting, timeoutMs) {
+    var limit = timeoutMs || ACCOUNT_SWITCH_TIMEOUT_MS;
     if (b58(provider.publicKey) === wanted) return Promise.resolve();
 
     if (typeof onWaiting === "function") onWaiting(wanted);
@@ -97,7 +101,7 @@
         }
 
         elapsed += ACCOUNT_POLL_INTERVAL_MS;
-        if (elapsed >= ACCOUNT_SWITCH_TIMEOUT_MS) {
+        if (elapsed >= limit) {
           clearInterval(timer);
           reject(new Error(
             "Timed out waiting for Phantom to switch to " + wanted + ". Open the Phantom " +
@@ -117,8 +121,8 @@
   // leading remaining accounts positionally.
   //
   // `hooks` may supply { onPrompt(pubkey, index, total), onWaiting(pubkey),
-  // onSigned(pubkey, index, total), onFailed(pubkey) } so the caller owns all
-  // the operator-facing copy and the roster it paints.
+  // onSigned(pubkey, index, total), onFailed(pubkey), switchTimeoutMs } so the
+  // caller owns all the operator-facing copy and the roster it paints.
   //
   // onSigned FIRES PER WALLET, NOT AT THE END. The operator is switching
   // accounts inside an extension between calls, and a roster that only updates
@@ -131,7 +135,7 @@
     for (var i = 0; i < signers.length; i++) {
       var wanted = signers[i];
 
-      await awaitAccount(provider, wanted, hooks.onWaiting);
+      await awaitAccount(provider, wanted, hooks.onWaiting, hooks.switchTimeoutMs);
 
       if (typeof hooks.onPrompt === "function") {
         hooks.onPrompt(wanted, i, signers.length);
