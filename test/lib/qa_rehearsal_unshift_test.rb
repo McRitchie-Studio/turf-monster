@@ -99,7 +99,7 @@ class QaRehearsalUnshiftTest < ActiveSupport::TestCase
     driver.define_singleton_method(:lock_contest) { |_slug| nil }
     driver.define_singleton_method(:system) { |*_args| true }
 
-    driver.play_preseason(reset: true, pace: 0)
+    driver.play_preseason(reset: true, replay: false)
 
     assert_equal [3600], unshifted, "the reset path must go through unshift_fixture too"
     refute(remote.scripts.any? { |s| s.match?(/kickoff_at - /) },
