@@ -172,18 +172,3 @@ contest_settlement_sweep:
     run. Reads only, so a retried run can send nothing. No row moves by age
     alone. One indexed query and no RPC when nothing is submitted.
   queue: default
-
-studio_health_report:
-  cron: "0 7 * * * America/Denver"   # 07:00 Denver wall clock, DST-aware
-  class: Studio::HealthReportJob
-  active_job: true
-  description: >-
-    The engine's daily health report (studio-engine docs/HEALTH_REPORT.md):
-    one email to config.health_report_to (config/initializers/studio.rb) with
-    the last 07:00-to-07:00 Denver day's signups and ErrorLog errors grouped by
-    class and message, or a one-line all-clear on a quiet day. The cron zone
-    MUST match Studio.health_report_zone (America/Denver, the engine default),
-    so the run lands on the hour the window closes. QA never sends (the engine
-    returns early under QA_ENV), and a failure is an ErrorLog row in the next
-    report rather than a retry.
-  queue: default

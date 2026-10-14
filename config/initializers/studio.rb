@@ -194,15 +194,6 @@ Studio.configure do |config|
     NewsletterSeedGrant.call(user) if subscribed && first_join
   end
 
-  # ---- Daily health report (studio-engine >= 0.105, docs/HEALTH_REPORT.md) ----
-  # One email a day at 07:00 Denver: the last day's signups (the engine default,
-  # User by created_at) and ErrorLog errors grouped by class and message. The
-  # schedule lives in config/schedule.yml (studio_health_report); this names who
-  # gets it, and naming it here wins over STUDIO_HEALTH_REPORT_TO. QA never sends:
-  # the engine returns before reading a row under QA_ENV. No contacts source:
-  # /contact is a static page, so there are no submissions to list.
-  config.health_report_to = "alex@mcritchie.studio"
-
   config.mailer_from = Studio.mailer_from_for_transport(
     ses_from: "Turf Monster <team@turfmonster.media>"
   )
