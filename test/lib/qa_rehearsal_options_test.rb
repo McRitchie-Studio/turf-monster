@@ -79,4 +79,9 @@ class QaRehearsalOptionsTest < ActiveSupport::TestCase
 
     assert_match(/--speed/, error.message)
   end
+
+  test "an ambiguous or needless flag is refused cleanly, not with a backtrace" do
+    assert_raises(Options::Invalid) { Options.parse(%w[play --no-re]) }
+    assert_raises(Options::Invalid) { Options.parse(%w[play --no-replay=x]) }
+  end
 end

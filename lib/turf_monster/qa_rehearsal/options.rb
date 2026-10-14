@@ -49,7 +49,7 @@ module TurfMonster
         end
 
         [args.shift, options]
-      rescue OptionParser::InvalidArgument, OptionParser::MissingArgument, OptionParser::InvalidOption => e
+      rescue OptionParser::ParseError => e # every parse refusal, ambiguous and needless ones too
         raise Invalid, e.message
       end
 
