@@ -263,7 +263,15 @@ class EnginePinContractTest < ActiveSupport::TestCase
   #          Studio.configure raises NoMethodError at boot. DERIVED from the gem
   #          repo: the earliest tag containing the commit that adds them
   #          (c3efb9a, 2026-10-10) is v0.103.0.
-  MINIMUM = Gem::Version.new("0.103.0")
+  # 0.106.0 — a CURRENCY floor, not a boot floor. Turf takes the engine at its
+  #          newest release (/tasks/turf-daily-health-report, narrowed to the
+  #          bump once daily health reports moved to the hub). 0.106.0 changes
+  #          only the engine user nav, which turf does not render (it draws
+  #          components/_user_nav), so nothing breaks below it; the floor names
+  #          the version this suite runs against so a resolve cannot walk back
+  #          unseen. DERIVED from the gem repo: the earliest tag containing the
+  #          release commit (397259d, 2026-10-14) is v0.106.0.
+  MINIMUM = Gem::Version.new("0.106.0")
 
   test "the resolved studio-engine is at or above the floor this app depends on" do
     resolved = Gem::Version.new(Studio::VERSION)
