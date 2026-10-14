@@ -1318,22 +1318,25 @@ module Solana
     # argument sent to the live v0.25 binary deserializes 160 bytes where 96
     # are expected and fails, which is loud but wastes a ceremony.
     #
-    # ── FRESH BLOCKHASH, NOT THE DURABLE NONCE ────────────────────────────
+    # ── THE CONSOLE NONCE (`durable_nonce:`), SERVER-LED BUILDS ONLY ──────
     #
-    # `build_partial_signed` defaults `durable_nonce: nil` and this builder
-    # keeps that default deliberately. A nonce-anchored transaction requires
-    # `advanceNonceAccount` to be instruction 0, and Phantom injects its own
-    # Lighthouse guard instructions ahead of whatever was built — so the
-    # advance is no longer first and the transaction is rejected. That is the
-    # 2026-06-11 finding recorded on `#simulate_and_broadcast`, and it makes
-    # the nonce unusable for ANY Phantom-signed flow, not merely undesirable.
-    # The one builder that takes `durable_nonce:` is `#build_settle_contest`,
-    # from Solana::SettleNonce, and no wallet signs that wire.
+    # A server-led build may anchor on the signer console's durable nonce
+    # (Solana::ConsoleNonce): `advanceNonceAccount` goes in as instruction 0,
+    # the nonce value is the blockhash, and the wire never expires, so the
+    # two-prompt v0.26 rotation is not racing a ~60-90 second clock (it lost
+    # that race twice, ptx-432 and ptx-433).
     #
-    # The consequence is a ~60-90 second window, which is the right constraint
-    # for an eviction: the operator is at the keyboard by definition. The page
-    # handles it by rebuilding at CLICK time rather than at render time, so the
-    # clock starts when he acts.
+    # Phantom injects Lighthouse instructions ahead of the advance only in a
+    # wire nobody has signed yet (the June entry incident). The server-PRE-SIGNED,
+    # nonce-anchored creates on mainnet landed with the advance still first and
+    # no Lighthouse instruction (evidence in Solana::ConsoleNonce and
+    # docs/SOLANA.md). A server-led rotation is
+    # pre-signed, so it qualifies. An OPERATOR-LED build is not pre-signed, and
+    # its fee payer is Phantom, so it refuses a nonce and keeps the fresh
+    # blockhash minted at click time.
+    #
+    # The nonce authority must be the server key: it is the one signer a
+    # server-led build always carries, and it signs the advance with account 0.
     #
     # ── WHO LEADS DECIDES WHAT CAN BE EVICTED, AND IT IS THE WHOLE POINT ──
     #
@@ -1371,7 +1374,7 @@ module Solana
     # because Phantom alters a transaction it pays for and a signature made
     # over the original bytes would no longer verify.
     def build_update_signers(new_signers:, cosigner_pubkey:, lead_signer: nil, extra_cosigners: [],
-                             server_cosigners: [])
+                             server_cosigners: [], durable_nonce: nil)
       server_address = begin
         Keypair.admin.to_base58
       rescue StandardError
@@ -1381,6 +1384,16 @@ module Solana
       raise ArgumentError, "update_signers needs a lead signer" if lead.blank?
 
       server_signed = (lead == server_address)
+      if durable_nonce
+        unless server_signed
+          raise ArgumentError, "a nonce-anchored update_signers must be led by the server; this one is led by " \
+                               "#{lead}, which Phantom would sign unsigned and pay for"
+        end
+        unless durable_nonce.fetch(:authority).to_s == server_address
+          raise ArgumentError, "the console nonce's authority must be the server key #{server_address}, " \
+                               "not #{durable_nonce.fetch(:authority)}"
+        end
+      end
       lead_bytes    = Keypair.decode_base58(lead)
       cosigner_bytes = Keypair.decode_base58(cosigner_pubkey)
       vault_pda, _   = vault_state_pda
@@ -1426,7 +1439,7 @@ module Solana
         if server_signed
           build_partial_signed(accounts: accounts, data: data,
                                additional_signers: [cosigner_bytes, *extra_bytes] - held_bytes,
-                               local_signers: held)
+                               local_signers: held, durable_nonce: durable_nonce)
         else
           # The LEAD pays here, not the house — see #build_lead_paid_unsigned for
           # why this shape cannot go through Solana::Cosign. The fee payer MUST be
@@ -1446,7 +1459,14 @@ module Solana
         server_signed: server_signed,
         # PUBLIC addresses of the server-held cosigners that signed. Never the
         # keypairs: this hash is rendered to JSON.
-        server_cosigned: held.map(&:to_base58)
+        server_cosigned: held.map(&:to_base58),
+        # The nonce this wire is anchored on, with the value it was built on,
+        # or nil for a recent-blockhash wire.
+        durable_nonce: durable_nonce && {
+          pubkey: durable_nonce.fetch(:pubkey).to_s,
+          authority: durable_nonce.fetch(:authority).to_s,
+          value: WireMessage.parse_base64(serialized).recent_blockhash_base58
+        }
       }
     end
 
@@ -2437,15 +2457,17 @@ module Solana
       #     create on the production nonce. That route is retired and the
       #     branch now takes a fresh blockhash, so `durable_nonce_config` has
       #     NO caller. Settlement reads its own nonce from Solana::SettleNonce.
-      #   * And it could not be otherwise. Reason 1 above is not specific to
-      #     entries: ANY Phantom-signed transaction can have Lighthouse guard
-      #     instructions injected ahead of the advance, and a nonce transaction
-      #     is only recognized when advanceNonceAccount is instruction 0. A
-      #     durable nonce cannot make a Phantom-signed transaction immortal on
-      #     any path — see #simulate_and_broadcast, which says the same thing.
+      #   * Reason 1 is about wires Phantom sees UNSIGNED
+      #     (signer-console-durable-nonce). The server-PRE-SIGNED nonce creates
+      #     on mainnet landed with the advance first and no Lighthouse
+      #     instruction (evidence in Solana::ConsoleNonce). An entry is
+      #     Phantom-FIRST, so it is unsigned when Phantom sees it, and reason 1
+      #     stands for it.
       #
-      # So the rule in this file is: durable nonce ⟺ server-signed; Phantom ⟺
-      # fresh recent blockhash. Never both.
+      # So the rule in this file is: a wire Phantom sees UNSIGNED takes a fresh
+      # recent blockhash. A nonce wire must be signed by the server before any
+      # wallet sees it; the signer console's server-led rotation is the one
+      # Phantom-signed caller (Vault#build_update_signers).
       dn = nil
 
       if admin_signs
@@ -4338,8 +4360,8 @@ module Solana
     # callers used to have to remember is structural in the gem: the fee payer is
     # account 0 by construction, and the builder asserts it before returning.
     #
-    # NO `durable_nonce:`. Every caller passed nil — a Phantom-signed transaction
-    # cannot be anchored on a nonce at all, because the advance must be
+    # NO `durable_nonce:`. Every caller passed nil — a Phantom-FIRST (unsigned)
+    # transaction cannot be anchored on a nonce at all, because the advance must be
     # instruction 0 and Phantom injects Lighthouse ahead of it (2026-06-11; see
     # the long note in #build_enter_contest). The parameter existed to be nil, so
     # it is gone; #build_tx_unsigned keeps its nonce branch for nothing that

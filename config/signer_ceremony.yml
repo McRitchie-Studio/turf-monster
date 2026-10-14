@@ -55,6 +55,7 @@ mainnet-beta:
     intent: remove
     remove: [8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd, CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR]
     add: [9gACbzsCLmkYF9Yx1EBGmwMvvyfuTquJ6qs8QsoQvHXf, 3Qj4v9qjhXgkru6zCRCErRVhy8Q6qU3NrNpvpXLTZboA]
+    note: The server key is 4S39 now, so the console needs 4S39's own nonce for an untimed sitting. If the console says signing has about 45 seconds, press Prepare console nonce once first (the server pays about 0.0015 SOL). 8K81's nonce stays on chain with its rent until a withdraw.
 
   - id: unset
     kind: runbook

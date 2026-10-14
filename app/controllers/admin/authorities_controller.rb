@@ -59,6 +59,14 @@ module Admin
     # blockhash is long dead, so #show and #console expire it before reading.
     STALE_PENDING_AFTER = 2.minutes
 
+    # A row built on the console's durable nonce (Solana::ConsoleNonce) has no
+    # blockhash to die with, so two minutes would expire it under an operator
+    # still switching Phantom accounts. It gets half an hour instead: long
+    # enough that no ceremony meets it, short enough that a closed tab does not
+    # block the next rotation for the day. The bytes stay landable until the
+    # nonce advances; the next rotation's landing advances it.
+    NONCE_PENDING_AFTER = 30.minutes
+
     # WHAT `serialized_tx` HOLDS BETWEEN ARM AND FIRST CLICK.
     #
     # Nothing, and it has to SAY nothing. The column is NOT NULL and validated
@@ -169,6 +177,9 @@ module Admin
         labels: planner.labels(planner.current + planner.candidates + Solana::SignerRoster.default.entries.map(&:address)),
         candidates: planner.candidates,
         server_held_error: @server_held_error,
+        # Whether a server-led rotation has a signing clock. Read-only here;
+        # #prepare_nonce creates the nonce when it is missing.
+        console_nonce: console_nonce.status.merge(prepare_url: admin_authority_console_nonce_path),
         live_rotation: rotation && { slug: rotation.slug, status: rotation.status,
                                      signature: rotation.tx_signature }
       }
@@ -312,6 +323,23 @@ module Admin
       render json: { error: e.message }, status: :unprocessable_entity
     end
 
+    # CREATE THE CONSOLE NONCE for this server key (Solana::ConsoleNonce). One
+    # server-signed transaction that funds an 80-byte nonce account (about
+    # 0.0015 SOL) whose authority is the server key. JSON; the page calls it
+    # from the "no time limit" line when the nonce is missing.
+    def prepare_nonce
+      rescue_and_log do
+        result = console_nonce.prepare!
+        render json: { ok: true, signature: result[:signature],
+                       console_nonce: Solana::ConsoleNonce.new(vault: vault).status }
+      end
+    rescue Solana::ConsoleNonce::Refused => e
+      render json: { ok: false, code: "nonce_refused", message: e.message }, status: :unprocessable_entity
+    rescue StandardError => e
+      render json: { ok: false, code: "nonce_failed", message: Solana::Config.redact_message(e.message) },
+             status: :unprocessable_entity
+    end
+
     # RECORD WHAT IS ABOUT TO GO OUT, simulate, broadcast, verify, read back.
     #
     # ── THE SIGNATURE IS STAMPED BEFORE THE BROADCAST, NOT AFTER IT ─────────
@@ -363,6 +391,13 @@ module Admin
         # warmed by `revalidate!` above, so its constructor cannot raise inside
         # the claimed window.
         signature = vault.signature_for_wire(signed_tx)
+
+        # THE SIGNED BYTES ARE THE BUILT BYTES. The browser merges signatures
+        # onto the wire this row stored, so any other message is refused. On a
+        # nonce row this matters more: every wire built on the same nonce value
+        # stays landable until it advances, and only this row's is accepted.
+        require_built_message!(signed_tx)
+        require_nonce_unspent!
 
         # CLAIM THE ROW BEFORE THE WIRE GOES OUT, recording what is about to go
         # out in the same statement. `pending?` above is a READ; two concurrent
@@ -443,6 +478,11 @@ module Admin
         signature = @tx.tx_signature
         status = vault.client.confirm_transaction(signature).dig("value", 0)
 
+        if status.nil? && (nonce = self.class.console_nonce_of(@tx))
+          status, held = reconcile_nonce_wire(signature, nonce)
+          next redirect_to(admin_authorities_path, notice: held) if held
+        end
+
         notice =
           case @tx.reconcile_broadcast!(status)
           when :landed
@@ -452,8 +492,8 @@ module Admin
             "This rotation landed and FAILED on chain (#{signature}), so the signer set did " \
             "not change. The eviction is armed again and can be rebuilt."
           when :never_landed
-            "This rotation never landed and its blockhash window has lapsed, so it can never " \
-            "land. The eviction is armed again and can be rebuilt."
+            "This rotation never landed, and its blockhash lapsed or its nonce advanced, so it can " \
+            "never land. The eviction is armed again and can be rebuilt."
           else
             "Still unresolved — the rotation may yet land, so it stays claimed. Do not " \
             "re-send it; reconcile again shortly."
@@ -563,7 +603,8 @@ module Admin
         max_live_threshold: max_live_threshold,
         server: Solana::CosignPlan.admin_address,
         server_held: server_held_addresses,
-        connected: connected
+        connected: connected,
+        nonce_ready: console_nonce.ready?
       )
     end
 
@@ -613,13 +654,20 @@ module Admin
       rotation = revalidate!(plan)
       shape    = vault_shape!
 
+      # THE CONSOLE NONCE, when the server leads and one is ready. Otherwise
+      # a fresh blockhash minted now, at the click (an operator-led build is
+      # Phantom-paid and unsigned, so it never takes the nonce).
+      nonce = server_signs_lead?(plan) ? console_nonce.config : nil
+
       result = vault.build_update_signers(
         new_signers: rotation.live_slots,
         lead_signer: plan[:lead_signer],
         cosigner_pubkey: plan[:authorizers][1],
         extra_cosigners: plan[:authorizers][2..] || [],
-        server_cosigners: server_cosigner_keypairs!(plan)
+        server_cosigners: server_cosigner_keypairs!(plan),
+        durable_nonce: nonce
       )
+      built_nonce = result[:durable_nonce]&.transform_keys(&:to_s)
 
       # THE BYTES CARRY THE RECORDED SET, or nothing is written or sent.
       built_set = Array(result[:new_signers]).reject { |k| k.blank? || k == Solana::SignerRotation::EMPTY }
@@ -640,8 +688,9 @@ module Admin
       # claims the row in the interval leaves a bare write racing a wire that
       # is already going out (a bare `update!` omitted the unchanged status and
       # replaced the bytes anyway). Re-checking inside the UPDATE holds.
+      metadata = JSON.parse(@tx.metadata).merge("console_nonce" => built_nonce).to_json
       rebuilt = PendingTransaction.where(id: @tx.id, status: "pending")
-                                  .update_all(serialized_tx: result[:serialized_tx],
+                                  .update_all(serialized_tx: result[:serialized_tx], metadata: metadata,
                                               updated_at: Time.current) == 1
       unless rebuilt
         raise "This eviction is no longer pending (it is now #{@tx.reload.status}) — " \
@@ -663,14 +712,36 @@ module Admin
         # PUBLIC addresses of the keys the server signed for. Never a secret.
         server_signed: [server_signs_lead?(plan) ? plan[:lead_signer] : nil, *Array(result[:server_cosigned])].compact,
         shape: shape,
-        new_signers: result[:new_signers]
+        new_signers: result[:new_signers],
+        # TRUE when the bytes wait on the console nonce: no signing clock.
+        nonce_anchored: built_nonce.present?,
+        durable_nonce: built_nonce
       }
     end
 
     def expire_abandoned_rotations!
-      PendingTransaction.where(tx_type: TX_TYPE, status: "pending", tx_signature: nil)
-                        .where(created_at: ...STALE_PENDING_AFTER.ago)
+      stale = PendingTransaction.where(tx_type: TX_TYPE, status: "pending", tx_signature: nil)
+                                .where(created_at: ...STALE_PENDING_AFTER.ago)
+                                .select { |row| self.class.abandoned?(row) }
+      return if stale.empty?
+
+      PendingTransaction.where(id: stale.map(&:id), status: "pending", tx_signature: nil)
                         .update_all(status: "expired", stale: true, updated_at: Time.current)
+    end
+
+    # The console nonce a row was built on ({"pubkey", "authority", "value"}),
+    # or nil for a recent-blockhash row or one not yet built.
+    def self.console_nonce_of(row)
+      row.parsed_metadata["console_nonce"].presence
+    rescue JSON::ParserError
+      nil
+    end
+
+    # Past its own window: two minutes for a blockhash row, NONCE_PENDING_AFTER
+    # for a nonce row.
+    def self.abandoned?(row, now: Time.current)
+      window = console_nonce_of(row) ? NONCE_PENDING_AFTER : STALE_PENDING_AFTER
+      row.created_at < now - window
     end
 
     # ── WHO HOLDS EACH WALLET, AND THE ONE THING THIS MUST NEVER DO ──────────
@@ -744,7 +815,8 @@ module Admin
     def live_rotation
       rotations = PendingTransaction.where(tx_type: TX_TYPE)
       rotations.submitted.order(created_at: :desc).first ||
-        rotations.pending.where(created_at: STALE_PENDING_AFTER.ago..).order(created_at: :desc).first
+        rotations.pending.where(created_at: NONCE_PENDING_AFTER.ago..).order(created_at: :desc)
+                 .detect { |row| !self.class.abandoned?(row) }
     end
 
     def set_pending_rotation
@@ -759,6 +831,60 @@ module Admin
 
     def armed_plan
       JSON.parse(@tx.metadata).fetch("plan").deep_symbolize_keys
+    end
+
+    def console_nonce
+      @console_nonce ||= Solana::ConsoleNonce.new(vault: vault)
+    end
+
+    # The signed wire must carry exactly the message this row stored.
+    def require_built_message!(signed_tx)
+      stored = @tx.serialized_tx.to_s
+      raise "This rotation has no built transaction; rebuild it before signing." if stored == UNBUILT_WIRE
+
+      signed_message = Solana::WireMessage.parse_base64(signed_tx).message_bytes
+      return if signed_message == Solana::WireMessage.parse_base64(stored).message_bytes
+
+      raise "The signed transaction is not the one this rotation built. Nothing was sent; sign again."
+    end
+
+    # A nonce wire whose nonce has advanced can never land: refuse it before
+    # the claim rather than strand a row on a send that cannot succeed.
+    def require_nonce_unspent!
+      nonce = self.class.console_nonce_of(@tx)
+      return unless nonce
+
+      current = console_nonce.current_value(nonce["pubkey"])
+      return if current == nonce["value"]
+
+      raise "The console nonce #{nonce['pubkey']} has moved on (#{current || 'unreadable'}), so these signatures " \
+            "can never land. Nothing was sent; sign again."
+    end
+
+    # A NONCE WIRE DOES NOT LAPSE. A recent-blockhash wire with no status five
+    # minutes after its broadcast can never land; a nonce wire can, for as long
+    # as its nonce holds the value it was built on. So "never landed" is only
+    # proved once the nonce has moved: past the lapse, the server advances it
+    # (it is the authority) and reads the signature again, and only then does
+    # the ordinary verdict run. Returns [status, held_notice]; a held notice
+    # means the row stays claimed.
+    def reconcile_nonce_wire(signature, nonce)
+      return [nil, nil] unless @tx.blockhash_lapsed?
+
+      current = console_nonce.current_value(nonce["pubkey"])
+      if current.nil?
+        return [nil, "The console nonce #{nonce['pubkey']} could not be read, so this rotation may still land. " \
+                     "It stays claimed; reconcile again shortly."]
+      end
+      if current == nonce["value"]
+        console_nonce.advance!(nonce["pubkey"])
+        current = console_nonce.current_value(nonce["pubkey"])
+        if current.nil? || current == nonce["value"]
+          return [nil, "The console nonce did not advance, so this rotation may still land. It stays claimed; " \
+                       "reconcile again shortly."]
+        end
+      end
+      [vault.client.confirm_transaction(signature).dig("value", 0), nil]
     end
 
     # Build a SignerRotation from a fresh chain read. Everything about the shape

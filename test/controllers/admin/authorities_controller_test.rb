@@ -32,6 +32,16 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
   ALEX3  = "9gACbzsCLmkYF9Yx1EBGmwMvvyfuTquJ6qs8QsoQvHXf".freeze
   EMPTY  = Solana::SignerRotation::EMPTY
 
+  # A REAL wire, because #broadcast compares the signed message with the one
+  # the row stored. One unsigned slot is enough; nothing here verifies it.
+  WIRE = begin
+    tx = Solana::Transaction.new
+    tx.set_recent_blockhash(Solana::Keypair.generate.to_base58)
+    tx.add_signer(Solana::Keypair.generate)
+    tx.add_instruction(program_id: Solana::Keypair.generate.public_key_bytes, accounts: [], data: "\x01".b)
+    tx.serialize_base64
+  end.freeze
+
   # A Solana::Vault stand-in. `governance:` drives which PROGRAM SHAPE the chain
   # is reporting — absent GovernanceConfig is v0.25, which is what both clusters
   # actually run today.
@@ -46,13 +56,14 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
     # different test — it trips the guard at the top of the action and never
     # reaches the UPDATE that carried the defect.
     def initialize(signers: [SYSTEM, ALEX, MASON], governance: nil, broadcast_raises: nil,
-                   read_back: nil, signature_statuses: {}, on_build: nil)
+                   read_back: nil, signature_statuses: {}, on_build: nil, account_infos: {})
       @signers = signers
       @governance = governance
       @broadcast_raises = broadcast_raises
       @read_back = read_back
       @signature_statuses = signature_statuses
       @on_build = on_build
+      @account_infos = account_infos
       @build_calls = []
       @broadcast_calls = []
     end
@@ -83,18 +94,21 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
     end
 
     def build_update_signers(new_signers:, cosigner_pubkey:, lead_signer: nil, extra_cosigners: [],
-                             server_cosigners: [])
+                             server_cosigners: [], durable_nonce: nil)
       @build_calls << { new_signers: new_signers, cosigner: cosigner_pubkey,
                         lead: lead_signer, extras: extra_cosigners,
-                        server_cosigners: server_cosigners.map(&:to_base58) }
+                        server_cosigners: server_cosigners.map(&:to_base58), durable_nonce: durable_nonce }
       @on_build&.call
       # The real builder signs account 0 itself exactly when the lead is the
       # server's own key; the stub answers the same way.
-      { serialized_tx: "FAKE_WIRE", vault_pda: "VAULTPDA", new_signers: new_signers,
+      { serialized_tx: WIRE, vault_pda: "VAULTPDA", new_signers: new_signers,
         slot_width: 3, lead_signer: lead_signer,
         server_signed: lead_signer.present? && lead_signer == Solana::CosignPlan.admin_address,
-        server_cosigned: server_cosigners.map(&:to_base58) }
+        server_cosigned: server_cosigners.map(&:to_base58),
+        durable_nonce: durable_nonce && durable_nonce.merge(value: @nonce_value_at_build) }
     end
+
+    attr_accessor :nonce_value_at_build
 
     # A seeded STRING models a PRE-FLIGHT refusal, which the real method raises
     # as `Solana::Vault::PreflightRejected` — the type that proves nothing left
@@ -117,7 +131,7 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
     # decoder self-check is modelled rather than side-stepped.
     def signature_for_wire(_wire) = "LANDED_SIGNATURE"
 
-    def client = @client ||= FakeSolanaClient.new(@signature_statuses || {})
+    def client = @client ||= FakeSolanaClient.new(@signature_statuses || {}, account_infos: @account_infos)
   end
 
   setup do
@@ -317,8 +331,8 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     body = JSON.parse(response.body)
     row = PendingTransaction.last
-    assert_equal "FAKE_WIRE", body["serialized_tx"]
-    assert_equal "FAKE_WIRE", row.serialized_tx
+    assert_equal WIRE, body["serialized_tx"]
+    assert_equal WIRE, row.serialized_tx
     assert_equal [ALEX], body["signer_queue"]
     assert_equal [server], body["server_signed"]
     assert_equal row.slug, body["slug"]
@@ -578,7 +592,7 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :success
     body = JSON.parse(response.body)
-    assert_equal "FAKE_WIRE", body["serialized_tx"]
+    assert_equal WIRE, body["serialized_tx"]
     assert_equal [ALEX, MASON], body["signer_queue"]
     assert_equal 2, body["required_signatures"]
     # NIL when the operator leads — cosign.js paints this row as already signed,
@@ -647,7 +661,7 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
 
   def armed_row(vault)
     arm(vault, signers: [ALEX, MASON, ALEX2], authorizers: [ALEX, MASON])
-    PendingTransaction.last
+    PendingTransaction.last.tap { |row| row.update!(serialized_tx: WIRE) }
   end
 
   # The broadcast POST, with verification stubbed green — used by the tests that
@@ -655,7 +669,7 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
   def broadcast_row(row)
     Solana::TxVerifier.stub :verify!, true do
       post admin_broadcast_authority_rotation_path(row.slug),
-           params: { signed_tx: "SIGNED", signer_queue: [ALEX, MASON] }, as: :json
+           params: { signed_tx: WIRE, signer_queue: [ALEX, MASON] }, as: :json
     end
   end
 
@@ -666,7 +680,7 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
     with_vault(vault) do
       Solana::TxVerifier.stub :verify!, true do
         post admin_broadcast_authority_rotation_path(row.slug),
-             params: { signed_tx: "SIGNED", signer_queue: [ALEX, MASON] }, as: :json
+             params: { signed_tx: WIRE, signer_queue: [ALEX, MASON] }, as: :json
       end
     end
 
@@ -691,7 +705,7 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
     with_vault(vault) do
       Solana::TxVerifier.stub :verify!, ->(**) { raise Solana::TxVerifier::VerificationError, "rpc lagged" } do
         post admin_broadcast_authority_rotation_path(row.slug),
-             params: { signed_tx: "SIGNED", signer_queue: [ALEX, MASON] }, as: :json
+             params: { signed_tx: WIRE, signer_queue: [ALEX, MASON] }, as: :json
       end
     end
 
@@ -711,7 +725,7 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
 
     with_vault(vault) do
       post admin_broadcast_authority_rotation_path(row.slug),
-           params: { signed_tx: "SIGNED", signer_queue: [ALEX, MASON] }, as: :json
+           params: { signed_tx: WIRE, signer_queue: [ALEX, MASON] }, as: :json
     end
 
     assert_response :unprocessable_entity
@@ -728,7 +742,7 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
     with_vault(vault) do
       Solana::TxVerifier.stub :verify!, true do
         post admin_broadcast_authority_rotation_path(row.slug),
-             params: { signed_tx: "SIGNED", signer_queue: [ALEX] }, as: :json
+             params: { signed_tx: WIRE, signer_queue: [ALEX] }, as: :json
       end
     end
 
@@ -746,7 +760,7 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
 
     with_vault(vault) do
       post admin_broadcast_authority_rotation_path(row.slug),
-           params: { signed_tx: "SIGNED", signer_queue: [MASON, ALEX] }, as: :json
+           params: { signed_tx: WIRE, signer_queue: [MASON, ALEX] }, as: :json
     end
 
     assert_response :unprocessable_entity
@@ -760,7 +774,7 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
 
     with_vault(vault) do
       post admin_broadcast_authority_rotation_path(row.slug),
-           params: { signed_tx: "SIGNED", signer_queue: [ALEX, MASON] }, as: :json
+           params: { signed_tx: WIRE, signer_queue: [ALEX, MASON] }, as: :json
     end
 
     assert_response :unprocessable_entity
@@ -786,7 +800,7 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
 
   def server_led_row(vault)
     arm(vault, signers: [server, ALEX, ALEX2], authorizers: [server, ALEX])
-    PendingTransaction.last
+    PendingTransaction.last.tap { |row| row.update!(serialized_tx: WIRE) }
   end
 
   test "server-led rebuild queues only the cosigner, and paints the lead signed" do
@@ -813,7 +827,7 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
     with_vault(vault) do
       Solana::TxVerifier.stub :verify!, ->(**kw) { verified << kw[:signer_pubkey] } do
         post admin_broadcast_authority_rotation_path(row.slug),
-             params: { signed_tx: "SIGNED", signer_queue: [ALEX] }, as: :json
+             params: { signed_tx: WIRE, signer_queue: [ALEX] }, as: :json
       end
     end
 
@@ -832,7 +846,7 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
 
     with_vault(vault) do
       post admin_broadcast_authority_rotation_path(row.slug),
-           params: { signed_tx: "SIGNED", signer_queue: [server, ALEX] }, as: :json
+           params: { signed_tx: WIRE, signer_queue: [server, ALEX] }, as: :json
     end
 
     assert_response :unprocessable_entity
@@ -847,13 +861,13 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
 
     with_vault(vault) do
       post admin_broadcast_authority_rotation_path(row.slug),
-           params: { signed_tx: "SIGNED", signer_queue: [MASON] }, as: :json
+           params: { signed_tx: WIRE, signer_queue: [MASON] }, as: :json
     end
     assert_response :unprocessable_entity
 
     with_vault(vault) do
       post admin_broadcast_authority_rotation_path(row.slug),
-           params: { signed_tx: "SIGNED", cosigner_address: MASON }, as: :json
+           params: { signed_tx: WIRE, cosigner_address: MASON }, as: :json
     end
     assert_response :unprocessable_entity
     assert_empty vault.broadcast_calls
@@ -862,9 +876,10 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
   test "rebuild refuses when the build and the plan disagree on who signed account 0" do
     vault = StubVault.new
     vault.define_singleton_method(:build_update_signers) do |**kw|
-      { serialized_tx: "FAKE_WIRE", new_signers: kw[:new_signers], server_signed: true }
+      { serialized_tx: WIRE, new_signers: kw[:new_signers], server_signed: true }
     end
-    row = armed_row(StubVault.new)
+    # Armed but never built, so a refused build must leave the sentinel.
+    row = arm(StubVault.new, signers: [ALEX, MASON, ALEX2], authorizers: [ALEX, MASON])
 
     with_vault(vault) do
       post admin_rebuild_authority_rotation_path(row.slug), as: :json
@@ -1115,5 +1130,248 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
     row.reload
     assert row.pending?, "provably un-sent, so the eviction stays retryable"
     assert_nil row.tx_signature
+  end
+
+  # ── THE CONSOLE NONCE: NO SIGNING CLOCK ────────────────────────────────────
+  #
+  # ptx-432 and ptx-433 (2026-10-14) died "Blockhash not found" while the
+  # operator switched Phantom accounts between two prompts. A server-led build
+  # now waits on Solana::ConsoleNonce instead, so these pin: the build takes it,
+  # the row is not expired at two minutes, a broadcast is checked against the
+  # nonce and the stored bytes, and reconcile never calls a nonce wire dead
+  # while its nonce could still carry it.
+
+  def nonce_account(value, authority: Solana::CosignPlan.admin_address)
+    data = [1, 1].pack("VV") + Solana::Keypair.decode_base58(authority) +
+           Solana::Keypair.decode_base58(value) + [5000].pack("Q<")
+    { "value" => { "owner" => Solana::ConsoleNonce::SYSTEM_PROGRAM_B58,
+                   "data" => [Base64.strict_encode64(data), "base64"] } }
+  end
+
+  def derived_nonce = Solana::ConsoleNonce.address_for(server)
+
+  # A server-led vault whose console nonce holds `value` (a lambda reads it
+  # live, so a test can move it).
+  def nonce_vault(value_ref, **opts)
+    vault = server_led_vault(account_infos: { derived_nonce => ->(_c) { nonce_account(value_ref.call) } }, **opts)
+    vault.nonce_value_at_build = value_ref.call
+    vault
+  end
+
+  def nonce_row(value, created_at: Time.current)
+    row = server_led_row(server_led_vault)
+    meta = JSON.parse(row.metadata).merge(
+      "console_nonce" => { "pubkey" => derived_nonce, "authority" => server, "value" => value }
+    )
+    row.update_columns(metadata: meta.to_json, created_at: created_at)
+    row
+  end
+
+  test "a server-led build anchors on the ready console nonce and records it on the row" do
+    value = Solana::Keypair.generate.to_base58
+    vault = nonce_vault(-> { value })
+    row = server_led_row(vault)
+
+    with_vault(vault) { post admin_rebuild_authority_rotation_path(row.slug), as: :json }
+
+    assert_response :success
+    body = JSON.parse(response.body)
+    assert body["nonce_anchored"], "the browser is told there is no clock"
+    assert_equal({ pubkey: derived_nonce, authority: server }, vault.build_calls.sole[:durable_nonce])
+    assert_equal value, row.reload.parsed_metadata.dig("console_nonce", "value")
+  end
+
+  test "an operator-led build never takes the nonce, even when it is ready" do
+    value = Solana::Keypair.generate.to_base58
+    vault = StubVault.new(account_infos: { derived_nonce => ->(_c) { nonce_account(value) } })
+    row = armed_row(vault)
+
+    with_vault(vault) { post admin_rebuild_authority_rotation_path(row.slug), as: :json }
+
+    assert_response :success
+    assert_nil vault.build_calls.sole[:durable_nonce]
+    refute JSON.parse(response.body)["nonce_anchored"]
+  end
+
+  test "with no ready nonce a server-led build falls back to a fresh blockhash" do
+    vault = server_led_vault
+    row = server_led_row(vault)
+
+    with_vault(vault) { post admin_rebuild_authority_rotation_path(row.slug), as: :json }
+
+    assert_response :success
+    assert_nil vault.build_calls.sole[:durable_nonce]
+    assert_nil row.reload.parsed_metadata["console_nonce"]
+  end
+
+  test "the console reports whether the nonce is ready, and where to prepare it" do
+    value = Solana::Keypair.generate.to_base58
+    vault = StubVault.new(signers: [server, ALEX, ALEX2],
+                          account_infos: { derived_nonce => ->(_c) { nonce_account(value) } })
+
+    with_vault(vault) { get admin_authority_console_path, as: :json }
+    nonce = JSON.parse(response.body)["console_nonce"]
+    assert_equal "ready", nonce["state"]
+    assert_equal derived_nonce, nonce["pubkey"]
+    assert_equal admin_authority_console_nonce_path, nonce["prepare_url"]
+
+    with_vault(StubVault.new(signers: [server, ALEX, ALEX2])) { get admin_authority_console_path, as: :json }
+    assert_equal "missing", JSON.parse(response.body).dig("console_nonce", "state")
+  end
+
+  test "a nonce row outlives the two-minute expiry, and is expired after half an hour" do
+    value = Solana::Keypair.generate.to_base58
+    fresh = nonce_row(value, created_at: 10.minutes.ago)
+    blockhash_row = arm(StubVault.new, signers: [ALEX, MASON, ALEX2], authorizers: [ALEX, MASON])
+    blockhash_row.update_columns(created_at: 3.minutes.ago)
+
+    with_vault(StubVault.new) { get admin_authority_console_path, as: :json }
+
+    assert fresh.reload.pending?, "the operator may still be switching accounts; the bytes are good"
+    assert_equal "expired", blockhash_row.reload.status
+    assert_equal fresh.slug, JSON.parse(response.body).dig("live_rotation", "slug")
+
+    fresh.update_columns(created_at: 31.minutes.ago)
+    with_vault(StubVault.new) { get admin_authority_console_path, as: :json }
+    assert_equal "expired", fresh.reload.status
+  end
+
+  test "broadcast refuses signed bytes that are not the bytes this row built" do
+    vault = server_led_vault
+    row = server_led_row(vault)
+    other = Solana::Transaction.new.tap do |tx|
+      tx.set_recent_blockhash(Solana::Keypair.generate.to_base58)
+      tx.add_signer(Solana::Keypair.generate)
+      tx.add_instruction(program_id: Solana::Keypair.generate.public_key_bytes, accounts: [], data: "\x02".b)
+    end.serialize_base64
+
+    with_vault(vault) do
+      post admin_broadcast_authority_rotation_path(row.slug), params: { signed_tx: other, signer_queue: [ALEX] }, as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_match(/not the one this rotation built/, JSON.parse(response.body)["error"])
+    assert_empty vault.broadcast_calls
+    assert row.reload.pending?
+    assert_nil row.tx_signature
+  end
+
+  test "broadcast refuses a nonce wire whose nonce has moved on, before any claim" do
+    built = Solana::Keypair.generate.to_base58
+    moved = Solana::Keypair.generate.to_base58
+    vault = nonce_vault(-> { moved })
+    row = nonce_row(built)
+
+    with_vault(vault) do
+      post admin_broadcast_authority_rotation_path(row.slug), params: { signed_tx: WIRE, signer_queue: [ALEX] }, as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_match(/has moved on/, JSON.parse(response.body)["error"])
+    assert_empty vault.broadcast_calls
+    assert_nil row.reload.tx_signature
+  end
+
+  test "broadcast sends a nonce wire whose nonce still holds its value" do
+    value = Solana::Keypair.generate.to_base58
+    vault = nonce_vault(-> { value }, read_back: [server, ALEX, ALEX2])
+    row = nonce_row(value, created_at: 20.minutes.ago)
+
+    with_vault(vault) do
+      Solana::TxVerifier.stub :verify!, true do
+        post admin_broadcast_authority_rotation_path(row.slug), params: { signed_tx: WIRE, signer_queue: [ALEX] }, as: :json
+      end
+    end
+
+    assert_response :success
+    assert_equal "confirmed", row.reload.status
+  end
+
+  # A submitted nonce row whose broadcast answer was lost, past the lapse.
+  def stranded_nonce_row(value)
+    row = nonce_row(value)
+    row.update_columns(status: "submitted", tx_signature: "LANDED_SIGNATURE",
+                       broadcast_at: (OnchainSendVerdict::BLOCKHASH_LAPSE + 1.minute).ago)
+    row
+  end
+
+  def teach_send(vault, &on_send)
+    vault.client.define_singleton_method(:get_latest_blockhash) { |**| "11111111111111111111111111111112" }
+    vault.client.define_singleton_method(:send_and_confirm) { |wire, **| on_send.call(wire); "ADVANCED" }
+  end
+
+  test "reconcile ADVANCES an unspent nonce before it calls a lapsed nonce wire dead" do
+    value = Solana::Keypair.generate.to_base58
+    current = value
+    vault = nonce_vault(-> { current })
+    sent = []
+    teach_send(vault) { |wire| sent << wire; current = Solana::Keypair.generate.to_base58 }
+    row = stranded_nonce_row(value)
+
+    with_vault(vault) { post admin_reconcile_authority_rotation_path(row.slug) }
+
+    assert_equal 1, sent.length, "the server voided the old bytes by advancing its own nonce"
+    advance = Solana::WireMessage.parse_base64(sent.sole).instructions.sole
+    assert_equal 4, advance[:data].unpack1("V")
+    row.reload
+    assert row.pending?, "dead on chain now, so the rotation is armed again"
+    assert_nil row.tx_signature
+  end
+
+  test "reconcile holds a nonce wire whose nonce would not move: it can still land" do
+    value = Solana::Keypair.generate.to_base58
+    vault = nonce_vault(-> { value })
+    teach_send(vault) { |_wire| nil }
+    row = stranded_nonce_row(value)
+
+    with_vault(vault) { post admin_reconcile_authority_rotation_path(row.slug) }
+
+    assert_equal "submitted", row.reload.status
+    assert_equal "LANDED_SIGNATURE", row.tx_signature
+    assert_match(/may still land/, flash[:notice])
+  end
+
+  test "reconcile reports a nonce wire that LANDED rather than voiding it" do
+    value = Solana::Keypair.generate.to_base58
+    vault = nonce_vault(-> { value }, signature_statuses: {
+      "LANDED_SIGNATURE" => { "err" => nil, "confirmationStatus" => "finalized" }
+    })
+    sent = []
+    teach_send(vault) { |wire| sent << wire }
+    row = stranded_nonce_row(value)
+
+    with_vault(vault) { post admin_reconcile_authority_rotation_path(row.slug) }
+
+    assert_empty sent, "a landed rotation is never followed by an advance"
+    assert_match(/LANDED/, flash[:notice])
+  end
+
+  test "prepare creates the console nonce with one server-signed wire, and refuses a second" do
+    current = nil
+    vault = server_led_vault(account_infos: { derived_nonce => ->(_c) { current && nonce_account(current) } })
+    vault.client.define_singleton_method(:get_minimum_balance_for_rent_exemption) { |_n| 1_447_680 }
+    sent = []
+    teach_send(vault) { |wire| sent << wire; current = Solana::Keypair.generate.to_base58 }
+
+    with_vault(vault) { post admin_authority_console_nonce_path, as: :json }
+
+    assert_response :success
+    body = JSON.parse(response.body)
+    assert_equal "ready", body.dig("console_nonce", "state")
+    assert_equal 1, sent.length
+    assert_equal server, Solana::Keypair.encode_base58(Solana::WireMessage.parse_base64(sent.sole).account_keys.first)
+
+    with_vault(vault) { post admin_authority_console_nonce_path, as: :json }
+    assert_response :unprocessable_entity
+    assert_equal 1, sent.length, "a ready nonce is never created twice"
+  end
+
+  test "a non-admin cannot prepare the console nonce" do
+    log_in_as(users(:jordan))
+    vault = server_led_vault
+    sent = []
+    teach_send(vault) { |wire| sent << wire }
+    with_vault(vault) { post admin_authority_console_nonce_path, as: :json }
+    assert_empty sent
   end
 end

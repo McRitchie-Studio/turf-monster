@@ -29,7 +29,14 @@
     <%= link_to "Rotation checklist", admin_authority_ceremony_path, class: "text-xs font-bold text-primary underline" %>
   </div>
   <p class="text-secondary text-sm mb-1" data-signer-console-target="shape">Reading the chain…</p>
-  <p class="text-3xs text-muted mb-4" data-signer-console-target="continuity"></p>
+  <p class="text-3xs text-muted mb-2" data-signer-console-target="continuity"></p>
+  <%# The signing clock: none on the console nonce (Solana::ConsoleNonce). %>
+  <div class="mb-4 flex flex-wrap items-center gap-2">
+    <p class="text-3xs text-muted" data-signer-console-target="nonce"></p>
+    <button type="button" class="btn btn-outline btn-sm" hidden disabled
+            data-signer-console-target="noncePrepare"
+            data-action="signer-console#prepareNonce">Prepare console nonce</button>
+  </div>
 
   <%= render "shared/wallet_desktop_only_notice" %>
 

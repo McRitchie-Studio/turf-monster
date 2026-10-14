@@ -292,12 +292,13 @@ does with a partially-signed transaction it is handed.
 
 **Why ONE SESSION and not a half-signed row handed between sessions.** A
 multi-session collection needs a transaction that does not expire, which means a
-durable nonce, and **a durable nonce cannot anchor a Phantom-signed
-transaction**. A nonce transaction is only recognized when
+durable nonce. A nonce transaction is only recognized when
 `advanceNonceAccount` is instruction 0, and Phantom injects Lighthouse guard
-instructions at positions the app does not control; when one lands ahead of the
+instructions into a wire it sees UNSIGNED; when one lands ahead of the
 advance, validators read the nonce value as an unknown blockhash and reject at
-preflight. That is the 2026-06-11 mainnet incident recorded in
+preflight. (Corrected 2026-10-14: Phantom leaves a server-PRE-SIGNED wire
+alone. The signer console relies on that; see "Evicting a signer" below. These
+six paths have not been moved onto a nonce.) That is the 2026-06-11 mainnet incident recorded in
 `Solana::Vault#build_enter_contest`, and it is why `#simulate_and_broadcast`
 says the same thing.
 
@@ -873,12 +874,43 @@ broadcasts. Building at arm time would hand him bytes whose blockhash dies withi
 ~90 seconds of him starting to read — the defect that left $140 of payouts unsent
 on the treasury queue for three months.
 
-**A fresh blockhash, never the durable nonce.** A nonce-anchored transaction is
-only recognised when `advanceNonceAccount` is instruction 0, and Phantom injects
-its own Lighthouse guard instructions ahead of whatever was built. That makes the
-nonce unusable for ANY Phantom-signed flow rather than merely undesirable (the
+**The console nonce: no signing clock when the server leads.** A v0.26
+rotation the server leads needs two Phantom signatures from two accounts in one
+wallet, with a manual account switch between them. On a recent blockhash that
+lost the race twice (ptx-432 and ptx-433, 2026-10-14, "Blockhash not found"
+after about 70 seconds). So a server-led build anchors on the console's durable
+nonce (`Solana::ConsoleNonce`): `advanceNonceAccount` is instruction 0, the
+nonce's authority is the server key, and the address is
+`createWithSeed(server key, "turf-signer-console", System)`, so each server key
+has its own and a server-key rotation needs no env change. When it is missing
+the console shows **Prepare console nonce**, which has the server create it in
+one server-signed transaction (about 0.0015 SOL rent). `SOLANA_DURABLE_NONCE_PUBKEY`
+is a fallback, used only while its authority is the server key. An
+operator-led build (the server's key being evicted) never takes the nonce and
+keeps the fresh blockhash.
+
+Phantom does not break this, and the evidence is on mainnet. Phantom injects
+Lighthouse only into a wire nobody has signed: the 2026-06-11 entries were
+Phantom-FIRST, and every unsigned `create_contest` since carries 7 Lighthouse
+instructions. The server-PRE-SIGNED, nonce-anchored creates of 2026-06-03,
+06-05, 06-08 and 06-13 (the retired `prepare_onchain_contest` path, which
+broadcast Phantom's own returned bytes) landed as
+`advanceNonce | ComputeBudget | ComputeBudget | create_contest`, signed 8K81 then
+7ZDJ, with no Lighthouse instruction. The console also never broadcasts
+Phantom's bytes: it keeps only each wallet's 64-byte signature, and
+`#broadcast` refuses any message other than the stored one.
+
+A nonce row is not expired at two minutes (`NONCE_PENDING_AFTER`, 30 minutes),
+`#broadcast` refuses a wire whose nonce has advanced, and `#reconcile` never
+calls an unlanded nonce wire dead while its nonce still holds the built value:
+past the lapse it advances the nonce (the server is the authority), reads the
+signature again, and only then rewinds.
+
+**An operator-led build takes a fresh blockhash.** Its account 0 is Phantom's, so
+Phantom sees it unsigned and may inject Lighthouse ahead of an advance (the
 2026-06-11 finding recorded on `Vault#simulate_and_broadcast`). No cosign builder
-passes `durable_nonce:`, and since 2026-10-07 no builder in `vault.rb` does.
+passes `durable_nonce:`; in `vault.rb` only `#build_settle_contest` and the
+server-led `#build_update_signers` do.
 
 **A WALLET THAT SIGNS CANNOT BE EVICTED BY THE TRANSACTION IT SIGNS.** Continuity
 requires `threshold` of the keys that authorized a rotation to survive it, and at

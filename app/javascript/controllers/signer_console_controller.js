@@ -43,7 +43,7 @@ export default class extends Controller {
     "intentGroup", "intent", "intentReasons", "keys", "removeBox", "removeList", "addBox", "addList",
     "paste", "confirmBox", "confirm", "pasteError", "refusal",
     "review", "before", "after", "sentence", "signers", "cta",
-    "status", "readback", "readbackTitle", "readbackRows", "explorer",
+    "status", "readback", "readbackTitle", "readbackRows", "explorer", "nonce", "noncePrepare",
     "keyRowTemplate", "emptyRowTemplate", "pickTemplate", "signerRowTemplate"
   ]
 
@@ -140,6 +140,43 @@ export default class extends Controller {
       this.hide(this.heldErrorTarget)
     }
     this.connectTarget.textContent = this.connected ? `Phantom: ${short(this.connected)}` : "Connect Phantom"
+    this.renderNonce()
+  }
+
+  // THE SIGNING CLOCK. Ready: a server-led rotation waits on the console's
+  // durable nonce and has no time limit. Missing: one click has the server
+  // create it (Solana::ConsoleNonce#prepare!). Until then signing works as
+  // before, on a fresh blockhash.
+  renderNonce() {
+    const nonce = this.state.console_nonce || {}
+    let text
+    if (nonce.state === "ready") {
+      text = `No time limit: a server-led rotation waits on durable nonce ${short(nonce.pubkey)} until you finish signing.`
+    } else if (nonce.state === "missing") {
+      text = "Signing has about 45 seconds from the first prompt. Prepare the console nonce once to remove the limit."
+    } else if (nonce.state === "unreadable") {
+      text = "The console nonce could not be read; signing falls back to about 45 seconds from the first prompt."
+    } else {
+      text = "This server holds no key, so there is no console nonce."
+    }
+    this.nonceTarget.textContent = text
+    this.noncePrepareTarget.hidden = nonce.state !== "missing"
+    this.noncePrepareTarget.disabled = nonce.state !== "missing"
+  }
+
+  async prepareNonce() {
+    const nonce = (this.state && this.state.console_nonce) || {}
+    if (nonce.state !== "missing" || !nonce.prepare_url) return
+    this.noncePrepareTarget.disabled = true
+    this.say("Creating the console nonce (the server signs and pays about 0.0015 SOL)…")
+    const { ok, body } = await this.post(nonce.prepare_url, {})
+    if (!ok) {
+      this.fail(body.message || "The console nonce could not be created.")
+      this.noncePrepareTarget.disabled = false
+      return
+    }
+    this.say("")
+    await this.load()
   }
 
   renderCurrent() {
@@ -503,7 +540,10 @@ export default class extends Controller {
         },
         onWaiting: (key) => this.say(`Open Phantom and switch to ${short(key)}, then approve.`),
         onSigned: (key) => this.paint(key, "signed"),
-        onFailed: (key) => this.paint(key, "failed")
+        onFailed: (key) => this.paint(key, "failed"),
+        // A nonce-anchored wire does not expire, so the operator is not cut
+        // off at the usual three minutes while switching accounts.
+        switchTimeoutMs: built.nonce_anchored ? 25 * 60 * 1000 : undefined
       })
     } catch (err) {
       await this.cancel(built)

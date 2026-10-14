@@ -118,6 +118,7 @@ function consoleState(cast) {
     current: [cast.server, ...cast.alex, cast.held],
     labels: labels(cast),
     candidates: [cast.added],
+    console_nonce: { state: "missing", pubkey: null, prepare_url: "/admin/authorities/console_nonce" },
     live_rotation: null
   };
 }
@@ -140,13 +141,19 @@ function planFor(cast) {
 // it; the console's first read happens before that and answers unreadable,
 // which is itself the dead-RPC path. Connecting Phantom re-reads.
 async function routeConsole(page, overrides = {}) {
-  const state = { cast: null, plans: [], rotations: 0, broadcasts: [], cancels: 0 };
+  const state = { cast: null, plans: [], rotations: 0, broadcasts: [], cancels: 0, prepares: 0,
+                  nonceReady: !!overrides.nonceReady };
   const json = (route, status, body) =>
     route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 
   await page.route("**/admin/authorities/console*", (route) =>
-    state.cast ? json(route, 200, consoleState(state.cast))
+    state.cast ? json(route, 200, withNonce(consoleState(state.cast), state))
                : json(route, 503, { ok: false, code: "unreadable", message: "Vault state could not be read." }));
+  await page.route("**/admin/authorities/console_nonce", (route) => {
+    state.prepares++;
+    state.nonceReady = true;
+    return json(route, 200, { ok: true, signature: "NoncePrepared1111111111111111" });
+  });
   await page.route("**/admin/authorities/plan", (route) => {
     state.plans.push(route.request().postDataJSON());
     const refused = overrides.plan && overrides.plan(state);
@@ -164,6 +171,7 @@ async function routeConsole(page, overrides = {}) {
       status: "rebuilt", serialized_tx: state.cast.wire,
       signer_queue: overrides.queue ? overrides.queue(state) : plan.phantom_queue,
       server_signed: [state.cast.server, state.cast.held], slug: "ptx-e2e",
+      nonce_anchored: state.nonceReady,
       broadcast_url: "/admin/authorities/ptx-e2e/broadcast", cancel_url: "/admin/authorities/ptx-e2e/cancel",
       rebuild_url: "/admin/authorities/ptx-e2e/rebuild"
     });
@@ -183,7 +191,17 @@ async function routeConsole(page, overrides = {}) {
   return state;
 }
 
-async function openConsole(page, { phantomCount = 1, overrides = {} } = {}) {
+// The console nonce as the server reports it: ready once prepared.
+function withNonce(body, state) {
+  if (state.nonceReady) {
+    body.console_nonce = { state: "ready", pubkey: "NonceAcct1111111111111111111111111111111111",
+                           prepare_url: "/admin/authorities/console_nonce" };
+  }
+  return body;
+}
+
+async function openConsole(page, { phantomCount = 1, overrides = {}, clock = false } = {}) {
+  if (clock) await page.clock.install();
   await installPhantomLab(page);
   const routes = await routeConsole(page, overrides);
   await loginAdmin(page);
@@ -267,6 +285,44 @@ test.describe("Signer console", () => {
 
     await expect(page.getByText("Landed. The chain now holds:")).toBeVisible();
     expect(await page.evaluate(() => window.__consoleLab.signed)).toEqual(routes.cast.alex);
+    expect(await verifies(page, routes.broadcasts[0].signed_tx)).toBe(true);
+  });
+
+  // ptx-432 and ptx-433 died while Alex switched accounts between two prompts.
+  // A missing console nonce says so and offers one click; once ready, the
+  // console promises no time limit.
+  test("a missing console nonce offers one prepare click, then the console reads untimed", async ({ page }) => {
+    const routes = await openConsole(page);
+    const nonce = page.locator("[data-signer-console-target='nonce']");
+    const prepare = page.getByRole("button", { name: "Prepare console nonce" });
+
+    await expect(nonce).toHaveText(/about 45 seconds/);
+    await expect(prepare).toBeVisible();
+    await prepare.click();
+
+    await expect(nonce).toHaveText(/No time limit/);
+    await expect(prepare).toBeHidden();
+    expect(routes.prepares).toBe(1);
+  });
+
+  test("a nonce-anchored build keeps waiting for the account switch past three minutes", async ({ page }) => {
+    const routes = await openConsole(page, { phantomCount: 2, clock: true, overrides: { nonceReady: true } });
+    await draftAdd(page, routes);
+    await page.locator("[data-signer-console-target='cta']").click();
+
+    const second = routes.cast.alex[1];
+    await expect(page.getByText(`switch to ${second.slice(0, 4)}…${second.slice(-4)}`)).toBeVisible();
+    // Past the blockhash-era three-minute cutoff: the console is still waiting.
+    await page.clock.runFor(4 * 60 * 1000);
+    // A timed-out wait cancels the row over the network before it shows its
+    // error, so give that path real time to surface before asserting it did not.
+    await page.waitForTimeout(1000);
+    await expect(page.getByText(/Timed out waiting for Phantom/)).toHaveCount(0);
+    expect(routes.cancels).toBe(0);
+
+    await page.evaluate(() => window.__consoleLab.switchAccount());
+    await page.clock.runFor(1000);
+    await expect(page.getByText("Landed. The chain now holds:")).toBeVisible();
     expect(await verifies(page, routes.broadcasts[0].signed_tx)).toBe(true);
   });
 
