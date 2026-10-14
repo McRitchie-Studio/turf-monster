@@ -798,8 +798,13 @@ class Contest < ApplicationRecord
     game
   end
 
+  # On a span slate every selection reads the slate's team view, so the whole
+  # re-score shares one load of it (Slate#with_matchups_by_team_snapshot).
+  # Scoring writes selections and entries, never a slate_matchup, so the scores
+  # are exactly the ones a fresh load per selection gave.
   def score_entries!
-    entries.where(status: [:active, :complete]).includes(selections: :slate_matchup).find_each(&:score!)
+    rescore = -> { entries.where(status: [:active, :complete]).includes(selections: :slate_matchup).find_each(&:score!) }
+    slate ? slate.with_matchups_by_team_snapshot(&rescore) : rescore.call
     touch # Bust show page cache after scoring
   end
 

@@ -161,10 +161,34 @@ class Slate < ApplicationRecord
   # the time key, and an unqualified tie inherits DB return order — which is
   # how the weekly breakdown once rendered [3, 1, 2] on CI.
   def matchups_by_team
+    @matchups_by_team_snapshot || load_matchups_by_team
+  end
+
+  # ONE load of #matchups_by_team answers every call inside the block.
+  #
+  # Contest#score_entries! uses it: each span Selection asked for this view
+  # three times (multi_week? twice, its team's games once), and a scoring play
+  # on the two-entry rehearsal slate spent 144 of its 251 queries reloading it
+  # (measured 2026-10-14). Only a block that writes no slate_matchup may hold
+  # one, because the rows it carries hold `goals`. The snapshot ends with the
+  # block, raise or not; a nested call reuses the outer one.
+  def with_matchups_by_team_snapshot
+    return yield if @matchups_by_team_snapshot
+
+    @matchups_by_team_snapshot = load_matchups_by_team
+    begin
+      yield
+    ensure
+      @matchups_by_team_snapshot = nil
+    end
+  end
+
+  def load_matchups_by_team
     slate_matchups.includes(:team, :opponent_team, :game)
                   .group_by(&:team_slug)
                   .transform_values { |matchups| matchups.sort_by { |m| [ m.game&.kickoff_at || Time.at(0), m.week || 0 ] } }
   end
+  private :load_matchups_by_team
 
   # { team_slug => summed expected_score }
   def expected_points_by_team
