@@ -2,12 +2,10 @@
     Locals (all optional):
       balance_html     — raw HTML for balance display (e.g. Turf Monster wallet balance)
       extra_icons_html — raw HTML for app-specific icon buttons (e.g. refresh button)
-      show_logout_link — boolean, show explicit "Log out" link (Studio uses this)
       div2_html        — raw HTML to replace default Div 2 (e.g. Turf Monster seeds bar)
 %>
 <% balance_html     ||= nil %>
 <% extra_icons_html ||= nil %>
-<% show_logout_link ||= false %>
 <% div2_html        ||= nil %>
 <% gear_toggle_action = "$store.sidebars.gearOpen = !$store.sidebars.gearOpen" %>
 <% gear_expanded_attr = "$store.sidebars && $store.sidebars.gearOpen ? 'true' : 'false'" %>
@@ -26,9 +24,12 @@
         <% if balance_html.present? %>
           <%= raw balance_html %>
         <% end %>
+        <%# The theme toggle leads the gear, a size down at 14px, as on every
+            engine navbar (studio-engine's components/_user_nav). The gear is
+            already the 16px glyph the engine sizes its own to. %>
         <span class="hidden md:flex flex-shrink-0 items-center gap-2 ml-auto">
+          <span class="flex scale-[0.875]" data-nav-theme-toggle="desktop"><%= render "components/theme_toggle_morph" %></span>
           <span class="hidden md:block"><%= render "components/gear_sidebar_trigger" %></span>
-          <%= render "components/theme_toggle_morph" %>
         </span>
         <%# nav-username sizes off --nav-p (lg -> base) — see the navbar's
             nav-shell comment. transition-colors, not transition-all: the old
@@ -92,8 +93,8 @@
       </button>
     </div>
   <% else %>
+    <span class="hidden md:flex scale-[0.875]"><%= render "components/theme_toggle" %></span>
     <span class="hidden md:block"><%= render "components/gear_sidebar_trigger" %></span>
-    <span class="hidden md:flex"><%= render "components/theme_toggle" %></span>
     <div class="flex items-center gap-3 ml-auto">
       <%# Opens the in-page auth modal (credentials step: Google + wallet + email
           magic-link). href=/signin is the no-JS fallback — the page still exists,
