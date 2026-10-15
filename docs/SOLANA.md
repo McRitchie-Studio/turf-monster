@@ -757,10 +757,12 @@ step's start, shape agrees with the switch, server identity, window cosigners
 held, no open transaction row, fee payer funded; contests in the next six hours
 as a soft note) and links the console with the intent pre-filled only when every
 hard check passes. A runbook step (Steffon's lane) shows only its verdict. A key
-the ceremony needs that does not exist yet is written `UNMINTED:<what>`: mainnet
-slot 5 is `UNMINTED:fresh-governance`, a fresh governance key, because `4bKN` was
-exposed. The page names it "(unminted)", and the `keys_minted` check blocks every
-step that needs it until its public half replaces the placeholder.
+the ceremony needs that does not exist yet is written `UNMINTED:<what>`. The page
+names it "(unminted)", and the `keys_minted` check blocks every step that needs it
+until its public half replaces the placeholder. Mainnet's last one,
+`UNMINTED:fresh-governance` (a fresh governance key, because `4bKN` was exposed),
+was replaced by `3LTL…` (`solana.turf.governance.v2`), which the 2026-10-14
+rotation seated in slot 0; no mainnet step holds a placeholder now.
 
 **Open Squads upgrade proposals.** The page lists this cluster's open PROGRAM
 UPGRADE proposals (`Solana::SquadsProposals`, the last ten indices) with their

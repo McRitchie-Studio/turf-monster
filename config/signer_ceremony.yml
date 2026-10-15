@@ -12,20 +12,22 @@
 #
 # Source: the signer-console redesign audit (.agents/epics/audits/), section
 # 3, and the rotation target Mr. McRitchie set (NEW, 7ZDJ, 9gAC, 3Qj4, and a
-# governance key in slot 5).
+# fresh governance key).
 #
-# SLOT 5 IS A FRESH GOVERNANCE KEY, NOT 4bKN: 4bKN was exposed, so it is in no
-# VaultState target. The fresh key is 3LTLPG1s… (solana.turf.governance.v2),
-# filed in config/signer_roster.yml; it replaced the `3LTLPG1s952sdNatZWtnfM7r9F3ivWSnPSqfhQLBepJ9`
-# placeholder below. Mainnet has run this checklist to the end: the chain reads
-# 3LTL, 7ZDJ, 4S39, 9gAC, 3Qj4, the EVICT's end set.
+# THE GOVERNANCE KEY IS A FRESH ONE, NOT 4bKN: 4bKN was exposed, so it is in
+# no VaultState target. The fresh key is 3LTLPG1s… (solana.turf.governance.v2),
+# filed in config/signer_roster.yml; it replaced the `UNMINTED:fresh-governance`
+# placeholder these steps used to carry. On chain 3LTL sits in slot 0, not
+# the fifth slot the plan pictured. Mainnet has run this
+# checklist to the end: the chain reads 3LTL, 7ZDJ, 4S39, 9gAC, 3Qj4 (slots
+# 0-4), the EVICT's end set.
 #
 # Keys are full addresses; config/signer_roster.yml names them.
 
 mainnet-beta:
   - id: add
     kind: console
-    title: ADD the new server key and slot 5
+    title: ADD the new server key and the fresh governance key
     who: Mr. McRitchie, one Phantom prompt
     start: [8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd, 7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr, CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR]
     end: [8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd, 7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr, CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR, 4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY, 3LTLPG1s952sdNatZWtnfM7r9F3ivWSnPSqfhQLBepJ9]
