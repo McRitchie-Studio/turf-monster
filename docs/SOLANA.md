@@ -280,7 +280,8 @@ the extra signer slots are part of the message and cannot be added once the
 first wallet has signed. The picker lists his own wallets first, in
 `config/signer_roster.yml` `priority` order (7ZDJ, 3Qj4, 9gAC), and preselects
 the highest-priority one still free; agent-held keys (3LTL) follow, labelled
-"agent key, break-glass", and are never preselected. With none of his wallets
+"agent key", and stay selectable (3LTL is his break-glass copy) but are never
+preselected. With none of his wallets
 free it opens on an unchosen placeholder. Any seated key may fill any extra slot:
 turf-vault's `validate_threshold` checks membership and distinctness, never slot
 position. (Before 2026-10-15 the list ran in slot order and selected nothing, so

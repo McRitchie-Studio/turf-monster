@@ -8,8 +8,8 @@ class CosignWalletHelperTest < ActionView::TestCase
                  cosign_wallet_option_label("3Qj4v9qjhXgkru6zCRCErRVhy8Q6qU3NrNpvpXLTZboA")
   end
 
-  test "an agent key is marked as an agent key, break-glass" do
-    assert_equal "3LTL…epJ9 · Governance key v2 (agent key, break-glass)",
+  test "an agent key is marked as an agent key" do
+    assert_equal "3LTL…epJ9 · Governance key v2 (agent key)",
                  cosign_wallet_option_label("3LTLPG1s952sdNatZWtnfM7r9F3ivWSnPSqfhQLBepJ9")
   end
 

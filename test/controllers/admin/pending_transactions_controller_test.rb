@@ -829,7 +829,7 @@ class Admin::PendingTransactionsControllerTest < ActionDispatch::IntegrationTest
                  options.map { |o| o["value"] }
     selected = options.select { |o| o["selected"] }
     assert_equal ["3Qj4v9qjhXgkru6zCRCErRVhy8Q6qU3NrNpvpXLTZboA"], selected.map { |o| o["value"] }
-    assert_match(/agent key, break-glass/, options.last.text)
+    assert_match(/\(agent key\)/, options.last.text)
     assert_select "[data-signer-row='3Qj4v9qjhXgkru6zCRCErRVhy8Q6qU3NrNpvpXLTZboA']", 1
     assert_select "[data-signer-row='3LTLPG1s952sdNatZWtnfM7r9F3ivWSnPSqfhQLBepJ9']", 0
   end
