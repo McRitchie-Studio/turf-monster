@@ -15,9 +15,15 @@ module Solana
     queue_as :default
 
     # The chain could not be read, or did not confirm the advance. The wire may
-    # still land, so keep trying.
+    # still land, so keep trying. When the last attempt fails too, say so on
+    # the row: an ErrorLog targeting it is what tells an operator a signed
+    # rotation may still be landable.
     class StillLandable < StandardError; end
-    retry_on StillLandable, wait: :polynomially_longer, attempts: 8
+    retry_on StillLandable, wait: :polynomially_longer, attempts: 8 do |job, error|
+      row = PendingTransaction.find_by(id: job.arguments.first)
+      log = ErrorLog.capture!(error)
+      log.update!(target: row, target_name: row.slug) if row
+    end
 
     # The nonce still holds the value and this server is not its authority: a
     # server-key change stranded it. Raised once, logged, never retried.

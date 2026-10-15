@@ -1637,6 +1637,41 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
     assert_select "[data-ceremony-step='flip-guard'][data-status='blocked']"
   end
 
+  # Carl's follow-up (1) on signer-console-durable-nonce: retry_on gave up
+  # silently. When the last attempt still cannot read or advance the nonce, the
+  # wire may still land, and an operator has to hear about it on the row.
+  test "a void job that exhausts its retries on an unreadable nonce records an ErrorLog on the row" do
+    vault = server_led_vault(account_infos: { derived_nonce => ->(_c) { raise Solana::Client::RpcError, "down" } })
+    row = nonce_row(Solana::Keypair.generate.to_base58)
+    row.update_columns(status: "expired", stale: true)
+    job = Solana::VoidConsoleNonceJob.new(row.id)
+    # retry_on counts per handler (ActiveJob's exception_executions, keyed by
+    # the handled classes); seven spent means this run is the eighth and last.
+    job.exception_executions = { [Solana::VoidConsoleNonceJob::StillLandable].to_s => 7 }
+
+    assert_difference -> { ErrorLog.count }, 1 do
+      with_vault(vault) { job.perform_now }
+    end
+    log = ErrorLog.order(:id).last
+    assert_equal row, log.target
+    assert_match(/still holds its built value/, log.message)
+    assert_no_enqueued_jobs only: Solana::VoidConsoleNonceJob
+  end
+
+  # Carl's follow-up (3): the list took the 25 newest expired rows BEFORE it
+  # kept the nonce-anchored ones, so a burst of blockhash rows pushed an old
+  # unvoided nonce row off the outstanding list.
+  test "ended_nonce_rows keeps an old nonce row behind 25 newer blockhash rows" do
+    old = nonce_row(Solana::Keypair.generate.to_base58)
+    old.update_columns(status: "expired", updated_at: 2.days.ago)
+    25.times do
+      blockhash_row = server_led_row(server_led_vault)
+      blockhash_row.update_columns(status: "expired", updated_at: 1.hour.ago)
+    end
+
+    assert_includes Admin::AuthoritiesController.ended_nonce_rows.map(&:id), old.id
+  end
+
   test "the void job leaves live and landed rows alone" do
     value = Solana::Keypair.generate.to_base58
     vault, sent, = moving_nonce_vault(value)
