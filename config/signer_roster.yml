@@ -11,6 +11,12 @@
 #   name      what the page calls it
 #   holder    alex | agent. Only `alex` keys are ever asked for in Phantom.
 #             `agent` keys sign on the server or not at all.
+#   priority  alex keys only: 1, 2, 3 ... the order Mr. McRitchie wants his
+#             wallets asked for. THE ONE SOURCE OF TRUTH for that order: the
+#             pending-transactions co-sign card defaults its extra wallet to
+#             the highest-priority seated one, and the signer console picks
+#             and prompts in it. Never set on an `agent` key (the loader
+#             refuses it), so an agent key can never be a default.
 #   signs_in  phantom | server | script. How this key produces a signature.
 #   clusters  where it may be a VaultState signer: mainnet-beta, devnet.
 #   op_item   the 1Password item title (a NAME, never a reference to a field)
@@ -44,6 +50,7 @@ keys:
   - address: 7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr
     name: Alex, Phantom account 1
     holder: alex
+    priority: 1
     signs_in: phantom
     clusters: [mainnet-beta]
     op_item: null
@@ -52,6 +59,7 @@ keys:
   - address: 9gACbzsCLmkYF9Yx1EBGmwMvvyfuTquJ6qs8QsoQvHXf
     name: Alex, Phantom account 2
     holder: alex
+    priority: 3
     signs_in: phantom
     clusters: [mainnet-beta, devnet]
     op_item: null
@@ -60,6 +68,7 @@ keys:
   - address: 3Qj4v9qjhXgkru6zCRCErRVhy8Q6qU3NrNpvpXLTZboA
     name: Alex, second wallet
     holder: alex
+    priority: 2
     signs_in: phantom
     clusters: [mainnet-beta, devnet]
     op_item: null
