@@ -283,9 +283,14 @@ module Solana
         signs_automatically: false
       }
 
-      Array(extras).compact.reject(&:blank?).each_with_index do |address, i|
+      # A BLANK extra is a slot not chosen yet (none of Mr. McRitchie's keys
+      # was seated to preselect). It keeps its row, so the page shows a slot
+      # still to fill and cosign.js repoints THAT row when he picks, rather
+      # than the named cosigner's row above it.
+      extras = Array(extras).map(&:to_s)
+      extras.each_with_index do |address, i|
         rows << {
-          address: address,
+          address: address.presence,
           role: "extra",
           label: extras.length > 1 ? "Wallet #{i + 3}" : "Second wallet",
           fee_payer: false,

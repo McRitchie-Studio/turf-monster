@@ -151,6 +151,13 @@
                     wallet and #rebuild refused it 422. %>
                 <% required = tx.required_signatures %>
                 <% extras_needed = tx.extra_cosigners_needed %>
+                <%# THE DEFAULT IS HIS WALLET, NEVER AN AGENT'S. The list is
+                    ordered by config/signer_roster.yml `priority` (7ZDJ, 3Qj4,
+                    9gAC), and only one of his keys is ever preselected. With
+                    nothing of his to preselect the select opens on an unchosen
+                    placeholder: picking the first option would have handed
+                    him 3LTL, the agent key in slot 0, as it did on ptx-437. %>
+                <% default_extras = Solana::CosignPlan.default_extras(@eligible_extras, extras_needed) %>
                 <% if extras_needed.positive? && @eligible_extras.any? %>
                   <label class="text-xs text-muted flex flex-col gap-1">
                     <span>
@@ -163,8 +170,12 @@
                         Unauthorized. %>
                     <select data-extra-cosigner
                             class="input-field w-full font-mono text-xs">
+                      <% if default_extras.empty? %>
+                        <option value="" selected disabled>Choose a wallet</option>
+                      <% end %>
                       <% @eligible_extras.each do |signer| %>
-                        <option value="<%= signer %>"><%= signer.truncate(16) %></option>
+                        <option value="<%= signer %>"
+                                <%= "selected" if signer == default_extras.first %>><%= cosign_wallet_option_label(signer) %></option>
                       <% end %>
                     </select>
                   </label>
@@ -213,7 +224,7 @@
                 <% if extras_needed.positive? %>
                   <%= render "signer_roster",
                              roster: Solana::CosignPlan.new(tx_type: tx.tx_type)
-                                       .roster(extras: @eligible_extras.first(extras_needed),
+                                       .roster(extras: default_extras + [""] * (extras_needed - default_extras.length),
                                                fee_payer: @fee_payer),
                              required_signatures: required %>
                 <% end %>
