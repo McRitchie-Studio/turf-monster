@@ -34,24 +34,22 @@ class NavbarCollapseComponentTest < ActionDispatch::IntegrationTest
       "--nav-p must be a registered custom property so calc() has a typed <number> and a 0 fallback")
     assert_match(/syntax:\s*"<number>"/, CSS, "--nav-p must be registered as <number>")
 
-    assert_includes NAVBAR, 'x-data="navCollapse()"',
-      "the header must own the scroll-linked collapse component"
-    assert_match(/window\.navCollapse\s*=\s*function/, FACTORIES,
-      "navCollapse must be defined in the inline factory script (Alpine reads x-data before importmap modules run)")
+    # THE ENGINE'S CONTROLLER, NOT A COPY (task smooth-navbar-collapse). This app
+    # carried an inline copy of the collapse until the engine's grew the hold
+    # (the header keeps its footprint so the page never moves); a copy is how a
+    # fix lands in one navbar and not the other.
+    assert_includes NAVBAR, 'data-studio-controller="nav-collapse"',
+      "the header must run studio-engine's nav-collapse controller"
+    assert_includes NAVBAR, 'data-nav-collapse-scrolled-class="shadow-lg border-b border-subtle is-scrolled"',
+      "the controller toggles the scrolled shadow the header used to bind through Alpine"
+    refute_includes NAVBAR, 'x-data="navCollapse()"', "the inline Alpine factory is retired"
+    refute_match(/window\.navCollapse\s*=\s*function/, FACTORIES,
+      "no inline copy of the collapse: it would shadow the engine's")
 
     refute_match(/@scroll\.window/, NAVBAR,
       "the raw per-event @scroll.window handler is what ran unthrottled; navCollapse binds a passive rAF-coalesced listener instead")
     refute_match(/scrollY > 60/, NAVBAR,
       "the 60px collapse step is replaced by a --nav-ramp interpolation")
-  end
-
-  test "navCollapse coalesces scroll into one frame and listens passively" do
-    assert_match(/requestAnimationFrame/, FACTORIES[/window\.navCollapse[\s\S]*?\n  \};/] || "",
-      "navCollapse must coalesce scroll events into a single animation frame")
-    assert_match(/addEventListener\("scroll",[^)]*\{\s*passive:\s*true\s*\}/, FACTORIES,
-      "the scroll listener must be passive so it never blocks the compositor")
-    assert_match(/prefers-reduced-motion/, FACTORIES,
-      "reduced motion must snap --nav-p to 0/1 rather than resize type every frame")
   end
 
   test "no collapsing dimension is animated on a clock" do
@@ -94,61 +92,13 @@ class NavbarCollapseComponentTest < ActionDispatch::IntegrationTest
     end
   end
 
-  # === THE RATE LIMIT (task limit-navbar-collapse-rate) ==================
-  #
-  # Making progress a pure function of scroll position fixed motion that
-  # OUTLIVED the gesture. It also guaranteed the opposite defect: scrollY can
-  # move 90px between two frames, and so then does the header's whole range.
-  # Measured on QA at 390x844 before this clamp — 8px/frame walked 3.9px of
-  # header per frame, a momentum flick walked 39.0px, which is the ENTIRE
-  # 178 -> 139 collapse in one frame. The operator found it on an iPhone: slow
-  # scrolling read as smooth, a flick jumped.
-
-  test "the collapse clamps how far it may travel in one frame" do
-    factory = FACTORIES[/window\.navCollapse[\s\S]*?\n  \};/] || ""
-    refute_empty factory, "could not isolate the navCollapse factory"
-
-    assert_match(/--nav-max-step:\s*\d+px/, CSS,
-      "the per-frame cap must be a CSS var so it is tunable beside --nav-ramp")
-    assert_match(/getPropertyValue\(["']--nav-max-step["']\)/, factory,
-      "navCollapse must read the cap from CSS, not hardcode it")
-
-    # DERIVED, NOT TUNED PER BAND. application.css sizes --nav-ramp at 3x the
-    # band's collapse total, so a cap of N px/frame is 3*N/ramp in --nav-p
-    # units. A hardcoded step would be right on one breakpoint and wrong on
-    # the other.
-    assert_match(/maxStep\s*=\s*\(\s*3\s*\*\s*self\._maxPx\s*\)\s*\/\s*ramp/, factory,
-      "the step must derive from --nav-ramp's 3x relation to the collapse total")
-
-    # The clamp itself: within one step, take the target exactly (no crawl);
-    # beyond it, move exactly one step toward it.
-    assert_match(/Math\.abs\(delta\)\s*<=\s*maxStep/, factory,
-      "inside one step the target must be taken exactly, or it converges asymptotically")
-    assert_match(/self\.p\s*\+\s*\(\s*delta\s*>\s*0\s*\?\s*maxStep\s*:\s*-maxStep\s*\)/, factory,
-      "beyond one step it must advance by exactly one step")
-  end
-
-  test "a clamped frame keeps scheduling until it lands" do
-    factory = FACTORIES[/window\.navCollapse[\s\S]*?\n  \};/] || ""
-
-    # THE MUTATION THIS KILLS: keeping the clamp and dropping the follow-up
-    # frame. Every assertion above still passes, and the collapse FREEZES
-    # wherever the clamp left it the moment the finger lifts — because nothing
-    # else schedules a frame once scroll events stop arriving.
-    assert_match(/if\s*\(\s*!snap\s*&&\s*p\s*!==\s*target\s*\)\s*\{[\s\S]{0,120}?requestAnimationFrame\(\s*apply\s*\)/, factory,
-      "an unfinished clamp must schedule its own next frame — no scroll event will")
-  end
-
-  test "the snap paths bypass the limiter" do
-    factory = FACTORIES[/window\.navCollapse[\s\S]*?\n  \};/] || ""
-
-    # A short-page refusal and a reduced-motion state are DECISIONS, not
-    # motion. Ramping them would animate the very thing each exists to avoid:
-    # the guard would ease the navbar open on a page that must not collapse,
-    # and reduced motion would get the interpolation it asked us to drop.
-    assert_match(/snap\s*=\s*true/, factory, "the guard and reduced-motion must mark themselves as snaps")
-    assert_match(/if\s*\(\s*snap\s*\)\s*\{[\s\S]{0,200}?p\s*=\s*target;/, factory,
-      "a snap must take the target directly, skipping the clamp")
+  # The rate limit, the short-page guard, rAF coalescing, the passive listener
+  # and reduced motion belong to studio/nav_collapse now, and the engine pins
+  # them (test/javascript/nav_collapse.test.mjs, e2e/nav_collapse.spec.js).
+  # This app keeps --nav-max-step beside its ramp because the engine reads it
+  # off the header for a header out of flow.
+  test "the per-frame cap stays tunable beside the ramp" do
+    assert_match(/--nav-max-step:\s*\d+px/, CSS)
   end
 
   test "the size bindings left Alpine's per-scroll reactive path" do
