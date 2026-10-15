@@ -12,9 +12,10 @@ module Solana
   #
   #   1. The server leads whenever its key is seated and stays.
   #   2. Server-held cosigners (SOLANA_COSIGNER_KEYS) that stay sign next.
-  #   3. Mr. McRitchie's seated accounts that stay fill the rest, the account
-  #      connected in Phantom first. Only roster `holder: alex` keys are ever
-  #      asked for in Phantom.
+  #   3. Mr. McRitchie's seated accounts that stay fill the rest, chosen AND
+  #      prompted in his roster priority (config/signer_roster.yml
+  #      `priority`: 7ZDJ, 3Qj4, 9gAC). Only roster `holder: alex` keys are
+  #      ever asked for in Phantom.
   #
   # Only keys that SURVIVE the rotation sign it, which satisfies continuity on
   # both program shapes (v0.25: both signers survive; v0.26: `required` of the
@@ -257,8 +258,13 @@ module Solana
     def derive_signers!(proposed)
       survivors = current & proposed
       lead_is_server = server.present? && survivors.include?(server)
-      alex_seats = (survivors & roster.alex_addresses)
-      alex_seats = alex_seats.sort_by { |key| [key == connected ? 0 : 1, current.index(key)] }
+      # HIS PRIORITY, NOT THE SLOT ORDER AND NOT THE CONNECTED ACCOUNT. This
+      # used to sort by the connected account and then VaultState slot, which
+      # asked for 9gAC (slot 3) before 3Qj4 (slot 4) and let whichever account
+      # Phantom happened to have open jump the queue. The roster's priority is
+      # the one order he set; the co-sign card reads the same list.
+      # turf-vault checks membership, not position, so the order is ours.
+      alex_seats = roster.operator_priority & survivors
 
       if alex_seats.empty?
         raise Refusal.new("None of your accounts stays seated through this change, so every signature " \

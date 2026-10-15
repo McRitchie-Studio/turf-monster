@@ -297,7 +297,66 @@ class Solana::CosignPlanTest < ActiveSupport::TestCase
 
   test "an unreadable vault state falls back to the config list" do
     with_governance(seated: nil) do
-      assert_equal SIGNERS - [Solana::CosignPlan.admin_address].compact, Solana::CosignPlan.eligible_cosigners
+      assert_equal (SIGNERS - [Solana::CosignPlan.admin_address].compact).sort,
+                   Solana::CosignPlan.eligible_cosigners.sort
+    end
+  end
+
+  # ── HIS WALLET IS THE DEFAULT, NEVER AN AGENT'S ───────────────────────────
+  #
+  # ptx-437 (2026-10-14): the co-sign card listed the eligible wallets in
+  # VaultState slot order and preselected the first, so it offered 3LTL, the
+  # agent governance key in mainnet slot 0, as the "Second Phantom wallet".
+
+  MAINNET_SEATED = %w[
+    3LTLPG1s952sdNatZWtnfM7r9F3ivWSnPSqfhQLBepJ9
+    7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr
+    4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY
+    9gACbzsCLmkYF9Yx1EBGmwMvvyfuTquJ6qs8QsoQvHXf
+    3Qj4v9qjhXgkru6zCRCErRVhy8Q6qU3NrNpvpXLTZboA
+  ].freeze
+  GOV_V2  = "3LTLPG1s952sdNatZWtnfM7r9F3ivWSnPSqfhQLBepJ9".freeze
+  SERVER  = "4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY".freeze
+  ALEX_1  = "7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr".freeze
+  ALEX_2  = "3Qj4v9qjhXgkru6zCRCErRVhy8Q6qU3NrNpvpXLTZboA".freeze
+  ALEX_3  = "9gACbzsCLmkYF9Yx1EBGmwMvvyfuTquJ6qs8QsoQvHXf".freeze
+
+  def with_mainnet_seats(seated = MAINNET_SEATED, &block)
+    with_governance(seated: seated) do
+      Solana::CosignPlan.stub(:admin_address, SERVER, &block)
+    end
+  end
+
+  test "eligible wallets lead with his, in roster priority, agent keys after" do
+    with_mainnet_seats do
+      assert_equal [ALEX_1, ALEX_2, ALEX_3, GOV_V2], Solana::CosignPlan.eligible_cosigners
+    end
+  end
+
+  test "the ptx-437 card: with 7ZDJ named, the second wallet defaults to 3Qj4, not 3LTL" do
+    with_mainnet_seats do
+      extras = Solana::CosignPlan.eligible_cosigners - [ALEX_1]
+      assert_equal [ALEX_2], Solana::CosignPlan.default_extras(extras, 1)
+      assert_equal [ALEX_2, ALEX_3], Solana::CosignPlan.default_extras(extras, 2)
+      assert_includes extras, GOV_V2, "the break-glass key stays selectable"
+    end
+  end
+
+  test "an agent key is never a default, even when it is all that is left" do
+    with_mainnet_seats do
+      assert_equal [], Solana::CosignPlan.default_extras([GOV_V2, SERVER], 1)
+      assert_equal [ALEX_3], Solana::CosignPlan.default_extras([GOV_V2, ALEX_3], 2),
+                   "short rather than padded with an agent key"
+    end
+  end
+
+  test "an unchosen extra keeps its roster row, so the page shows a slot to fill" do
+    with_mainnet_seats do
+      rows = Solana::CosignPlan.new(tx_type: "sweep_operator_revenue").roster(extras: [""])
+      extra = rows.last
+      assert_equal "extra", extra[:role]
+      assert_nil extra[:address]
+      assert_equal 3, rows.length
     end
   end
 

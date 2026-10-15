@@ -798,6 +798,66 @@ class Admin::PendingTransactionsControllerTest < ActionDispatch::IntegrationTest
   # the transaction reaches the chain exactly as short as it did before this
   # change — but now silently, because nothing on the page says three were
   # needed. The select is the visible half of the fix.
+  # [integration] ptx-437, 2026-10-14. The card listed the eligible wallets in
+  # VaultState slot order and selected none, so the browser opened on the
+  # first: 3LTL, the agent governance key in mainnet slot 0. The default must
+  # be his next wallet by roster priority (3Qj4), with the agent key still
+  # offered, last and labelled, as his break-glass.
+  test "the second-wallet picker defaults to his wallet by priority, never the slot-0 agent key" do
+    seated = %w[3LTLPG1s952sdNatZWtnfM7r9F3ivWSnPSqfhQLBepJ9 7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr
+                4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY 9gACbzsCLmkYF9Yx1EBGmwMvvyfuTquJ6qs8QsoQvHXf
+                3Qj4v9qjhXgkru6zCRCErRVhy8Q6qU3NrNpvpXLTZboA]
+    assert_equal "7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr", Solana::Config::MULTISIG_COSIGNER,
+                 "precondition: the named cosigner is his first-priority wallet"
+    log_in_as(@admin)
+    ptx("settle_contest", { settlements: [] }, target: @contest)
+
+    Solana::Config.stub(:governance?, true) do
+      Solana::Vault.stub(:cached_vault_state, { active_signers: seated }) do
+        Solana::CosignPlan.stub(:admin_address, "4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY") do
+          Solana::Vault.stub :new, FakeVault.new do
+            get admin_pending_transactions_path
+          end
+        end
+      end
+    end
+
+    assert_response :success
+    options = css_select("select[data-extra-cosigner] option")
+    assert_equal %w[3Qj4v9qjhXgkru6zCRCErRVhy8Q6qU3NrNpvpXLTZboA 9gACbzsCLmkYF9Yx1EBGmwMvvyfuTquJ6qs8QsoQvHXf
+                    3LTLPG1s952sdNatZWtnfM7r9F3ivWSnPSqfhQLBepJ9],
+                 options.map { |o| o["value"] }
+    selected = options.select { |o| o["selected"] }
+    assert_equal ["3Qj4v9qjhXgkru6zCRCErRVhy8Q6qU3NrNpvpXLTZboA"], selected.map { |o| o["value"] }
+    assert_match(/agent key, break-glass/, options.last.text)
+    assert_select "[data-signer-row='3Qj4v9qjhXgkru6zCRCErRVhy8Q6qU3NrNpvpXLTZboA']", 1
+    assert_select "[data-signer-row='3LTLPG1s952sdNatZWtnfM7r9F3ivWSnPSqfhQLBepJ9']", 0
+  end
+
+  test "with none of his wallets left to offer, the picker opens on an unchosen placeholder" do
+    seated = %w[3LTLPG1s952sdNatZWtnfM7r9F3ivWSnPSqfhQLBepJ9 7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr
+                4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY]
+    assert_equal "7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr", Solana::Config::MULTISIG_COSIGNER,
+                 "precondition: the named cosigner is his first-priority wallet"
+    log_in_as(@admin)
+    ptx("settle_contest", { settlements: [] }, target: @contest)
+
+    Solana::Config.stub(:governance?, true) do
+      Solana::Vault.stub(:cached_vault_state, { active_signers: seated }) do
+        Solana::CosignPlan.stub(:admin_address, "4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY") do
+          Solana::Vault.stub :new, FakeVault.new do
+            get admin_pending_transactions_path
+          end
+        end
+      end
+    end
+
+    assert_response :success
+    selected = css_select("select[data-extra-cosigner] option").select { |o| o["selected"] }
+    assert_equal [""], selected.map { |o| o["value"] }, "an agent key must never be preselected"
+    assert_select "[data-signer-row='3LTLPG1s952sdNatZWtnfM7r9F3ivWSnPSqfhQLBepJ9']", 0
+  end
+
   test "index offers a second cosigner control on a three-signature action" do
     log_in_as(@admin)
     ptx("settle_contest", { settlements: [] }, target: @contest)
