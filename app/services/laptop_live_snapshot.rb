@@ -271,7 +271,7 @@ class LaptopLiveSnapshot
   FOCUS_CLASS = /\Afocus === '([^']+)' \? '([^']+)' : ''\z/
 
   # The navbar's COLLAPSED state, the one a reader sees once they have
-  # scrolled: navCollapse() writes --nav-p from 0 (expanded) to 1 (collapsed)
+  # scrolled: the engine's nav-collapse writes --nav-p from 0 (expanded) to 1 (collapsed)
   # on the header and adds the scrolled classes, and the logo, title and
   # padding all size off --nav-p. Written here as the end state, so the
   # snapshot gets the short bar and keeps its height for the game and the

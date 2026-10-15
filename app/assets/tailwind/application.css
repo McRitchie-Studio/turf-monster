@@ -670,8 +670,10 @@
    instead of an invalid-at-computed-value drop, and makes the value
    interpolable (the /admin/navbar preview transitions it directly).
 
-   navCollapse() (shared/_alpine_factories) writes it on the <header> once per
-   animation frame from window.scrollY. Writing it on the header and NOT on
+   studio-engine's nav-collapse controller (studio/nav_collapse, bound by the
+   header's data-studio-controller) writes it on the <header> once per
+   animation frame from window.scrollY, and holds the header's footprint so
+   the page below never moves. Writing it on the header and NOT on
    :root is deliberate — it keeps each frame's style recalc inside the navbar
    subtree instead of dirtying the whole document. */
 @property --nav-p {
@@ -818,7 +820,7 @@
      vertical space is the whole point of the collapse — so the design
      problem is the shape of that burst, not its existence. --nav-ramp is
      3x the band's collapse total (mobile: 8px of logo + 32px of padding =
-     39px measured, ramp 120px) and navCollapse() eases it with a
+     39px measured, ramp 120px) and the engine's nav-collapse eases it with a
      smoothstep, whose slope is zero at both ends. Content speed therefore
      LEAVES 1x, peaks near 1.5x mid-ramp, and returns to 1x, with no
      velocity step at either end. A linear ramp equal to the collapse would
@@ -835,8 +837,9 @@
     /* How far the collapse may travel in ONE animation frame, as header
        height. Position-linked progress alone puts the WHOLE collapse in a
        single frame on a flick — measured 39px on QA, the full 178 -> 139.
-       navCollapse() converts this to --nav-p units off --nav-ramp's 3x
-       relation to the collapse total, so one number covers every band. */
+       The engine's nav-collapse converts this to --nav-p units off
+       --nav-ramp's 3x relation to the collapse total. It binds only a header
+       out of the page's flow; this one is held, so it follows the scroll. */
     --nav-max-step: 5px;
     --nav-pad: calc(1.5rem - 1rem * var(--nav-p));                    /* py-6 -> py-2  */
     --nav-logo-size: calc(3rem - 1rem * var(--nav-p));                /* 48px  -> 32px */
