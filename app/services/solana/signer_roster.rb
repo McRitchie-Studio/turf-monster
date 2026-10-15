@@ -77,9 +77,9 @@ module Solana
     # which of his wallets fills a Phantom slot first, read by the co-sign
     # card (Solana::CosignPlan) and the signer console (Solana::SignerPlan).
     #
-    # It exists because both surfaces used to inherit VaultState SLOT order,
-    # and slot 0 on mainnet is 3LTL, an agent key: on 2026-10-14 the co-sign
-    # card for ptx-437 defaulted its second wallet to it.
+    # Neither surface may follow VaultState SLOT order: slot 0 on mainnet is
+    # 3LTL, an agent key, and the co-sign card that followed slot order
+    # defaulted ptx-437's second wallet to it.
     def operator_priority
       entries.each_with_index
              .select { |entry, _| entry.alex? }

@@ -156,7 +156,7 @@ module Solana
     # keys lead, in config/signer_roster.yml `priority` order; every other
     # seated key (agent-held, or unknown to the roster) follows in slot order.
     # Slot order used to stand here, and mainnet slot 0 is 3LTL, the agent
-    # governance key, so the co-sign card for ptx-437 (2026-10-14) offered it
+    # governance key, so the co-sign card for ptx-437 offered it
     # as the default second wallet. The order is free to choose: turf-vault's
     # `validate_threshold` tests set MEMBERSHIP and distinctness, never which
     # slot a key sits in, so any seated key may fill any remaining-account slot.
