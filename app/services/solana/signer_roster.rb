@@ -2,7 +2,7 @@ module Solana
   # The committed public signer roster, config/signer_roster.yml: who each named
   # key belongs to and how it signs. The console reads it to label seated keys,
   # to offer keys to add, and to decide which seated keys may be asked for in
-  # Phantom (only `holder: alex`).
+  # Phantom (only `holder: alex`), and in WHAT ORDER (`priority`).
   #
   # PUBLIC HALVES ONLY, AND THE LOADER ENFORCES IT. The roster ships to every
   # browser that opens /admin/authorities, so a secret pasted into it would be
@@ -18,13 +18,14 @@ module Solana
 
     class InvalidRoster < StandardError; end
 
-    Entry = Struct.new(:address, :name, :holder, :signs_in, :clusters, :op_item, :role, keyword_init: true) do
+    Entry = Struct.new(:address, :name, :holder, :signs_in, :clusters, :op_item, :role, :priority,
+                       keyword_init: true) do
       def alex? = holder == "alex"
       def phantom? = signs_in == "phantom"
 
       def to_h_public
         { address: address, name: name, holder: holder, signs_in: signs_in,
-          clusters: clusters, op_item: op_item, role: role }
+          clusters: clusters, op_item: op_item, role: role, priority: priority }
       end
     end
 
@@ -52,6 +53,10 @@ module Solana
       dupes = @entries.map(&:address).tally.select { |_, n| n > 1 }.keys
       raise InvalidRoster, "signer roster lists #{dupes.join(', ')} more than once" if dupes.any?
 
+      ranks = @entries.filter_map(&:priority)
+      clash = ranks.tally.select { |_, n| n > 1 }.keys
+      raise InvalidRoster, "signer roster gives priority #{clash.join(', ')} to more than one key" if clash.any?
+
       @by_address = @entries.index_by(&:address)
     end
 
@@ -66,6 +71,33 @@ module Solana
 
     # Mr. McRitchie's keys: the only ones the console ever asks Phantom for.
     def alex_addresses = entries.select(&:alex?).map(&:address)
+
+    # Mr. McRitchie's keys IN THE ORDER HE WANTS THEM ASKED FOR: by `priority`,
+    # then (for an unranked alex key) file order. The one source of truth for
+    # which of his wallets fills a Phantom slot first, read by the co-sign
+    # card (Solana::CosignPlan) and the signer console (Solana::SignerPlan).
+    #
+    # Neither surface may follow VaultState SLOT order: slot 0 on mainnet is
+    # 3LTL, an agent key, and the co-sign card that followed slot order
+    # defaulted ptx-437's second wallet to it.
+    def operator_priority
+      entries.each_with_index
+             .select { |entry, _| entry.alex? }
+             .sort_by { |entry, i| [entry.priority || Float::INFINITY, i] }
+             .map { |entry, _| entry.address }
+    end
+
+    # Is `address` one of Mr. McRitchie's own keys? Unknown keys are not.
+    def operator?(address) = self[address]&.alex? || false
+
+    # `addresses` reordered for a picker: his seated keys first, in priority
+    # order, then every other key (agent-held or unknown) in the order given.
+    # Nothing is dropped; only the operator's keys may lead.
+    def by_operator_priority(addresses)
+      addresses = Array(addresses).map(&:to_s)
+      ranked = operator_priority & addresses
+      ranked + (addresses - ranked)
+    end
 
     private
 
@@ -87,7 +119,21 @@ module Solana
       raise InvalidRoster, "#{label}: unknown cluster #{unknown.join(', ')}" if unknown.any?
 
       Entry.new(address: address, name: label, holder: holder, signs_in: signs_in,
-                clusters: clusters, op_item: row["op_item"].presence, role: row["role"].to_s)
+                clusters: clusters, op_item: row["op_item"].presence, role: row["role"].to_s,
+                priority: priority_from(row, holder, label))
+    end
+
+    # A priority is a positive integer, and ONLY on an `alex` key: a ranked
+    # agent key would be a default the operator never chose.
+    def priority_from(row, holder, label)
+      return nil if row["priority"].nil?
+
+      raise InvalidRoster, "#{label}: only an `alex` key takes a priority" unless holder == "alex"
+
+      value = row["priority"]
+      raise InvalidRoster, "#{label}: priority must be a positive integer" unless value.is_a?(Integer) && value.positive?
+
+      value
     end
 
     # Never echoes the value: a value that fails here may be a secret.
