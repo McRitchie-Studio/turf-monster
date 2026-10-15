@@ -3,7 +3,7 @@
 # wallet from an agent key without matching base58 by eye.
 module CosignWalletHelper
   # "3Qj4…ZboA · Alex, second wallet", or for a key he does not hold,
-  # "3LTL…pJ9 · Governance key v2 (agent key)". An address the
+  # "3LTL…epJ9 · Governance key v2 (agent key)". An address the
   # roster does not know says so rather than passing as anyone's.
   def cosign_wallet_option_label(address, roster: Solana::SignerRoster.default)
     address = address.to_s
