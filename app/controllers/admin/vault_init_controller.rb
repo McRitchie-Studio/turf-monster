@@ -11,7 +11,7 @@ module Admin
     # place. INIT_AUTHORITY mirrors `state.rs::INIT_AUTHORITY`; the signer
     # set + threshold mirror what `initialize` writes into VaultState.
     INIT_AUTHORITY     = Solana::Config::INIT_AUTHORITY
-    DEFAULT_SIGNERS    = Solana::Config::MULTISIG_SIGNERS
+    DEFAULT_SIGNERS    = Solana::Config::MULTISIG_SIGNERS.first(3) # `initialize` takes [Pubkey; 3]; the rest go in by update_signers
     DEFAULT_THRESHOLD  = Solana::Config::MULTISIG_THRESHOLD
     # v0.16: treasury_authority is pinned at initialize time so leaked admin
     # keys can't drain swept operator revenue to anywhere but the Squads
