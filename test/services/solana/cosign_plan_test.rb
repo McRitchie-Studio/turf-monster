@@ -270,8 +270,8 @@ class Solana::CosignPlanTest < ActiveSupport::TestCase
 
   # ── THE SEATED SET, NOT THE CONFIG LIST ───────────────────────────────────
   #
-  # v0.26 has five slots; Config::MULTISIG_SIGNERS is a three-key v0.25
-  # default. A wallet the ADD step seated in slot 4 is a valid signer.
+  # v0.26 has five slots; Config::MULTISIG_SIGNERS is an env-overridable
+  # literal that can lag the chain. A wallet seated since is a valid signer.
 
   test "a signer seated in slot 4 is eligible and accepted as an extra" do
     slot4 = Solana::Keypair.generate.address
