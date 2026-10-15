@@ -54,7 +54,7 @@ module Solana
   # `SOLANA_DURABLE_NONCE_PUBKEY` is a fallback candidate, used ONLY while its
   # on-chain authority is the current server key. It is UNSET on
   # turf-monster-mainnet and turf-monster-qa: the old nonce 2bSn… was closed in
-  # the 2026-10-14 rotation, so the derived nonce is the only path in both.
+  # the mainnet key rotation, so the derived nonce is the only path in both.
   # Set it only to rescue a derived address blocked by a dust transfer.
   #
   # One rotation is in flight at a time (`#create_rotation` refuses a second),

@@ -1,7 +1,7 @@
 # The public /contract page's signer matrix, derived rather than typed.
 #
 # The matrix used to hard-code "1-of-3" and "2-of-3" and name three people
-# (Xan, Mr. McRitchie, Mason). The 2026-10-14 mainnet rotation retired two of
+# (Xan, Mr. McRitchie, Mason). The mainnet key rotation retired two of
 # those keys and v0.26 made every threshold per-action data, so the copy went
 # stale the day the chain moved. These helpers read the two sources that move
 # with the chain instead:
@@ -9,7 +9,7 @@
 #   - the signer COUNT: Solana::Config::MULTISIG_SIGNERS (the VaultState set);
 #   - each action's THRESHOLD: Solana::Governance.required_signatures, the
 #     program's shipped defaults. Mainnet's stored GovernanceConfig table
-#     matched them for every action on 2026-10-14. The page makes no RPC call:
+#     matched them for every action when last read. The page makes no RPC call:
 #     a retune by set_action_threshold changes the defaults' meaning, not this
 #     page, so a retune owes this page a look (docs/SOLANA.md, "v0.26 signature
 #     thresholds").

@@ -391,20 +391,20 @@ module Solana
     ADMIN_KEYPAIR_PATH = ENV.fetch("SOLANA_ADMIN_KEYPAIR", File.expand_path("~/.config/solana/id.json"))
 
     # Multisig signers (base58 public keys): the mainnet VaultState signer set
-    # in slot order, read on chain 2026-10-14 after the mainnet key rotation
+    # in slot order, as read on chain after the mainnet key rotation
     # (turf-vault `node scripts/check-signer-slots.js --cluster mainnet`):
     #   slot 0  3LTL…  solana.turf.governance.v2 (agent governance key)
     #   slot 1  7ZDJ…  Mr. McRitchie's Phantom (MULTISIG_COSIGNER)
     #   slot 2  4S39…  solana.turf.server (production SOLANA_ADMIN_KEY)
     #   slot 3  9gAC…  Mr. McRitchie's second Phantom account
     #   slot 4  3Qj4…  Mr. McRitchie's second wallet
-    # It replaced the 2026-06-02 set 8K81… (Xan) / 7ZDJ… / CytJ… (Mason); 8K81…
+    # It replaced the earlier set 8K81… (Xan) / 7ZDJ… / CytJ… (Mason); 8K81…
     # and CytJ… are retired, swept and archived.
     #
     # These are PUBLIC keys. SOLANA_MULTISIG_SIGNERS overrides the literal, and
     # VaultState.signers on chain is the authority over both. NOT every deployed
     # environment sets the variable: `turf-monster-mainnet` ran on this literal
-    # until 2026-10-14 (when it was stale, the cosign guards refused the new
+    # until that rotation (when it was stale, the cosign guards refused the new
     # wallets), and sets the five above since then. So the literal is LIVE
     # wherever the variable is absent; keep it equal to the mainnet chain. A
     # devnet app that relies on it gets the mainnet set, which is one reason
@@ -416,13 +416,13 @@ module Solana
     #
     #   1. THIS LIST models VaultState.signers — treasury and governance
     #      cosign, changed only by an `update_signers` transaction. Mainnet's
-    #      five are listed above (2026-10-14). Devnet's set differs and is not
+    #      five are listed above. Devnet's set differs and is not
     #      this list.
     #   2. THE SQUADS V4 MULTISIG holds the program UPGRADE authority and is a
     #      different account entirely, one per cluster. Each reads threshold 3
     #      of FIVE members, all mask 7:
     #        mainnet 4H3fP3ot…: 7auwTL…, 3LTLPG…, 3Qj4v9…, 7ZDJ…, 9gACbz…
-    #                 (read 2026-10-14; config tx #10 swapped 4bKN… for 3LTL…)
+    #                 (config tx #10 swapped 4bKN… for 3LTL…)
     #        devnet  7nRuVw3V…: read it with `node scripts/squad-inventory.js
     #                 --cluster=devnet` in turf-vault; it is not restated here
     #      A change here changes nothing in (1): these are separate authorities,
@@ -456,7 +456,7 @@ module Solana
     # produced the claims this comment replaces. Dates above are measurements,
     # not guarantees — re-read the chain rather than trusting this comment's age.
     #
-    # FIVE SLOTS. turf-vault v0.26 (mainnet since 2026-10-12) keeps
+    # FIVE SLOTS. turf-vault v0.26 (live on mainnet) keeps
     # `signers: [Pubkey; 3]` at offset 0 and appends `signers_ext: [Pubkey; 2]`
     # at offset 1443, read through `all_signers()`.
     # Pinned against config/mainnet_vault_signers.yml `seated` by
