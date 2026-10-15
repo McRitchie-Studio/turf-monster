@@ -277,7 +277,15 @@ come back with TWO instead of one.
 
 **The flow.** The operator picks the second wallet on the page BEFORE clicking —
 the extra signer slots are part of the message and cannot be added once the
-first wallet has signed. `#rebuild` reserves them (`extra_cosigners:`) and
+first wallet has signed. The picker lists his own wallets first, in
+`config/signer_roster.yml` `priority` order (7ZDJ, 3Qj4, 9gAC), and preselects
+the highest-priority one still free; agent-held keys (3LTL) follow, labelled
+"agent key", and stay selectable (3LTL is his break-glass copy) but are never
+preselected. With none of his wallets
+free it opens on an unchosen placeholder. Any seated key may fill any extra slot:
+turf-vault's `validate_threshold` checks membership and distinctness, never slot
+position. (Before 2026-10-15 the list ran in slot order and selected nothing, so
+ptx-437 opened on 3LTL, the agent key in slot 0.) `#rebuild` reserves them (`extra_cosigners:`) and
 returns the plan with the bytes. `cosign_signatures.js` then collects one
 signature per wallet in slot order, waiting between them while the operator
 switches accounts in Phantom, and merges them onto one transaction.
@@ -716,8 +724,9 @@ a before/after diff with every address in full, and presses one CTA that states
 the Phantom prompt count. The server derives everything else
 (`Solana::SignerPlan`): the new left-packed set; the signers (the server leads
 whenever its key is seated and stays, server-held cosigners sign next, Mr.
-McRitchie's seated `holder: alex` keys fill the rest, the connected account
-first, and the last signature is always his); and the prompt count. Only keys
+McRitchie's seated `holder: alex` keys fill the rest, chosen and prompted in
+the roster's `priority` order, 7ZDJ, 3Qj4, 9gAC, and the last signature is
+always his); and the prompt count. Only keys
 that stay sign, which satisfies continuity on both shapes. Operator-led rotations
 (the server's own key removed) are refused on mainnet.
 

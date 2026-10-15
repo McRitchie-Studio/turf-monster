@@ -151,8 +151,27 @@ module Solana
     # the operator would be offering a signature that is already spent —
     # `validate_threshold` counts DISTINCT members, so admin signing twice is
     # one signature and `DuplicateSigner` rejects the whole transaction.
+    #
+    # ORDERED BY THE OPERATOR'S PRIORITY, NOT BY SLOT. Mr. McRitchie's own
+    # keys lead, in config/signer_roster.yml `priority` order; every other
+    # seated key (agent-held, or unknown to the roster) follows in slot order.
+    # Slot order used to stand here, and mainnet slot 0 is 3LTL, the agent
+    # governance key, so the co-sign card for ptx-437 offered it
+    # as the default second wallet. The order is free to choose: turf-vault's
+    # `validate_threshold` tests set MEMBERSHIP and distinctness, never which
+    # slot a key sits in, so any seated key may fill any remaining-account slot.
     def self.eligible_cosigners
-      signer_set - [admin_address].compact
+      SignerRoster.default.by_operator_priority(signer_set - [admin_address].compact)
+    end
+
+    # The wallets to PRESELECT for `count` extra slots, out of `eligible`:
+    # Mr. McRitchie's keys only, in priority order. Agent keys stay
+    # selectable (3LTL is his break-glass copy) but are never chosen for him.
+    # Shorter than `count` when too few of his keys are seated; the caller
+    # then renders an unchosen slot rather than reaching for an agent key.
+    def self.default_extras(eligible, count)
+      roster = SignerRoster.default
+      Array(eligible).select { |address| roster.operator?(address) }.first(count.to_i)
     end
 
     # The server's own vault signer address, or nil when this process holds no
@@ -264,9 +283,14 @@ module Solana
         signs_automatically: false
       }
 
-      Array(extras).compact.reject(&:blank?).each_with_index do |address, i|
+      # A BLANK extra is a slot not chosen yet (none of Mr. McRitchie's keys
+      # was seated to preselect). It keeps its row, so the page shows a slot
+      # still to fill and cosign.js repoints THAT row when he picks, rather
+      # than the named cosigner's row above it.
+      extras = Array(extras).map(&:to_s)
+      extras.each_with_index do |address, i|
         rows << {
-          address: address,
+          address: address.presence,
           role: "extra",
           label: extras.length > 1 ? "Wallet #{i + 3}" : "Second wallet",
           fee_payer: false,

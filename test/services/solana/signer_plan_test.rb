@@ -19,9 +19,14 @@ class Solana::SignerPlanTest < ActiveSupport::TestCase
   ROSTER = Solana::SignerRoster.new("keys" => [
     { "address" => XAN, "name" => "Xan", "holder" => "agent", "signs_in" => "server", "clusters" => ["mainnet-beta"] },
     { "address" => NEW, "name" => "New server", "holder" => "agent", "signs_in" => "server", "clusters" => ["mainnet-beta"] },
-    { "address" => ALEX, "name" => "Alex 1", "holder" => "alex", "signs_in" => "phantom", "clusters" => ["mainnet-beta"] },
-    { "address" => ALEX2, "name" => "Alex 2", "holder" => "alex", "signs_in" => "phantom", "clusters" => %w[mainnet-beta devnet] },
-    { "address" => ALEX3, "name" => "Alex 3", "holder" => "alex", "signs_in" => "phantom", "clusters" => %w[mainnet-beta devnet] },
+    # Priorities as config/signer_roster.yml sets them: 7ZDJ, then 3Qj4, then
+    # 9gAC. ALEX3 (3Qj4) outranks ALEX2 (9gAC) although it sits in a later slot.
+    { "address" => ALEX, "name" => "Alex 1", "holder" => "alex", "signs_in" => "phantom", "clusters" => ["mainnet-beta"],
+      "priority" => 1 },
+    { "address" => ALEX2, "name" => "Alex 2", "holder" => "alex", "signs_in" => "phantom", "clusters" => %w[mainnet-beta devnet],
+      "priority" => 3 },
+    { "address" => ALEX3, "name" => "Alex 3", "holder" => "alex", "signs_in" => "phantom", "clusters" => %w[mainnet-beta devnet],
+      "priority" => 2 },
     { "address" => GOV, "name" => "Governance", "holder" => "agent", "signs_in" => "server", "clusters" => ["mainnet-beta"] },
     { "address" => MASON, "name" => "Mason", "holder" => "agent", "signs_in" => "server", "clusters" => ["mainnet-beta"] },
     { "address" => QA, "name" => "QA server", "holder" => "agent", "signs_in" => "server", "clusters" => ["devnet"] }
@@ -74,14 +79,39 @@ class Solana::SignerPlanTest < ActiveSupport::TestCase
     assert_equal [XAN, MASON], plan[:evicted]
   end
 
-  test "v0.26 with no server-held key asks for two Phantom accounts, connected one first" do
+  # Alex, 2026-10-15: ask for 7ZDJ first, 3Qj4 second, 9gAC third. Slot order
+  # (9gAC is slot 3, 3Qj4 slot 4) and the account Phantom has open no longer
+  # decide it; the roster priority does.
+  test "v0.26 with no server-held key asks for two Phantom accounts in roster priority" do
     plan = planner(current: [NEW, ALEX, ALEX2, ALEX3, GOV], server: NEW, connected: ALEX2)
              .plan!(intent: "replace", remove: [GOV], add: [MASON])
 
-    assert_equal [NEW, ALEX2, ALEX], plan[:authorizers]
-    assert_equal [ALEX2, ALEX], plan[:phantom_queue]
+    assert_equal [NEW, ALEX, ALEX3], plan[:authorizers]
+    assert_equal [ALEX, ALEX3], plan[:phantom_queue]
     assert_equal 2, plan[:prompt_count]
-    assert_match(/You sign twice: first as 9gAC…vHXf, then switch Phantom to 7ZDJ…9Tcr/, plan[:sentence])
+    assert_match(/You sign twice: first as 7ZDJ…9Tcr, then switch Phantom to 3Qj4…ZboA and sign again\./,
+                 plan[:sentence])
+    refute_includes plan[:phantom_queue], ALEX2, "the third-priority account is not asked for when two suffice"
+  end
+
+  test "the connected account does not jump the priority queue" do
+    plan = planner(current: [NEW, ALEX, ALEX2, ALEX3, GOV], server: NEW, connected: ALEX3)
+             .plan!(intent: "replace", remove: [GOV], add: [MASON])
+    assert_equal [ALEX, ALEX3], plan[:phantom_queue]
+  end
+
+  test "a lower-priority account fills in when a higher one leaves the set" do
+    plan = planner(current: [NEW, ALEX, ALEX2, ALEX3, GOV], server: NEW)
+             .plan!(intent: "replace", remove: [ALEX3], add: [MASON])
+    assert_equal [ALEX, ALEX2], plan[:phantom_queue]
+    assert_match(/first as 7ZDJ…9Tcr, then switch Phantom to 9gAC…vHXf/, plan[:sentence])
+  end
+
+  test "agent keys are never in the Phantom queue, even when seated in slot 0" do
+    plan = planner(current: [GOV, ALEX, NEW, ALEX2, ALEX3], server: NEW)
+             .plan!(intent: "replace", remove: [ALEX2], add: [MASON])
+    assert_equal [NEW, ALEX, ALEX3], plan[:authorizers]
+    refute_includes plan[:phantom_queue], GOV
   end
 
   # The rotation ptx-432 and ptx-433 lost to the blockhash (2026-10-14): two
@@ -124,9 +154,10 @@ class Solana::SignerPlanTest < ActiveSupport::TestCase
     plan = planner(current: [QA, ALEX, ALEX2, ALEX3, GOV], network: "devnet", server: QA, connected: ALEX3)
              .plan!(intent: "remove", remove: [QA, GOV])
     refute plan[:server_leads]
-    assert_equal [ALEX3, ALEX, ALEX2], plan[:authorizers]
+    assert_equal [ALEX, ALEX3, ALEX2], plan[:authorizers]
     assert_equal plan[:authorizers], plan[:phantom_queue]
-    assert_equal ALEX3, plan[:lead_signer]
+    assert_equal ALEX, plan[:lead_signer]
+    assert_match(/in this order: 7ZDJ…9Tcr, 3Qj4…ZboA, 9gAC…vHXf/, plan[:sentence])
   end
 
   test "remove below the live threshold is not offered and is refused" do

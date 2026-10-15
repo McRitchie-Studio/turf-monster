@@ -103,10 +103,18 @@
                 Second cosigner (<%= @unpause_plan.required_signatures %> signatures required)
               </label>
               <% if @eligible_extras.any? %>
+                <%# His wallet by roster priority, never an agent key, as on the
+                    pending-transactions card; nothing of his seated means an
+                    unchosen placeholder. %>
+                <% unpause_default = Solana::CosignPlan.default_extras(@eligible_extras, 1).first %>
                 <select name="extra_cosigner" data-extra-cosigner
                         class="input-field w-full font-mono text-xs">
+                  <% if unpause_default.nil? %>
+                    <option value="" selected disabled>Choose a wallet</option>
+                  <% end %>
                   <% @eligible_extras.each do |signer| %>
-                    <option value="<%= signer %>"><%= signer %></option>
+                    <option value="<%= signer %>"
+                            <%= "selected" if signer == unpause_default %>><%= cosign_wallet_option_label(signer) %></option>
                   <% end %>
                 </select>
                 <p class="text-muted text-xs mt-1">
