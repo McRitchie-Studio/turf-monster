@@ -21,7 +21,7 @@
     <%= listed_names.size %> instructions, grouped by signer role, with the operational reasoning plus the
     current Rails (<span class="font-mono text-xs">web2</span>) and browser/Phantom
     (<span class="font-mono text-xs">web3</span>) caller for each. Every instruction listed is
-    wired to an admin action — the 2-of-3 treasury ops queue a <code class="font-mono text-xs">PendingTransaction</code>
+    wired to an admin action — the multi-signature treasury ops queue a <code class="font-mono text-xs">PendingTransaction</code>
     you cosign in the Treasury. Byte counts are from the <%= attributed_on %> build.
   </p>
   <% if unlisted_names.any? %>
@@ -35,8 +35,9 @@
     <% operator_instructions.each do |group_label, ixs| %>
       <% group_pill = case group_label
                       when /init/i      then "bg-warning/10 text-warning border-warning/30"
-                      when /1-of-3/     then "bg-violet/10 text-violet-ink border-violet/30"
-                      when /2-of-3/     then "bg-primary/10 text-primary border-primary/30"
+                      when /\A1-of-/   then "bg-violet/10 text-violet-ink border-violet/30"
+                      when /\A2-of-/   then "bg-primary/10 text-primary border-primary/30"
+                      when /\A\d+-of-/ then "bg-danger/10 text-danger border-danger/30"
                       when /user/i      then "bg-mint/10 text-mint border-mint/30"
                       else "bg-surface-alt text-secondary border-subtle"
                       end
@@ -129,7 +130,7 @@
       <h4 class="text-heading font-semibold text-sm mb-2">How to register a new currency</h4>
       <ul class="space-y-1 text-[12px] text-secondary list-disc list-outside pl-4">
         <li>Pick a free slot (0&hellip;15) in accepted_currencies</li>
-        <li>Build register_currency TX &mdash; 2-of-3 cosign</li>
+        <li>Build register_currency TX &mdash; <%= vault_auth_label("register_currency") %> cosign</li>
         <li>Creates per-currency op_rev_ata under PDA seeds [b"op_rev", mint]</li>
         <li>New contests can immediately set entry_fee_by_currency[slot]</li>
       </ul>

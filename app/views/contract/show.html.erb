@@ -190,12 +190,12 @@
       auth: "permissionless",
       auth_class: "auth1",
       summary: "First-touch onboarding. Creates your on-chain UserAccount PDA — the stats record that tracks your seeds, entries, wins, and total payouts.",
-      detail: "Permissionless and idempotent: anyone can pay the rent to create another wallet's UserAccount. Turf Monster's server bot (Xan) does this for every new signup via an after_commit job."
+      detail: "Permissionless and idempotent: anyone can pay the rent to create another wallet's UserAccount. Turf Monster's server bot does this for every new signup via an after_commit job."
     },
     {
       name: "create_contest",
       bytes: 21_784,
-      auth: "1-of-3 + creator",
+      auth: "#{vault_auth_label("create_contest")} + creator",
       auth_class: "auth1",
       summary: "Open a new contest, funded with a USDC prize pool that you (the creator) transfer from your ATA at creation time.",
       detail: "Dual-signer: a vault signer pays the SOL rent for the new Contest PDA and per-contest prize-pool ATA; the creator signs the USDC transfer that funds the prizes. Stores the per-currency entry-fee schedule the contest will honor."
@@ -214,7 +214,7 @@
         web3: "/admin/vault_init (Phantom cosign)", web2: "rake solana:init_vault · admin/vault_init_controller.rb:47",
         playbook: "Runs exactly once, ever. Creates the singleton VaultState PDA, pins the payout mint to canonical Circle USDC, and registers USDC + USDT as the first two accepted currencies. Mainnet build requires the admin signature to match the hardcoded INIT_AUTHORITY (Mr. McRitchie's Phantom key)." }
     ],
-    "1-of-3 routine ops" => [
+    vault: [
       { name: "create_season",      bytes:  8_168, auth_class: "auth1", status: "admin-only",
         web3: "—", web2: "admin/seasons_controller.rb:31",
         playbook: "Open a new season with an immutable seed-award schedule. Locked at season-creation time so contests can't be retroactively re-rewarded." },
@@ -223,18 +223,16 @@
         playbook: "User-facing — see above. Any single vault signer can pay rent; the creator funds prizes." },
       { name: "set_contest_lock_time", bytes: 6_144, auth_class: "auth1", status: "live",
         web3: "/contests/:slug Lock + /contests/:slug/edit picker (lock_contest.js)", web2: "contests_controller#prepare_lock_time → #confirm_lock_time (Phantom signs, server broadcasts; in_seconds relative or lock_timestamp absolute, 0 clears) · #lock refuses an on-chain contest",
-        playbook: "Set or clear a contest's derived lock timestamp. enter_contest{,_with_token} reject entries once chain Clock time passes it. 'Lock now' = pass the current time; 0 clears the lock. Replaces lock_contest/unlock_contest (v0.17). Amending an already-passed lock escalates to 2-of-3 — which is why EXTENDING a live window had to leave the server key: the app now signs this with the operator's Phantom, never the bot." },
+        playbook: "Set or clear a contest's derived lock timestamp. enter_contest{,_with_token} reject entries once chain Clock time passes it. 'Lock now' = pass the current time; 0 clears the lock. Replaces lock_contest/unlock_contest (v0.17). Amending an already-passed lock escalates to the higher set_contest_lock_time_reopen threshold, which is why EXTENDING a live window had to leave the server key: the app signs it with the operator's Phantom, never the bot alone." },
       { name: "set_contest_conclusion_time", bytes: 6_368, auth_class: "auth1", status: "live",
         web3: "/contests/:slug Conclude (lock_contest.js)", web2: "contests_controller#prepare_conclusion_time → #confirm_conclusion_time (Phantom signs, server broadcasts)",
-        playbook: "Set or clear a contest's derived conclusion timestamp (v0.18). Once chain Clock passes it, the lock time is final and can't be moved. First set is 1-of-3; amending an already-set conclusion escalates to 2-of-3. Currently driven only by the Phantom path." },
+        playbook: "Set or clear a contest's derived conclusion timestamp (v0.18). Once chain Clock passes it, the lock time is final and can't be moved. Amending an already-set conclusion escalates to the higher set_contest_conclusion_time_amend threshold. Currently driven only by the Phantom path." },
       { name: "mint_entry_token",   bytes:  8_984, auth_class: "auth1", status: "live",
         web3: "—", web2: "TokenPurchaseJob:80 · admin/free_entries_controller.rb:130",
         playbook: "Issue a free-entry voucher (EntryTokenAccount PDA). Sources: OPERATOR (manual), STRIPE (post-purchase mint), MOONPAY. v0.19 seeds the PDA on sha256(source_ref) for true idempotency, so Sidekiq retries are safe." },
       { name: "close_contest",      bytes:  9_648, auth_class: "auth1", status: "admin-only",
         web3: "—", web2: "contests_controller#close_onchain ('Reclaim rent' button)",
-        playbook: "Reclaim SOL rent from a settled or cancelled contest's PDA AND its prize-pool ATA. Sweeps any dust to operator-revenue before closing the ATA. Server-signed (1-of-3) from the 'Reclaim rent' button on a settled/cancelled contest." }
-    ],
-    "2-of-3 treasury ops" => [
+        playbook: "Reclaim SOL rent from a settled or cancelled contest's PDA AND its prize-pool ATA. Sweeps any dust to operator-revenue before closing the ATA. Run from the 'Reclaim rent' button on a settled/cancelled contest." },
       { name: "register_currency",       bytes: 15_208, auth_class: "auth2", status: "admin-only",
         web3: "/admin/pending_transactions cosign (cosign.js)", web2: "admin/currencies_controller#register → Treasury queue",
         playbook: "Add a new currency to accepted_currencies + create its operator-revenue ATA. Rejects duplicates (active or deactivated). Queued from the /admin/currencies screen, cosigned in the Treasury. USDC + USDT are registered at initialize; this is for slots 2–15." },
@@ -272,6 +270,17 @@
         playbook: "User-facing — see above. Permissionless: operators routinely mint these for new signups (admin pays rent, wallet is data not a signer)." }
     ]
   }
+
+  # The vault actions are grouped by the signatures each needs, read from
+  # Solana::Governance through ContractHelper, so a rotation or a threshold
+  # change regroups them without a copy edit. Order: INIT, then lowest
+  # threshold first, then the user-signed group.
+  vault_ops = operator_instructions.delete(:vault)
+  user_ops = operator_instructions.delete("User wallet signs")
+  vault_ops.group_by { |ix| vault_threshold(ix[:name]) }.sort.each do |threshold, ixs|
+    operator_instructions["#{threshold}-of-#{vault_signer_count} vault signers"] = ixs
+  end
+  operator_instructions["User wallet signs"] = user_ops
 
   # Counts read from the committed IDL (the one the version pill reads), so
   # they track every re-pin instead of being hand-maintained. nil when the

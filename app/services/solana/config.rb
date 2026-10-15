@@ -459,11 +459,17 @@ module Solana
     # FIVE SLOTS. turf-vault v0.26 (mainnet since 2026-10-12) keeps
     # `signers: [Pubkey; 3]` at offset 0 and appends `signers_ext: [Pubkey; 2]`
     # at offset 1443, read through `all_signers()`.
-    MULTISIG_SIGNERS = ENV.fetch("SOLANA_MULTISIG_SIGNERS",
-      "3LTLPG1s952sdNatZWtnfM7r9F3ivWSnPSqfhQLBepJ9,7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr," \
-      "4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY,9gACbzsCLmkYF9Yx1EBGmwMvvyfuTquJ6qs8QsoQvHXf," \
-      "3Qj4v9qjhXgkru6zCRCErRVhy8Q6qU3NrNpvpXLTZboA"
-    ).split(",")
+    # Pinned against config/mainnet_vault_signers.yml `seated` by
+    # test/services/solana/config_multisig_signers_test.rb, so a rotation that
+    # updates the fence and not this literal goes red.
+    DEFAULT_MULTISIG_SIGNERS = %w[
+      3LTLPG1s952sdNatZWtnfM7r9F3ivWSnPSqfhQLBepJ9
+      7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr
+      4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY
+      9gACbzsCLmkYF9Yx1EBGmwMvvyfuTquJ6qs8QsoQvHXf
+      3Qj4v9qjhXgkru6zCRCErRVhy8Q6qU3NrNpvpXLTZboA
+    ].freeze
+    MULTISIG_SIGNERS = ENV.fetch("SOLANA_MULTISIG_SIGNERS", DEFAULT_MULTISIG_SIGNERS.join(",")).split(",")
 
     # The LEGACY `threshold` byte `initialize` writes into VaultState. Its two
     # readers are the vault-init form's default (Admin::VaultInitController) and
