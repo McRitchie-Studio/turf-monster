@@ -54,9 +54,12 @@
     <%= render "studio/banners/environment", devnet: Solana::Config.devnet? %>
   </div>
 <% end %>
-<header data-navbar-root <%= 'x-data="navCollapse()"'.html_safe unless is_preview %>
-        class="nav-shell <%= is_preview ? 'bg-page' : 'vt-pinned-header sticky top-0 z-[var(--z-nav)] bg-page transition-shadow duration-300' %>"
-        <%= ":class=\"scrolled && 'shadow-lg border-b border-subtle is-scrolled'\"".html_safe unless is_preview %>>
+<%# The collapse is studio-engine's nav-collapse controller (studio/nav_collapse),
+    as on the engine navbar: it writes --nav-p, holds the header's footprint so
+    the page never moves, and toggles the scrolled classes. The bare x-data is
+    the Alpine scope the header's descendants still bind through. %>
+<header data-navbar-root <%= 'x-data data-studio-controller="nav-collapse" data-nav-collapse-scrolled-class="shadow-lg border-b border-subtle is-scrolled"'.html_safe unless is_preview %>
+        class="nav-shell <%= is_preview ? 'bg-page' : 'vt-pinned-header sticky top-0 z-[var(--z-nav)] bg-page transition-shadow duration-300' %>">
   <%# THE IMPERSONATION BAR STAYS HERE, INSIDE THE PINNED HEADER, and the
       environment bar does not. They look alike and are not the same kind of
       thing:
