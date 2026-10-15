@@ -1,14 +1,10 @@
 <%#
-  Auth model — the 4 signer roles. Same shape as the infographic's
-  grid; updated for v0.19 (no deposit/withdraw; currency registry +
-  derived lock/conclusion time-gates).
-
-  WHO THE NAMES ARE. The two vault-signer cards list VaultState.signers,
-  the IN-PROGRAM set (Solana::Config::MULTISIG_SIGNERS), not the Squads
-  upgrade multisig. Xan is the server bot key 8K81..., Mr. McRitchie is
-  his Phantom 7ZDJ..., Mason is CytJ.... Alex is the agent orchestrator
-  and holds no seat here. A signer rotation changes this copy:
-  test/views/contract_signer_names_test.rb pins names to that constant.
+  Auth model: who signs what. The vault cards are DERIVED (ContractHelper):
+  the signer count from Solana::Config::MULTISIG_SIGNERS (VaultState's set),
+  each action's threshold from Solana::Governance (turf-vault v0.26 per-action
+  thresholds), and the holders sentence from config/signer_roster.yml. A
+  signer rotation or a threshold change moves this copy without an edit;
+  test/views/contract_signer_names_test.rb pins the derivation.
 %>
 <section class="card p-6 sm:p-8 mb-6">
   <div class="flex flex-col sm:flex-row sm:items-baseline sm:gap-4 mb-2">
@@ -16,11 +12,11 @@
     <span class="text-[11px] font-mono text-muted uppercase tracking-wider">signer matrix</span>
   </div>
   <p class="text-secondary text-sm mb-5 max-w-3xl">
-    Four signer roles. Each instruction is bound to exactly one role &mdash; the contract refuses to
-    execute when the wrong key signs.
+    Each instruction is bound to one signer role and, for vault actions, a number of signatures
+    &mdash; the contract refuses to execute when the wrong key signs or too few sign.
   </p>
 
-  <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+  <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
 
     <%# INIT_AUTHORITY — one-time only %>
     <div class="bg-surface-alt border border-subtle border-t-2 border-t-warning rounded-lg p-4 sm:p-5">
@@ -31,29 +27,19 @@
       </ul>
     </div>
 
-    <%# 1-of-3 routine — any single signer %>
-    <div class="bg-surface-alt border border-subtle border-t-2 border-t-violet rounded-lg p-4 sm:p-5">
-      <div class="text-[10px] sm:text-xs uppercase tracking-wider text-secondary font-semibold mb-1">1-of-3 vault signer</div>
-      <div class="font-mono text-sm text-heading mb-3" data-test="signer-matrix-routine">Xan (bot) &middot; Mr. McRitchie &middot; Mason</div>
-      <ul class="space-y-1 text-[12px] sm:text-[13px] text-secondary list-disc list-outside pl-4">
-        <li>create_season &middot; create_contest</li>
-        <li>set_contest_lock_time</li>
-        <li>set_contest_conclusion_time</li>
-        <li>mint_entry_token &middot; close_contest</li>
-      </ul>
-    </div>
-
-    <%# 2-of-3 multisig — treasury operations %>
-    <div class="bg-surface-alt border border-subtle border-t-2 border-t-primary rounded-lg p-4 sm:p-5">
-      <div class="text-[10px] sm:text-xs uppercase tracking-wider text-secondary font-semibold mb-1">2-of-3 multisig</div>
-      <div class="font-mono text-sm text-heading mb-3" data-test="signer-matrix-multisig">2 of {Xan (bot) &middot; Mr. McRitchie &middot; Mason}</div>
-      <ul class="space-y-1 text-[12px] sm:text-[13px] text-secondary list-disc list-outside pl-4">
-        <li>register_currency &middot; deactivate_currency</li>
-        <li>settle_contest &middot; cancel_contest</li>
-        <li>sweep_operator_revenue</li>
-        <li>pause &middot; unpause</li>
-      </ul>
-    </div>
+    <%# One card per signature count, lowest first. %>
+    <% tier_borders = { 1 => "border-t-violet", 2 => "border-t-primary" } %>
+    <% vault_signer_tiers.each do |threshold, actions| %>
+      <div class="bg-surface-alt border border-subtle border-t-2 <%= tier_borders.fetch(threshold, "border-t-danger") %> rounded-lg p-4 sm:p-5" data-test="signer-matrix-tier-<%= threshold %>">
+        <div class="text-[10px] sm:text-xs uppercase tracking-wider text-secondary font-semibold mb-1"><%= threshold %> of <%= vault_signer_count %> vault signers</div>
+        <div class="font-mono text-sm text-heading mb-3"><%= threshold == 1 ? "any one vault signer" : "#{threshold} distinct vault signers" %></div>
+        <ul class="space-y-1 text-[12px] sm:text-[13px] text-secondary list-disc list-outside pl-4">
+          <% actions.each do |action| %>
+            <li data-test="signer-matrix-action"><%= action %></li>
+          <% end %>
+        </ul>
+      </div>
+    <% end %>
 
     <%# User wallet — Phantom or managed keypair %>
     <div class="bg-surface-alt border border-subtle border-t-2 border-t-mint rounded-lg p-4 sm:p-5">
@@ -68,4 +54,10 @@
     </div>
 
   </div>
+
+  <p class="text-secondary text-[13px] mt-4 max-w-3xl" data-test="signer-matrix-members">
+    There are <%= vault_signer_count %> vault signers: <%= vault_signer_holders_sentence %>.
+    Moving a contest lock that has already passed, or amending a conclusion time already set, needs
+    <%= vault_threshold("set_contest_lock_time_reopen") %> of them.
+  </p>
 </section>

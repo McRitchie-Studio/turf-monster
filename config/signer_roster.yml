@@ -66,12 +66,12 @@ keys:
     role: Mr. McRitchie's second wallet (device unconfirmed; a Ledger slows the two-prompt window)
 
   - address: 4bKNSqkrKeggSyrds16Ak7rcB4ibvGJ4ZLsKjvQgC3Vk
-    name: Governance key
+    name: Retired governance key
     holder: agent
     signs_in: server
-    clusters: [mainnet-beta]
+    clusters: []
     op_item: solana.turf.governance
-    role: admin-vault agent key and a mainnet Squads seat; exposed, so in no VaultState target (3LTL, Governance key v2, took that slot)
+    role: retired; exposed 2026-10-12, off the mainnet Squad since config tx #10 (2026-10-14), swept and archived; 3LTL replaced it
 
   - address: CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR
     name: Mason (retired)

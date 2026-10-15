@@ -43,10 +43,11 @@ incoming: []
 retired:
   - 8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd # production's previous SOLANA_ADMIN_KEY (agent.xan.solana)
   - CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR # Mason (agent.mason.solana)
+  - 4bKNSqkrKeggSyrds16Ak7rcB4ibvGJ4ZLsKjvQgC3Vk # solana.turf.governance; off the mainnet Squad since config tx #10
 
 squad:
   - 7auwTLSvNniSUeAgL6v9RStMXJhWrrUhSJgwFWLpcqC # solana.turf.system (agent-held); in no VaultState target
   - 3Qj4v9qjhXgkru6zCRCErRVhy8Q6qU3NrNpvpXLTZboA # Mr. McRitchie's second wallet
-  - 4bKNSqkrKeggSyrds16Ak7rcB4ibvGJ4ZLsKjvQgC3Vk # solana.turf.governance
+  - 3LTLPG1s952sdNatZWtnfM7r9F3ivWSnPSqfhQLBepJ9 # solana.turf.governance.v2; replaced 4bKN by config tx #10
   - 7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr # Mr. McRitchie, Phantom account 1
   - 9gACbzsCLmkYF9Yx1EBGmwMvvyfuTquJ6qs8QsoQvHXf # Mr. McRitchie, Phantom account 2

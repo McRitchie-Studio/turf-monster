@@ -51,9 +51,11 @@ module Solana
   # (8K81 -> 4S39), the new key derives a new address and the page offers to
   # create it; nothing depends on 8K81 staying the authority.
   #
-  # `SOLANA_DURABLE_NONCE_PUBKEY` (the production nonce 2bSn…, which has no
-  # other caller) is a fallback candidate, used ONLY while its on-chain
-  # authority is the current server key.
+  # `SOLANA_DURABLE_NONCE_PUBKEY` is a fallback candidate, used ONLY while its
+  # on-chain authority is the current server key. It is UNSET on
+  # turf-monster-mainnet and turf-monster-qa: the old nonce 2bSn… was closed in
+  # the mainnet key rotation, so the derived nonce is the only path in both.
+  # Set it only to rescue a derived address blocked by a dust transfer.
   #
   # One rotation is in flight at a time (`#create_rotation` refuses a second),
   # so one nonce per server key is enough.

@@ -390,27 +390,41 @@ module Solana
     # Admin keypair path for signing settlement transactions
     ADMIN_KEYPAIR_PATH = ENV.fetch("SOLANA_ADMIN_KEYPAIR", File.expand_path("~/.config/solana/id.json"))
 
-    # Multisig signers (base58 public keys). Default = the rotated 2-of-3 set
-    # (post leaked-key rotation 2026-06-02): the replacement Xan key 8K81…,
-    # cosigner 7ZDJ…, Mason CytJ…. "Xan" is the identity once called "Alex
-    # Bot"; the rename did not touch the key, so 8K81… here is the current
-    # key. These are PUBLIC keys and are overridden by the
-    # SOLANA_MULTISIG_SIGNERS env var (and authoritatively by VaultState.signers
-    # on-chain) in every deployed environment — the literal is a fallback only.
+    # Multisig signers (base58 public keys): the mainnet VaultState signer set
+    # in slot order, as read on chain after the mainnet key rotation
+    # (turf-vault `node scripts/check-signer-slots.js --cluster mainnet`):
+    #   slot 0  3LTL…  solana.turf.governance.v2 (agent governance key)
+    #   slot 1  7ZDJ…  Mr. McRitchie's Phantom (MULTISIG_COSIGNER)
+    #   slot 2  4S39…  solana.turf.server (production SOLANA_ADMIN_KEY)
+    #   slot 3  9gAC…  Mr. McRitchie's second Phantom account
+    #   slot 4  3Qj4…  Mr. McRitchie's second wallet
+    # It replaced the earlier set 8K81… (Xan) / 7ZDJ… / CytJ… (Mason); 8K81…
+    # and CytJ… are retired, swept and archived.
+    #
+    # These are PUBLIC keys. SOLANA_MULTISIG_SIGNERS overrides the literal, and
+    # VaultState.signers on chain is the authority over both. NOT every deployed
+    # environment sets the variable: `turf-monster-mainnet` ran on this literal
+    # until that rotation (when it was stale, the cosign guards refused the new
+    # wallets), and sets the five above since then. So the literal is LIVE
+    # wherever the variable is absent; keep it equal to the mainnet chain. A
+    # devnet app that relies on it gets the mainnet set, which is one reason
+    # Solana::CosignPlan.signer_set reads VaultState's seated slots on a
+    # governance boot and falls back to this list only when that read fails.
     #
     # THREE DIFFERENT "ADMIN" SETS MEET HERE AND ONLY ONE IS THIS CONSTANT.
     # Collapsing them is the recurring bug; all three moved in one day once.
     #
     #   1. THIS LIST models VaultState.signers — treasury and governance
-    #      cosign, changed only by an `update_signers` transaction. Measured
-    #      on-chain at `finalized` 2026-09-15: 2-of-3, 8K81…/7ZDJ…/CytJ…,
-    #      identical on mainnet and devnet. The literal below matched that
-    #      measurement on that date.
+    #      cosign, changed only by an `update_signers` transaction. Mainnet's
+    #      five are listed above. Devnet's set differs and is not
+    #      this list.
     #   2. THE SQUADS V4 MULTISIG holds the program UPGRADE authority and is a
     #      different account entirely, one per cluster. Each reads threshold 3
     #      of FIVE members, all mask 7:
-    #        devnet  7nRuVw3V…: 2eGs8G3w…, 3Qj4v9…, 4bKNSqkr…, 7ZDJ…, 8K81…
-    #        mainnet 4H3fP3ot…: 7auwTL…, 3Qj4v9…, 4bKNSqkr…, 7ZDJ…, 9gACbz…
+    #        mainnet 4H3fP3ot…: 7auwTL…, 3LTLPG…, 3Qj4v9…, 7ZDJ…, 9gACbz…
+    #                 (config tx #10 swapped 4bKN… for 3LTL…)
+    #        devnet  7nRuVw3V…: read it with `node scripts/squad-inventory.js
+    #                 --cluster=devnet` in turf-vault; it is not restated here
     #      A change here changes nothing in (1): these are separate authorities,
     #      not two views of one. Solana::Squads reads the live set.
     #   3. KeyStore::ITEMS is a 1PASSWORD FILING — which wallets an agent
@@ -423,27 +437,12 @@ module Solana
     # not restated here. Two corrections of one defect, arriving from two
     # directions, is how a file comes to disagree with itself.
     #
-    # MEMBERSHIP OVERLAPPING IS NOT AUTHORITY MERGING. The VaultState TARGET set
-    # and the mainnet Squad's membership share wallets. That is
-    # a coincidence of rosters, not of powers: they are separate accounts,
-    # changed by different transactions, and one never implies the other. The
-    # LIVE VaultState set is still the three in (1) — the target is a plan, and
-    # reading it as the current set is the error this whole comment block exists
-    # to prevent.
-    #
-    # FIVE IS NOT WRITABLE YET. The deployed v0.25.0 takes
-    # `update_signers(new_signers: [Pubkey; 3])`, so the five-member set needs
-    # v0.26 on-chain first; MAINNET_LAUNCH.md carries the forced order.
-    #
-    # WARNING — 7auwTL… WAS MEANT TO BE OFF SQUADS AND IS NOT. It is the app's
-    # HOT key: it sits in Heroku config on a running dyno and signs every entry
-    # and payout, so it is the most exposed key here and the last that should
-    # hold upgrade authority; it also has no job there, since upgrading is a
-    # rare human act, never an unattended one. That reasoning is unchanged and
-    # still right. The chain disagrees with it: 7auwTL… holds
-    # Initiate|Vote|Execute on the mainnet Squad (2eGs8G3w… likewise on devnet),
-    # re-measured at `finalized` 2026-09-15. Removing it is a Squads config
-    # transaction, not an edit to this comment.
+    # MEMBERSHIP OVERLAPPING IS NOT AUTHORITY MERGING. The mainnet VaultState
+    # set and the mainnet Squad share four wallets (3LTL…, 7ZDJ…, 9gAC…,
+    # 3Qj4…). That is a coincidence of rosters, not of powers: they are
+    # separate accounts, changed by different transactions, and one never
+    # implies the other. 7auwTL… is a Squads seat and not a VaultState signer;
+    # 4S39… is a VaultState signer and not a Squads seat.
     #
     # DO NOT RE-DERIVE A STOLEN KEY'S BLAST RADIUS FROM THIS COMMENT.
     # /admin/authorities computes it from a live read of both authorities, which
@@ -457,17 +456,28 @@ module Solana
     # produced the claims this comment replaces. Dates above are measurements,
     # not guarantees — re-read the chain rather than trusting this comment's age.
     #
-    # HOW MANY SLOTS VaultState HAS DEPENDS ON WHICH BUILD YOU MEAN. The
-    # DEPLOYED v0.25.0 declares `signers: [Pubkey; 3]`. turf-vault's `accepted`
-    # APPENDS `signers_ext: [Pubkey; 2]` at offset 1443 and reads the whole set
-    # through `all_signers()` — five slots, APPENDED rather than widened so the
-    # upgrade stays layout-compatible on a zero_copy singleton. "Three" and
-    # "five" are each true of a different build, and that gap is the design,
-    # not a discrepancy. Check what the cluster actually runs before trusting
-    # any count — including this one.
-    MULTISIG_SIGNERS = ENV.fetch("SOLANA_MULTISIG_SIGNERS",
-      "8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd,7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr,CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR"
-    ).split(",")
+    # FIVE SLOTS. turf-vault v0.26 (live on mainnet) keeps
+    # `signers: [Pubkey; 3]` at offset 0 and appends `signers_ext: [Pubkey; 2]`
+    # at offset 1443, read through `all_signers()`.
+    # Pinned against config/mainnet_vault_signers.yml `seated` by
+    # test/services/solana/config_multisig_signers_test.rb, so a rotation that
+    # updates the fence and not this literal goes red.
+    DEFAULT_MULTISIG_SIGNERS = %w[
+      3LTLPG1s952sdNatZWtnfM7r9F3ivWSnPSqfhQLBepJ9
+      7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr
+      4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY
+      9gACbzsCLmkYF9Yx1EBGmwMvvyfuTquJ6qs8QsoQvHXf
+      3Qj4v9qjhXgkru6zCRCErRVhy8Q6qU3NrNpvpXLTZboA
+    ].freeze
+    MULTISIG_SIGNERS = ENV.fetch("SOLANA_MULTISIG_SIGNERS", DEFAULT_MULTISIG_SIGNERS.join(",")).split(",")
+
+    # The LEGACY `threshold` byte `initialize` writes into VaultState. Its two
+    # readers are the vault-init form's default (Admin::VaultInitController) and
+    # bin/devnet-v0.15-validate. No signing path reads it, and the program never
+    # did (turf-vault governance.rs: "The threshold field was decorative"). Since
+    # v0.26 the signatures an action needs come from GovernanceConfig, per
+    # action, through Solana::Vault#required_signatures. Left at 2 on purpose:
+    # it is what `initialize` wrote, and raising it would change neither chain.
     MULTISIG_THRESHOLD = ENV.fetch("SOLANA_MULTISIG_THRESHOLD", "2").to_i
 
     # Default cosigner for partially-signed treasury TXs (Mr. McRitchie — signs via Phantom)

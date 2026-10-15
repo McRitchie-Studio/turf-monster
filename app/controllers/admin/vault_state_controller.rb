@@ -1,9 +1,10 @@
 module Admin
   # Vault pause / unpause admin UI (M5, v0.15.0).
   #
-  # turf-vault's `pause` / `unpause` instructions require 2-of-3 multisig.
-  # The bot signs server-side as `admin`; the cosigner slot is left empty
-  # for a Phantom wallet (Mr. McRitchie or Mason) to fill via the same direct-cosign
+  # turf-vault's `pause` / `unpause` need the VaultState signatures their
+  # GovernanceConfig thresholds set (v0.26 defaults: pause 2, unpause 3).
+  # The server signs as `admin`; the cosigner slots are left empty for
+  # Mr. McRitchie's Phantom wallets to fill via the same direct-cosign
   # pattern the Vault Init UI uses (see VaultInitController).
   #
   # Pause is an EMERGENCY action — designed for rapid response when a bug
@@ -12,8 +13,8 @@ module Admin
   class VaultStateController < ApplicationController
     before_action :require_admin
 
-    # Default cosigner shown in the form. Configurable via env in case the
-    # active operator is Mason (or whoever's on call). Matches the existing
+    # Default cosigner shown in the form. Configurable via env in case another
+    # of the operator's wallets is the one on hand. Matches the existing
     # Treasury cosign default (Solana::Config::MULTISIG_COSIGNER = Mr. McRitchie).
     def show
       @vault          = Solana::Vault.new.read_vault_state

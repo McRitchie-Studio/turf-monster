@@ -130,8 +130,8 @@ module Solana
     # The vault's seated signers, which is the set a cosigner must belong to.
     #
     # v0.26 has FIVE slots (`signers` + `signers_ext`) and Config::MULTISIG_SIGNERS
-    # is a three-key env default written for v0.25. Judging membership against
-    # the config list would refuse a wallet the ADD step seated in slot 4 or 5
+    # is an env-overridable literal that can lag the chain. Judging membership against
+    # the config list would refuse a wallet a rotation seated since it was written
     # — a valid third signature the chain would accept — so a governance boot
     # reads VaultState's active slots (Vault.cached_vault_state, one request /
     # one minute). Unreadable falls back to the config list; v0.25 never reads.

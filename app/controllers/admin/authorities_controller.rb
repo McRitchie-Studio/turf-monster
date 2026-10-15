@@ -828,10 +828,13 @@ module Admin
     end
 
     # Rows that ended without landing and are anchored on a console nonce:
-    # what #outstanding_wires reads. Bounded; there are a handful per sitting.
+    # what #outstanding_wires reads. Filter FIRST, then bound: limiting before
+    # the filter let newer blockhash rows push an old unvoided nonce row off
+    # the list. The metadata is a JSON string, so the filter runs in Ruby; the
+    # expired update_signers rows number a handful per sitting.
     def self.ended_nonce_rows
-      PendingTransaction.where(tx_type: TX_TYPE, status: "expired").order(updated_at: :desc).limit(25)
-                        .select { |row| console_nonce_of(row) }
+      PendingTransaction.where(tx_type: TX_TYPE, status: "expired").order(updated_at: :desc)
+                        .select { |row| console_nonce_of(row) }.first(25)
     end
 
     # NEVER BUILD ON A VALUE ANOTHER WIRE STILL HOLDS. Two signed wires on one

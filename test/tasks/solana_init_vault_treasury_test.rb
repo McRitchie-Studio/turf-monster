@@ -70,7 +70,7 @@ class SolanaInitVaultTreasuryTest < ActiveSupport::TestCase
   # Three signers, as the task requires. Real base58 pubkeys from the
   # documented signer set; the rake only checks the count, but keeping them
   # real means a future validation there does not silently start failing here.
-  SIGNERS = Solana::Config::MULTISIG_SIGNERS
+  SIGNERS = Solana::Config::MULTISIG_SIGNERS.first(3) # `initialize` and this task take exactly three
 
   def run_init_vault(network:, vault_pda_env:, treasury_env: nil)
     recorder = RecordingVault.new
