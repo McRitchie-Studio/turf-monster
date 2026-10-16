@@ -35,7 +35,7 @@ module TurfMonster
       class AmbiguousItemError < StandardError; end
 
       # THE VAULT IS NOT INTERNALLY CONSISTENT ABOUT EITHER LABEL, and the two
-      # spellings are not a tidy old/new split -- solana.turf.agent carries a spaced
+      # spellings are not a tidy old/new split -- solana.turf.alex carries a spaced
       # "wallet address" beside a hyphenated "private-key". So both fields take
       # a LIST and the list is the contract; order is preference, not
       # precedence.
@@ -134,12 +134,12 @@ module TurfMonster
       # SECRET_FIELDS and ADDRESS_FIELDS exclude the devnet-* spellings, so a
       # recombined item cannot sign as the wrong wallet.
       #
-      # "turf" (solana.turf.agent, 39QTL1dd) is the PLAYER. Its UserAccount already
+      # "turf" (solana.turf.alex, 39QTL1dd) is the PLAYER. Its UserAccount already
       # exists, which is the whole reason it works -- ensure_user_account
       # short-circuits on an existing account and never looks at the username.
       ITEMS = {
         "mack"       => Item.new(title: "solana.mack.agent"),
-        "turf"       => Item.new(title: "solana.turf.agent")
+        "turf"       => Item.new(title: "solana.turf.alex")
       }.freeze
 
       def initialize(runner: nil)
