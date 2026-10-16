@@ -111,7 +111,7 @@ keys:
     holder: agent
     signs_in: script
     clusters: [devnet]
-    op_item: agent.mack.solana
+    op_item: solana.mack.agent
     role: the devnet-only rehearsal co-signer
 
   - address: BVQHNwUEo91ePwqPcR6Ro4g9Ejqt3qn3ajKPqJSSTd51
