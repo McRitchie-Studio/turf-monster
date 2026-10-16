@@ -111,10 +111,10 @@ module TurfMonster
       #     renamed agent.xan.solana and moved to a vault this service account
       #     cannot read — so the exclusion is now enforced a rung lower down and
       #     this bullet records WHY, not just that.
-      #   * TURF plays as the phantom.turf wallet (39QTL1dd), NOT as the
+      #   * TURF plays as the solana.turf.agent wallet (39QTL1dd), NOT as the
       #     turf-5 admin account. turf-5's username is the reserved prefix
       #     "turf" and it has no UserAccount, so the program refuses to
-      #     register it; phantom.turf already has one, which sidesteps the
+      #     register it; solana.turf.agent already has one, which sidesteps the
       #     whole question.
       DEFAULT_CAST = %w[mack turf].freeze
 
