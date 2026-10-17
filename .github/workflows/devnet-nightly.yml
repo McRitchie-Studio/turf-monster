@@ -12,6 +12,12 @@ on:
     - cron: "0 8 * * *"  # 08:00 UTC daily
   workflow_dispatch:       # also manual trigger
 
+# The run's token reads the repo and the ghcr.io/mcritchie-studio service images,
+# and nothing else (test/lib/ci_service_images_test.rb).
+permissions:
+  contents: read
+  packages: read
+
 jobs:
   devnet:
     runs-on: ubuntu-latest
@@ -21,14 +27,20 @@ jobs:
 
     services:
       postgres:
-        image: public.ecr.aws/docker/library/postgres:17
+        image: ghcr.io/mcritchie-studio/postgres:17
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
         ports: ['5432:5432']
         options: --health-cmd="pg_isready" --health-interval=10s --health-timeout=5s --health-retries=3
       redis:
-        image: public.ecr.aws/docker/library/redis:8
+        image: ghcr.io/mcritchie-studio/redis:8
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
         ports: ['6379:6379']
         options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
 
