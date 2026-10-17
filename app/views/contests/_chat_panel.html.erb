@@ -533,15 +533,17 @@
     // none, so the covered emoji rows were invisible AND unclickable.
     //
     // The floor is the pinned stack's bottom, read LIVE (studio-engine 0.111.1,
-    // docs/NAVBAR_SETUP.md "Reading the Pinned Stack"): window.studioPinnedStack
-    // measures on call. The root's --nav-bottom can lag a scroll by up to 160ms,
-    // and on the scroll-timeline header it is the PINNED edge, which at the top
-    // of the page is above the expanded header's real bottom. The property is
-    // the fallback for a page the engine script has not reached.
+    // window.studioPinnedStack.read() measures on call; the root's --nav-bottom
+    // can lag a scroll by up to 160ms). On the scroll-timeline header that
+    // reading is the PINNED edge, and until the page has scrolled its travel
+    // (--nav-start + --nav-band) the expanded header reaches travel - scrollY
+    // further down, so that is added back (at 1440, scrollY 0: 50 + 93 = 143,
+    // the header's real bottom). The property is the fallback for a page the
+    // engine script has not reached.
     var r = btn.getBoundingClientRect();
     var pw = picker.offsetWidth, ph = picker.offsetHeight;
-    var stack = window.studioPinnedStack;
-    var navBottom = (stack && typeof stack.bottom === 'function' ? stack.bottom() : parseFloat(
+    var stack = window.studioPinnedStack && typeof window.studioPinnedStack.read === 'function' ? window.studioPinnedStack.read() : null;
+    var navBottom = (stack ? stack.bottom + (stack.timeline ? Math.max(0, (stack.travel || 0) - window.scrollY) : 0) : parseFloat(
       getComputedStyle(document.documentElement).getPropertyValue('--nav-bottom')
     )) || 0;
     var minTop = Math.max(8, navBottom + 6);

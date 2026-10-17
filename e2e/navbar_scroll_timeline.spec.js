@@ -84,6 +84,17 @@ test.describe("Navbar scroll timeline", () => {
       });
     }, HEADER);
     expect(below, "the header takes the pointer under its bar").toEqual([false, false, false]);
+
+    // The chat reaction picker's floor is the header's LIVE bottom at the top of the page, not its pinned edge.
+    await page.goto("/contests/world-cup-2026");
+    await settled(page);
+    const picker = await page.evaluate((sel) => {
+      const btn = Object.assign(document.createElement("button"), { style: "position:fixed;left:400px;top:230px;width:24px;height:24px" });
+      document.body.appendChild(btn);
+      window.openReactionPicker(btn);
+      return { top: document.getElementById("chat-reaction-picker").getBoundingClientRect().top, header: document.querySelector(sel).getBoundingClientRect().bottom };
+    }, HEADER);
+    expect(picker.top, `the picker opens clear of the expanded header ${JSON.stringify(picker)}`).toBeGreaterThanOrEqual(picker.header);
   });
 
   test("a frozen player's bar stays on screen above the compact bar through the collapse", async ({ page }) => {
