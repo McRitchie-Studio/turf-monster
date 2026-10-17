@@ -278,15 +278,6 @@ class LaptopLiveSnapshot
   # leaderboard.
   SCROLLED_NAV_CLASSES = "shadow-lg border-b border-subtle is-scrolled".freeze
 
-  # The live header's hooks, which a picture of it must not carry: the
-  # nav-collapse controller would drive it, data-pin would register it as a
-  # second nav layer of the page's pinned stack, and data-nav-timeline would
-  # put it on the PAGE's scroll timeline (engine.css), sticking it at minus
-  # its band and shrinking it as the visitor scrolls the hero.
-  LIVE_NAV_ATTRIBUTES = %w[
-    data-studio-controller data-nav-collapse-scrolled-class data-nav-timeline data-pin
-  ].freeze
-
   # #collapse_navbar writes that state onto the snapshot's header, which then
   # gives up data-navbar-root: the laptop is on every visit to
   # /turf-monster-v2 (and "/"), and the tests and browser specs find THE page's
@@ -298,7 +289,6 @@ class LaptopLiveSnapshot
     header["style"] = "--nav-p: 1; #{header['style']}".strip
     header["class"] = [header["class"], SCROLLED_NAV_CLASSES].compact.join(" ")
     header.remove_attribute("data-navbar-root")
-    LIVE_NAV_ATTRIBUTES.each { |name| header.remove_attribute(name) }
     header["data-test"] = "laptop-navbar"
   end
 
