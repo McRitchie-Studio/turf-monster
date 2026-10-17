@@ -271,7 +271,15 @@ class EnginePinContractTest < ActiveSupport::TestCase
   #          the version this suite runs against so a resolve cannot walk back
   #          unseen. DERIVED from the gem repo: the earliest tag containing the
   #          release commit (397259d, 2026-10-14) is v0.106.0.
-  MINIMUM = Gem::Version.new("0.106.0")
+  # 0.111.1 — the scroll-driven navbar collapse and the live pinned-stack
+  #          read (/tasks/turf-engine-navbar-timeline), a BOOT floor. The
+  #          initializer sets config.navbar_scroll_timeline, so below 0.111.0
+  #          Studio.configure raises NoMethodError at boot; the header-edge
+  #          readers use window.studioPinnedStack.bottom() and data-pin-edge,
+  #          which first ship in 0.111.1. DERIVED from the gem repo: the
+  #          earliest tag containing the commit that adds the live read
+  #          (08f70ec, 2026-10-16) is v0.111.1.
+  MINIMUM = Gem::Version.new("0.111.1")
 
   test "the resolved studio-engine is at or above the floor this app depends on" do
     resolved = Gem::Version.new(Studio::VERSION)
@@ -281,7 +289,7 @@ class EnginePinContractTest < ActiveSupport::TestCase
                     "a host-owned layered banner needs >= 0.43; the adopted first-name onboarding " \
                     "endpoints need >= 0.46; the shared /profile page and its section registry need " \
                     ">= 0.52; the shared date-of-birth field rendered by modals/_birthday needs " \
-                    ">= 0.54; the rail-row and close-x chrome primitives this app RENDERS need >= 0.61, and an UNESCAPED rail-row click handler needs >= 0.62.2; and the shared layer scale this app no longer mirrors locally needs >= 0.63; and the wallet surface needs >= 0.64 — config.wallet_debug_sink is SET in this app's initializer, so below it Studio.configure raises at boot; and Studio::FULL_NAME_MAX_LENGTH needs >= 0.69.5 — the engine's studio/modals/onboarding/first_name reads it for the field maxlength and layouts/application renders that partial on EVERY page, so below it every request raises NameError; and the first-name card's placeholder_names local and its done-event detail.saved key need >= 0.72.0, both of which fail SILENTLY below it — the typed placeholder goes static, and the entry-gate resume never fires; and the link-preview primitive needs >= 0.82.0 — ApplicationController includes Studio::LinkPreviewBots, so below it nothing boots; and Contest's on-chain rename refusal needs >= 0.93.0 — it calls has_slug_children and slug_format= in its class body, so below it Contest raises NoMethodError when it loads; and seed assets that reference production need >= 0.103.0 — the initializer sets config.s3_production_public_url, so below it Studio.configure raises at boot)"
+                    ">= 0.54; the rail-row and close-x chrome primitives this app RENDERS need >= 0.61, and an UNESCAPED rail-row click handler needs >= 0.62.2; and the shared layer scale this app no longer mirrors locally needs >= 0.63; and the wallet surface needs >= 0.64 — config.wallet_debug_sink is SET in this app's initializer, so below it Studio.configure raises at boot; and Studio::FULL_NAME_MAX_LENGTH needs >= 0.69.5 — the engine's studio/modals/onboarding/first_name reads it for the field maxlength and layouts/application renders that partial on EVERY page, so below it every request raises NameError; and the first-name card's placeholder_names local and its done-event detail.saved key need >= 0.72.0, both of which fail SILENTLY below it — the typed placeholder goes static, and the entry-gate resume never fires; and the link-preview primitive needs >= 0.82.0 — ApplicationController includes Studio::LinkPreviewBots, so below it nothing boots; and Contest's on-chain rename refusal needs >= 0.93.0 — it calls has_slug_children and slug_format= in its class body, so below it Contest raises NoMethodError when it loads; and seed assets that reference production need >= 0.103.0 — the initializer sets config.s3_production_public_url, so below it Studio.configure raises at boot; and the scroll-driven navbar and the live pinned-stack read need >= 0.111.1 — the initializer sets config.navbar_scroll_timeline, so below 0.111.0 Studio.configure raises at boot)"
   end
 
   # ── THE FLOOR, ASKED OF THE SOURCE INSTEAD OF OF A NUMBER ───────────────

@@ -123,7 +123,12 @@ class CustomPropertyDeclarationTest < ActiveSupport::TestCase
         end
       end
       texts.flat_map do |text|
-        text.scan(/(--[\w-]+)\s*:/).flatten + text.scan(/setProperty\(\s*["'](--[\w-]+)["']/).flatten
+        # A quoted key in an object literal is a writer too: studio-engine's
+        # nav_collapse.js builds `{ '--nav-start': start + 'px', ... }` and
+        # writes each key through setProperty(key, ...) in a loop, a call
+        # site the setProperty("--name") form cannot see.
+        text.scan(/(--[\w-]+)\s*:/).flatten + text.scan(/setProperty\(\s*["'](--[\w-]+)["']/).flatten +
+          text.scan(/["'](--[\w-]+)["']\s*:/).flatten
       end.to_set
     end
   end

@@ -58,7 +58,19 @@
     as on the engine navbar: it writes --nav-p, holds the header's footprint so
     the page never moves, and toggles the scrolled classes. The bare x-data is
     the Alpine scope the header's descendants still bind through. %>
-<header data-navbar-root <%= 'x-data data-studio-controller="nav-collapse" data-nav-collapse-scrolled-class="shadow-lg border-b border-subtle is-scrolled"'.html_safe unless is_preview %>
+<%# THE SCROLL-DRIVEN COLLAPSE (studio-engine 0.111, Studio.navbar_scroll_timeline;
+    the scroll_timeline: local overrides it for one render). From 768px, in a
+    browser with scroll timelines, data-nav-timeline hands the collapse to
+    engine.css: the box keeps one height, sticks at minus its band, and the
+    logo and title shrink by transforms on the compositor, so nothing here
+    writes per scroll frame. Phones and Firefox keep the --nav-p path above.
+    data-pin="nav" makes this header the pinned stack's nav layer, so
+    --pin-stack-bottom and window.studioPinnedStack.bottom() read its pinned
+    edge. Neither renders on a preview: the /admin/navbar page drives --nav-p
+    itself and repeats this partial, and a second nav layer would answer for
+    the page's own. %>
+<% scroll_timeline = local_assigns.fetch(:scroll_timeline, Studio.navbar_scroll_timeline) %>
+<header data-navbar-root <%= %(data-pin="nav" x-data data-studio-controller="nav-collapse" data-nav-collapse-scrolled-class="shadow-lg border-b border-subtle is-scrolled"#{' data-nav-timeline' if scroll_timeline}).html_safe unless is_preview %>
         class="nav-shell <%= is_preview ? 'bg-page' : 'vt-pinned-header sticky top-0 z-[var(--z-nav)] bg-page transition-shadow duration-300' %>">
   <%# THE IMPERSONATION BAR STAYS HERE, INSIDE THE PINNED HEADER, and the
       environment bar does not. They look alike and are not the same kind of
@@ -95,7 +107,16 @@
   <%# .user-nav-col / .nav-title / .nav-logo / .nav-logo-link responsive
       rules live in app/assets/tailwind/application.css @layer utilities (migrated
       2026-05-24, dropped the 10 !important workarounds). %>
-  <%= render "shared/impersonation_banner" if !is_preview && impersonating? %><%= render "shared/frozen_account_banner" if !is_preview && account_frozen? %>
+  <%# THE IN-HEADER BARS ON THE SCROLL TIMELINE. On the timeline the header
+      sticks at minus its band, so its TOP band scrolls out of the window and
+      these bars, at the top, would go with it. data-nav-header-bars carries
+      them back down by the band on the same timeline (application.css), so
+      they stay on screen while the compact bar sticks under them. %>
+  <% show_impersonation = !is_preview && impersonating? %>
+  <% show_frozen = !is_preview && account_frozen? %>
+  <% if show_impersonation || show_frozen %>
+    <div data-nav-header-bars><%= render "shared/impersonation_banner" if show_impersonation %><%= render "shared/frozen_account_banner" if show_frozen %></div>
+  <% end %>
   <div class="nav-row flex items-center min-w-0">
     <%# Left side: logo + nav %>
     <%# min-w-0 FOUR TIMES, on every flex item between the row and the wordmark:

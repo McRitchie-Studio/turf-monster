@@ -99,6 +99,14 @@ class LaptopLiveRenderTest < ActionDispatch::IntegrationTest
     navbar = live.at_css('header[data-test="laptop-navbar"]')
     assert_match(/--nav-p: 1/, navbar["style"], "the collapsed navbar")
     assert_empty live.css("[data-navbar-root]"), "the page's own navbar is the only navbar root"
+    # The picture of the header carries none of the live header's hooks (it
+    # renders as a preview): the page's scroll timeline would stick and shrink
+    # it inside the hero, and a data-pin would make it a second nav layer of
+    # the page's pinned stack.
+    %w[data-nav-timeline data-pin data-studio-controller].each do |attr|
+      refute navbar.key?(attr), "the laptop navbar carries no #{attr}"
+    end
+    assert_empty live.css("[data-pin], [data-nav-timeline]")
   end
 
   # THE LINK UNDER THE LAPTOP: real, focusable, outside the inert laptop, to

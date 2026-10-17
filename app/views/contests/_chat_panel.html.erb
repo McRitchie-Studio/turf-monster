@@ -532,17 +532,20 @@
     // the header band, under an opaque bg-page header with no pointer-events:
     // none, so the covered emoji rows were invisible AND unclickable.
     //
-    // --nav-bottom is the header's LIVE bottom edge in viewport coordinates,
-    // published by studio-engine (layouts/studio/_head.html.erb) and republished
-    // on scroll and on every header resize, so it already accounts for the
-    // collapse animation and for chrome stacked above the header. --nav-h would
-    // be wrong here: it is the header's HEIGHT, which stops matching its bottom
-    // edge the moment anything renders above it.
+    // The floor is the pinned stack's bottom, read LIVE (studio-engine 0.111.1,
+    // window.studioPinnedStack.read() measures on call; the root's --nav-bottom
+    // can lag a scroll by up to 160ms). On the scroll-timeline header that
+    // reading is the PINNED edge, and until the page has scrolled its travel
+    // (--nav-start + --nav-band) the expanded header reaches travel - scrollY
+    // further down, so that is added back (at 1440, scrollY 0: 50 + 93 = 143,
+    // the header's real bottom). The property is the fallback for a page the
+    // engine script has not reached.
     var r = btn.getBoundingClientRect();
     var pw = picker.offsetWidth, ph = picker.offsetHeight;
-    var navBottom = parseFloat(
+    var stack = window.studioPinnedStack && typeof window.studioPinnedStack.read === 'function' ? window.studioPinnedStack.read() : null;
+    var navBottom = (stack ? stack.bottom + (stack.timeline ? Math.max(0, (stack.travel || 0) - window.scrollY) : 0) : parseFloat(
       getComputedStyle(document.documentElement).getPropertyValue('--nav-bottom')
-    ) || 0;
+    )) || 0;
     var minTop = Math.max(8, navBottom + 6);
     var left = Math.min(Math.max(8, r.right - pw), window.innerWidth - pw - 8);
     var top = r.top - ph - 6;
