@@ -30,6 +30,12 @@ on:
 # guard would refuse to promote a perfectly healthy branch. Back-to-back pushes to
 # `accepted` are NORMAL. Cheaper CI is not worth a gate that cries wolf.
 
+# The run's token reads the repo and the ghcr.io/mcritchie-studio service images,
+# and nothing else (test/lib/ci_service_images_test.rb).
+permissions:
+  contents: read
+  packages: read
+
 jobs:
   # THE STATIC LANE — brakeman, importmap audit and rubocop in ONE job.
   #

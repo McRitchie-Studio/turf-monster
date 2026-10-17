@@ -12,6 +12,12 @@ on:
     - cron: "0 8 * * *"  # 08:00 UTC daily
   workflow_dispatch:       # also manual trigger
 
+# The run's token reads the repo and the ghcr.io/mcritchie-studio service images,
+# and nothing else (test/lib/ci_service_images_test.rb).
+permissions:
+  contents: read
+  packages: read
+
 jobs:
   devnet:
     runs-on: ubuntu-latest

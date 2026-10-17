@@ -78,6 +78,18 @@ class CiServiceImagesTest < Minitest::Test
     end
   end
 
+  # A workflow that pulls from the mirror declares its token's scopes, so the pull
+  # never rests on the org's default token setting.
+  def test_every_workflow_that_pulls_declares_packages_read
+    WORKFLOWS.each do |path|
+      next if self.class.images(path).empty?
+
+      permissions = YAML.safe_load_file(path, aliases: true)["permissions"]
+      assert_equal({ "contents" => "read", "packages" => "read" }, permissions,
+                   "#{File.basename(path)} pulls ghcr.io images; declare top-level `permissions: { contents: read, packages: read }`")
+    end
+  end
+
   def test_no_workflow_narrows_the_token_below_packages_read
     WORKFLOWS.each do |path|
       doc = YAML.safe_load_file(path, aliases: true)
