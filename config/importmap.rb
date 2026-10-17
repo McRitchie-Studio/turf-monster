@@ -20,6 +20,7 @@ pin "slate_simulator"
 pin "state_fanout"
 pin "cdp_offramp_send"
 pin "page_experiments"
+pin "nav_band_watch"
 
 # Turf's Stimulus application (turf_stimulus) runs on every page. Every file
 # under controllers/ and turf/ (their logic modules) is pinned. Only a module
