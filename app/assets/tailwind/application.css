@@ -942,6 +942,46 @@
   /* Theme CSS custom properties are now engine-generated via studio_theme_css_tag */
 }
 
+/* THE IN-HEADER BARS ON THE SCROLL TIMELINE (layouts/_navbar, data-nav-header-bars;
+   /tasks/turf-engine-navbar-timeline).
+
+   The impersonation bar (OPSEC-046, the JS-free "Return to <admin>" escape) and
+   the frozen-account bar render INSIDE the pinned header, so they never scroll
+   away. On the engine's scroll timeline (engine.css, THE SCROLL-DRIVEN
+   COLLAPSE) the header keeps one height and sticks at minus its band, so the
+   band at its TOP leaves the window, and these bars sit at its top. Left alone
+   they scroll off with it.
+
+   So they move down by the band over the same range the band scrolls away in,
+   on the same linear timeline: the header rises by exactly as much as they
+   fall, and they hold still at the top of the window. The band itself needs no
+   correction. The controller measures it as the header's height expanded less
+   collapsed, and these bars are in both readings, so they cancel out of it.
+   The row needs none either. The engine slides it down half the band, which
+   centres it on the bar below these (the arithmetic: the visible strip is the
+   band down to the header's bottom, the bars take its top, and the row's centre
+   lands in the middle of what is left). Their content never meets the row's:
+   the bars end at their height plus the band, the row's ink starts at their
+   height plus half the band plus its rest padding.
+
+   Same conditions as the engine's own rules (768px up, a browser with scroll
+   timelines), which are the controller's, so this moves only while the
+   timeline drives the header. */
+@layer utilities {
+  @supports (animation-timeline: scroll()) {
+    @media (min-width: 768px) {
+      .nav-shell[data-nav-timeline] > [data-nav-header-bars] {
+        position: relative;
+        z-index: 1;
+        animation: turf-nav-header-bars linear both;
+        animation-timeline: scroll(root block);
+        animation-range: var(--nav-start, 0px) calc(var(--nav-start, 0px) + var(--nav-band));
+      }
+    }
+  }
+}
+@keyframes turf-nav-header-bars { to { transform: translateY(var(--nav-band)); } }
+
 /* Environment-banner tooltip containment — the 4px horizontal document scroll
    that studio-engine 0.56.3 exposed. Deliberately UNLAYERED: engine CSS is
    unlayered too, and this must not lose a layer fight it never needs to have.

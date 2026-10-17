@@ -63,6 +63,12 @@
       47px stack) while the header's on-screen bottom did not move, and a panel
       positioned at --nav-h landed 47px too high and painted over the navbar's
       lower strip. The engine already migrated its own copy of this partial. %>
+  <%# data-pin-edge (studio-engine 0.111.1): on the scroll-timeline header
+      --nav-bottom is the PINNED edge, and at the top of the page the expanded
+      header reaches further down. engine.css moves this panel's top and height
+      with the header on the same scroll timeline; off the timeline it matches
+      nothing and the style below stands. %>
+  data-pin-edge
   style="top:var(--nav-bottom, var(--nav-h, 6rem));height:calc(100% - var(--nav-bottom, var(--nav-h, 6rem)))"
   role="<%= role %>"
   <% if labelledby %>aria-labelledby="<%= labelledby %>"<% elsif aria_label.present? %>aria-label="<%= aria_label %>"<% end %>>

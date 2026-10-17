@@ -43,6 +43,15 @@ Studio.configure do |config|
   # turbo-cache-control no-preview metas via the engine layout contract.
   config.smooth_load = true
 
+  # The navbar collapses on the page's scroll timeline from 768px: one header
+  # height, the shrink as compositor transforms, no script per frame (engine
+  # 0.111, docs/NAVBAR_SETUP.md "Scroll-Driven Collapse"). This app forks
+  # layouts/_navbar, which reads this setting for its data-nav-timeline; the
+  # impersonation and frozen-account bars stay pinned inside the header
+  # (application.css, THE IN-HEADER BARS ON THE SCROLL TIMELINE). Phones keep
+  # the --nav-p collapse. (/tasks/turf-engine-navbar-timeline)
+  config.navbar_scroll_timeline = true
+
   # nav_spinner_min_ms is a minimum DISPLAY FLOOR, not a timeout: the engine
   # computes remaining = max(0, min_ms - elapsed), so a slow op (Solana RPC
   # included) already exceeds any floor and is unaffected — the floor only
