@@ -358,9 +358,23 @@ The header carries `x-data="navCollapse()"` (factory in `shared/_alpine_factorie
 
 `is-scrolled` (+ `shadow-lg border-b border-subtle`) is still class-toggled on the same hysteresis — it is the shadow only, and hysteresis keeps it from strobing at the boundary.
 
+### From 768px the collapse runs on the scroll timeline (studio-engine 0.111.1)
+
+The `--nav-p` path above is the **phone** path now, and the one for a browser without scroll-driven animations (Firefox today). From 768px, `config.navbar_scroll_timeline = true` (`config/initializers/studio.rb`) puts `data-nav-timeline` on the header, and the engine's `nav-collapse` controller hands the collapse to `engine.css` (THE SCROLL-DRIVEN COLLAPSE): the header keeps **one height**, sticks at minus its **band** (expanded height less collapsed height, published as `--nav-band`), and the logo and title shrink by transforms on the page's scroll timeline. No script writes the header per frame and nothing relayouts, so a busy page cannot make it stutter. The header is also the pinned stack's nav layer (`data-pin="nav"`). Crossing 768px swaps modes; the `scroll_timeline:` local overrides the setting for one render, and a `preview` render carries none of it.
+
+Measured on the desk at 1440 and 1280, light and dark, `/contests` and a contest page: box 96px through a flick, zero header style writes, compact bar 50px (the same 50px the `--nav-p` path collapses to), `--nav-band` 46px under the 47px environment bars (`--nav-start`).
+
+Three things this fork carries that the engine navbar does not:
+- **The in-header bars** (impersonation, frozen account) sit at the top of the header, which is the band that scrolls away. `[data-nav-header-bars]` moves them down by `--nav-band` over the same range on the same linear timeline (`application.css`, THE IN-HEADER BARS ON THE SCROLL TIMELINE), so they hold at the top of the window and the compact bar sticks under them. They are in both of the controller's readings, so the band does not count them. Measured with impersonation on: box 141px, compact bar 95px (45px of bar plus the 50px row), band still 46px.
+- **The band follows the account column.** The controller measures on connect, resize, font load and a bar resize only, and this header's balance reveals itself about 400ms after load, which grows the collapsed bar from 48px to 50px. `app/javascript/nav_band_watch.js` observes `.user-nav-col` and asks for a re-measure (a window `resize`) when it changes on a timeline header.
+- **No account-row hooks.** The engine's timeline also scales an avatar and name keyed on `[data-nav-account]` and slides `[data-nav-tools]`. Turf's two-row user nav keeps a constant 32px avatar and its name sits in the left column, so those scales would be 1, and the engine's account-row rules on the same hooks would double-scale the moon toggle and change the gaps. The balance and username therefore keep their expanded size (20px and 18px) in the compact bar, 2px above the `--nav-p` path's.
+
+Fixed elements under the header follow its edge with `data-pin-edge` (`components/_sidebar_panel`), and a script reads the edge live with `window.studioPinnedStack.bottom()` (the chat reaction picker), never `--nav-bottom` off the root, which can lag a scroll by 160ms. Proof: `e2e/navbar_scroll_timeline.spec.js`.
+
 ### Partial locals
 - `show_logged_in` — override `logged_in?` (default: real session). Used by admin preview to force logged-in/out views.
-- `preview` — drops `x-data`/`navCollapse()` and sticky positioning. It KEEPS `nav-shell` (the `--nav-p` `calc()`s have to resolve); `/admin/navbar` drives `--nav-p` from its own Scrolled toggle instead.
+- `scroll_timeline` — opts this render into the scroll-driven collapse (default `Studio.navbar_scroll_timeline`).
+- `preview` — drops `x-data`/`navCollapse()`, `data-pin`, `data-nav-timeline` and sticky positioning. It KEEPS `nav-shell` (the `--nav-p` `calc()`s have to resolve); `/admin/navbar` drives `--nav-p` from its own Scrolled toggle instead.
 
 ### Responsive breakpoints
 `@layer utilities` in `app/assets/tailwind/application.css` (migrated out of an inline `<style>` block 2026-05-24), three tiers. Mobile title stacks "Turf"/"Monster" vertically via `flex-direction: column` with `-4px` bottom margin on "Turf" to tighten spacing. "Monster" renders larger than "Turf" on mobile.
