@@ -1013,7 +1013,15 @@
      its right edge, which stays on the container's edge;
      the column (balance, icons, name, seeds bar and level) scales by 7/8 from
      its right edge, and slides right by the 8px the avatar gave up, so the
-     gap between them stays the 12px ml-3 sets.
+     gap between them holds.
+
+   THE GAP is the hub's: 12px from the name's ink to the avatar (the engine's
+   --nav-gap), at rest, mid-collapse and compact. From 768px the partial drops
+   the name row's right padding (md:pr-0) and sets the avatar's margin to
+   md:ml-1, so the row's gap-2 plus that margin is 12px from the column's edge,
+   where the name ends (/tasks/turf-avatar-name-gap; it was 6 + 8 + 12 = 26px).
+   The column's right edge is the scale origin, so the name stays on it as it
+   shrinks and the gap does not drift.
 
    7/8 rather than the avatar's 4/5: the column is two rows of small type, and
    4/5 takes the level label under 8px. At 7/8 the name lands at 15.75px, a

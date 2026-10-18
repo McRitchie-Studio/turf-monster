@@ -18,16 +18,19 @@
 <div class="flex gap-2 min-w-0" x-data="{ freeEntryHover: false }">
   <% if logged_in? %>
     <%# Left column: Div 1 + Div 2 stacked. data-turf-nav-column is the hook
-        the scroll-timeline collapse scales (application.css, THE ACCOUNT ON
-        THE SCROLL TIMELINE): balance, icons, name and level shrink together
-        from the right edge, by the same transform, so the block stays one
-        piece at both sizes. self-center, not the row's default stretch: the
-        40px avatar is taller than the two rows, and stretched they would sit
-        at the top of its box and report its height, which hides the 2px
-        hydrate nav_band_watch.js listens for. %>
+        the scroll-timeline collapse scales (application.css, THE ACCOUNT ROW,
+        SIZED AND ALIGNED AS ON THE HUB): balance, icons, name and level shrink
+        together by 7/8 from the right edge, by the same transform, and slide
+        right by the 8px the avatar gives up, so the block stays one piece at
+        both sizes and the name keeps its gap to the avatar. self-center, not
+        the row's default stretch: the 40px avatar is taller than the two rows,
+        and stretched they would sit at the top of its box and report its
+        height, which hides the 2px hydrate nav_band_watch.js listens for. %>
     <div class="flex-1 min-w-0 self-center" data-turf-nav-column>
-      <%# Div 1 (Bigger): balance + icons + username — margin-left matches Div 2's seeds bar offset so cash aligns with bar start %>
-      <div class="flex min-w-0 items-center gap-1 leading-none" style="padding-right: 6px; margin-left: -6px;">
+      <%# Div 1 (Bigger): balance + icons + username — margin-left matches Div 2's seeds bar offset so cash aligns with bar start.
+          pr-1.5 on a phone; from 768px none, so the name ends on the
+          column's edge and its gap to the avatar is the hub's 12px (see Div 3). %>
+      <div class="flex min-w-0 items-center gap-1 leading-none pr-1.5 md:pr-0" style="margin-left: -6px;">
         <% if balance_html.present? %>
           <%= raw balance_html %>
         <% end %>
@@ -85,11 +88,14 @@
         the avatar. z-0 here would invert that and bury the badge.
         ml-3 reserves the 8px of badge that overhangs the avatar — the badge is
         out of flow, so without it the username (which grows to fill Div 1) runs
-        right up under the sparkle. %>
+        right up under the sparkle. From 768px it is md:ml-1: with the row's
+        gap-2 that is 12px from the column's edge, where the name ends (Div 1
+        drops its padding there), the hub's name-to-avatar gap (the engine's
+        --nav-gap, 0.75rem). The badge still clears the name by 4px. %>
     <%# data-turf-nav-avatar: the avatar is 40px at rest and 32px collapsed
         from 768px, as on the hub (application.css). The badge rides inside,
         so it scales with the avatar it sits on. %>
-    <div class="relative ml-3 flex flex-shrink-0 items-center" data-turf-nav-avatar>
+    <div class="relative ml-3 md:ml-1 flex flex-shrink-0 items-center" data-turf-nav-avatar>
       <div class="absolute -left-2 -top-1 z-20"><%= render "components/entry_token_badge" %></div>
       <button type="button"
               class="dm-green relative z-10 hover:opacity-80 transition flex-shrink-0 flex items-center bg-transparent border-0 p-0"

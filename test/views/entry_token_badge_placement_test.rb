@@ -66,9 +66,10 @@ class EntryTokenBadgePlacementTest < ActionDispatch::IntegrationTest
       # The tuck is absolute, not a negative margin: the badge's .hidden lives
       # on the BUTTON, so a flow-positioned wrapper would survive a hidden
       # badge and drag the avatar left into the username. ml-3 on the cluster
-      # reserves the 8px of badge that overhangs the avatar.
+      # reserves the 8px of badge that overhangs the avatar; md:ml-1 makes the
+      # desktop gap the hub's 12px and still clears the name by 4px.
       cluster = body[username_at, (avatar_at - username_at) + 400]
-      assert_includes cluster, %(class="relative ml-3 flex flex-shrink-0 items-center")
+      assert_includes cluster, %(class="relative ml-3 md:ml-1 flex flex-shrink-0 items-center")
       assert_includes cluster, %(class="absolute -left-2 -top-1 z-20")
       assert_match(/dm-green relative z-10/, cluster,
         "the avatar keeps its own stacking rung under the badge")
