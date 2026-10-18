@@ -21,8 +21,11 @@
         the scroll-timeline collapse scales (application.css, THE ACCOUNT ON
         THE SCROLL TIMELINE): balance, icons, name and level shrink together
         from the right edge, by the same transform, so the block stays one
-        piece at both sizes. %>
-    <div class="flex-1 min-w-0" data-turf-nav-column>
+        piece at both sizes. self-center, not the row's default stretch: the
+        40px avatar is taller than the two rows, and stretched they would sit
+        at the top of its box and report its height, which hides the 2px
+        hydrate nav_band_watch.js listens for. %>
+    <div class="flex-1 min-w-0 self-center" data-turf-nav-column>
       <%# Div 1 (Bigger): balance + icons + username — margin-left matches Div 2's seeds bar offset so cash aligns with bar start %>
       <div class="flex min-w-0 items-center gap-1 leading-none" style="padding-right: 6px; margin-left: -6px;">
         <% if balance_html.present? %>
