@@ -891,10 +891,13 @@
      left column needs. This band already reads the viewport through its own 24vw
      and has 448px of slack at its breakpoint; there is nothing a tighter cap
      could buy, and the floor above is a phone number. Unchanged by the phone
-     fix, and the squeeze-band notes further down this file still describe it. */
+     fix, and the squeeze-band notes further down this file still describe it.
+     The 0.5rem on every term is the avatar's: it is 40px from 768px, not 32
+     (THE ACCOUNT ROW, SIZED AND ALIGNED AS ON THE HUB, below), and the column
+     grows by the same 8px so the username keeps the width it had. */
   @media (min-width: 768px) {
     .user-nav-col {
-      width: clamp(16rem, 24vw, 20rem);
+      width: clamp(16.5rem, calc(24vw + 0.5rem), 20.5rem);
     }
   }
   @media (max-width: 767px) {
@@ -981,6 +984,74 @@
   }
 }
 @keyframes turf-nav-header-bars { to { transform: translateY(var(--nav-band)); } }
+
+/* THE ACCOUNT ROW, SIZED AND ALIGNED AS ON THE HUB (/tasks/turf-navbar-avatar-table-header).
+
+   ALIGNMENT. The row stops at the page container: 80rem wide and centred, the
+   width of the max-w-7xl the pages lay out in, so its px-4 columns put the logo
+   on the content's left edge and the avatar on its right edge. Full width, the
+   avatar sat at the window edge, 80px right of the content at 1440. The hub
+   (mcritchie-studio application.css) carries the same rule.
+
+   SIZE, from 768px. The avatar is 40px at rest and 32px collapsed, as the hub's
+   is (the engine draws its "nav" size at 32px; this app's forked user nav
+   keeps that class and is sized here). On the --nav-p path (phones are below
+   this, so: a browser without scroll timelines) the size is a calc() off
+   --nav-p, as the logo's is, and the column's type already shrinks through
+   --nav-balance-size and --nav-username-size. --nav-p 1 is also how the engine's
+   nav-collapse controller reads the COLLAPSED header when it measures the band,
+   so the compact bar is measured with the 32px avatar in it.
+
+   ON THE SCROLL TIMELINE nothing writes --nav-p, so the sizes above hold their
+   rest values and, before this rule, the avatar, name and level kept full size
+   in the compact bar. The engine scales its own account through
+   [data-nav-account] and [data-nav-tools]; this app's two-row account carries
+   neither, because those hooks also restyle the icon rail and its gaps. So the
+   account gets its own keyframes on the engine's timeline and range:
+
+     the avatar (with the free-entry badge riding on it) scales 40 -> 32 from
+     its right edge, which stays on the container's edge;
+     the column (balance, icons, name, seeds bar and level) scales by 7/8 from
+     its right edge, and slides right by the 8px the avatar gave up, so the
+     gap between them stays the 12px ml-3 sets.
+
+   7/8 rather than the avatar's 4/5: the column is two rows of small type, and
+   4/5 takes the level label under 8px. At 7/8 the name lands at 15.75px, a
+   quarter pixel off the 16px the --nav-p path collapses it to. */
+@layer utilities {
+  .nav-shell > .nav-row { max-width: 80rem; margin-inline: auto; }
+  @media (min-width: 768px) {
+    .nav-shell {
+      --turf-nav-avatar: calc(2.5rem - 0.5rem * var(--nav-p, 0));   /* 40px -> 32px */
+      --turf-nav-avatar-scale: 0.8;                                  /* 32 / 40 */
+      --turf-nav-avatar-shrink: 0.5rem;                              /* 40 - 32 */
+      --turf-nav-column-scale: 0.875;
+    }
+    .nav-shell [data-turf-nav-avatar] [data-profile-image-toggle] > * {
+      width: var(--turf-nav-avatar);
+      height: var(--turf-nav-avatar);
+      font-size: 0.875rem;
+    }
+  }
+  @supports (animation-timeline: scroll()) {
+    @media (min-width: 768px) {
+      .nav-shell[data-nav-timeline] [data-turf-nav-avatar],
+      .nav-shell[data-nav-timeline] [data-turf-nav-column] {
+        animation-timing-function: ease-in-out;
+        animation-fill-mode: both;
+        animation-timeline: scroll(root block);
+        animation-range: var(--nav-start, 0px) calc(var(--nav-start, 0px) + var(--nav-ramp));
+        transform-origin: right center;
+      }
+      .nav-shell[data-nav-timeline] [data-turf-nav-avatar] { animation-name: turf-nav-avatar; }
+      .nav-shell[data-nav-timeline] [data-turf-nav-column] { animation-name: turf-nav-column; }
+    }
+  }
+}
+@keyframes turf-nav-avatar { to { transform: scale(var(--turf-nav-avatar-scale, 1)); } }
+@keyframes turf-nav-column {
+  to { transform: translateX(var(--turf-nav-avatar-shrink, 0px)) scale(var(--turf-nav-column-scale, 1)); }
+}
 
 /* Environment-banner tooltip containment — the 4px horizontal document scroll
    that studio-engine 0.56.3 exposed. Deliberately UNLAYERED: engine CSS is
