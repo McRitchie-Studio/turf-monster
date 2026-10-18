@@ -111,6 +111,9 @@ test("logged-in navbar controls stay contained with balance and entry badge", as
     await page.setViewportSize(viewport);
     await page.goto("/contests");
     await expect(page.locator("[data-username-display]").first()).toBeVisible();
+    // The page's balance hydrate repaints the slot; let it land first (see the
+    // Free Entry pass below).
+    await page.waitForLoadState("networkidle");
     await exposeStressControls(page);
     await expectNavbarContained(page);
   }
@@ -182,6 +185,11 @@ test("logged-in navbar keeps the Free Entry face contained and the username read
     await page.setViewportSize(viewport);
     await page.goto("/contests");
     await expect(page.locator("[data-username-display]").first()).toBeVisible();
+    // Let the page's own balance hydrate land first. refreshBalance() repaints
+    // the slot through updateNavTokens(), so a face forced before it lands is
+    // reverted 10-20ms later and the pass measures the amount face instead
+    // (seen at 820 and 1024 on /tasks/turf-navbar-avatar-table-header).
+    await page.waitForLoadState("networkidle");
     await exposeFreeEntryFace(page);
 
     const metrics = await navbarMetrics(page);
