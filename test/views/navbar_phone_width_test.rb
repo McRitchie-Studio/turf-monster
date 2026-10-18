@@ -153,7 +153,7 @@ class NavbarPhoneWidthTest < ActiveSupport::TestCase
   test "the desktop band keeps its bare clamp" do
     _, _, desktop = width_declarations
 
-    assert_equal "clamp(16rem, 24vw, 20rem)", desktop,
+    assert_equal "clamp(16.5rem, calc(24vw + 0.5rem), 20.5rem)", desktop,
                  "768px and up already measures the viewport through its own 24vw and has " \
                  "448px of slack at its breakpoint; the phone floor is a phone number"
     refute_includes desktop, "--nav-left-need",
@@ -275,7 +275,7 @@ class NavbarPhoneWidthTest < ActiveSupport::TestCase
                     "clamp(var(--user-nav-floor), calc(100% + 2 * var(--preview-frame) - var(--nav-left-need)), 14rem)"
     assert_includes small,
                     "clamp(var(--user-nav-floor), calc(100% + 2 * var(--preview-frame) - var(--nav-left-need)), 15rem)"
-    assert_includes desktop, "clamp(16rem, calc(24% + 0.48 * var(--preview-frame)), 20rem)"
+    assert_includes desktop, "clamp(16.5rem, calc(24% + 0.48 * var(--preview-frame) + 0.5rem), 20.5rem)"
 
     # THE BAND-SPECIFIC NUMBER EACH PREVIEW HAS TO RESTATE, derived rather than
     # asserted as a literal — and the reason both are checked is that reading
@@ -333,7 +333,7 @@ class NavbarPhoneWidthTest < ActiveSupport::TestCase
     expected = [
       "clamp(11.875rem, 100vw - 11.125rem, 14rem)",
       "clamp(11.875rem, 100vw - 12.25rem, 15rem)",
-      "clamp(16rem, 24vw, 20rem)"
+      "clamp(16.5rem, 24vw + 0.5rem, 20.5rem)"
     ]
     assert_equal expected, documented,
                  "the band table's .user-nav-col column disagrees with the shipped rules"

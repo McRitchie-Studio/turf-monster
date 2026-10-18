@@ -13,6 +13,14 @@
 // controller to measure again through the one door it listens on, a window
 // resize. It fires on a hydrate or a balance-face swap, never per scroll
 // frame: nothing in the column moves with the scroll on the timeline.
+//
+// IT WATCHES THE ACCOUNT COLUMN'S TWO ROWS, NOT ONLY THE COLUMN'S BOX
+// (/tasks/turf-navbar-avatar-table-header). From 768px the avatar is 40px at
+// rest, taller than the two rows beside it, so the hydrate that grows the rows
+// by 2px no longer grows the column: the avatar holds its height. The COLLAPSED
+// bar still grows, because there the avatar is 32px and the rows are the tallest
+// thing in it. So the rows ([data-turf-nav-column]) are observed as well, and a
+// change in either one asks for the re-measure.
 let observer = null
 
 function watch() {
@@ -21,15 +29,19 @@ function watch() {
   const header = document.querySelector("header[data-nav-timeline]")
   const column = header && header.querySelector(".user-nav-col")
   if (!column || typeof ResizeObserver !== "function") return
+  const watched = [column, column.querySelector("[data-turf-nav-column]")].filter(Boolean)
 
-  let last = null
-  observer = new ResizeObserver(() => {
-    const height = column.offsetHeight
-    const changed = last !== null && height !== last
-    last = height
+  const last = new Map()
+  observer = new ResizeObserver((entries) => {
+    let changed = false
+    entries.forEach(({ target }) => {
+      const height = target.offsetHeight
+      if (last.has(target) && last.get(target) !== height) changed = true
+      last.set(target, height)
+    })
     if (changed && header.hasAttribute("data-nav-timeline-on")) window.dispatchEvent(new Event("resize"))
   })
-  observer.observe(column)
+  watched.forEach((el) => observer.observe(el))
 }
 
 document.addEventListener("turbo:load", watch)

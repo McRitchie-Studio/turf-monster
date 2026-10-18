@@ -387,7 +387,7 @@ Each band overrides the `--nav-*` custom properties on `.nav-shell`, so a band i
 |---|---|---|---|---|---|
 | **< 400px** | 120px | clamp(11.875rem, 100vw - 11.125rem, 14rem) | 3rem → 2.5rem | 1.1rem → 0.9rem | 1.3rem → 1rem |
 | **400–767px** | 120px | clamp(11.875rem, 100vw - 12.25rem, 15rem) | 3rem → 2.5rem | 1.25rem → 1rem | 1.5rem → 1.15rem |
-| **768px+** | 144px | clamp(16rem, 24vw, 20rem) | 3rem → 2rem | 1.875rem → 1.25rem | — (tracks `.nav-title`) |
+| **768px+** | 144px | clamp(16.5rem, 24vw + 0.5rem, 20.5rem) | 3rem → 2rem | 1.875rem → 1.25rem | — (tracks `.nav-title`) |
 
 **The two phone rows are a cap, not a constant, and that is the whole of `turf-header-fits-phone`.** They used to read a flat `14rem`/`15rem` on a `flex-shrink-0` column — 224px, 57% of a 390px screen — so the left column got what was left and the wordmark drew across the gutter onto the seeds bar. Read the clamp inside out:
 

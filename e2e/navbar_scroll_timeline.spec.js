@@ -161,4 +161,41 @@ test.describe("Navbar scroll timeline", () => {
     await expect.poll(() => header.evaluate((h) => Math.round(h.getBoundingClientRect().bottom)),
       { message: "the compact bar is on screen after the resize" }).toBe(measured.collapsed);
   });
+
+  // /tasks/turf-navbar-avatar-table-header. On the timeline nothing writes
+  // --nav-p, so before this the avatar, name and level kept their rest size in
+  // the compact bar, and the avatar sat at the window edge, 80px right of the
+  // content at 1440. The account now scales as the hub's does (avatar 40 -> 32)
+  // and the row stops at the page container.
+  for (const width of [1440, 1280]) {
+    test(`at ${width} the account shrinks with the bar and the avatar sits on the container's right edge`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 800 });
+      await login(page, PLAYER);
+      await page.goto("/contests");
+      await settled(page);
+      const read = () => page.evaluate(async (sel) => {
+        for (let i = 0; i < 2; i++) await new Promise((r) => requestAnimationFrame(r));
+        const h = document.querySelector(sel);
+        const avatar = h.querySelector("[data-profile-image-toggle] > *").getBoundingClientRect();
+        const column = h.querySelector(".user-nav-col .flex-1").getBoundingClientRect();
+        const name = h.querySelector(".nav-username").getBoundingClientRect();
+        const content = document.querySelector("body > .max-w-7xl");
+        const box = content.getBoundingClientRect();
+        const contentRight = box.right - parseFloat(getComputedStyle(content).paddingRight);
+        return { avatar: avatar.height, avatarRight: avatar.right, contentRight, name: name.height, gap: avatar.left - column.right };
+      }, HEADER);
+      const top = await read();
+      await page.evaluate(() => window.scrollTo(0, 1200));
+      const compact = await read();
+      const both = JSON.stringify({ top, compact });
+
+      expect(Math.abs(top.avatar - 40), `the avatar is 40px at rest ${both}`).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(compact.avatar - 32), `and 32px in the compact bar ${both}`).toBeLessThanOrEqual(0.5);
+      expect(compact.name, `the name shrinks with it ${both}`).toBeLessThan(top.name - 1);
+      for (const at of [top, compact]) {
+        expect(Math.abs(at.avatarRight - at.contentRight), `the avatar's right edge is the container's ${both}`).toBeLessThanOrEqual(1);
+      }
+      expect(Math.abs(compact.gap - top.gap), `the column follows the avatar in ${both}`).toBeLessThanOrEqual(1);
+    });
+  }
 });

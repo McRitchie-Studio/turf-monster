@@ -891,10 +891,13 @@
      left column needs. This band already reads the viewport through its own 24vw
      and has 448px of slack at its breakpoint; there is nothing a tighter cap
      could buy, and the floor above is a phone number. Unchanged by the phone
-     fix, and the squeeze-band notes further down this file still describe it. */
+     fix, and the squeeze-band notes further down this file still describe it.
+     The 0.5rem on every term is the avatar's: it is 40px from 768px, not 32
+     (THE ACCOUNT ROW, SIZED AND ALIGNED AS ON THE HUB, below), and the column
+     grows by the same 8px so the username keeps the width it had. */
   @media (min-width: 768px) {
     .user-nav-col {
-      width: clamp(16rem, 24vw, 20rem);
+      width: clamp(16.5rem, calc(24vw + 0.5rem), 20.5rem);
     }
   }
   @media (max-width: 767px) {
