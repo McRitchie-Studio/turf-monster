@@ -82,4 +82,36 @@ class NavbarScrollTimelineTest < ActionDispatch::IntegrationTest
     chat = File.read(Rails.root.join("app/views/contests/_chat_panel.html.erb"))
     assert_includes chat, "window.studioPinnedStack", "the reaction picker reads the stack live"
   end
+
+  # /tasks/turf-navbar-avatar-table-header. The forked account carries neither
+  # engine hook ([data-nav-account], [data-nav-tools]), so on the timeline it
+  # kept full size in the compact bar. It carries Turf's own two, and the
+  # stylesheet scales both on the engine's timeline and range.
+  test "the account column and avatar carry the hooks the timeline scales, and no engine account hook" do
+    log_in_as(users(:alex))
+    get contests_path
+    assert_response :success
+    assert_select "#{HEADER} .user-nav-col [data-turf-nav-column]", 1
+    assert_select "#{HEADER} .user-nav-col [data-turf-nav-avatar] [data-profile-image-toggle]", 1
+    assert_select "#{HEADER} [data-nav-account], #{HEADER} [data-nav-tools]", 0,
+                  "the engine hooks would also restyle the icon rail and its gaps"
+  end
+
+  test "the account scales on the header's timeline: avatar 40 to 32 from its right edge, the column by 7/8" do
+    %w[data-turf-nav-avatar data-turf-nav-column].each do |hook|
+      assert_match(/\.nav-shell\[data-nav-timeline\] \[#{hook}\][^{]*\{[^}]*animation-timeline: scroll\(root block\);[^}]*animation-range: var\(--nav-start, 0px\) calc\(var\(--nav-start, 0px\) \+ var\(--nav-ramp\)\);[^}]*transform-origin: right center;/m,
+                   CSS, "[#{hook}] runs on the engine's timeline and ramp, from its right edge")
+    end
+    assert_match(/--turf-nav-avatar: calc\(2\.5rem - 0\.5rem \* var\(--nav-p, 0\)\);/, CSS,
+                 "40px at rest and 32px at --nav-p 1, which is how the controller measures the compact bar")
+    assert_match(/--turf-nav-avatar-scale: 0\.8;/, CSS)
+    assert_match(/@keyframes turf-nav-avatar \{ to \{ transform: scale\(var\(--turf-nav-avatar-scale, 1\)\); \} \}/, CSS)
+    assert_match(/@keyframes turf-nav-column \{\s*to \{ transform: translateX\(var\(--turf-nav-avatar-shrink, 0px\)\) scale\(var\(--turf-nav-column-scale, 1\)\); \}\s*\}/, CSS,
+                 "the column slides right by what the avatar gave up, so the gap between them holds")
+  end
+
+  test "the nav row stops at the page container, so the avatar sits on the content's right edge" do
+    assert_match(/\.nav-shell > \.nav-row \{ max-width: 80rem; margin-inline: auto; \}/, CSS,
+                 "80rem is the max-w-7xl the pages lay out in; the hub carries the same rule")
+  end
 end
