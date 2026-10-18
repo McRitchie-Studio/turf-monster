@@ -167,8 +167,17 @@ test.describe("Navbar scroll timeline", () => {
   // the compact bar, and the avatar sat at the window edge, 80px right of the
   // content at 1440. The account now scales as the hub's does (avatar 40 -> 32)
   // and the row stops at the page container.
-  for (const width of [1440, 1280]) {
+  //
+  // /tasks/turf-avatar-name-gap. The name sits the hub's 12px from the avatar
+  // (the engine's --nav-gap, measured ink to ink on the hub at 1440, 1280 and
+  // 1024: 12px at rest and compact), at rest, mid-collapse and compact. Before
+  // it the column's 6px padding, the row's 8px gap and the avatar's 12px
+  // margin stacked to 26px. Reduced motion snaps the collapse at the first
+  // pixel, so the mid-collapse reading turns it back on.
+  const HUB_NAME_GAP = 12;
+  for (const width of [1440, 1280, 1024]) {
     test(`at ${width} the account shrinks with the bar and the avatar sits on the container's right edge`, async ({ page }) => {
+      await page.emulateMedia({ reducedMotion: "no-preference" });
       await page.setViewportSize({ width, height: 800 });
       await login(page, PLAYER);
       await page.goto("/contests");
@@ -178,16 +187,34 @@ test.describe("Navbar scroll timeline", () => {
         const h = document.querySelector(sel);
         const avatar = h.querySelector("[data-profile-image-toggle] > *").getBoundingClientRect();
         const column = h.querySelector(".user-nav-col .flex-1").getBoundingClientRect();
-        const name = h.querySelector(".nav-username").getBoundingClientRect();
+        const username = h.querySelector(".nav-username");
+        const name = username.getBoundingClientRect();
+        const ink = document.createRange();
+        ink.selectNodeContents(username);
         const content = document.querySelector("body > .max-w-7xl");
         const box = content.getBoundingClientRect();
         const contentRight = box.right - parseFloat(getComputedStyle(content).paddingRight);
-        return { avatar: avatar.height, avatarRight: avatar.right, contentRight, name: name.height, gap: avatar.left - column.right };
+        return { y: Math.round(scrollY), avatar: avatar.height, avatarRight: avatar.right, contentRight, name: name.height,
+          gap: avatar.left - column.right, nameGap: avatar.left - ink.getBoundingClientRect().right,
+          clipped: username.scrollWidth > username.clientWidth + 0.5 };
       }, HEADER);
       const top = await read();
+      const ramp = await page.locator(HEADER).evaluate((h) => {
+        const css = getComputedStyle(h);
+        return { start: parseFloat(css.getPropertyValue("--nav-start")) || 0, ramp: parseFloat(css.getPropertyValue("--nav-ramp")) };
+      });
+      await page.evaluate((y) => window.scrollTo(0, y), Math.round(ramp.start + ramp.ramp / 2));
+      const mid = await read();
       await page.evaluate(() => window.scrollTo(0, 1200));
       const compact = await read();
-      const both = JSON.stringify({ top, compact });
+      const both = JSON.stringify({ top, mid, compact });
+
+      expect(mid.avatar, `mid-collapse is between the two sizes ${both}`).toBeLessThan(39.5);
+      expect(mid.avatar, `mid-collapse is between the two sizes ${both}`).toBeGreaterThan(32.5);
+      for (const at of [top, mid, compact]) {
+        expect(Math.abs(at.nameGap - HUB_NAME_GAP), `the name sits the hub's ${HUB_NAME_GAP}px from the avatar ${both}`).toBeLessThanOrEqual(1);
+        expect(at.clipped, `the name is not clipped ${both}`).toBe(false);
+      }
 
       expect(Math.abs(top.avatar - 40), `the avatar is 40px at rest ${both}`).toBeLessThanOrEqual(0.5);
       expect(Math.abs(compact.avatar - 32), `and 32px in the compact bar ${both}`).toBeLessThanOrEqual(0.5);

@@ -110,6 +110,24 @@ class NavbarScrollTimelineTest < ActionDispatch::IntegrationTest
                  "the column slides right by what the avatar gave up, so the gap between them holds")
   end
 
+  # /tasks/turf-avatar-name-gap. From 768px the name sits the hub's 12px from
+  # the avatar: the name row ends on the column's edge (md:pr-0) and the row's
+  # gap-2 plus the avatar's md:ml-1 make the 12px. The column's 6px padding,
+  # the gap and a 12px margin stacked to 26px before. A phone keeps pr-1.5 and
+  # ml-3. e2e/navbar_scroll_timeline.spec.js measures the gap in a browser.
+  test "from 768px the name row ends on the column's edge and the avatar sits the hub's 12px from it" do
+    log_in_as(users(:alex))
+    get contests_path
+    assert_response :success
+    assert_select "#{HEADER} .user-nav-col > div.flex.gap-2", 1
+    row = css_select("#{HEADER} [data-turf-nav-column] > div").first
+    assert row, "the name row is the column's first child"
+    assert_equal %w[pr-1.5 md:pr-0], row["class"].split & %w[pr-1.5 md:pr-0], "the phone keeps 6px, desktop none"
+    refute_match(/padding-right/, row["style"].to_s, "an inline padding would beat md:pr-0")
+    avatar = css_select("#{HEADER} [data-turf-nav-avatar]").first
+    assert_equal %w[ml-3 md:ml-1], avatar["class"].split & %w[ml-3 md:ml-1], "gap-2 (8px) + md:ml-1 (4px) = the hub's 12px"
+  end
+
   test "the nav row stops at the page container, so the avatar sits on the content's right edge" do
     assert_match(/\.nav-shell > \.nav-row \{ max-width: 80rem; margin-inline: auto; \}/, CSS,
                  "80rem is the max-w-7xl the pages lay out in; the hub carries the same rule")

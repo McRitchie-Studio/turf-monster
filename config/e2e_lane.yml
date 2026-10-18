@@ -1293,7 +1293,7 @@
 # away, and a phone on the --nav-p path that widens while scrolled. Only a
 # browser computes a scroll timeline. Runs in chromium, no skip, so excluded
 # holds at 17 and allowed_skips at 4. Derived with bin/e2e-lane-derive --write.
-total_specs: 514
+total_specs: 515
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1692,7 +1692,7 @@ allowed_skips: 4
 # above; chromium, no skip.
 # 488 -> 491 (turf-engine-navbar-timeline): the three navbar_scroll_timeline specs beside
 # total_specs above; chromium, no skip.
-executed: 493
+executed: 494
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a
