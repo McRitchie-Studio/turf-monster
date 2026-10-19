@@ -225,4 +225,104 @@ test.describe("Navbar scroll timeline", () => {
       expect(Math.abs(compact.gap - top.gap), `the column follows the avatar in ${both}`).toBeLessThanOrEqual(1);
     });
   }
+
+  // /tasks/turf-nav-links-follow. The logo link scales from its left edge by a
+  // transform, which keeps its layout box, so before studio-engine 0.111.3 the
+  // links beside it (Contests, Rules, geo badge, wallet signal) held still and
+  // the gap from the wordmark to Contests grew from 24px to 109px collapsed.
+  // The desktop nav now carries data-nav-links and slides left by
+  // --nav-brand-shrink. Read on the PAINTED edges: the brand's
+  // getBoundingClientRect() includes its transform.
+  const brandGap = (page, y) => page.evaluate(async ([sel, y]) => {
+    window.scrollTo(0, y);
+    for (let i = 0; i < 2; i++) await new Promise((r) => requestAnimationFrame(r));
+    const h = document.querySelector(sel);
+    const brand = h.querySelector(".nav-logo-link").getBoundingClientRect();
+    const contests = [...h.querySelectorAll("nav a")].find((a) => a.textContent.trim() === "Contests").getBoundingClientRect();
+    return { y: Math.round(scrollY), gap: contests.left - brand.right, brand: brand.width };
+  }, [HEADER, y]);
+  const midBand = (page) => page.locator(HEADER).evaluate((h) => {
+    const css = getComputedStyle(h);
+    return Math.round((parseFloat(css.getPropertyValue("--nav-start")) || 0) + parseFloat(css.getPropertyValue("--nav-band")) / 2);
+  });
+
+  for (const width of [1280, 1024]) {
+    test(`at ${width} the desktop links keep their gap to the logo as it shrinks`, async ({ page }) => {
+      await page.emulateMedia({ reducedMotion: "no-preference" });
+      await page.setViewportSize({ width, height: 800 });
+      await login(page, PLAYER);
+      await page.goto("/contests");
+      await settled(page);
+      await expect(page.locator(`${HEADER} nav[data-nav-links]`)).toHaveCount(1);
+
+      const top = await brandGap(page, 0);
+      const mid = await brandGap(page, await midBand(page));
+      const compact = await brandGap(page, 1200);
+      const all = JSON.stringify({ top, mid, compact });
+      expect(mid.brand, `mid-band is mid-shrink ${all}`).toBeLessThan(top.brand - 1);
+      expect(compact.brand, `the brand is smaller collapsed ${all}`).toBeLessThan(mid.brand - 1);
+      for (const at of [mid, compact]) {
+        expect(Math.abs(at.gap - top.gap), `the gap to Contests holds ${all}`).toBeLessThanOrEqual(1);
+      }
+
+      // The hook is what holds it: without it the links stay put and the gap opens.
+      await page.locator(`${HEADER} nav[data-nav-links]`).evaluate((n) => n.removeAttribute("data-nav-links"));
+      const unhooked = await brandGap(page, 1200);
+      expect(unhooked.gap - top.gap, `without data-nav-links the gap widens ${JSON.stringify(unhooked)}`).toBeGreaterThan(20);
+
+      // Collapsed, Contests takes the pointer where it paints, and a click there
+      // goes to it: start from the rules page so the navigation is real.
+      await page.goto("/turf-monster-v1");
+      await settled(page);
+      const scrolled = await page.evaluate(async () => {
+        window.scrollTo(0, 1200);
+        for (let i = 0; i < 2; i++) await new Promise((r) => requestAnimationFrame(r));
+        return scrollY;
+      });
+      expect(scrolled, "the rules page scrolls past the band").toBeGreaterThan(200);
+      const contests = page.locator(`${HEADER} nav[data-nav-links] a`, { hasText: "Contests" });
+      const hit = await contests.evaluate((a) => {
+        const r = a.getBoundingClientRect();
+        const el = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return el === a || a.contains(el);
+      });
+      expect(hit, "Contests is on top at its painted centre, collapsed").toBe(true);
+      await contests.click();
+      await expect(page).toHaveURL(/\/contests$/);
+    });
+  }
+
+  // The logo link is the min-w-0 item that gives way when the row runs short,
+  // and at 768 the links end 27px short of their column. Something in the nav
+  // that hydrates wider (the geo badge, the wallet signal) narrows the logo link
+  // with no window resize; app/javascript/nav_band_watch.js re-measures then, so
+  // --nav-brand-shrink follows the logo link's new width and the gap holds.
+  test("at 768 a nav that grows after load narrows the logo, and the gap still holds", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await page.setViewportSize({ width: 768, height: 800 });
+    await login(page, PLAYER);
+    await page.goto("/contests");
+    await settled(page);
+    const header = page.locator(HEADER);
+    const before = await header.evaluate((h) => ({ w: h.querySelector(".nav-logo-link").offsetWidth, shrink: h.style.getPropertyValue("--nav-brand-shrink") }));
+
+    await header.evaluate((h) => {
+      const pad = Object.assign(document.createElement("span"), { textContent: "" });
+      pad.setAttribute("data-test-pad", "");
+      pad.style.cssText = "display:inline-block;flex:none;width:90px";
+      h.querySelector("nav[data-nav-links]").appendChild(pad);
+    });
+    await expect.poll(() => header.evaluate((h) => h.querySelector(".nav-logo-link").offsetWidth),
+      { message: "the logo link narrows" }).toBeLessThan(before.w - 20);
+    await expect.poll(() => header.evaluate((h) => h.style.getPropertyValue("--nav-brand-shrink")),
+      { message: "--nav-brand-shrink is re-measured" }).not.toBe(before.shrink);
+
+    const top = await brandGap(page, 0);
+    const mid = await brandGap(page, await midBand(page));
+    const compact = await brandGap(page, 1200);
+    const all = JSON.stringify({ before, top, mid, compact });
+    for (const at of [mid, compact]) {
+      expect(Math.abs(at.gap - top.gap), `the gap to Contests holds on the narrowed logo ${all}`).toBeLessThanOrEqual(1);
+    }
+  });
 });

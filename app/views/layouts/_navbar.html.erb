@@ -154,7 +154,15 @@
               it, which is the bug rather than the fix. %>
           <h1 class="nav-title font-extrabold text-heading tracking-tight min-w-0"><span class="dm-salmon truncate">Turf</span><span class="dm-yellow tm-wordmark truncate">Monster</span></h1>
         <% end %>
-        <nav class="dm-teal hidden md:flex items-center gap-4 min-w-0">
+        <%# data-nav-links (studio-engine 0.111.3), only where the header is on
+            the scroll timeline and not a preview, as data-nav-timeline is, so a
+            preview or a scroll_timeline: false header stays byte-identical. The
+            logo link shrinks by a transform, which keeps its layout box, so
+            engine.css slides these links left by the width it gives up
+            (--nav-brand-shrink) and the gap to the wordmark holds at every
+            scroll position. nav_band_watch.js re-measures that width when the
+            logo link's box changes after connect. %>
+        <nav <%= "data-nav-links " if scroll_timeline && !is_preview %>class="dm-teal hidden md:flex items-center gap-4 min-w-0">
           <%= link_to "Contests", contests_path, class: "text-secondary hover:text-primary text-sm font-medium transition" %>
           <%= link_to "Rules", turf_monster_v1_path, class: "text-secondary hover:text-primary text-sm font-medium transition" %>
           <%= render "components/geo_badge" %>

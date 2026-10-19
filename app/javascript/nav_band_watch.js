@@ -21,6 +21,17 @@
 // bar still grows, because there the avatar is 32px and the rows are the tallest
 // thing in it. So the rows ([data-turf-nav-column]) are observed as well, and a
 // change in either one asks for the re-measure.
+//
+// IT WATCHES THE LOGO LINK'S WIDTH TOO (/tasks/turf-nav-links-follow). From
+// studio-engine 0.111.3 the same measure publishes --nav-brand-shrink, the width
+// the logo link gives up when it scales, and the desktop links ([data-nav-links])
+// slide left by it so their gap to the wordmark holds. The logo link is min-w-0,
+// so it is the flex item that gives way when the row runs short: at 768px the
+// links end 26.8px short of their column (measured signed in and out), and a geo
+// badge or wallet signal that hydrates wider than that narrows the logo link
+// with no window resize. A stale --nav-brand-shrink would then open or close the
+// gap as the page scrolls. Its width is layout, not paint: the scroll-driven
+// scale is a transform, so this never fires per scroll frame.
 let observer = null
 
 function watch() {
@@ -29,15 +40,19 @@ function watch() {
   const header = document.querySelector("header[data-nav-timeline]")
   const column = header && header.querySelector(".user-nav-col")
   if (!column || typeof ResizeObserver !== "function") return
-  const watched = [column, column.querySelector("[data-turf-nav-column]")].filter(Boolean)
+  const brand = header.querySelector(".nav-logo-link")
+  const watched = [column, column.querySelector("[data-turf-nav-column]"), brand].filter(Boolean)
+  // The column's rows change the band by their height; the logo link changes
+  // --nav-brand-shrink by its width.
+  const size = (el) => (el === brand ? el.offsetWidth : el.offsetHeight)
 
   const last = new Map()
   observer = new ResizeObserver((entries) => {
     let changed = false
     entries.forEach(({ target }) => {
-      const height = target.offsetHeight
-      if (last.has(target) && last.get(target) !== height) changed = true
-      last.set(target, height)
+      const value = size(target)
+      if (last.has(target) && last.get(target) !== value) changed = true
+      last.set(target, value)
     })
     if (changed && header.hasAttribute("data-nav-timeline-on")) window.dispatchEvent(new Event("resize"))
   })
