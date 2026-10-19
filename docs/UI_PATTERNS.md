@@ -358,7 +358,7 @@ The header carries `x-data="navCollapse()"` (factory in `shared/_alpine_factorie
 
 `is-scrolled` (+ `shadow-lg border-b border-subtle`) is still class-toggled on the same hysteresis — it is the shadow only, and hysteresis keeps it from strobing at the boundary.
 
-### From 768px the collapse runs on the scroll timeline (studio-engine 0.111.1)
+### From 768px the collapse runs on the scroll timeline (studio-engine 0.111.3)
 
 The `--nav-p` path above is the **phone** path now, and the one for a browser without scroll-driven animations (Firefox today). From 768px, `config.navbar_scroll_timeline = true` (`config/initializers/studio.rb`) puts `data-nav-timeline` on the header, and the engine's `nav-collapse` controller hands the collapse to `engine.css` (THE SCROLL-DRIVEN COLLAPSE): the header keeps **one height**, sticks at minus its **band** (expanded height less collapsed height, published as `--nav-band`), and the logo and title shrink by transforms on the page's scroll timeline. No script writes the header per frame and nothing relayouts, so a busy page cannot make it stutter. The header is also the pinned stack's nav layer (`data-pin="nav"`). Crossing 768px swaps modes; the `scroll_timeline:` local overrides the setting for one render, and a `preview` render carries none of it.
 
