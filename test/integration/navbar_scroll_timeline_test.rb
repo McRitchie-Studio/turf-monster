@@ -39,6 +39,42 @@ class NavbarScrollTimelineTest < ActionDispatch::IntegrationTest
     end
   end
 
+  # studio-engine 0.111.3 slides [data-nav-links] left by --nav-brand-shrink so
+  # the desktop links keep their gap to the scaled logo (/tasks/turf-nav-links-follow).
+  # The hook rides only on the timeline header, as data-nav-timeline does.
+  test "the timeline header's desktop nav carries data-nav-links, signed out and signed in" do
+    get contests_path
+    assert_select "#{HEADER} nav[data-nav-links]", 1
+    assert_select "#{HEADER} nav[data-nav-links] a[href=?]", contests_path, 1,
+                  "the hook sits on the nav that holds Contests, the links beside the brand"
+
+    log_in_as(users(:alex))
+    get contests_path
+    assert_select "#{HEADER} nav[data-nav-links]", 1
+    assert_select "[data-nav-links]", 1, "one links layer: the drawer and preview copies carry none"
+  end
+
+  test "a scroll_timeline: false header and a preview header carry no data-nav-links" do
+    [{ scroll_timeline: false }, { preview: true }].each do |extra|
+      html = ApplicationController.render(partial: "layouts/navbar",
+                                          locals: { show_logged_in: false }.merge(extra))
+      fragment = Nokogiri::HTML5.fragment(html)
+      assert fragment.at_css("nav.dm-teal"), "the desktop nav still renders (#{extra})"
+      assert_nil fragment.at_css("[data-nav-links]"), "#{extra} renders no data-nav-links"
+      assert_includes html, '<nav class="dm-teal hidden md:flex items-center gap-4 min-w-0">',
+                      "#{extra} keeps the desktop nav's opening tag as it was"
+    end
+  end
+
+  test "studio-engine slides the links on the brand's timeline (0.111.3 floor)" do
+    assert Gem::Version.new(Studio::VERSION) >= Gem::Version.new("0.111.3"),
+           "--nav-brand-shrink and the [data-nav-links] keyframes first ship in 0.111.3"
+    engine_css = File.read(Studio::Engine.root.join("app/assets/tailwind/studio_engine/engine.css"))
+    assert_match(/\[data-nav-links\] \{ animation-name: nav-tl-links; \}/, engine_css)
+    assert_match(/@keyframes nav-tl-links \{ to \{ transform: translateX\(calc\(-1 \* var\(--nav-brand-shrink, 0px\)\)\); \} \}/, engine_css)
+    refute_match(/\[data-nav-links\]/, CSS, "Turf adds no transform of its own to the links layer")
+  end
+
   test "an impersonating admin's bar stays inside the header, in the band the timeline carries down" do
     admin = users(:alex)
     player = users(:jordan)

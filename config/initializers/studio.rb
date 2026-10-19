@@ -49,7 +49,9 @@ Studio.configure do |config|
   # layouts/_navbar, which reads this setting for its data-nav-timeline; the
   # impersonation and frozen-account bars stay pinned inside the header
   # (application.css, THE IN-HEADER BARS ON THE SCROLL TIMELINE). Phones keep
-  # the --nav-p collapse. (/tasks/turf-engine-navbar-timeline)
+  # the --nav-p collapse. (/tasks/turf-engine-navbar-timeline) From engine
+  # 0.111.3 the desktop links (data-nav-links) slide left with the shrinking
+  # logo so their gap holds (/tasks/turf-nav-links-follow).
   config.navbar_scroll_timeline = true
 
   # nav_spinner_min_ms is a minimum DISPLAY FLOOR, not a timeout: the engine
