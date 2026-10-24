@@ -1,6 +1,6 @@
 <% content_for :title, "DK Score Formula — Iterations" %>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<%= javascript_include_tag "chart.umd.min" %>
 <script nonce="<%= content_security_policy_nonce %>">
   var _playgroundMatchups = <%== @sample_matchups.map { |m| { team: m[:team], emoji: m[:emoji], line: m[:line], odds: m[:over_odds], over_dec: m[:over_dec], prob: m[:prob].round(4) } }.to_json %>;
 

@@ -92,7 +92,7 @@ in the **Scope** table below.*
   Wallet Standard discovery (`_wsWallets`), and the `walletProvider` registry.
   `detect()` was keypair → Phantom → first Wallet-Standard wallet → `null`. It
   now returns a redirect provider on a phone (`7c113e4a`, turf PR 632); today it
-  starts at `app/javascript/wallet_provider.js:516`.
+  starts at `app/javascript/wallet_provider.js:520`.
 - `solana-studio/app/views/solana_studio/_phantom_deeplink.html.erb` —
   `startPhantomDeepLink(linkMode, currentUserId)`. Generates an x25519 keypair,
   fetches a nonce, journals to `phantom_dl_*` in localStorage, redirects to
