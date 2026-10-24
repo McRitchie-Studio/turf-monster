@@ -1298,7 +1298,16 @@
 # on Contests and the unhooked control), and at 768 a nav that grows after load narrows
 # the logo and the gap still holds. Runs in chromium, no skip, so excluded holds at 17
 # and allowed_skips at 4. Derived with bin/e2e-lane-derive --write.
-total_specs: 521
+# 521 -> 523 (turf-vendors-cdn-scripts): two specs in e2e/vendored_scripts.spec.js. On
+# the slate page, the vendored Chart.js reports 4.4.7 and holds a live chart on its
+# canvas, the engine's SortableJS is attached to the rank list, and the request log shows
+# both fetched from our own /assets/ and nothing from jsDelivr; then wallet_provider.js's
+# lazy tweetnacl load, reached by removing nacl and connecting the keypair provider,
+# injects a script carrying the sha384 pin that the browser accepts and runs. A global,
+# a chart instance, a request log and an executed pin exist only in a browser. Runs in
+# chromium, no skip, so excluded holds at 17 and allowed_skips at 4. Derived with
+# bin/e2e-lane-derive --write.
+total_specs: 523
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need funded devnet wallets: the secrets
 # SOLANA_BOT_KEY and MACK_DEVNET_KEY (never literals; test/lib/committed_secret_key_guard_test.rb).
@@ -1700,7 +1709,9 @@ allowed_skips: 4
 # total_specs above; chromium, no skip.
 # 494 -> 497 (turf-nav-links-follow): the three links-follow specs beside total_specs
 # above; chromium, no skip.
-executed: 500
+# 500 -> 502 (turf-vendors-cdn-scripts): the two vendored-scripts specs beside
+# total_specs above; chromium, no skip.
+executed: 502
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a
