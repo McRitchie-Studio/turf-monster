@@ -95,6 +95,20 @@ class GamesBackfillWeekTest < ActiveSupport::TestCase
     assert_match(/3 weeks \(8, 9, 10\)/, result.unresolved.first.reason)
   end
 
+  # A week with no season year to file it under would leave the row unreachable
+  # through in_season_slot AND out of the next run's candidates: reported instead.
+  test "a source that names no season year is reported, not half-written" do
+    yearless = Slate.create!(name: "Thanksgiving Special", slug: "thanksgiving-special", week: 12)
+    game = legacy_game!("team-a-vs-team-b")
+    SlateMatchup.create!(slate: yearless, team_slug: "team-a", opponent_team_slug: "team-b", game_slug: game.slug, week: 12)
+
+    result = Games::BackfillWeek.call(apply: true, client: StubClient.new)
+
+    assert_nil game.reload.week
+    assert_equal ["team-a-vs-team-b"], result.unresolved.map(&:slug)
+    assert_match(/no season year/, result.unresolved.first.reason)
+  end
+
   test "falls back to ESPN's event week when the row carries an ESPN id" do
     game = legacy_game!("team-a-vs-team-b", external_id: "401873010")
     client = StubClient.new("401873010" => { "week" => 7, "season" => { "year" => 2026, "type" => 2 } })

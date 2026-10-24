@@ -57,6 +57,12 @@ module Games
 
       games.each do |game|
         change, reason = resolve(game, matchup_slots[game.slug])
+        # A week with no season year/type to file it under leaves the row out of
+        # in_season_slot AND out of the next run's candidates: report it instead.
+        if change && (change.season_year.nil? || change.season_type.nil?)
+          reason = "week #{change.week} found, but the source names no season year/type"
+          change = nil
+        end
         if change.nil?
           unresolved << Unresolved.new(slug: game.slug, reason: reason)
           next
