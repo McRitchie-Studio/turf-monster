@@ -152,7 +152,7 @@ class ContestRevealTest < ActiveSupport::TestCase
   end
 
   test "scheduled_reveal_at is reveal_at only while coming soon and not held" do
-    at = 2.days.from_now
+    at = 2.days.from_now.change(usec: 0) # the column keeps microseconds; Time.now carries nanoseconds
     assert_equal at, build(coming_soon: true, reveal_at: at).scheduled_reveal_at
     assert_nil build(coming_soon: true, coming_soon_hold: true, reveal_at: at).scheduled_reveal_at
     assert_nil build(coming_soon: false, reveal_at: at).scheduled_reveal_at
