@@ -39,7 +39,7 @@ class Game < ApplicationRecord
   # EVERY NFL GAME CARRIES ITS WEEK, from whichever source wrote it: ESPN's
   # `week.number` (PollCycle), the odds CSV's week column
   # (Nfl::CacheExpectedTeamTotals), the schedule file (db/seeds/nfl_2026.rb).
-  # Measured 2026-10-24 on production: 165 of 288 NFL games carried
+  # Measured on production before this fix: 165 of 288 NFL games carried
   # `week: NULL`, because two of those three writers never set it, so
   # `Game.where(week: 8)` answered 0 for a week that existed.
   # `games:backfill_week` repairs the rows written before this.

@@ -26,7 +26,7 @@ module Nfl
     # (0 of 17 before the odds CSV runs), and the name fallback is what makes
     # those seeded slates resolvable anyway.
     #
-    # SINCE games-week-backfill (2026-10-24) every writer stamps the game's own
+    # SINCE games-week-backfill every writer stamps the game's own
     # slot — the seed, the odds CSV and the poller — and `games:backfill_week`
     # filled the rows written before. The slate fallback stays for any legacy
     # row the backfill could not place, which it reports by slug.

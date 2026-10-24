@@ -1,7 +1,7 @@
 module Games
   # FILLS `games.week` ON THE ROWS WRITTEN BEFORE EVERY WRITER SET IT.
   #
-  # Measured 2026-10-24 on production: 165 of 288 NFL games carried
+  # Measured on production before this fix: 165 of 288 NFL games carried
   # `week: NULL` (and no season_year / season_type either), every one of them
   # referenced by slate matchups that DO carry the week. `Game.where(week: 8)`
   # answered 0, so every reader that asks for a week by its slot saw nothing.
