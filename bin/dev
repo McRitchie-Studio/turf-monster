@@ -13,4 +13,12 @@ export PORT="${PORT:-3000}"
 export RUBY_DEBUG_OPEN="true"
 export RUBY_DEBUG_LAZY="true"
 
-exec foreman start -f Procfile.dev "$@"
+# Foreman and every process it starts run under the desk allow-list
+# (bin/lib/desk_env.sh, tm_scrub_env), as bin/tm's do: Puma renames its process
+# title, and on macOS a renamed process's environment is one `ps` away from a
+# transcript, so the launching shell's HEROKU_API_KEY, OP_SERVICE_ACCOUNT_TOKEN
+# and the rest never reach it. The app reads its secrets from .env (dotenv).
+# desk_env.sh is bash, so the scrub runs in bash. secrets-scrub-follow-ups.
+exec bash -c '. "$1/lib/desk_env.sh" || exit 1
+  SPAWN_KEEP_EXTRA="RUBY_DEBUG_OPEN RUBY_DEBUG_LAZY"
+  tm_scrub_env && shift && exec foreman start -f Procfile.dev "$@"' bin/dev "$(dirname "$0")" "$@"
