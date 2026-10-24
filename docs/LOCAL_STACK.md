@@ -24,8 +24,12 @@ bin/tm up
 - One-shot Tailwind build.
 - Readiness polling before reporting the URL.
 - An allow-listed environment for web, Sidekiq and the Stripe listener
-  (`TM_ENV_ALLOW` in `bin/tm`): system names, Rails and desk variables, `BINDING`,
-  `PAYMENT_PROVIDER` and `ENABLE_*` boot flags. No agent credential
+  (`TM_ENV_ALLOW` in `bin/lib/desk_env.sh`, which `bin/tm`, `bin/dev`,
+  `bin/parallel-server` and `bin/e2e-parallel` all source): system names, Rails and
+  desk variables, `BINDING`, `PAYMENT_PROVIDER`, and by prefix the `ENABLE_*` boot
+  flags and the `LC_*` locale. The desk mail keys (`RESEND_API_KEY`,
+  `SES_SMTP_USERNAME`, `SES_SMTP_PASSWORD`) always arrive EMPTY: a set one is
+  blanked, not dropped, so dotenv cannot refill it from `.env`. No agent credential
   (`HEROKU_API_KEY`, `OP_*`, `CLAUDE_CODE_*`, `AGENT_API_*`) reaches a server: Puma
   and Sidekiq rename their process titles, and on macOS `ps` then prints a renamed
   process's environment. The app reads its own secrets from `.env`. A new variable
@@ -61,6 +65,12 @@ Use `bin/tm restart` after changing `.env`, gems, migrations, or anything Sideki
 ## Human Interactive Stack
 
 `bin/dev` is for an interactive terminal where combined logs are useful. It does not start the Stripe listener and can self-terminate in background/no-TTY agent sessions because the Tailwind watcher exits.
+
+`bin/dev` scrubs the shell's environment before foreman starts (`tm_scrub_env`,
+the same `TM_ENV_ALLOW` list as `bin/tm`): only the listed names, `ENABLE_*` and
+`LC_*` reach Puma and the Tailwind watcher. A variable you export for one run
+reaches the app only if it is on that list or carries one of those prefixes;
+anything else goes in `.env`.
 
 Agents should prefer `bin/tm up`.
 
@@ -175,6 +185,14 @@ project (nightly CI); they are excluded from the default `chromium` project.
   default the prepare+seed step is **serialized** (it can hit Solana RPC; N
   concurrent seeds contend and can blow the `/up` probe), and only the server
   boot is parallelized.
+
+Every Rails process it starts (the Tailwind build, each stack's prepare and seed,
+each test server) runs under the same scrub (`tm_scrub_env`, `TM_ENV_ALLOW` in
+`bin/lib/desk_env.sh`), plus the seed's own `PLAYWRIGHT_SEED` and
+`SOLANA_BOT_PUBKEY`. So `CI=1` and any other name off the list no longer reach the
+e2e servers or the seed; the Playwright shards themselves keep the shell's
+environment (`PW_BASE_URL`, `CI`, the `ENABLE_*` rails). A name the servers must
+take from the shell goes on `TM_ENV_ALLOW`.
 
 ## Callback Rule
 
