@@ -28,7 +28,10 @@ TM_ENV_ALLOW=(
 # Boot flags an operator sets for one run (`ENABLE_FIAT_RAILS=true … bin/tm up`,
 # docs/LOCAL_STACK.md) pass by prefix: flags, never credentials.
 # A desk exports these EMPTY so dotenv cannot load the primary's real mail
-# credentials; an empty one is kept, a set one is dropped like any secret.
+# credentials. An exported one always reaches the child EMPTY: a set value is
+# BLANKED, never passed on and never dropped, because a dropped name is one
+# dotenv would then fill from .env (secrets-scrub-review-notes). Twin of the hub's
+# ChildEnv::MAIL_KEEP_IF_EMPTY (mcritchie-studio bin/lib/child_env.rb).
 TM_ENV_KEEP_IF_EMPTY=(RESEND_API_KEY SES_SMTP_USERNAME SES_SMTP_PASSWORD)
 # One spawn may name an extra variable it needs (the Stripe listener's
 # STRIPE_API_KEY, which it reads from the environment so the key is never argv).
@@ -45,11 +48,10 @@ tm_scrub_env(){
     # Boot flags, and the whole locale family (launchd and `env -i` start with
     # no locale, and Ruby then reads UTF-8 as US-ASCII).
     case "$name" in ENABLE_*|LC_*) keep=1 ;; esac
-    if [ "$keep" = 0 ]; then
-      for k in "${TM_ENV_KEEP_IF_EMPTY[@]}"; do
-        [ "$name" = "$k" ] && [ -z "${!name}" ] && { keep=1; break; }
-      done
-    fi
+    # The mail credentials stay exported, held to the empty blank.
+    for k in "${TM_ENV_KEEP_IF_EMPTY[@]}"; do
+      [ "$name" = "$k" ] && { export "$name="; keep=1; break; }
+    done
     [ "$keep" = 1 ] || unset "$name"
   done
 }

@@ -37,9 +37,12 @@ class TmSpawnEnvTest < Minitest::Test
     "CLAUDE_CODE_MESSAGING_TOKEN" => "fake-claude-messaging",
     "ANTHROPIC_API_KEY" => "fake-anthropic-key",
     "SOME_FUTURE_SECRET" => "fake-unlisted-name",
-    "RESEND_API_KEY" => "fake-real-resend-key", # set, so dropped
+    "RESEND_API_KEY" => "fake-real-resend-key", # set, so blanked
     "SES_SMTP_PASSWORD" => ""                   # empty desk blank, so kept
   }.freeze
+
+  # The desk's mail credentials: they reach the process, always as the empty blank.
+  MAIL = %w[RESEND_API_KEY SES_SMTP_PASSWORD].freeze
 
   ALLOWED = {
     "DATABASE_URL" => "postgres://localhost/tm_fixture",
@@ -77,12 +80,16 @@ class TmSpawnEnvTest < Minitest::Test
     via_paths.each do |via|
       seen = launch(via)
 
-      (PLANTED.keys - ["SES_SMTP_PASSWORD"]).each { |name| refute seen.key?(name), "#{name} reached the process (#{via})" }
+      (PLANTED.keys - MAIL).each { |name| refute seen.key?(name), "#{name} reached the process (#{via})" }
       refute(seen.values.any? { |v| v.start_with?("fake-") }, "a planted value reached the process (#{via}; names: #{seen.keys.sort.inspect})")
       ALLOWED.each { |name, value| assert_equal value, seen[name], "#{name} did not reach the process (#{via})" }
       assert seen.key?("PATH"), "PATH did not reach the process (#{via})"
       assert seen.key?("HOME"), "HOME did not reach the process (#{via})"
       assert_equal "", seen["SES_SMTP_PASSWORD"], "an empty desk mail blank must survive (#{via})"
+      # A SET mail key is BLANKED, not dropped (secrets-scrub-review-notes): a
+      # dropped name is one dotenv then fills from .env, so a desk would send real
+      # mail. Twin of the hub's ChildEnv::MAIL_KEEP_IF_EMPTY.
+      assert_equal "", seen["RESEND_API_KEY"], "a set RESEND_API_KEY must reach the process as the empty blank (#{via})"
     end
   end
 
