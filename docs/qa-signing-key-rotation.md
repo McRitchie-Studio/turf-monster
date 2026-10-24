@@ -27,7 +27,16 @@ so the key is treated as published for good. Mack's seat is now
 2026-10-24 - foUu leaked)`. `foUu` was swept to 0 SOL and its 2,995 devnet USDC
 moved to `8UwJ`. `node scripts/check-signer-slots.js --cluster devnet`
 (turf-vault) read `2eGs`, `8UwJ`, `BVQH` afterwards. QA's
-`SOLANA_MULTISIG_SIGNERS` names `8UwJ` in `foUu`'s place since release v302.
+`SOLANA_MULTISIG_SIGNERS` named `8UwJ` in `foUu`'s place from release v302,
+but still listed `9gAC` and `3Qj4` and kept `SOLANA_MULTISIG_COSIGNER=9gAC`.
+
+**QA's config as set (release v304, 2026-10-24, `turf-devnet-config-truth`):**
+`SOLANA_MULTISIG_SIGNERS` = `2eGs8G3w…`, `8UwJhRiN…`, `BVQHNwUE…` (exactly the
+three seated devnet slots) and `SOLANA_MULTISIG_COSIGNER` = `8UwJhRiN…` (Mack).
+Why Mack and not `BVQH` or unset: `docs/SOLANA.md`, beside the devnet signer
+set. Read back with `heroku config:get SOLANA_MULTISIG_SIGNERS --app
+turf-monster-qa` (public keys only). Rollback: `heroku rollback v303 --app
+turf-monster-qa`.
 
 It took two transactions, not one swap, because `update_signers` keeps three of
 its authorizers in the new set (`SignerContinuityRequired`, 6017) and the agents

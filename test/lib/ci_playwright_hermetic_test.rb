@@ -20,11 +20,11 @@ require "yaml"
 # client's retry set), and the app takes its designed nil-safe fallbacks.
 #
 # COVERAGE, STATED HONESTLY: server-side on-chain paths are NOT exercised by
-# any e2e that runs today. CI excludes the @devnet specs (--grep-invert), and
-# devnet-nightly.yml — the workflow that would run them — is DISABLED (gated on
-# vars.DEVNET_NIGHTLY_ENABLED == 'true'; every scheduled run has completed
-# `skipped`; it has never run). This pin is NOT justified by coverage living
-# elsewhere — it lives nowhere.
+# any e2e that runs in CI. CI excludes the @devnet specs (--grep-invert), and no
+# workflow runs them: Devnet Nightly never ran on schedule and was deleted
+# (turf-devnet-config-truth); the devnet signal is the per-release
+# contest-rehearsal gauntlet, outside CI. This pin is NOT justified by e2e
+# coverage living elsewhere in CI — it lives nowhere there.
 #
 # WHAT LICENSES THE PIN: no e2e asserts the observables these RPCs feed. That is
 # a MEASUREMENT, not an argument — the full chromium suite is 79/79 green under

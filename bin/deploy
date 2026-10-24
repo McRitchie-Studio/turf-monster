@@ -5,8 +5,8 @@
 # heroku-mainnet git remote. (The old devnet-prod deploy target — the
 # turf-monster app on turf.mcritchie.studio — was decommissioned 2026-06;
 # mainnet is the only public prod app now. The devnet CLUSTER itself is still
-# very much alive — local dev, CI devnet-nightly, and Solana::Config's network
-# selection all still use it. This script just no longer DEPLOYS a second app.)
+# very much alive — local dev, the QA app, the contest-rehearsal gauntlet and
+# Solana::Config's network selection all still use it. This script just no longer DEPLOYS a second app.)
 #
 #   bin/deploy        # turf-monster-mainnet (real funds) → heroku-mainnet (confirm)
 #
@@ -52,7 +52,7 @@ bin/deploy — ongoing Rails deploy to Heroku (mainnet prod).
 
 Single target: turf-monster-mainnet (app.turfmonster.media) → heroku-mainnet remote.
 (The devnet-prod deploy target was decommissioned 2026-06; the devnet cluster
-itself — local dev, CI devnet-nightly, Solana::Config network selection — is
+itself — local dev, QA, the contest-rehearsal gauntlet, Solana::Config — is
 unaffected.)
 
 Usage:

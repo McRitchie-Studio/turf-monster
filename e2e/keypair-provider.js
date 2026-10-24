@@ -18,8 +18,8 @@
 // "Alex", who is Mr. McRitchie, and its seeded username is `mcritchie`).
 // SOLANA_BOT_KEY is still the private key for THIS (F6f8…) wallet. For the @devnet keypair-login test to
 // resolve to the seeded bot again, EITHER seed the bot with F6f8… on devnet OR
-// generate a SOLANA_BOT_KEY for 8K81… and update this constant. Devnet-nightly
-// only — excluded from `npm test`.
+// generate a SOLANA_BOT_KEY for 8K81… and update this constant. @devnet only,
+// run by hand (e2e/DEVNET_RUNBOOK.md) — excluded from `npm test`.
 const BOT_PUBKEY = "F6f8h5yynbnkgWvU5abQx3RJxJpe8EoQmeFBuNKdKzhZ";
 
 /**

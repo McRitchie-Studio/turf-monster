@@ -2,7 +2,9 @@
 
 > **ARCHIVE-ONLY PLANNING SNAPSHOT.** This captured the May 2026 devnet test
 > plan. Use `docs/TEST_COVERAGE_STATUS.md` for current test coverage
-> orientation, and verify live CI before relying on nightly devnet proof.
+> orientation. The nightly workflow below never ran on schedule and was
+> deleted on 2026-10-24 (`turf-devnet-config-truth`); the devnet signal is the
+> per-release `contest-rehearsal` gauntlet (`docs/SOLANA.md`).
 
 > **Status (2026-05-23): PARTIALLY CLOSED.** `e2e/devnet-smoke.spec.js` (~890 lines) ships a comprehensive devnet smoke suite covering the Rails ↔ program contract end-to-end: vault round-trip, contest create/enter/settle, entry tokens, settlement with cosign. The nightly CI workflow may or may not be live — verify before depending on it. Remaining work below is mostly edge cases + the nightly CI plumbing.
 
