@@ -69,6 +69,18 @@ class Api::V1::ContestSerializerTest < ActiveSupport::TestCase
     assert_equal false, data[:accepting_entries]
   end
 
+  test "reveal_at is the scheduled opening while coming soon, and null when open or held" do
+    at = 3.days.from_now.change(usec: 0)
+    @contest.update_columns(coming_soon: true, reveal_at: at)
+    assert_equal at.iso8601, serialize[:reveal_at]
+
+    @contest.update_columns(coming_soon_hold: true)
+    assert_nil serialize[:reveal_at], "a held contest has no scheduled opening"
+
+    @contest.update_columns(coming_soon: false, coming_soon_hold: false)
+    assert_nil serialize[:reveal_at], "an open contest has nothing left to reveal"
+  end
+
   test "accepting_entries is false when coming soon, full, locked, or at the player's limit" do
     @contest.update!(coming_soon: true)
     assert_equal [true, false], serialize.values_at(:coming_soon, :accepting_entries)

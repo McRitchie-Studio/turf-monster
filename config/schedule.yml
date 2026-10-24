@@ -182,7 +182,7 @@ contest_reveal_sweep:
     to take money (open, not cancelled, not locked, on chain, priced), and raise
     ONE ErrorLog alert for any contest still coming soon within a day of its
     lock. Never touches a contest the admin put on Hold. Written after the NFL
-    weeks 7-9 contest locked on 2026-10-22 still sashed Coming Soon with zero
-    entries because nobody flipped the flag. Reads no chain; one query when
+    weeks 7-9 contest locked still sashed Coming Soon with zero entries
+    because nobody flipped the flag. Reads no chain; one query when
     nothing is coming soon.
   queue: default

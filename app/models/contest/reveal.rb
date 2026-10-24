@@ -2,9 +2,9 @@ class Contest
   # A COMING-SOON CONTEST OPENS ITSELF. `coming_soon` advertises a contest that
   # takes no entries yet (Entries::ApiSubmission refuses it, the card sashes
   # it). Until this existed the only way back to open was an admin remembering
-  # to flip the flag, and on 2026-10-22 nobody did: the NFL weeks 7-9 contest,
-  # on chain and priced, locked at its starts_at still sashed COMING SOON, with
-  # zero entries, and nobody noticed for two days.
+  # to flip the flag, and once nobody did: the NFL weeks 7-9 contest, on chain
+  # and priced, locked at its starts_at still sashed COMING SOON, with zero
+  # entries, and nobody noticed for two days.
   #
   # So the flag now has a date. `reveal_at` defaults to REVEAL_LEAD before the
   # lock when a contest is created, the admin edit form can move it, and
