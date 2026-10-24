@@ -6,7 +6,7 @@ class SlatesPriceTableTest < ActionDispatch::IntegrationTest
     log_in_as(users(:alex)) # admin — the ranking UI is admin-gated
     @slate = Slate.create!(name: "NFL 2026 Week 9 Test", slug: "nfl-2026-week-9-test", week: 9)
     %w[team-a team-b team-c].each_with_index do |slug, index|
-      game = Game.create!(slug: "#{slug}-vs-team-d", home_team_slug: slug, away_team_slug: "team-d",
+      game = Game.create!(week: 9, slug: "#{slug}-vs-team-d", home_team_slug: slug, away_team_slug: "team-d",
                           status: "scheduled")
       SlateMatchup.create!(slate: @slate, team_slug: slug, opponent_team_slug: "team-d",
                            game_slug: game.slug, expected_score: 20.0 - index, week: 9, status: "pending",

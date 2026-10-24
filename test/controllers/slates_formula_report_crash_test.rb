@@ -32,7 +32,7 @@ class SlatesFormulaReportCrashTest < ActionDispatch::IntegrationTest
 
   def slate_with_lines!(name:)
     slate = Slate.create!(name: name, starts_at: 2.days.from_now)
-    game = Game.create!(
+    game = Game.create!(week: 1,
       slug: "team-a-vs-team-b-#{SecureRandom.hex(3)}",
       home_team_slug: "team-a", away_team_slug: "team-b", status: "scheduled"
     )

@@ -16,7 +16,7 @@ class Entries::KickoffRaceTest < ActiveSupport::TestCase
   setup do
     freeze_time
     @kickoff = Time.current + 5.minutes
-    @game = Game.create!(home_team_slug: "team-a", away_team_slug: "team-b", kickoff_at: @kickoff, status: "scheduled")
+    @game = Game.create!(week: 1, home_team_slug: "team-a", away_team_slug: "team-b", kickoff_at: @kickoff, status: "scheduled")
     slate_matchups(:m1).update!(game_slug: @game.slug)
     @contest = make_onchain!(contests(:one))
     @user = make_managed!(users(:sam))

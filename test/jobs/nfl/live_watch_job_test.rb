@@ -30,7 +30,7 @@ class NflLiveWatchJobTest < ActiveSupport::TestCase
   end
 
   def game(status:, kickoff_at:)
-    Game.create!(home_team_slug: "team-a", away_team_slug: "team-b", status: status, kickoff_at: kickoff_at)
+    Game.create!(week: 1, home_team_slug: "team-a", away_team_slug: "team-b", status: status, kickoff_at: kickoff_at)
   end
 
   def lease = @cache.read(Nfl::LiveWatchJob::LEASE_KEY)

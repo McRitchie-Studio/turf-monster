@@ -55,7 +55,8 @@ class GameSlugStabilityTest < ActiveSupport::TestCase
   # season_type 2 onto an existing row, and the name it computes afterwards has
   # to be the name it already had.
   test "stamping a regular-season slot onto an existing game leaves its slug alone" do
-    game = Game.create!(home_team_slug: "team-a", away_team_slug: "team-b")
+    game = Game.new(home_team_slug: "team-a", away_team_slug: "team-b")
+    game.save!(validate: false) # a legacy row, written before writers set week
     original = game.slug
 
     game.update!(season_year: 2026, season_type: 2, week: 15)

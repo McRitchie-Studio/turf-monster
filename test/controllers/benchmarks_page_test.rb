@@ -23,7 +23,7 @@ class BenchmarksPageTest < ActionDispatch::IntegrationTest
   def add_games!(team_slug, scores)
     scores.each do |week, score|
       opponent = OPPONENTS.fetch(week)
-      game = Game.create!(slug: "#{team_slug}-vs-#{opponent}", home_team_slug: team_slug,
+      game = Game.create!(week: week, slug: "#{team_slug}-vs-#{opponent}", home_team_slug: team_slug,
                           away_team_slug: opponent, status: "scheduled", kickoff_at: 10.days.from_now + week.days)
       SlateMatchup.create!(slate: @span, team_slug: team_slug, opponent_team_slug: opponent,
                            game_slug: game.slug, expected_score: score, week: week, status: "pending")
@@ -109,7 +109,7 @@ class BenchmarksPageTest < ActionDispatch::IntegrationTest
   # Bare /benchmarks has to land somewhere sensible for a player who typed it.
   test "with no slug it opens the next span to kick off" do
     later = Slate.create!(name: "NFL 2026 Weeks 10-12", slug: "nfl-2026-weeks-10-12", week: 10)
-    game = Game.create!(slug: "team-a-vs-team-f-later", home_team_slug: "team-a", away_team_slug: "team-f",
+    game = Game.create!(week: 1, slug: "team-a-vs-team-f-later", home_team_slug: "team-a", away_team_slug: "team-f",
                         status: "scheduled", kickoff_at: 60.days.from_now)
     SlateMatchup.create!(slate: later, team_slug: "team-a", opponent_team_slug: "team-f",
                          game_slug: game.slug, expected_score: 20.0, week: 10, status: "pending")
@@ -289,7 +289,7 @@ class BenchmarksPageTest < ActionDispatch::IntegrationTest
       slate = Slate.create!(name: "NFL 2026 Weeks #{number}-#{number + 2}",
                             slug: "nfl-2026-weeks-#{number}-#{number + 2}", week: number)
       opponent = team!("filler-#{number}")
-      game = Game.create!(slug: "team-a-vs-#{opponent.slug}", home_team_slug: "team-a",
+      game = Game.create!(week: 1, slug: "team-a-vs-#{opponent.slug}", home_team_slug: "team-a",
                           away_team_slug: opponent.slug, status: "scheduled", kickoff_at: 30.days.from_now)
       SlateMatchup.create!(slate: slate, team_slug: "team-a", opponent_team_slug: opponent.slug,
                            game_slug: game.slug, expected_score: 20.0, week: number, status: "pending")

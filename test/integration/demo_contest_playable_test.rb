@@ -66,7 +66,7 @@ class DemoContestPlayableTest < ActionDispatch::IntegrationTest
       slate = Slate.create!(name: "NFL 2026 Week #{week}", slug: "nfl-2026-week-#{week}", week: week)
 
       pairings.each_with_index do |(home, away), index|
-        game = Game.create!(
+        game = Game.create!(week: week,
           home_team_slug: home,
           away_team_slug: away,
           kickoff_at: FIRST_KICKOFF + ((week - 1) * 7).days + index.hours,

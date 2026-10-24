@@ -320,8 +320,8 @@ class NflSilentGapCheckTest < ActiveSupport::TestCase
   # slate naming it, no SlateMatchup points at it either, so no contest scores
   # off it and there is nothing for this check to protect.
   test "a game no slate names and no poller stamped is not a candidate" do
-    Game.create!(home_team_slug: teams(:team_a).slug, away_team_slug: teams(:team_b).slug,
-                 kickoff_at: 3.days.ago, status: "scheduled")
+    Game.new(home_team_slug: teams(:team_a).slug, away_team_slug: teams(:team_b).slug,
+             kickoff_at: 3.days.ago, status: "scheduled").save!(validate: false) # a legacy null-week row
     client = StubClient.new
 
     result = Nfl::LiveScores::SilentGapCheck.call(client: client)
@@ -368,10 +368,13 @@ class NflSilentGapCheckTest < ActiveSupport::TestCase
   # `external_id`, no `season_year`/`season_type`/`week`, a `kickoff_at`, and a
   # slate whose NAME is the only place the week appears.
   def seed_shaped_game(home:, away:, kickoff: 3.days.ago, slate: nil, matchup_week: nil)
-    game = Game.create!(
+    # Saved past Game's week guard on purpose: the legacy shape this check
+    # must still see, from before every writer set `week`.
+    game = Game.new(
       home_team_slug: home.slug, away_team_slug: away.slug,
       kickoff_at: kickoff, status: "scheduled"
     )
+    game.save!(validate: false)
     SlateMatchup.create!(
       slate: slate || seed_shaped_slate, team_slug: home.slug, opponent_team_slug: away.slug,
       game_slug: game.slug, slug: "sm-#{game.slug}", rank: 1, week: matchup_week

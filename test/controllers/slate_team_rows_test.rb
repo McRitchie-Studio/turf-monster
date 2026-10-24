@@ -9,7 +9,7 @@ class SlateTeamRowsTest < ActionDispatch::IntegrationTest
   end
 
   def add_game!(team_slug, opponent_slug, expected)
-    game = Game.create!(
+    game = Game.create!(week: 1,
       slug: "#{team_slug}-vs-#{opponent_slug}-#{SecureRandom.hex(3)}",
       home_team_slug: team_slug, away_team_slug: opponent_slug, status: "scheduled"
     )

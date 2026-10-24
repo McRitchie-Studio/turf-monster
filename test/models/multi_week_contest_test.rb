@@ -175,7 +175,7 @@ class MultiWeekContestTest < ActiveSupport::TestCase
     selection = pick!("team-a")
 
     week2 = @span.matchups_by_team["team-a"][1]
-    game = Game.create!(slug: "wk2-#{SecureRandom.hex(3)}", home_team_slug: "team-a",
+    game = Game.create!(week: 1, slug: "wk2-#{SecureRandom.hex(3)}", home_team_slug: "team-a",
                         away_team_slug: "team-c", kickoff_at: 1.day.ago, status: "completed")
     week2.update!(game_slug: game.slug)
 

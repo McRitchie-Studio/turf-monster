@@ -241,7 +241,7 @@ class Api::V1::EntryWritesTest < ActionDispatch::IntegrationTest
   end
 
   test "POST team_locked: a team whose game has kicked off cannot be picked" do
-    game = Game.create!(home_team_slug: "team-a", away_team_slug: "team-b", kickoff_at: 1.hour.ago)
+    game = Game.create!(week: 1, home_team_slug: "team-a", away_team_slug: "team-b", kickoff_at: 1.hour.ago)
     slate_matchups(:m1).update!(game_slug: game.slug)
 
     enter
@@ -485,7 +485,7 @@ class Api::V1::EntryWritesTest < ActionDispatch::IntegrationTest
   test "PATCH team_locked: a team whose game has kicked off cannot be dropped or added" do
     entry = entered
     g, h = extra_matchups
-    past = Game.create!(home_team_slug: "team-a", away_team_slug: "team-b", kickoff_at: 1.hour.ago)
+    past = Game.create!(week: 1, home_team_slug: "team-a", away_team_slug: "team-b", kickoff_at: 1.hour.ago)
 
     slate_matchups(:m1).update!(game_slug: past.slug)
     edit(entry, @picks.drop(1) + [g.id])

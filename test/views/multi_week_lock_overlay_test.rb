@@ -25,7 +25,7 @@ class MultiWeekLockOverlayTest < ActionDispatch::IntegrationTest
   end
 
   def span_row!(slate, team, opponent, week:, kickoff:)
-    game = Game.create!(home_team_slug: team, away_team_slug: opponent, kickoff_at: kickoff, status: "scheduled")
+    game = Game.create!(week: week, home_team_slug: team, away_team_slug: opponent, kickoff_at: kickoff, status: "scheduled")
     SlateMatchup.create!(slate: slate, team_slug: team, opponent_team_slug: opponent, game_slug: game.slug,
                          week: week, expected_score: 21.0, turf_score: 2.0, rank: 1, status: "pending")
   end

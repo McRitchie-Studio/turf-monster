@@ -74,7 +74,7 @@ class Entries::ManagedEntryTest < ActiveSupport::TestCase
     assert_not short.spend_attempted?
 
     Entry.where(contest: @contest).destroy_all
-    game = Game.create!(home_team_slug: "team-a", away_team_slug: "team-b", kickoff_at: 1.hour.ago)
+    game = Game.create!(week: 1, home_team_slug: "team-a", away_team_slug: "team-b", kickoff_at: 1.hour.ago)
     slate_matchups(:m1).update!(game_slug: game.slug)
     started = service
     error = refusal(started)

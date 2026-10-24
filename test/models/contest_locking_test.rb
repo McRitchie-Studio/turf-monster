@@ -33,7 +33,7 @@ class ContestLockingTest < ActiveSupport::TestCase
   end
 
   test "starts_in_at falls back to the slate first game" do
-    first_game = Game.create!(
+    first_game = Game.create!(week: 1,
       home_team_slug: "team-a",
       away_team_slug: "team-b",
       kickoff_at: 3.days.from_now.change(usec: 0),
@@ -107,7 +107,7 @@ class ContestLockingTest < ActiveSupport::TestCase
     # Mid-week, so "an hour ago" and "tomorrow" are the same NFL week on any day
     # this runs — the board shows one week at a time (Contest::WeekWindow).
     travel_to ActiveSupport::TimeZone["America/Denver"].local(2026, 10, 1, 12, 0)
-    active   = Game.create!(home_team_slug: "team-a", away_team_slug: "team-b", kickoff_at: 1.hour.ago,      status: "scheduled")
+    active   = Game.create!(week: 1, home_team_slug: "team-a", away_team_slug: "team-b", kickoff_at: 1.hour.ago,      status: "scheduled")
     upcoming = Game.create!(home_team_slug: "team-c", away_team_slug: "team-d", kickoff_at: 1.day.from_now,  status: "scheduled")
     done     = Game.create!(home_team_slug: "team-e", away_team_slug: "team-f", kickoff_at: 2.hours.ago,     status: "completed")
     slate_matchups(:m1).update!(game_slug: active.slug)
@@ -128,7 +128,7 @@ class ContestLockingTest < ActiveSupport::TestCase
     denver = ActiveSupport::TimeZone["America/Denver"]
     travel_to denver.local(2026, 10, 5, 19, 30) # Monday night, week 5
 
-    thursday = Game.create!(home_team_slug: "team-a", away_team_slug: "team-b", kickoff_at: denver.local(2026, 10, 1, 18, 15), status: "completed")
+    thursday = Game.create!(week: 1, home_team_slug: "team-a", away_team_slug: "team-b", kickoff_at: denver.local(2026, 10, 1, 18, 15), status: "completed")
     sunday   = Game.create!(home_team_slug: "team-c", away_team_slug: "team-d", kickoff_at: denver.local(2026, 10, 4, 18, 20), status: "completed")
     monday   = Game.create!(home_team_slug: "team-e", away_team_slug: "team-f", kickoff_at: denver.local(2026, 10, 5, 18, 15), status: "in_progress")
     slate_matchups(:m1).update!(game_slug: thursday.slug)
@@ -144,7 +144,7 @@ class ContestLockingTest < ActiveSupport::TestCase
     denver = ActiveSupport::TimeZone["America/Denver"]
     travel_to denver.local(2026, 10, 4, 21, 18) # Sunday night, week 4
 
-    tonight   = Game.create!(home_team_slug: "team-a", away_team_slug: "team-b", kickoff_at: denver.local(2026, 10, 4, 18, 20), status: "in_progress")
+    tonight   = Game.create!(week: 1, home_team_slug: "team-a", away_team_slug: "team-b", kickoff_at: denver.local(2026, 10, 4, 18, 20), status: "in_progress")
     monday    = Game.create!(home_team_slug: "team-c", away_team_slug: "team-d", kickoff_at: denver.local(2026, 10, 5, 18, 15), status: "scheduled")
     next_week = Game.create!(home_team_slug: "team-e", away_team_slug: "team-f", kickoff_at: denver.local(2026, 10, 11, 14, 25), status: "scheduled")
     slate_matchups(:m1).update!(game_slug: tonight.slug)
