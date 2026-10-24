@@ -317,7 +317,7 @@ module Admin
         # before Phantom is opened.
         plan   = Solana::CosignPlan.new(tx_type: @tx.tx_type)
 
-        # THE PLATFORM'S SECOND SIGNATURE (Mr. McRitchie, 2026-10-24): on a
+        # THE PLATFORM'S SECOND SIGNATURE (platform-cosigns-mainnet-settles): on a
         # settle, and on any other three-signature type the operator ticked,
         # the platform cosigner takes the named slot and signs here, beside
         # the admin key. The extras are then his wallets alone, and there is
@@ -411,7 +411,7 @@ module Admin
 
     # COMPLETE A TWO-SIGNATURE ACTION WITH THE PLATFORM'S OWN TWO SIGNATURES.
     #
-    # Mr. McRitchie, 2026-10-24: "I'm only important if you need a third." On
+    # Mr. McRitchie: "I'm only important if you need a third." On
     # a two-signature action (close_contest today; COMPLETABLE_TX_TYPES) the
     # server's admin key and the platform cosigner are both signatures the
     # chain counts, so an admin click lands it with no Phantom at all.

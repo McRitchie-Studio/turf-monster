@@ -692,7 +692,7 @@ module Admin
     # on the page (its message names public keys only) and holds no key.
     #
     # `platform:` is the operator's per-plan opt-in to the platform cosigner
-    # (Solana::PlatformCosigner, Mr. McRitchie's 2026-10-24 ruling): ticked,
+    # (Solana::PlatformCosigner, platform-cosigns-mainnet-settles): ticked,
     # its address joins the held set, so the planner lets the server sign for
     # it. Unticked, a rotation is planned exactly as before. The planner keeps
     # the last signature for one of his wallets either way.

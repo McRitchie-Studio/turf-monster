@@ -1,7 +1,7 @@
 module Solana
   # THE PLATFORM'S SECOND VAULT SIGNATURE.
   #
-  # Mr. McRitchie's ruling, 2026-10-24, after being asked for two Phantom
+  # Mr. McRitchie's ruling (platform-cosigns-mainnet-settles), after being asked for two Phantom
   # signatures on one settle: "You need two signatures? We should have it so
   # you can do two signatures and I'm only important if you need a third."
   #

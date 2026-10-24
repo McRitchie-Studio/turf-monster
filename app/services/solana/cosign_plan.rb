@@ -127,7 +127,7 @@ module Solana
       Governance.extra_cosigners_needed(action, named_count: NAMED_SIGNER_COUNT, thresholds: chain_thresholds)
     end
 
-    # ── THE PLATFORM'S SECOND SIGNATURE (Mr. McRitchie, 2026-10-24) ─────────
+    # ── THE PLATFORM'S SECOND SIGNATURE (platform-cosigns-mainnet-settles) ──
     #
     # Whether THIS build takes the platform cosigner (Solana::PlatformCosigner)
     # in the named `cosigner` slot, so the server signs admin and cosigner and

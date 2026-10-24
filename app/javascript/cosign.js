@@ -262,8 +262,8 @@ window.cosignTransaction = async function(slug, txTypeLabel, extraCosigners, but
       // otherwise three-signatures-required shows two rows to act on and the
       // arithmetic looks wrong.
       paintSigner(rebuilt.fee_payer_address, 'signed');
-      // The platform cosigner signed on the server too (Mr. McRitchie's
-      // 2026-10-24 ruling): its row is done before Phantom opens.
+      // The platform cosigner signed on the server too
+      // (platform-cosigns-mainnet-settles): its row is done before Phantom opens.
       if (rebuilt.platform_cosigner_address) paintSigner(rebuilt.platform_cosigner_address, 'signed');
       signerQueue.forEach(function(pubkey) { paintSigner(pubkey, 'pending'); });
       if (provider.publicKey) paintSigner(provider.publicKey.toBase58(), 'connected');

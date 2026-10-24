@@ -1,6 +1,6 @@
 module Solana
   # Builds that take the platform's second signature (Solana::PlatformCosigner,
-  # Mr. McRitchie's 2026-10-24 ruling). The rule for WHEN lives on
+  # platform-cosigns-mainnet-settles). The rule for WHEN lives on
   # Solana::CosignPlan; this module only assembles and signs.
   module PlatformCosign
     module_function
