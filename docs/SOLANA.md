@@ -373,8 +373,7 @@ lost key. Specifically:
 
 - **The QA rehearsal driver needed the devnet retune.** On devnet this gap
   closed on 2026-10-12 (card `devnet-v026-upgrade`): the rotation seated a
-  devnet-only agent key (Mack, `8UwJ…` since 2026-10-24, when it replaced the leaked
-  `foUu…`) and `settle_contest` was retuned to 2
+  devnet-only agent key (Mack, `8UwJ…` since 2026-10-24) and `settle_contest` was retuned to 2
   on devnet only, so `conclude --cosign agent` settles with the QA server key
   plus Mack, and the v0.26 lock and close take the same two. Mainnet keeps
   `settle_contest` at 3. See `docs/qa-contest-rehearsal.md`.
