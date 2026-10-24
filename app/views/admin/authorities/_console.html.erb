@@ -74,6 +74,22 @@
     <ul class="mt-1 space-y-0.5 text-3xs text-muted" data-signer-console-target="intentReasons"></ul>
   </fieldset>
 
+  <%# THE PLATFORM'S SECOND SIGNATURE, ON REQUEST ONLY (Mr. McRitchie,
+      2026-10-24). A rotation changes who governs, so the platform cosigner
+      signs one only when this box is ticked; the planner still leaves the
+      last signature to one of his wallets. %>
+  <% platform = Solana::PlatformCosigner.current %>
+  <% if platform.configured? %>
+    <label class="mb-4 flex items-start gap-2 text-xs text-secondary">
+      <input type="checkbox" data-signer-console-target="platformCosign"
+             data-action="change->signer-console#requestPlan" class="mt-0.5">
+      <span>
+        Platform cosigner signs too (<%= platform.address[0, 4] %>), so the server supplies two
+        signatures and you supply the rest.
+      </span>
+    </label>
+  <% end %>
+
   <%# ── STATE 2: THE KEYS ─────────────────────────────────────────────── %>
   <div class="mb-4 hidden grid gap-4 sm:grid-cols-2" data-signer-console-target="keys">
     <div data-signer-console-target="removeBox">

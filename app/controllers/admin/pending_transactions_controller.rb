@@ -15,6 +15,11 @@ module Admin
       # first wallet has signed.
       @primary_cosigner = Solana::Config::MULTISIG_COSIGNER
       @eligible_extras  = Solana::CosignPlan.eligible_cosigners - [@primary_cosigner]
+      # The platform cosigner (Solana::PlatformCosigner). On a row it signs,
+      # it holds the named slot, so the wallets left to pick from are the
+      # signer set minus the server and the platform: his, with 7ZDJ back in.
+      @platform = Solana::PlatformCosigner.current
+      @platform_extras = (Solana::CosignPlan.eligible_cosigners - [@platform.address] if @platform.configured?)
 
       # THE ACCOUNT THAT ACTUALLY PAYS, read ONCE for the page.
       #

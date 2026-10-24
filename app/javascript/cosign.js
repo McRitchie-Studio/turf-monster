@@ -205,7 +205,13 @@ window.cosignTransaction = async function(slug, txTypeLabel, extraCosigners, but
         'Accept': 'application/json',
         'X-CSRF-Token': csrfToken
       },
-      body: JSON.stringify({ extra_cosigners: chosenExtras })
+      // The operator's opt-in to the platform's second signature on a
+      // three-signature action that does not take it by default. A settle
+      // takes it without asking; the server decides either way.
+      body: JSON.stringify({
+        extra_cosigners: chosenExtras,
+        platform_cosign: !!(rosterScope && rosterScope.querySelector('[data-platform-cosign]:checked'))
+      })
     });
 
     if (!rebuildResp.ok) {
@@ -256,6 +262,9 @@ window.cosignTransaction = async function(slug, txTypeLabel, extraCosigners, but
       // otherwise three-signatures-required shows two rows to act on and the
       // arithmetic looks wrong.
       paintSigner(rebuilt.fee_payer_address, 'signed');
+      // The platform cosigner signed on the server too (Mr. McRitchie's
+      // 2026-10-24 ruling): its row is done before Phantom opens.
+      if (rebuilt.platform_cosigner_address) paintSigner(rebuilt.platform_cosigner_address, 'signed');
       signerQueue.forEach(function(pubkey) { paintSigner(pubkey, 'pending'); });
       if (provider.publicKey) paintSigner(provider.publicKey.toBase58(), 'connected');
 
@@ -326,8 +335,12 @@ window.cosignTransaction = async function(slug, txTypeLabel, extraCosigners, but
         // The SERVER's plan, echoed back — not `provider.publicKey`, which by
         // now holds whichever account the operator switched to LAST and would
         // record the wrong wallet as the named cosigner.
-        cosigner_address: signerQueue[0],
-        extra_cosigners: signerQueue.slice(1),
+        //
+        // A PLATFORM-SIGNED build is the exception: the server filled the
+        // named slot with the platform cosigner, so every wallet collected
+        // here is an extra and the named cosigner is the server's to name.
+        cosigner_address: rebuilt.platform_cosigner_address ? rebuilt.cosigner_address : signerQueue[0],
+        extra_cosigners: rebuilt.platform_cosigner_address ? signerQueue : signerQueue.slice(1),
         // The WHOLE queue, unsplit. The pair above cannot express an
         // operator-led build (account 0 is a signer to collect, not a spent
         // one), so the eviction endpoint reads this and refuses a set that is
