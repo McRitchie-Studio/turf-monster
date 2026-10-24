@@ -30,6 +30,25 @@ class SlatesLocalScriptsTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "no slate page loads an unpinned jsDelivr script" do
+    slate_pages.each do |path|
+      get path
+      assert_response :success, path
+      assert_empty unpinned_jsdelivr, path
+      assert_empty script_srcs.grep(/sortablejs@/), path
+    end
+  end
+
+  # The engine's classic build assigns window.Sortable, which the page's
+  # rankManager calls as Sortable.create.
+  test "the slate page loads SortableJS from studio-engine's vendored copy, before its inline script" do
+    get slate_path(@slate)
+    assert_response :success
+    assert_equal 1, script_srcs.grep(%r{\A/assets/studio/sortable-\h+\.js\z}).size, script_srcs.inspect
+    sortable_tag = response.body.index(%r{<script src="/assets/studio/sortable-})
+    assert sortable_tag < response.body.index("Sortable.create(list"), "Sortable must load before rankManager"
+  end
+
   test "the vendored Chart.js is 4.4.7 and defines the Chart global" do
     file = Rails.root.join("vendor/javascript/chart.umd.min.js").read
     # Booleans, not assert_includes: a failure must not print 200 KB.
