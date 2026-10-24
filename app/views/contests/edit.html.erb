@@ -193,7 +193,25 @@
                 :aria-pressed="comingSoon"
                 class="<%= @contest.coming_soon? ? "btn btn-secondary" : "btn btn-outline" %>"
                 x-text="comingSoon ? 'Coming Soon: On' : 'Coming Soon: Off'">Coming Soon: <%= @contest.coming_soon? ? "On" : "Off" %></button>
-        <p class="text-xs text-muted mt-1">On shows this contest on the contests page below the open ones, dimmed and sashed &ldquo;Coming Soon&rdquo;. It does not stop anyone entering.</p>
+        <p class="text-xs text-muted mt-1">On shows this contest on the contests page below the open ones, dimmed and sashed &ldquo;Coming Soon&rdquo;. It turns itself off at the reveal time below once the contest is on chain and priced.</p>
+      </div>
+
+      <%# Reveal time and Hold (Contest::Reveal). The reveal time is read and
+          written in Denver time through reveal_at_local, because the app runs
+          in UTC. Hold is the deliberate "advertised, closed on purpose" state:
+          the sweep never reveals a held contest and never alerts on one. %>
+      <div class="mb-5">
+        <label for="contest_reveal_at_local" class="block text-sm font-medium text-secondary mb-1.5">Reveal time (Denver)</label>
+        <%= f.datetime_local_field :reveal_at_local, id: "contest_reveal_at_local", class: "input-field" %>
+        <p class="text-xs text-muted mt-1">When Coming Soon turns off by itself. Blank means it never does.</p>
+      </div>
+
+      <div class="mb-6">
+        <label class="flex items-center gap-2.5 cursor-pointer">
+          <%= f.check_box :coming_soon_hold, class: "w-4 h-4", style: "accent-color: var(--color-primary)" %>
+          <span class="text-sm text-secondary font-medium">Hold</span>
+        </label>
+        <p class="text-xs text-muted mt-1">Keeps a Coming Soon contest closed on purpose: no automatic reveal and no lock-time alert.</p>
       </div>
 
       <button type="submit" class="btn btn-primary btn-lg w-full">Save Changes</button>

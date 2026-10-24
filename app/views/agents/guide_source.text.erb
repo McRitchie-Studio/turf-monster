@@ -194,11 +194,13 @@ Read `phase` and the flags beside it, not `status`: a contest's `status` stays `
 
 | State | How to recognise it | What you can do |
 |---|---|---|
-| Coming soon | `coming_soon: true` | Read it. It is advertised and takes no entries yet. |
+| Coming soon | `coming_soon: true` | Read it. It is advertised and takes no entries yet. It opens by itself at `reveal_at`. |
 | Open | `phase: "open"`, `locked: false` | Create entries and replace their picks. The leaderboard lists every entry but shows only the player's own picks. |
 | Live | `phase: "live"`, `locked: true` | Read only. Every entry's picks are visible. Scores and ranks move as games finish. |
 | Settled | `phase: "settled"`, `settled: true` | Read only. `rank` and `payout_cents` are final. |
 | Cancelled | `cancelled: true` (its `status` still says `open`) | Nothing. Tell the player; questions about a cancelled contest go to support. |
+
+A coming-soon contest reveals automatically: at `reveal_at` it turns `coming_soon` to `false` and starts taking entries, once it is on chain and every team on its board is priced. A new contest's `reveal_at` is <%= Contest::Reveal::REVEAL_LEAD.in_days.to_i %> days before `locks_at` unless the operator sets another time. `reveal_at: null` on a coming-soon contest means the operator is holding it: it is advertised and closed on purpose, and it has no scheduled opening. Once a contest is open, `reveal_at` is `null`.
 
 `accepting_entries` is the one-field answer to "could a new entry go in right now": the contest is open, not locked, not cancelled, not coming soon, has a spot left, and the player is under their own limit. It says nothing about the player's wallet or tokens.
 
@@ -341,6 +343,7 @@ curl -H "Authorization: Bearer $TURF_MONSTER_KEY" "<%= api %>/contests?status=op
       "settled": false,
       "cancelled": false,
       "coming_soon": false,
+      "reveal_at": null,
       "accepting_entries": true,
       "locks_at": "2026-10-04T17:00:00Z",
       "concludes_at": null,
@@ -374,6 +377,7 @@ curl -H "Authorization: Bearer $TURF_MONSTER_KEY" "<%= api %>/contests?status=op
 | `slug` | The contest's id in every other request |
 | `supported` | `false` for a retired-format contest, which this API cannot play |
 | `phase`, `locked`, `live`, `settled`, `cancelled`, `coming_soon` | See [Contest lifecycle](#contest-lifecycle) |
+| `reveal_at` | When a coming-soon contest opens by itself; `null` when it is open or held. See [Contest lifecycle](#contest-lifecycle) |
 | `accepting_entries` | Whether a new entry could go in now, wallet aside |
 | `locks_at` | The contest lock |
 | `entry_fee_cents` | What an entry costs in USDC when it is not paid by a token |
@@ -739,7 +743,7 @@ Every error is `{ "error": { "code": "...", "message": "..." } }`. **Unless a ro
 | 422 | `contest_not_open` | The contest is settled or not ready for entries | Choose another contest. |
 | 422 | `contest_locked` | The lock time has passed | Nothing. Entries and edits are closed. |
 | 422 | `contest_cancelled` | The contest was cancelled | Choose another contest. |
-| 422 | `coming_soon` | The contest is advertised and not open yet | Try again when `coming_soon` is `false`. |
+| 422 | `coming_soon` | The contest is advertised and not open yet | Try again at `reveal_at`, or when `coming_soon` is `false`. |
 | 422 | `unsupported_contest` | A retired-format contest | It takes no entries; its results are on the website. |
 | 422 | `contest_full` | No spots left | Choose another contest. |
 | 422 | `entry_limit_reached` | The player already holds `max_entries_per_player` entries here | Replace the picks of an existing entry instead. |

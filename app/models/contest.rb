@@ -1271,4 +1271,8 @@ class Contest < ApplicationRecord
   # The settlement lifecycle (settlement_pending, #mark_settled!, #graded?).
   # Included at the foot: docs/workflows cites this file by line.
   include Settlement
+
+  # Coming soon, reveal_at and hold (#reveal!, #alert_coming_soon_at_lock!).
+  # Included at the foot: docs/workflows cites this file by line.
+  include Reveal
 end
