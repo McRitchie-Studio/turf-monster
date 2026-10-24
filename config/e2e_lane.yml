@@ -234,7 +234,7 @@
 # shipped with zero browser coverage while all three shards reported green, which
 # is the precise failure this whole ledger exists to make impossible.
 # (An earlier draft of this note credited e2e/keypair-provider.js. Wrong file:
-# that one is the devnet-nightly SOLANA_BOT_KEY harness and this change does not
+# that one is the hand-run @devnet SOLANA_BOT_KEY harness and this change does not
 # touch it. Corrected in review — a ledger whose prose points at the wrong file
 # is the same class of stale-derivation problem the warnings above describe.)
 #

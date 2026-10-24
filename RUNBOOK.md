@@ -61,8 +61,9 @@ Troubleshooting guide for autonomous agents. Format: problem, diagnosis, fix.
 - Diagnosis: `bin/deploy` asked `lib/solana/signer_isolation.rb` whether each
   app's `SOLANA_ADMIN_KEY` is its own environment's system wallet
   (`config/solana_signers.yml`). The report names public keys only.
-- "finding ... (warn mode — deploy continues)" is expected until the QA
-  ceremony runs: QA holds production's key. Nothing was blocked.
+- "finding ... (warn mode — deploy continues)": a key is not its environment's
+  own. Nothing was blocked, but it is a real finding now: QA has held its own
+  key (`2eGs…`) since release v276, so both apps should read OK.
 - "refused ... (enforce mode)": enforcement is on and a key is not its
   environment's own. Fix the key, not the guard, by following
   `docs/qa-signing-key-rotation.md`. Do not relax `mode:` to push a deploy

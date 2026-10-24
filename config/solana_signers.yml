@@ -25,16 +25,12 @@
 # one bin/deploy pre-flight prints OK for BOTH apps, or every production deploy
 # will refuse. A filed `qa.system_wallet` alone is not that proof.
 #
-# ── the ceremony this file is waiting on ─────────────────────────────────────
+# ── the QA ceremony (done) ───────────────────────────────────────────────────
 #
-# turf-monster-qa and turf-monster-mainnet carry the SAME SOLANA_ADMIN_KEY
-# (compared by hash 2026-09-25). `qa.system_wallet` below names the key QA is
-# MEANT to hold. It is filed ahead of the config flip on purpose: until
-# Mr. McRitchie signs the devnet signer change in
-# docs/qa-signing-key-rotation.md and turf-monster-qa is
-# pointed at that key, the guard reports two findings for qa (it holds
-# production's wallet, and its key is not its filed wallet). They clear together,
-# on the day QA's SOLANA_ADMIN_KEY derives the filed key, with no further PR.
+# turf-monster-qa holds its own SOLANA_ADMIN_KEY, the `qa.system_wallet` below,
+# since release v276 (docs/qa-signing-key-rotation.md); its boot line reads
+# "signer isolation (qa): OK — this key IS qa's system wallet". Production holds
+# `production.system_wallet`. What remains is step 11 there: the enforce flip.
 #
 # ── resolving "this environment" ─────────────────────────────────────────────
 #
@@ -62,11 +58,9 @@ environments:
     deployed: true
     heroku_app: turf-monster-qa
     # 1Password `solana.turf.system.devnet` (vault studio-agents): the devnet
-    # server key, which no app loads yet. Its stored secret derives this
-    # address (task turf-qa-gets-own-signer; public key only). It is
-    # NOT yet a devnet VaultState signer, so QA cannot be pointed at it until
-    # the ceremony seats it. Today QA still holds production's key, which is
-    # exactly the finding the guard reports.
+    # server key, turf-monster-qa's SOLANA_ADMIN_KEY since release v276, and
+    # devnet VaultState slot 0 (turf-vault scripts/check-signer-slots.js
+    # --cluster devnet reads 2eGs, 8UwJ, BVQH). Public key only.
     system_wallet: 2eGs8G3wzhEeNQQU2Q86BmmA2xTpDbMMae3Y1bvpZfx9
 
   development:

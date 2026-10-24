@@ -1469,10 +1469,9 @@ key a loaded secret signs as and compares it to that registry.
 - **Boot**, on deployed apps: one `[signer-isolation]` log line, and on a
   finding one ErrorLog row from `web.1`. It never refuses.
 
-**Live finding (2026-09-25):** QA holds production's key, `8K81…`, so the QA
-dyno can sign as production on mainnet. The fix is a devnet signer ceremony,
-not a config change, because a key outside the devnet `VaultState` signer set
-fails `Unauthorized`. The runbook and its dry-run tool:
+**Resolved:** the 2026-09-25 finding (QA held production's key, `8K81…`) closed
+when QA took its own key, `2eGs…`, in release v276; its boot line reads
+`signer isolation (qa): OK`. The ceremony and its dry-run tool:
 [`qa-signing-key-rotation.md`](qa-signing-key-rotation.md) and
 `bin/qa-signer-rotation`.
 

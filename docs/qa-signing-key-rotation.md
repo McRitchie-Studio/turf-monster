@@ -391,11 +391,9 @@ reads, as under option A.
 
 `qa.system_wallet` in `config/solana_signers.yml` is
 `2eGs8G3wzhEeNQQU2Q86BmmA2xTpDbMMae3Y1bvpZfx9` (task `turf-qa-gets-own-signer`).
-It was filed before step 8 so that the flip needs no further PR. Until step 8
-runs, the guard therefore reports two findings for qa, in warn mode: QA holds
-production's wallet, and QA's key is not its filed wallet. After step 8, and
-once QA runs a build that carries the filing, the boot line reads OK, and the
-next `bin/deploy` pre-flight prints an OK line for both apps.
+It was filed before step 8 so that the flip needed no further PR. Step 8 ran
+(release v276), and QA's boot line reads `signer isolation (qa): OK — this key
+IS qa's system wallet`.
 
 ## Step 11 — Turn the guard to enforce
 

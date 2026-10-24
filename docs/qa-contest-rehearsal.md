@@ -32,7 +32,7 @@ Driver: `lib/turf_monster/qa_rehearsal/`. Tests: `test/lib/qa_rehearsal_*_test.r
 | `play` | `--pace`, when given, is more than 0 seconds (fractions work). A bare `play` is the unattended replay; `--no-replay` is poll-only | `STOPPED — --pace must be more than 0 seconds …` |
 | `play` | After the replay, the board caught up: every play back, every game final, each matchup and entry score equal to a fresh recompute, nothing in `ErrorLog` | `replay: CATCH-UP FAILED — …`, then `STOPPED — the replay failed partway, or its catch-up check did not pass …` |
 | `conclude` (`--cosign agent`, the default) | QA has `SOLANA_VAULT_GOVERNANCE` on (devnet v0.26), a filed agent key (`Driver::VAULT_AGENTS`) is seated in the devnet `VaultState`, is not fenced as a mainnet key, and is in QA's `SOLANA_MULTISIG_SIGNERS` | `STOPPED — --cosign agent needs turf-vault v0.26 …`, `… needs N agent signature(s) …`, `… also holds MAINNET authority …`, or `cosigner … is not in the multisig set` |
-| `conclude --cosign link` | The server key is a devnet `VaultState` signer, and so is the co-signer wallet the Treasury page names (QA's `SOLANA_MULTISIG_COSIGNER`, `9gAC…` since 2026-10-12; settle needs 2 signatures on devnet, so his one tap completes it) | The Co-sign click fails `Unauthorized` on the page |
+| `conclude --cosign link` | The server key is a devnet `VaultState` signer, and so is the co-signer wallet the Treasury page names (QA's `SOLANA_MULTISIG_COSIGNER`, `8UwJ…` (Mack) since release v304; settle needs 2 signatures on devnet, so one signature completes it). `8UwJ…` is an agent key no Phantom holds, so on QA the agent path above is the working one; the link path proves the page, not a human tap | The Co-sign click fails `Unauthorized` on the page |
 | `close` | The contest has settled on chain (or was cancelled). Read before the close is sent | `STOPPED — contest … has not settled on chain` |
 
 `create` prints the key the server signs as and the co-signer the settle
@@ -47,11 +47,11 @@ The steps do not check these, except where the table above says so:
   in the devnet `VaultState`. `create` funds the pool from its devnet USDC and,
   when that runs short, mints more: `2eGs…` is the devnet test mint's
   (`222Dcu…WBN9`) mint authority (read on chain 2026-10-12).
-- QA's `SOLANA_MULTISIG_SIGNERS` reads, as of 2026-10-24 (release v302, which
-  swapped Mack's leaked `foUu…` for his new key): `2eGs…`, `8UwJ…` (Mack),
-  `BVQH…` (`solana.turf.governance.devnet`), `9gAC…`, `3Qj4…`. The chain seats
-  only the first three: `9gAC…` and `3Qj4…` left the devnet `VaultState` on
-  2026-10-15, and the list still names them.
+- QA's `SOLANA_MULTISIG_SIGNERS` reads, as of 2026-10-24 (release v304,
+  `turf-devnet-config-truth`): `2eGs…`, `8UwJ…` (Mack), `BVQH…`
+  (`solana.turf.governance.devnet`), exactly the three keys the devnet
+  `VaultState` seats. `SOLANA_MULTISIG_COSIGNER` is `8UwJ…`. Read both back
+  with `bin/qa-signer-rotation --show`.
 - QA's `SOLANA_VAULT_GOVERNANCE` is `on`, and `EXPECTED_IDL_HASH` pins both the
   v0.25 and v0.26 hashes (`f11446fa…,2d9f7151…`).
 
