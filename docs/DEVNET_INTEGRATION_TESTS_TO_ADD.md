@@ -16,11 +16,8 @@ The nightly CI workflow this plan relied on (`.github/workflows/devnet-nightly.y
 
 1. **Fund a CI bot wallet on devnet** (~10 SOL via the Solana devnet faucet; use `turf-vault/docs/CURRENT_DEPLOYMENT.md` for current program identity)
 2. **Generate the bot keypair** and store as base58 in 1Password
-3. **Set GH secrets** in turf-monster repo:
-   - `SOLANA_BOT_KEY` (base58 secret)
-   - `SOLANA_RPC_URL` (paid Helius/QuickNode — public devnet rate-limits at scale)
-   - `RECONCILER_ALERT_WEBHOOK` (optional; Slack/Discord)
-4. ~~Set repo variable `DEVNET_NIGHTLY_ENABLED=true`~~ (the workflow it gated is deleted)
+3. ~~Set GH secrets `SOLANA_BOT_KEY` and `SOLANA_RPC_URL` in the turf-monster repo~~: no workflow reads them since the nightly was deleted. The specs run by hand with the keys read from 1Password (`e2e/DEVNET_RUNBOOK.md`); use a paid Helius RPC, since public devnet rate-limits at scale.
+4. ~~Set the repo variable that enabled the nightly~~ (the workflow it gated is deleted)
 
 ## Test list (target: 10-15 cases)
 
