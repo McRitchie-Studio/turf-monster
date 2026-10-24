@@ -323,6 +323,23 @@ window.cosignTransaction = async function(slug, txTypeLabel, extraCosigners, but
     //    and flips the DB state — all in one round trip.
     if (modal) modal.show('Confirming Onchain', 'Broadcasting from the server…');
 
+    // The SERVER's plan, echoed back — not `provider.publicKey`, which by now
+    // holds whichever account the operator switched to LAST and would record
+    // the wrong wallet as the named cosigner.
+    var broadcastPlan = {
+      cosigner_address: signerQueue[0],
+      extra_cosigners: signerQueue.slice(1)
+    };
+    // A PLATFORM-SIGNED build is the exception: the server filled the named
+    // slot with the platform cosigner, so every wallet collected here is an
+    // extra and the named cosigner is the server's to name.
+    if (rebuilt.platform_cosigner_address) {
+      broadcastPlan = {
+        cosigner_address: rebuilt.cosigner_address,
+        extra_cosigners: signerQueue
+      };
+    }
+
     var resp = await fetch(broadcastUrl, {
       method: 'POST',
       headers: {
@@ -332,15 +349,8 @@ window.cosignTransaction = async function(slug, txTypeLabel, extraCosigners, but
       },
       body: JSON.stringify({
         signed_tx: signedB64,
-        // The SERVER's plan, echoed back — not `provider.publicKey`, which by
-        // now holds whichever account the operator switched to LAST and would
-        // record the wrong wallet as the named cosigner.
-        //
-        // A PLATFORM-SIGNED build is the exception: the server filled the
-        // named slot with the platform cosigner, so every wallet collected
-        // here is an extra and the named cosigner is the server's to name.
-        cosigner_address: rebuilt.platform_cosigner_address ? rebuilt.cosigner_address : signerQueue[0],
-        extra_cosigners: rebuilt.platform_cosigner_address ? signerQueue : signerQueue.slice(1),
+        cosigner_address: broadcastPlan.cosigner_address,
+        extra_cosigners: broadcastPlan.extra_cosigners,
         // The WHOLE queue, unsplit. The pair above cannot express an
         // operator-led build (account 0 is a signer to collect, not a spent
         // one), so the eviction endpoint reads this and refuses a set that is
