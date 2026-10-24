@@ -22,9 +22,14 @@ module Nfl
     # a slate IS a slot — "NFL 2026 Week 2" — and `Slate#season_year` and
     # `Slate#week_range` are the readers every other surface already goes
     # through, each carrying a name fallback for the rows written before the
-    # columns existed. `db/seeds/nfl_2026.rb` writes no `week` column at all
+    # columns existed. `db/seeds/nfl_2026.rb` wrote no `week` column at all
     # (0 of 17 before the odds CSV runs), and the name fallback is what makes
     # those seeded slates resolvable anyway.
+    #
+    # SINCE games-week-backfill (2026-10-24) every writer stamps the game's own
+    # slot — the seed, the odds CSV and the poller — and `games:backfill_week`
+    # filled the rows written before. The slate fallback stays for any legacy
+    # row the backfill could not place, which it reports by slug.
     #
     # THE SLOT IS ONLY A REQUEST KEY, which is what makes a generous answer the
     # safe one. `SilentGapCheck#unscored_final` re-derives the game from each
