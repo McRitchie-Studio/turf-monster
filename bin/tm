@@ -23,6 +23,9 @@
 #   bin/tm status             services, ports, one-Sidekiq check, optional Stripe status
 #   bin/tm logs [web|sidekiq|stripe]   tail -f a log (default: web + sidekiq)
 #
+# Every managed process starts under TM_ENV_ALLOW (below): an allow-listed
+# environment, so no agent credential in the launching shell reaches a server.
+#
 # Env overrides (default to the canonical primary stack):
 #   TM_PORT=3100  TM_REDIS_DB=0   — point at an isolated stack (e.g. smoke tests)
 #
@@ -131,8 +134,11 @@ TM_ENV_ALLOW=(
   TM_PORT TM_REDIS_DB TM_SESSION_KEY TM_STRIPE_LISTENER
   LOCAL_EMAIL_CAPTURE MAIL_TRANSPORT MAILER_HOST
   AGENT_WORKTREE APP_SLUG TASK_SLUG TASK_RECORD_SLUG TASK_URL
+  BINDING PAYMENT_PROVIDER
   OBJC_DISABLE_INITIALIZE_FORK_SAFETY SCREENDIR
 )
+# Boot flags an operator sets for one run (`ENABLE_FIAT_RAILS=true … bin/tm up`,
+# docs/LOCAL_STACK.md) pass by prefix: flags, never credentials.
 # A desk exports these EMPTY so dotenv cannot load the primary's real mail
 # credentials; an empty one is kept, a set one is dropped like any secret.
 TM_ENV_KEEP_IF_EMPTY=(RESEND_API_KEY SES_SMTP_USERNAME SES_SMTP_PASSWORD)
@@ -148,6 +154,7 @@ tm_scrub_env(){
   for name in $(compgen -e); do
     keep=0
     for k in "${TM_ENV_ALLOW[@]}" $extra; do [ "$name" = "$k" ] && { keep=1; break; }; done
+    case "$name" in ENABLE_*) keep=1 ;; esac
     if [ "$keep" = 0 ]; then
       for k in "${TM_ENV_KEEP_IF_EMPTY[@]}"; do
         [ "$name" = "$k" ] && [ -z "${!name}" ] && { keep=1; break; }

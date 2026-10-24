@@ -44,7 +44,9 @@ class TmSpawnEnvTest < Minitest::Test
   ALLOWED = {
     "DATABASE_URL" => "postgres://localhost/tm_fixture",
     "REDIS_URL" => "redis://localhost:6379/9",
-    "LANG" => "en_US.UTF-8"
+    "LANG" => "en_US.UTF-8",
+    "ENABLE_FIAT_RAILS" => "true",  # docs/LOCAL_STACK.md boots with it
+    "PAYMENT_PROVIDER" => "stripe"
   }.freeze
 
   def via_paths

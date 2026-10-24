@@ -110,11 +110,12 @@ anything live:
 ## Heroku flip
 
 ```sh
+# Public values on the command line; the client secret on stdin, never as an argument.
 heroku config:set -a turf-monster-mainnet \
   PAYPAL_ENV=live \
   PAYPAL_CLIENT_ID=… \
-  PAYPAL_CLIENT_SECRET=… \
   PAYPAL_WEBHOOK_ID=…
+op read 'op://<vault>/<item>/<field>' | /Users/alex/projects/mcritchie-studio/bin/heroku-secret-set turf-monster-mainnet PAYPAL_CLIENT_SECRET
 # the actual switch — until this, no buttons render and no NEW orders can be
 # created. (Note: from the moment PAYPAL_WEBHOOK_ID is set above, the webhook
 # endpoint will verify + ack deliveries — that's deliberate, so PayPal's

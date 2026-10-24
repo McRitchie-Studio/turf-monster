@@ -177,8 +177,12 @@ bin/rails ses:check
 ### Cutover
 
 ```bash
-heroku config:set -a turf-monster-mainnet \
-  SES_SMTP_USERNAME=... SES_SMTP_PASSWORD=... SES_REGION=us-east-2
+# The SMTP credentials on stdin, never as arguments.
+op item get <item> --vault <vault> --format json |
+  ruby -rjson -e 'f = JSON.parse(STDIN.read)["fields"].to_h { |x| [x["label"], x["value"]] }
+    print JSON.generate("SES_SMTP_USERNAME" => f.fetch("username"), "SES_SMTP_PASSWORD" => f.fetch("password"))' |
+  /Users/alex/projects/mcritchie-studio/bin/heroku-secret-set turf-monster-mainnet --json
+heroku config:set -a turf-monster-mainnet SES_REGION=us-east-2
 heroku config:set -a turf-monster-mainnet \
   MAILER_FROM="Turf Monster <team@turfmonster.media>" \
   MARKETING_MAILER_FROM="Alex from Turf Monster <alex@turfmonster.media>" \

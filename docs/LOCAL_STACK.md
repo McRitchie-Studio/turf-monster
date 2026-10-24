@@ -23,6 +23,14 @@ bin/tm up
 - Redis and Postgres preflights.
 - One-shot Tailwind build.
 - Readiness polling before reporting the URL.
+- An allow-listed environment for web, Sidekiq and the Stripe listener
+  (`TM_ENV_ALLOW` in `bin/tm`): system names, Rails and desk variables, `BINDING`,
+  `PAYMENT_PROVIDER` and `ENABLE_*` boot flags. No agent credential
+  (`HEROKU_API_KEY`, `OP_*`, `CLAUDE_CODE_*`, `AGENT_API_*`) reaches a server: Puma
+  and Sidekiq rename their process titles, and on macOS `ps` then prints a renamed
+  process's environment. The app reads its own secrets from `.env`. A new variable
+  the app must take from the launching shell goes on that list. Find a server by
+  its port or pidfile (`tmp/pids/tm-web.pid`), never with `pgrep -fl` or `ps aux`.
 
 Stripe checkout is retired by default, and every fiat rail is parked behind
 `ENABLE_FIAT_RAILS` ([`FIAT_RAILS.md`](FIAT_RAILS.md)). The local Stripe
