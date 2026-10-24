@@ -42,7 +42,9 @@ tm_scrub_env(){
   for name in $(compgen -e); do
     keep=0
     for k in "${TM_ENV_ALLOW[@]}" $extra; do [ "$name" = "$k" ] && { keep=1; break; }; done
-    case "$name" in ENABLE_*) keep=1 ;; esac
+    # Boot flags, and the whole locale family (launchd and `env -i` start with
+    # no locale, and Ruby then reads UTF-8 as US-ASCII).
+    case "$name" in ENABLE_*|LC_*) keep=1 ;; esac
     if [ "$keep" = 0 ]; then
       for k in "${TM_ENV_KEEP_IF_EMPTY[@]}"; do
         [ "$name" = "$k" ] && [ -z "${!name}" ] && { keep=1; break; }
