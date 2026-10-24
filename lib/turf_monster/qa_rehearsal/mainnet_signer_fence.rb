@@ -8,6 +8,8 @@ module TurfMonster
     # MAINNET authority: a mainnet VaultState signer (seated or incoming) or a
     # mainnet Squads member. A key a mainnet rotation retired stays fenced
     # (`retired`) until someone decides on purpose that the rehearsal may load it.
+    # Mr. McRitchie's personal wallets (`personal`) sign for no program but hold
+    # his own money, so they are fenced the same way.
     #
     # The rehearsal co-signs devnet transactions unattended with agent keys it
     # loads from 1Password. Before devnet-v026-upgrade the devnet and mainnet
@@ -35,7 +37,8 @@ module TurfMonster
       # nothing would pass every key, which is the one answer it must never give.
       def self.load_keys(fence_path: FENCE_PATH, isolation_path: ISOLATION_PATH)
         filed = YAML.safe_load_file(fence_path)
-        keys = Array(filed["seated"]) + Array(filed["incoming"]) + Array(filed["squad"]) + Array(filed["retired"])
+        keys = Array(filed["seated"]) + Array(filed["incoming"]) + Array(filed["squad"]) + Array(filed["retired"]) +
+               Array(filed["personal"])
         production = YAML.safe_load_file(isolation_path).dig("environments", "production", "system_wallet")
         keys << production if production
         keys = keys.map(&:to_s).map(&:strip).reject(&:empty?).uniq
@@ -82,7 +85,8 @@ module TurfMonster
         return if hits.empty?
 
         named = hits.map { |pk| who[pk] ? "#{who[pk]} (#{pk})" : pk }.join(", ")
-        raise Refused, "#{named} also holds MAINNET authority (a VaultState signer or Squads member); the " \
+        raise Refused, "#{named} also holds MAINNET authority or money (a VaultState signer, a Squads member, or one " \
+                       "of Mr. McRitchie's personal wallets); the " \
                        "rehearsal never co-signs with a mainnet key, even on devnet. Nothing was signed or sent. Seat a devnet-only " \
                        "agent key instead (config/mainnet_vault_signers.yml lists the fence)."
       end

@@ -42,9 +42,10 @@ module TurfMonster
       #
       # ADDRESS WAS A SCALAR UNTIL 2026-09-15, and that is the exact shape of
       # bug this file exists to prevent. The turf keys were refiled with
-      # hyphenated labels -- all three solana.turf.* items spell them
-      # `wallet-address` / `private-key` -- so a reader keyed to "wallet
-      # address" alone found nothing on them. And because an absent address
+      # hyphenated labels -- four of the five solana.turf.* items in
+      # studio-agents spell the address `wallet-address`, and solana.turf.alex
+      # alone spells it `wallet address` -- so a reader keyed to "wallet
+      # address" alone found nothing on most of them. And because an absent address
       # SKIPPED the cross-check below rather than failing it, the one guard that
       # catches a key filed under the wrong name would have switched itself off
       # in silence, on the very items whose filing had just changed.
@@ -108,11 +109,12 @@ module TurfMonster
       # second copy of this one. That is exactly the property the old
       # role-generic `agent.turf.solana` lacked, and why it collided.
       #
-      # Ids are recorded here as PROVENANCE only -- never passed to `op` -- so a
-      # reader whose title read comes back empty can find the item without
-      # listing the vault:
-      #   solana.turf.system         hvt5htkgjqsilq5blv3uztqie4  7auwTLSv…  server, MAINNET
-      #   solana.turf.system.devnet  luzehmyewswpnbgytyawc25sdy  2eGs8G3w…  server, DEVNET/QA
+      # Id prefixes are recorded here as PROVENANCE only -- never passed to
+      # `op` -- so a reader whose title read comes back empty can find the item
+      # with `op item list --vault studio-agents`. A re-file mints a new id, so
+      # these hold only until the next one (read 2026-10-24):
+      #   solana.turf.system         abwn…  7auwTLSv…  server, MAINNET
+      #   solana.turf.system.devnet  5muv…  2eGs8G3w…  server, DEVNET/QA
       #
       # NEITHER IS FILED BELOW. The two system items are the SERVER's
       # operational keys, reached through SOLANA_ADMIN_KEY on the dyno; this
