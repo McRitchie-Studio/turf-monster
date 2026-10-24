@@ -1300,7 +1300,8 @@
 # and allowed_skips at 4. Derived with bin/e2e-lane-derive --write.
 total_specs: 518
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
-# `--grep-invert "@devnet"` because they need a funded devnet wallet.
+# `--grep-invert "@devnet"` because they need funded devnet wallets: the secrets
+# SOLANA_BOT_KEY and MACK_DEVNET_KEY (never literals; test/lib/committed_secret_key_guard_test.rb).
 #
 # ⚠️ THESE ARE COVERED NOWHERE TODAY. devnet-nightly.yml is the only workflow that would run
 # them and it is gated on `vars.DEVNET_NIGHTLY_ENABLED == 'true'`, which has completed
