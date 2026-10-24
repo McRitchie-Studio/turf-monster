@@ -512,6 +512,9 @@ module Solana
     # mainnet builds (per `state.rs::INIT_AUTHORITY`). Today this is the same
     # key as mainnet's MULTISIG_COSIGNER (Mr. McRitchie's Phantom), but it's kept separate so a
     # future rotation of either role doesn't silently move the other.
+    # It stays one literal on every cluster, unlike MULTISIG_COSIGNER: the
+    # program enforces it only on MAINNET builds, so on devnet it gates nothing,
+    # while a cosigner default is read by every treasury transaction.
     INIT_AUTHORITY = ENV.fetch("SOLANA_INIT_AUTHORITY", "7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr")
 
     # The PROGRAM UPGRADE AUTHORITY — the Squads V4 vault PDA that holds the
