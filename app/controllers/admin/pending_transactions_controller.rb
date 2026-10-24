@@ -1,7 +1,8 @@
 module Admin
   class PendingTransactionsController < ApplicationController
     before_action :require_admin
-    before_action :set_pending_transaction, only: [:show, :confirm, :rebuild, :broadcast, :reconcile]
+    before_action :set_pending_transaction, only: [:show, :confirm, :rebuild, :broadcast, :reconcile,
+                                                   :complete_with_platform]
 
     def index
       @pending = PendingTransaction.order(created_at: :desc)
@@ -14,6 +15,11 @@ module Admin
       # first wallet has signed.
       @primary_cosigner = Solana::Config::MULTISIG_COSIGNER
       @eligible_extras  = Solana::CosignPlan.eligible_cosigners - [@primary_cosigner]
+      # The platform cosigner (Solana::PlatformCosigner). On a row it signs,
+      # it holds the named slot, so the wallets left to pick from are the
+      # signer set minus the server and the platform: his, with 7ZDJ back in.
+      @platform = Solana::PlatformCosigner.current
+      @platform_extras = (Solana::CosignPlan.eligible_cosigners - [@platform.address] if @platform.configured?)
 
       # THE ACCOUNT THAT ACTUALLY PAYS, read ONCE for the page.
       #
@@ -300,7 +306,6 @@ module Admin
         refuse_nonce_anchored!
 
         vault    = Solana::Vault.new
-        cosigner = Solana::Config::MULTISIG_COSIGNER
         meta     = JSON.parse(@tx.metadata)
 
         # THE THIRD SIGNATURE'S SLOT IS RESERVED HERE OR NOWHERE. turf-vault
@@ -311,6 +316,15 @@ module Admin
         # rebuild that omits them produces a transaction that is already short
         # before Phantom is opened.
         plan   = Solana::CosignPlan.new(tx_type: @tx.tx_type)
+
+        # THE PLATFORM'S SECOND SIGNATURE (platform-cosigns-mainnet-settles): on a
+        # settle, and on any other three-signature type the operator ticked,
+        # the platform cosigner takes the named slot and signs here, beside
+        # the admin key. The extras are then his wallets alone, and there is
+        # always at least one (CosignPlan#platform_cosign?).
+        platform = Solana::PlatformCosigner.current
+        platform_signs = plan.platform_cosign?(requested: params[:platform_cosign], platform: platform)
+        cosigner = platform_signs ? platform.address : Solana::Config::MULTISIG_COSIGNER
         extras = plan.validate_extras!(params[:extra_cosigners], primary: cosigner)
 
         result =
@@ -351,8 +365,10 @@ module Admin
         # would be un-claimed by an unconditional `status: "pending"` here — the
         # last path that could hand a second caller a row whose wire is already
         # going out. The UPDATE re-checks the state it assumed.
+        serialized = platform_signs ? platform.sign_wire_base64(result[:serialized_tx]) : result[:serialized_tx]
+        meta["platform_cosigner"] = platform_signs ? platform.address : nil
         rebuilt = PendingTransaction.where(id: @tx.id, status: "pending")
-                                    .update_all(serialized_tx: result[:serialized_tx],
+                                    .update_all(serialized_tx: serialized, metadata: meta.compact.to_json,
                                                 updated_at: Time.current) == 1
         unless rebuilt
           raise "This transaction is no longer pending (it is now #{@tx.reload.status}) — " \
@@ -364,7 +380,7 @@ module Admin
           format.json do
             render json: {
               status: "rebuilt",
-              serialized_tx: result[:serialized_tx],
+              serialized_tx: serialized,
               # The signing plan travels WITH the bytes it describes, so the
               # browser collects against the slots this very build reserved
               # rather than against whatever the page was rendered believing.
@@ -376,8 +392,12 @@ module Admin
               # before the operator touches Phantom — without it, a
               # three-signature action shows two rows to act on and the count
               # looks wrong at the one moment he is counting.
-              fee_payer_address: Solana::CosignPlan.admin_address
-            }
+              fee_payer_address: Solana::CosignPlan.admin_address,
+              # With the platform cosigner the named slot is signed too, so
+              # the browser collects ONLY the extras: his wallet, once.
+              platform_cosigner_address: (platform.address if platform_signs),
+              signer_queue: (extras if platform_signs)
+            }.compact
           end
           format.html { redirect_to admin_pending_transactions_path, notice: "Transaction rebuilt with fresh blockhash." }
         end
@@ -389,7 +409,118 @@ module Admin
       end
     end
 
+    # COMPLETE A TWO-SIGNATURE ACTION WITH THE PLATFORM'S OWN TWO SIGNATURES.
+    #
+    # Mr. McRitchie: "I'm only important if you need a third." On
+    # a two-signature action (close_contest today; COMPLETABLE_TX_TYPES) the
+    # server's admin key and the platform cosigner are both signatures the
+    # chain counts, so an admin click lands it with no Phantom at all.
+    #
+    # ONLY ON THE CLICK. Nothing builds or sends this unattended, and the
+    # click is refused unless CosignPlan#platform_completes? holds now: a
+    # governance boot, the chain's threshold for the action at two, and the
+    # cosigner configured and seated.
+    #
+    # The broadcast seam is #broadcast's, step for step (build, derive the
+    # signature, claim, simulate and send, rewind only on a provable
+    # non-send, verify, record). Every completion is written to the row
+    # (metadata `platform_completion`) and posted to the hub activity feed;
+    # a hub that refuses is recorded on the row, never a failure.
+    def complete_with_platform
+      rescue_and_log(target: @tx) do
+        raise "Transaction is #{@tx.status}, not pending" unless @tx.pending?
+        refuse_nonce_anchored!
+
+        plan = Solana::CosignPlan.new(tx_type: @tx.tx_type)
+        platform = Solana::PlatformCosigner.current
+        unless plan.platform_completes?(platform: platform)
+          raise "#{@tx.tx_type.titleize} cannot be completed by the platform alone: it needs " \
+                "#{plan.required_signatures} signatures here, or the platform cosigner is not " \
+                "configured and seated (#{platform.notice})"
+        end
+
+        vault  = Solana::Vault.new
+        result = build_platform_completion(vault, platform)
+        signed = platform.sign_wire_base64(result[:serialized_tx])
+        signature = vault.signature_for_wire(signed)
+
+        stored = PendingTransaction.where(id: @tx.id, status: "pending")
+                                   .update_all(serialized_tx: signed, updated_at: Time.current) == 1
+        raise "This transaction is no longer pending (it is now #{@tx.reload.status})." unless stored
+        @tx.reload
+
+        unless @tx.claim_for_broadcast!(signature)
+          raise "This transaction is already being broadcast (it is now #{@tx.status}) — " \
+                "reconcile it on chain rather than sending a second one."
+        end
+
+        begin
+          vault.simulate_and_broadcast(signed)
+        rescue Solana::Cosign::PreflightRejected
+          @tx.rewind_broadcast!(signature)
+          raise
+        end
+
+        verify_and_record_cosign!(cosigner: platform.address, extras: [], signature: signature)
+        record_platform_completion!(platform, signature)
+
+        respond_to do |format|
+          format.json { render json: { status: "confirmed", tx_signature: signature } }
+          format.html do
+            redirect_to admin_pending_transactions_path,
+                        notice: "#{@tx.tx_type.titleize} completed by the server and the platform cosigner (#{signature})."
+          end
+        end
+      end
+    rescue Solana::TxVerifier::VerificationError => e
+      respond_to do |format|
+        format.json { render json: { error: "Landed but verification failed: #{e.message}" }, status: :unprocessable_entity }
+        format.html { redirect_to admin_pending_transactions_path, alert: "Landed but verification failed: #{e.message}" }
+      end
+    rescue StandardError => e
+      respond_to do |format|
+        format.json { render json: { error: e.message }, status: :unprocessable_entity }
+        format.html { redirect_to admin_pending_transactions_path, alert: "Platform completion failed: #{e.message}" }
+      end
+    end
+
     private
+
+    # The two-signature build the platform completes: the platform cosigner in
+    # the one cosigner slot, nothing left for a wallet.
+    def build_platform_completion(vault, platform)
+      case @tx.tx_type
+      when "close_contest"
+        vault.build_close_contest(@tx.target.slug, cosigner_pubkey: platform.address, extra_cosigners: [])
+      else
+        raise "Unsupported tx_type for platform completion: #{@tx.tx_type}"
+      end
+    end
+
+    # The row is the system of record; the hub activity is the copy the
+    # operators read. Both name the admin who clicked and both signers.
+    def record_platform_completion!(platform, signature)
+      completion = {
+        "by_admin" => current_user&.email,
+        "signers" => [Solana::CosignPlan.admin_address, platform.address].compact,
+        "signature" => signature,
+        "at" => Time.current.iso8601
+      }
+      completion["hub_activity"] = Studio::PostActivity.call(
+        description: "#{@tx.tx_type.titleize} #{@tx.slug} completed on #{Solana::Config::NETWORK} by the " \
+                     "server and the platform cosigner #{platform.address} (#{signature}), at " \
+                     "#{current_user&.email}'s click.",
+        metadata: completion.merge("pending_transaction" => @tx.slug, "tx_type" => @tx.tx_type,
+                                   "network" => Solana::Config::NETWORK)
+      )
+      meta = @tx.parsed_metadata.merge("platform_completion" => completion)
+      @tx.update!(metadata: meta.to_json)
+    rescue StandardError => e
+      # The transaction landed and the row is confirmed; a failed note must not
+      # read to the operator as a failed completion.
+      ErrorLog.capture!(e)
+      Rails.logger.error("[platform-completion] #{@tx.slug} landed (#{signature}); the record note failed: #{e.class}")
+    end
 
     def set_pending_transaction
       @tx = PendingTransaction.find_by(slug: params[:slug])
@@ -407,12 +538,16 @@ module Admin
 
     # OPSEC-010: the cosigner must be one of the vault's multisig signers before
     # anything is broadcast or recorded. Shared by #confirm and #broadcast.
+    #
+    # The platform cosigner is accepted on the row its build recorded, when the
+    # chain seats it: QA's configured list need not name the devnet key.
     def require_multisig_cosigner!
       cosigner = params[:cosigner_address]
       raise "Cosigner address required" if cosigner.blank?
-      raise "Cosigner not in multisig set" unless Solana::Config::MULTISIG_SIGNERS.include?(cosigner)
+      return cosigner if Solana::Config::MULTISIG_SIGNERS.include?(cosigner)
+      return cosigner if cosigner == @tx.platform_cosigner && Solana::CosignPlan.signer_set.include?(cosigner)
 
-      cosigner
+      raise "Cosigner not in multisig set"
     end
 
     # The EXTRA cosigners a broadcast claims signed, validated the same way the

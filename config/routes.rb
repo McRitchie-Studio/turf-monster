@@ -558,6 +558,7 @@ Rails.application.routes.draw do
         post :rebuild
         post :broadcast
         post :reconcile
+        post :complete_with_platform
       end
     end
 

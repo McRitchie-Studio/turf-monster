@@ -127,6 +127,42 @@ module Solana
       Governance.extra_cosigners_needed(action, named_count: NAMED_SIGNER_COUNT, thresholds: chain_thresholds)
     end
 
+    # ── THE PLATFORM'S SECOND SIGNATURE (platform-cosigns-mainnet-settles) ──
+    #
+    # Whether THIS build takes the platform cosigner (Solana::PlatformCosigner)
+    # in the named `cosigner` slot, so the server signs admin and cosigner and
+    # Mr. McRitchie's wallets fill only the extra slots.
+    #
+    # THE INVARIANT IS `extra_cosigners_needed.positive?`: the platform fills
+    # the two NAMED slots and never an extra one, so it may sign only when at
+    # least one extra slot is left for him. That is "his wallet is always the
+    # third" stated as arithmetic, and it is what keeps a v0.25 boot (no extra
+    # slots, two signatures complete the action) and a devnet settle retuned
+    # to two from ever being finished by agent keys alone.
+    #
+    # Automatic for a settle; on request for the other three-signature types.
+    def platform_cosign?(requested: false, platform: PlatformCosigner.current)
+      return false unless platform.configured?
+      return false unless extra_cosigners_needed.positive?
+      return false unless self.class.signer_set.include?(platform.address)
+      return true if PlatformCosigner::AUTOMATIC_TX_TYPES.include?(tx_type)
+
+      ActiveModel::Type::Boolean.new.cast(requested) == true &&
+        PlatformCosigner::ON_REQUEST_TX_TYPES.include?(tx_type)
+    end
+
+    # Whether the server and the platform cosigner may COMPLETE this action
+    # alone, from an explicit admin click. Only a two-signature action, only
+    # on a governance boot (where two is the chain's number, not the v0.25
+    # shape), and only a type listed in COMPLETABLE_TX_TYPES.
+    def platform_completes?(platform: PlatformCosigner.current)
+      platform.configured? &&
+        Config.governance? &&
+        PlatformCosigner::COMPLETABLE_TX_TYPES.include?(tx_type) &&
+        required_signatures == 2 &&
+        self.class.signer_set.include?(platform.address)
+    end
+
     # The vault's seated signers, which is the set a cosigner must belong to.
     #
     # v0.26 has FIVE slots (`signers` + `signers_ext`) and Config::MULTISIG_SIGNERS
@@ -257,7 +293,7 @@ module Solana
     # `fee_payer_status` is passed IN rather than read here, because it costs an
     # RPC round trip and this method is called per row on a page that may render
     # many. The caller reads it once.
-    def roster(extras: [], fee_payer: nil)
+    def roster(extras: [], fee_payer: nil, platform_cosigner: nil)
       admin = self.class.admin_address
       rows = []
 
@@ -275,13 +311,26 @@ module Solana
         minimum_sol: fee_payer && fee_payer[:minimum_sol]
       }
 
-      rows << {
-        address: Config::MULTISIG_COSIGNER,
-        role: "cosigner",
-        label: "Cosigner",
-        fee_payer: false,
-        signs_automatically: false
-      }
+      # With the platform cosigner the named slot is the server's second
+      # signature, not a Phantom prompt: it signs automatically, and the
+      # extras below are the only wallets the operator is asked for.
+      rows << if platform_cosigner.present?
+        {
+          address: platform_cosigner,
+          role: "platform",
+          label: "Platform cosigner",
+          fee_payer: false,
+          signs_automatically: true
+        }
+      else
+        {
+          address: Config::MULTISIG_COSIGNER,
+          role: "cosigner",
+          label: "Cosigner",
+          fee_payer: false,
+          signs_automatically: false
+        }
+      end
 
       # A BLANK extra is a slot not chosen yet (none of Mr. McRitchie's keys
       # was seated to preselect). It keeps its row, so the page shows a slot
@@ -292,7 +341,10 @@ module Solana
         rows << {
           address: address.presence,
           role: "extra",
-          label: extras.length > 1 ? "Wallet #{i + 3}" : "Second wallet",
+          label: if extras.length > 1 then "Wallet #{i + 3}"
+                 elsif platform_cosigner.present? then "Your wallet (the final signature)"
+                 else "Second wallet"
+                 end,
           fee_payer: false,
           signs_automatically: false
         }

@@ -240,4 +240,16 @@ class CosignSignaturesJsTest < ActiveSupport::TestCase
                  "#broadcast must be told every extra wallet that signed, or the audit row " \
                  "names one signer for a three-signature payout")
   end
+
+  # The platform-signed shape (platform-cosigns-mainnet-settles): the server
+  # filled the named slot, so the broadcast names the server's cosigner and
+  # every collected wallet as an extra. Without this the audit row would name
+  # his wallet as the named cosigner and drop the platform's signature.
+  test "a platform-signed build reports the platform as the named cosigner" do
+    js = Rails.root.join("app/javascript/cosign.js").read
+
+    assert_match(/if \(rebuilt\.platform_cosigner_address\) \{\s*broadcastPlan = \{\s*cosigner_address:\s*rebuilt\.cosigner_address,\s*extra_cosigners:\s*signerQueue\s*\}/, js)
+    assert_match(/platform_cosign:\s*!!\(rosterScope && rosterScope\.querySelector\('\[data-platform-cosign\]:checked'\)\)/, js,
+                 "the rebuild must carry the operator's opt-in from his own row")
+  end
 end

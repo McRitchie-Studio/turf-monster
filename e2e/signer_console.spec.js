@@ -541,3 +541,40 @@ test.describe("Squads proposals", () => {
     await expect(card.getByRole("button", { name: /Approve/ })).toBeHidden();
   });
 });
+
+// ── THE PLATFORM COSIGNER, ON REQUEST ONLY (platform-cosigns-mainnet-settles) ──
+//
+// The checkbox renders only when the app holds SOLANA_PLATFORM_COSIGNER_KEY,
+// which this lane does not, so the spec places it exactly as the partial does
+// (inside the controller, as its `platformCosign` target, re-planning on
+// change). What is under test is the controller: a plan asks for the platform
+// cosigner only while the box is ticked, and the frozen payload Sign sends
+// carries the same answer.
+test.describe("Signer console platform opt-in", () => {
+  test("plans carry platform_cosign only while the box is ticked", async ({ page }) => {
+    const routes = await openConsole(page);
+    await page.locator("[data-controller='signer-console']").evaluate((root) => {
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.setAttribute("data-signer-console-target", "platformCosign");
+      box.setAttribute("data-action", "change->signer-console#requestPlan");
+      box.id = "platform-cosign-fixture";
+      root.prepend(box);
+    });
+
+    await draftAdd(page, routes);
+    await expect.poll(() => routes.plans.length, { timeout: 5_000 }).toBeGreaterThan(0);
+    expect(routes.plans[routes.plans.length - 1].platform_cosign).toBe(false);
+
+    const before = routes.plans.length;
+    await page.locator("#platform-cosign-fixture").check();
+    await expect.poll(() => routes.plans.length, { timeout: 5_000 }).toBeGreaterThan(before);
+    expect(routes.plans[routes.plans.length - 1].platform_cosign).toBe(true);
+
+    const cta = page.locator("[data-signer-console-target='cta']");
+    await expect(cta).toBeEnabled();
+    await cta.click();
+    await expect.poll(() => routes.rotations, { timeout: 5_000 }).toBe(1);
+    expect(routes.rotationBodies[0].platform_cosign).toBe(true);
+  });
+});

@@ -909,16 +909,16 @@ class Contest < ApplicationRecord
 
     # Build partially-signed TX for multisig cosigning
     vault = Solana::Vault.new
-    # Use first non-admin signer as default cosigner placeholder
-    cosigner = Solana::Config::MULTISIG_COSIGNER rescue Solana::Keypair.admin.to_base58
-    result = Solana::SettleNonce.build_settle(vault: vault, slug: slug, settlements: winners, default_cosigner: cosigner)
+    # Server + platform cosigner sign when they may (Solana::PlatformCosign).
+    result = Solana::PlatformCosign.build_settle(vault: vault, slug: slug, settlements: winners)
 
     PendingTransaction.create!(
       tx_type: "settle_contest",
       serialized_tx: result[:serialized_tx],
       target: self,
       initiator_address: Solana::Keypair.admin.to_base58,
-      metadata: { settlements: winners, durable_nonce: result[:durable_nonce] }.compact.to_json
+      metadata: { settlements: winners, durable_nonce: result[:durable_nonce],
+                  platform_cosigner: result[:platform_cosigner] }.compact.to_json
     )
   end
 

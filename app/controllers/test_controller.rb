@@ -391,6 +391,10 @@ class TestController < ApplicationController
     @pending_count    = @pending.count(&:pending?)
     @primary_cosigner = Solana::Config::MULTISIG_COSIGNER
     @eligible_extras  = Solana::CosignPlan.eligible_cosigners - [@primary_cosigner]
+    # The platform cosigner as this lane holds it: absent, so every row keeps
+    # the two-wallet controls this harness measures.
+    @platform         = Solana::PlatformCosigner.current
+    @platform_extras  = nil
     @fee_payer        = { address: Solana::CosignPlan.admin_address, balance_sol: 6.2313, funded: true }
 
     render "admin/pending_transactions/index"

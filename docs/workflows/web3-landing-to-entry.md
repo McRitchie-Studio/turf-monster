@@ -116,7 +116,7 @@ Phantom must be installed in the browser or available via mobile deep link.
    - `runHoldValidations()` (`:1713-1743`) hits `GET /geo/check` first
      (`:1715`); a blocked state aborts into the `Location Restricted` redirect
      modal (`:1719`). That route is drawn by the engine now, behind
-     `config.draw_geo_routes`, not by this app (`config/routes.rb:670-676`).
+     `config.draw_geo_routes`, not by this app (`config/routes.rb:671-677`).
    - `confirmEntry()` (`_turf_totals_board.html.erb:1760-2282`) short-circuits
      to `showLoginModal()` when the session is a guest (`:1769-1773`), which
      opens the auth wizard at `step: 'credentials'` (`:1128-1141`) — the entry

@@ -151,17 +151,40 @@
                     wallet and #rebuild refused it 422. %>
                 <% required = tx.required_signatures %>
                 <% extras_needed = tx.extra_cosigners_needed %>
+                <%# THE PLATFORM'S SECOND SIGNATURE (platform-cosigns-mainnet-settles:
+                    "I'm only important if you need a third"). On a row the
+                    platform signs, the server signs the admin AND cosigner
+                    slots, and the select below lists his wallets only, 7ZDJ
+                    included, because the named slot is no longer his. The
+                    same call the rebuild makes decides it. %>
+                <% platform_row = tx.platform_cosigned? %>
+                <% eligible = platform_row ? @platform_extras : @eligible_extras %>
                 <%# THE DEFAULT IS HIS WALLET, NEVER AN AGENT'S. The list is
                     ordered by config/signer_roster.yml `priority` (7ZDJ, 3Qj4,
                     9gAC), and only one of his keys is ever preselected. With
                     nothing of his to preselect the select opens on an unchosen
                     placeholder: picking the first option would have handed
                     him 3LTL, the agent key in slot 0, as it did on ptx-437. %>
-                <% default_extras = Solana::CosignPlan.default_extras(@eligible_extras, extras_needed) %>
-                <% if extras_needed.positive? && @eligible_extras.any? %>
+                <% default_extras = Solana::CosignPlan.default_extras(eligible, extras_needed) %>
+                <% if platform_row %>
+                  <% his = eligible.select { |a| Solana::SignerRoster.default.operator?(a) }.map { |a| a[0, 4] } %>
+                  <p class="text-xs font-bold text-heading" data-platform-cosign-note>
+                    <%= extras_needed == 1 ? "One signature needed" : "#{extras_needed} signatures needed" %>:
+                    Alex, from <%= his.length > 1 ? "#{his[0..-2].join(', ')} or #{his.last}" : his.first %>.
+                  </p>
+                  <p class="text-3xs text-muted">
+                    The server (<%= Solana::CosignPlan.admin_address.to_s[0, 4] %>) and the platform cosigner
+                    (<%= @platform.address[0, 4] %>) sign first; yours is the final signature.
+                  </p>
+                <% elsif tx.tx_type == "settle_contest" && extras_needed.positive? && !@platform.configured? %>
+                  <%# ABSENT OR REFUSED: today's two-wallet flow, and the page
+                      says why rather than leaving him to wonder. %>
+                  <p class="text-3xs text-warning-ink" data-platform-cosign-absent><%= @platform.notice %></p>
+                <% end %>
+                <% if extras_needed.positive? && eligible.any? %>
                   <label class="text-xs text-muted flex flex-col gap-1">
                     <span>
-                      Second Phantom wallet
+                      <%= platform_row ? "Your Phantom wallet" : "Second Phantom wallet" %>
                       <span class="opacity-60">(<%= required %> signatures required)</span>
                     </span>
                     <%# NOT a free-text field: the server re-validates against
@@ -173,7 +196,7 @@
                       <% if default_extras.empty? %>
                         <option value="" selected disabled>Choose a wallet</option>
                       <% end %>
-                      <% @eligible_extras.each do |signer| %>
+                      <% eligible.each do |signer| %>
                         <option value="<%= signer %>"
                                 <%= "selected" if signer == default_extras.first %>><%= cosign_wallet_option_label(signer) %></option>
                       <% end %>
@@ -205,8 +228,19 @@
                     `funded` NIL is a balance we could not READ, and must not
                     block: refusing to let him act on an RPC flake is its own
                     outage. %>
+                <% if tx.platform_cosign_offered? %>
+                  <%# ON REQUEST ONLY: the other three-signature actions take
+                      the platform's signature per click, never by default. %>
+                  <label class="flex items-start gap-2 text-xs text-secondary">
+                    <input type="checkbox" data-platform-cosign class="mt-0.5">
+                    <span>
+                      Platform signs too (<%= @platform.address[0, 4] %>), so you sign once,
+                      from the wallet above.
+                    </span>
+                  </label>
+                <% end %>
                 <% blocked_reason =
-                     if extras_needed.positive? && @eligible_extras.empty?
+                     if extras_needed.positive? && eligible.empty?
                        "No second vault signer is configured, so #{required} signatures cannot be collected."
                      elsif @fee_payer && @fee_payer[:funded] == false
                        "The server's fee payer (#{@fee_payer[:address].to_s.truncate(12)}) holds " \
@@ -225,7 +259,8 @@
                   <%= render "signer_roster",
                              roster: Solana::CosignPlan.new(tx_type: tx.tx_type)
                                        .roster(extras: default_extras + [""] * (extras_needed - default_extras.length),
-                                               fee_payer: @fee_payer),
+                                               fee_payer: @fee_payer,
+                                               platform_cosigner: (@platform.address if platform_row)),
                              required_signatures: required %>
                 <% end %>
 
@@ -245,6 +280,18 @@
                         class="btn btn-primary btn-sm">
                   Co-sign
                 </button>
+                <% if tx.platform_completable? %>
+                  <%# TWO-SIGNATURE ACTIONS ONLY, AND ONLY ON THIS CLICK: the
+                      server and the platform cosigner complete it with no
+                      Phantom. Written to the row and the hub activity feed. %>
+                  <%= button_to "Complete with platform signatures",
+                                complete_with_platform_admin_pending_transaction_path(tx.slug),
+                                method: :post,
+                                form: { data: { turbo_confirm: "The server and the platform cosigner will sign and send " \
+                                                               "this #{tx.tx_type.titleize} without your wallet. Continue?" } },
+                                class: "btn btn-secondary btn-sm w-full",
+                                data: { platform_complete: tx.slug } %>
+                <% end %>
               <% elsif tx.status == "submitted" %>
                 <%# NO CO-SIGN BUTTON HERE, AND ONE THAT IS NOT A RE-SEND. A row
                     that has broadcast is not a draft, and the one thing an

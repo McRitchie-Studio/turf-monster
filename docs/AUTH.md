@@ -294,7 +294,7 @@ legitimately walk through by calling `expectSwitchesTo` on the wallet store
 (`app/javascript/solana_stores.js:351`), which both call sites reach through
 `Alpine.store('wallet')`. That keeps the blocking card from opening
 over a half-collected treasury transaction. Three sites declare a suppression:
-`app/javascript/cosign.js:271`,
+`app/javascript/cosign.js:280`,
 `app/views/admin/vault_state/show.html.erb:329`, and the signer console's
 Stimulus controller (`app/javascript/controllers/signer_console_controller.js`,
 through `window.tmWalletSwitches`, the non-Alpine door `solana_stores.js` opens on

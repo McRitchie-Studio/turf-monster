@@ -672,7 +672,7 @@ module Admin
         required: governance ? Solana::Governance.required_signatures("update_signers") : Solana::SignerRotation::REQUIRED_V025,
         max_live_threshold: max_live_threshold,
         server: Solana::CosignPlan.admin_address,
-        server_held: server_held_addresses,
+        server_held: server_held_addresses(platform: params[:platform_cosign]),
         connected: connected,
         nonce_ready: console_nonce.ready?
       )
@@ -690,8 +690,19 @@ module Admin
 
     # PUBLIC addresses of SOLANA_COSIGNER_KEYS. A malformed list is reported
     # on the page (its message names public keys only) and holds no key.
-    def server_held_addresses
-      Solana::Keypair.cosigners.map(&:to_base58)
+    #
+    # `platform:` is the operator's per-plan opt-in to the platform cosigner
+    # (Solana::PlatformCosigner, platform-cosigns-mainnet-settles): ticked,
+    # its address joins the held set, so the planner lets the server sign for
+    # it. Unticked, a rotation is planned exactly as before. The planner keeps
+    # the last signature for one of his wallets either way.
+    def server_held_addresses(platform: false)
+      held = Solana::Keypair.cosigners.map(&:to_base58)
+      cosigner = Solana::PlatformCosigner.current
+      if ActiveModel::Type::Boolean.new.cast(platform) == true && cosigner.configured?
+        held |= [cosigner.address]
+      end
+      held
     rescue StandardError => e
       @server_held_error = "SOLANA_COSIGNER_KEYS could not be loaded: #{Solana::Config.redact_message(e.message)}"
       []
@@ -705,6 +716,8 @@ module Admin
       return [] if wanted.empty?
 
       held = Solana::Keypair.cosigners.index_by(&:to_base58)
+      platform = Solana::PlatformCosigner.current
+      held[platform.address] ||= platform.keypair if platform.configured?
       missing = wanted - held.keys
       if missing.any?
         raise "This rotation was planned with #{missing.join(', ')} signing on the server, and this " \

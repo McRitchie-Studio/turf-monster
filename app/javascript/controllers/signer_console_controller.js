@@ -44,7 +44,8 @@ export default class extends Controller {
     "paste", "confirmBox", "confirm", "pasteError", "refusal",
     "review", "before", "after", "sentence", "signers", "cta",
     "status", "readback", "readbackTitle", "readbackRows", "explorer", "nonce", "noncePrepare",
-    "keyRowTemplate", "emptyRowTemplate", "pickTemplate", "signerRowTemplate"
+    "keyRowTemplate", "emptyRowTemplate", "pickTemplate", "signerRowTemplate",
+    "platformCosign"
   ]
 
   static values = {
@@ -354,6 +355,9 @@ export default class extends Controller {
       add,
       confirm_unknown: pasted.unknown ? [pasted.key] : [],
       connected: this.connected,
+      // The operator's opt-in to the platform cosigner's signature. Off
+      // unless ticked; the server re-derives the signers either way.
+      platform_cosign: this.hasPlatformCosignTarget && this.platformCosignTarget.checked,
       pasteError: pasted.error
     }
   }
@@ -398,7 +402,8 @@ export default class extends Controller {
   payload(draft) {
     return {
       intent: draft.intent, remove: draft.remove, add: draft.add,
-      confirm_unknown: draft.confirm_unknown, connected: draft.connected
+      confirm_unknown: draft.confirm_unknown, connected: draft.connected,
+      platform_cosign: !!draft.platform_cosign
     }
   }
 

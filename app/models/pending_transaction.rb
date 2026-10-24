@@ -384,6 +384,46 @@ class PendingTransaction < ApplicationRecord
     0
   end
 
+  # ── THE PLATFORM'S SECOND SIGNATURE (Solana::PlatformCosigner) ──────────
+  #
+  # The platform cosigner address this row's last build was signed with, or
+  # nil when the platform did not sign it. Written by Contest#settle_onchain!
+  # and by every rebuild, so a broadcast can tell a platform-signed row from
+  # one whose named slot is a Phantom wallet.
+  def platform_cosigner
+    parsed_metadata["platform_cosigner"].presence
+  end
+
+  # Whether a Co-sign of this row takes the platform's signature on its own
+  # (a settle on a three-signature chain with the cosigner configured). Same
+  # call the rebuild makes, so the page and the server cannot disagree.
+  def platform_cosigned?
+    return false if nonce_anchored?
+
+    Solana::CosignPlan.new(tx_type: tx_type).platform_cosign?
+  rescue Solana::CosignPlan::InvalidCosignerError, Solana::Governance::UnknownActionError
+    false
+  end
+
+  # Whether the operator may ASK for the platform's signature on this row (the
+  # other three-signature types).
+  def platform_cosign_offered?
+    return false if nonce_anchored? || platform_cosigned?
+
+    Solana::CosignPlan.new(tx_type: tx_type).platform_cosign?(requested: true)
+  rescue Solana::CosignPlan::InvalidCosignerError, Solana::Governance::UnknownActionError
+    false
+  end
+
+  # Whether the server and the platform cosigner may complete this row alone.
+  def platform_completable?
+    return false if nonce_anchored?
+
+    Solana::CosignPlan.new(tx_type: tx_type).platform_completes?
+  rescue Solana::CosignPlan::InvalidCosignerError, Solana::Governance::UnknownActionError
+    false
+  end
+
   # Whether a signed entry wire is provably dead is not judged here: it is one
   # rule, Entry::Payment#payment_release_allowed?, applied by
   # Entries::PaymentSettlement (ContestsController#recover_pending_entry calls it).
