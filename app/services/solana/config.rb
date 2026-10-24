@@ -483,8 +483,8 @@ module Solana
     # The default cosigner for partially-signed treasury TXs, PER CLUSTER.
     #
     # 7ZDJ… is Mr. McRitchie's Phantom, slot 1 of the MAINNET VaultState set, and
-    # `turf-monster-mainnet` runs on this default (it does not set the variable;
-    # read 2026-10-24). The DEVNET vault does not seat 7ZDJ… (its set is 2eGs…,
+    # `turf-monster-mainnet` runs on this default (it does not set the
+    # variable). The DEVNET vault does not seat 7ZDJ… (its set is 2eGs…,
     # 8UwJ…, BVQH…), so a deployed devnet app on this default would ask him to
     # cosign with a wallet the vault refuses. A deployed app (Rails production)
     # on any cluster but mainnet must therefore name its own cosigner, and boot
