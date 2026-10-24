@@ -33,6 +33,12 @@
 #
 set -euo pipefail
 
+# The servers start under an allow-listed environment (TM_ENV_ALLOW), so no
+# agent credential in this shell reaches them: Puma and Sidekiq rename their
+# process titles, and on macOS `ps` then prints a renamed process's environment.
+# shellcheck source=lib/desk_env.sh
+source "$(cd "$(dirname "$0")" && pwd)/lib/desk_env.sh"
+
 PORT="${1:-3101}"
 REDIS_DB="${2:-9}"
 PRIMARY="$(git rev-parse --show-toplevel)"
@@ -64,8 +70,8 @@ bin/rails tailwindcss:build >/dev/null
 
 echo "▶ isolated stack up — web http://localhost:${PORT}, DB ${DB_NAME}, Redis db ${REDIS_DB}"
 echo "  (Ctrl-C stops web + Sidekiq)"
-bundle exec sidekiq -q default -q mailers -c 3 &
+( tm_scrub_env && exec bundle exec sidekiq -q default -q mailers -c 3 ) &
 SIDEKIQ_PID=$!
 trap 'echo; echo "▶ stopping Sidekiq (${SIDEKIQ_PID})"; kill "${SIDEKIQ_PID}" 2>/dev/null || true' EXIT
 
-exec bin/rails server -p "$PORT"
+tm_scrub_env && exec bin/rails server -p "$PORT"

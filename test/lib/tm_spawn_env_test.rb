@@ -95,4 +95,14 @@ class TmSpawnEnvTest < Minitest::Test
       assert_equal "fake-unlisted-name", seen["SOME_FUTURE_SECRET"]
     end
   end
+
+  # bin/parallel-server execs its servers in the foreground, so it is driven
+  # statically: it sources the same allow-list and scrubs before each exec.
+  def test_parallel_server_scrubs_before_each_server_starts
+    src = File.read(File.expand_path("../../bin/parallel-server", __dir__))
+
+    assert_includes src, "/lib/desk_env.sh\""
+    assert_match(/\( tm_scrub_env && exec bundle exec sidekiq/, src)
+    assert_match(/^tm_scrub_env && exec bin\/rails server/, src)
+  end
 end
