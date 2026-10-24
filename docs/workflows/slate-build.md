@@ -5,7 +5,7 @@
 > resets at each `##` heading. The number is bookkeeping; the SYMBOL beside it is
 > the claim, and `test/docs/workflow_citation_docs_test.rb` reddens when a
 > citation stops landing inside the definition its prose names.
-> That symbol check reaches **54 of the 66 citations** here. The other **12** sit in
+> That symbol check reaches **55 of the 67 citations** here. The other **12** sit in
 > code with no enclosing definition the guard can derive: two lines of
 > `docs/FORMULAS.md` prose, two `lib/tasks/slates.rake` task bodies, the top-level
 > `db/seeds/nfl_2026.rb` (4) and `e2e/seed.rb` (2) scripts, which define no methods
@@ -65,7 +65,7 @@ matchups — `Nfl::BuildSpanSlate#rebuild_matchups!` opens with exactly that
 **✅ The WEEKLY path is now guarded too — `slate-build-split` shipped the freeze-on-pick
 guard.** Step 1's `bin/rails nfl:expected_team_totals_cache` reaches
 `Nfl::CacheExpectedTeamTotals#rank_slate_matchups!`
-(`app/services/nfl/cache_expected_team_totals.rb:247-263`), which now **skips any matchup
+(`app/services/nfl/cache_expected_team_totals.rb:257-273`), which now **skips any matchup
 a player has already picked** before it rewrites `rank` and `turf_score`:
 
 ```ruby
@@ -77,19 +77,19 @@ matchup.update!(rank: ranking[:rank], turf_score: ranking[:turf_score])
 
 The comment above `rank_slate_matchups!` tells the freeze story — cited deliberately,
 because the comment is where the reasoning lives
-(`app/services/nfl/cache_expected_team_totals.rb:235-243`): storing rank + `turf_score` at
+(`app/services/nfl/cache_expected_team_totals.rb:245-253`): storing rank + `turf_score` at
 ingest freezes the price against a **render** recompute, but not against a **re-ingest** — a
 later rebuild (new lines, a sport flip, a correction) would re-rank the slate and overwrite
 the stored score of a matchup a player has already picked. Settlement is on-chain and reads
 the **stored** column (`Selection#compute_points!` never recomputes), so that overwrite
 would silently re-price committed money. The guard inside `rank_slate_matchups!` at
-`:259` is what makes the price
+`:269` is what makes the price
 un-repriceable after a pick: a picked matchup keeps its rank + `turf_score` exactly as
 shown, and the rebuild re-ranks only the still-open matchups around it.
 
 **One exposure remains — the SEED path, not this service.** The same rake command, run
 **without `SKIP_SCHEDULE=1`**, also loads `db/seeds/nfl_2026.rb`, whose
-`matchup.update!(rank: rank, turf_score: ...)` (`db/seeds/nfl_2026.rb:188`) has **no
+`matchup.update!(rank: rank, turf_score: ...)` (`db/seeds/nfl_2026.rb:194`) has **no
 Selections guard**. That is a reseed of the 2026 schedule, not a market rebuild — see
 [[market-snapshot]], "⛔ Today, re-running this SOP can re-price a live contest", for the
 site-2 detail and the season-wide pre-flight check.
@@ -130,23 +130,24 @@ without re-scraping.
 so this is still the *same command* as [[market-snapshot]] step 3. If you have just run
 that, **steps 1–6 of this SOP have already happened** — running it again re-executes the
 whole thing. `Nfl::CacheExpectedTeamTotals#rank_slate_matchups!` now freezes picked
-matchups (`app/services/nfl/cache_expected_team_totals.rb:259`), but a reseed without
+matchups (`app/services/nfl/cache_expected_team_totals.rb:269`), but a reseed without
 `SKIP_SCHEDULE=1` still re-ranks via the unguarded seed. Skip to step 7 for a span slate,
 or stop here.
 
 ### 2. Ensure Games — ✅ LIVE
 
 `Nfl::CacheExpectedTeamTotals#ensure_game!`
-(`app/services/nfl/cache_expected_team_totals.rb:184-196`), called from `#cache_row`
-(`:115-164`). Slug is `<home>-vs-<away>` (`:185`); venue defaults to the home team's
-arena (`:191`); status defaults to `scheduled` (`:193`). Idempotent via
-`find_or_initialize_by` (`:186`).
+(`app/services/nfl/cache_expected_team_totals.rb:191-206`), called from `#cache_row`
+(`:115-164`). Slug is `<home>-vs-<away>` (`:192`); venue defaults to the home team's
+arena (`:201`); status defaults to `scheduled` (`:203`). It writes the CSV row's
+`week` onto the game, with the regular-season slot where the game has none (`:198`). Idempotent via
+`find_or_initialize_by` (`:193`).
 
 ### 3. Ensure the Slate — ✅ LIVE
 
 `Nfl::CacheExpectedTeamTotals#ensure_slate!`
-(`app/services/nfl/cache_expected_team_totals.rb:198-208`). It names the slate
-`NFL <year> Week <n>` (`:199`) and writes `week` as a real column (`:203`).
+(`app/services/nfl/cache_expected_team_totals.rb:208-218`). It names the slate
+`NFL <year> Week <n>` (`:209`) and writes `week` as a real column (`:213`).
 
 **`slates` carries `sport` and `year` COLUMNS (`slates-sport-year`, DONE).** `Slate#sport`
 (`app/models/slate.rb:381-385`) and `Slate#season_year` (`:119-123`) read the column, falling
@@ -165,9 +166,9 @@ regular one.
 ### 4. Ensure the matchups — ✅ LIVE
 
 `Nfl::CacheExpectedTeamTotals#ensure_matchups!`
-(`app/services/nfl/cache_expected_team_totals.rb:210-224`). Two rows per game, one per
-team (`:211`), each carrying that team's expected score (`:218`). It calls
-`rank_slate_matchups!` on the way out (`:223`).
+(`app/services/nfl/cache_expected_team_totals.rb:220-234`). Two rows per game, one per
+team (`:221`), each carrying that team's expected score (`:228`). It calls
+`rank_slate_matchups!` on the way out (`:233`).
 
 The column is `slate_matchups.expected_score` — it holds NFL *points*, not goals, and
 never came from DK, so it was renamed from the misnomer `dk_goals_expectation` under
@@ -194,7 +195,7 @@ Tie-break is earliest kickoff, then team name — the sort key inside `Slate#tea
 replaced, so a one-week slate ranks identically to before.
 
 **The kickoff key is the ACTIVE discriminator, not a dormant one.**
-`db/seeds/nfl_2026.rb:144` and `:152` set `kickoff_at` from the schedule — measured on the
+`db/seeds/nfl_2026.rb:144` and `:154` set `kickoff_at` from the schedule — measured on the
 seeded 2026 season, **256 of 272** weekly-slate games carry it, and Week 3 is 16/16. Two
 teams tied on expected score are separated by kickoff *before* the name is ever consulted,
 so changing the key re-prices tied teams on every existing slate.
@@ -233,8 +234,8 @@ and the 2023–25 snapshot is written down at `docs/FORMULAS.md:28` — linear *
 
 The rank and score are written to **every still-open row of that team**:
 `Nfl::CacheExpectedTeamTotals#rank_slate_matchups!` writes it at
-`app/services/nfl/cache_expected_team_totals.rb:261`, skipping any picked matchup via the
-`:259` guard, and `Nfl::BuildSpanSlate#freeze_rankings!` writes it at
+`app/services/nfl/cache_expected_team_totals.rb:271`, skipping any picked matchup via the
+`:269` guard, and `Nfl::BuildSpanSlate#freeze_rankings!` writes it at
 `app/services/nfl/build_span_slate.rb:141-149` on the span path. That is the freeze: pick
 time and settlement read the same stored column, and once a matchup is picked a rebuild
 leaves it untouched.
@@ -302,9 +303,9 @@ is `nfl_team_total_projections` today.
   (`app/services/nfl/build_span_slate.rb:46`). The weekly path now skips any picked matchup
   before re-ranking — `Nfl::CacheExpectedTeamTotals#rank_slate_matchups!` via the `next if
   matchup.selections.exists?` guard `slate-build-split` shipped
-  (`app/services/nfl/cache_expected_team_totals.rb:259`), so a re-run after a projections
+  (`app/services/nfl/cache_expected_team_totals.rb:269`), so a re-run after a projections
   refresh re-ranks only the still-open matchups. **The remaining gap is the SEED path**, an
-  unguarded `matchup.update!(rank: rank, turf_score: ...)` (`db/seeds/nfl_2026.rb:188`)
+  unguarded `matchup.update!(rank: rank, turf_score: ...)` (`db/seeds/nfl_2026.rb:194`)
   reached by a reseed without `SKIP_SCHEDULE=1` — see
   [[market-snapshot]] site 2.
 - **Missing week in a span** — `Nfl::BuildSpanSlate#source_slates` raises
