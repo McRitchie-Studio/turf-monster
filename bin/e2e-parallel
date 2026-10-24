@@ -57,6 +57,19 @@ if [ "${1:-}" = "--" ]; then shift; EXTRA=("$@"); fi
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# Every Rails process below starts under the desk allow-list (bin/lib/desk_env.sh,
+# tm_scrub_env), as bin/tm's do: Puma renames its process title, and on macOS a
+# renamed process's environment is one `ps` away from a transcript, so the
+# launching shell's HEROKU_API_KEY, OP_SERVICE_ACCOUNT_TOKEN and the rest never
+# reach it. The seed reads two variables of its own (e2e/seed.rb), kept by name.
+# secrets-scrub-follow-ups.
+# shellcheck source=lib/desk_env.sh
+source "$ROOT/bin/lib/desk_env.sh" || {
+  echo "bin/e2e-parallel: $ROOT/bin/lib/desk_env.sh is missing; refusing to start servers with an unscrubbed environment" >&2
+  exit 1
+}
+SPAWN_KEEP_EXTRA="PLAYWRIGHT_SEED SOLANA_BOT_PUBKEY"
+
 BASE_PORT="${E2E_BASE_PORT:-3101}"
 UP_TIMEOUT="${E2E_UP_TIMEOUT:-180}"
 PARALLEL_SEED="${E2E_PARALLEL_SEED:-0}"
@@ -75,7 +88,7 @@ trap cleanup EXIT INT TERM
 # The test-env server serves the compiled Tailwind stylesheet; build it once
 # (absent → every page 500s with "asset tailwind.css is not present").
 echo "▶ building Tailwind once…"
-if ! bin/rails tailwindcss:build >"$LOGDIR/tailwind.log" 2>&1; then
+if ! ( tm_scrub_env && exec bin/rails tailwindcss:build ) >"$LOGDIR/tailwind.log" 2>&1; then
   echo "✗ tailwind build failed — see $LOGDIR/tailwind.log"; exit 1
 fi
 
@@ -151,6 +164,7 @@ if [ "$PARALLEL_SEED" = 1 ]; then
     (
       export DATABASE_URL="postgres:///${db}" TEST_DATABASE_URL="postgres:///${db}" RAILS_ENV=test
       export ENABLE_COINFLOW=true ENABLE_AEROPAY=true ENABLE_FIAT_RAILS=true  # onramp rails — see ONRAMP FLAGS above
+      tm_scrub_env
       bin/rails db:drop db:create db:schema:load >"$LOGDIR/stack-$i.log" 2>&1
       bin/rails runner e2e/seed.rb >>"$LOGDIR/stack-$i.log" 2>&1
       exec bin/rails server -p "$port" -e test >>"$LOGDIR/server-$i.log" 2>&1
@@ -164,6 +178,7 @@ else
     if ! (
       export DATABASE_URL="postgres:///${db}" TEST_DATABASE_URL="postgres:///${db}" RAILS_ENV=test
       export ENABLE_COINFLOW=true ENABLE_AEROPAY=true ENABLE_FIAT_RAILS=true  # onramp rails — see ONRAMP FLAGS above
+      tm_scrub_env
       bin/rails db:drop db:create db:schema:load >"$LOGDIR/stack-$i.log" 2>&1 &&
         bin/rails runner e2e/seed.rb >>"$LOGDIR/stack-$i.log" 2>&1
     ); then
@@ -179,6 +194,7 @@ else
     (
       export DATABASE_URL="postgres:///${db}" TEST_DATABASE_URL="postgres:///${db}" RAILS_ENV=test
       export ENABLE_COINFLOW=true ENABLE_AEROPAY=true ENABLE_FIAT_RAILS=true  # onramp rails — see ONRAMP FLAGS above
+      tm_scrub_env
       exec bin/rails server -p "$port" -e test >>"$LOGDIR/server-$i.log" 2>&1
     ) &
     SERVER_PIDS+=("$!")
@@ -205,7 +221,10 @@ for i in $(seq 0 $((N - 1))); do
 done
 echo "✓ all $N stacks up"
 
-# 3) Run N sharded Playwright processes, one per stack.
+# 3) Run N sharded Playwright processes, one per stack. These keep the shell's
+#    environment: Playwright reads its own knobs from it (PW_BASE_URL, CI, the
+#    ENABLE_* rails in playwright.config.js), it starts no server here, and node
+#    does not rename its process title the way Puma does.
 echo "▶ running Playwright across $N shards…"
 declare -a PW_PIDS=()
 for i in $(seq 0 $((N - 1))); do
