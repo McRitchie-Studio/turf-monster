@@ -5,13 +5,12 @@ module Solana
   # people they were never meant for. No parked identity carries one either.
   module RotatedOutWallet
     # The house account's former wallet (solana.turf.admin), rotated out of both
-    # Squads on 2026-10-09.
+    # Squads (task rotate-mainnet-admin-key).
     ADDRESS = "BLSBw8fXHzZc5pbaYCKMpMSsrtXBTbWXpUPVzMrXx9oo".freeze
 
-    # Mack's former devnet key. Its SECRET sat in this public repository
-    # (e2e/devnet-smoke.spec.js, 2026-04-12 to 2026-10-24), so anyone can sign
-    # with it; it was evicted from the devnet vault and retired on 2026-10-24
-    # (task rotate-leaked-devnet-mack-key). Mack's parked identity now carries
+    # Mack's former devnet key. Its SECRET was committed to this public
+    # repository (e2e/devnet-smoke.spec.js), so anyone can sign with it; it holds
+    # no devnet vault seat and is retired (task rotate-leaked-devnet-mack-key). Mack's parked identity now carries
     # his new key, so the QA rehearsal's seed step re-points his row.
     LEAKED_MACK = "foUuRyeibadQoGdKXZ9pBGDqmkb1jY1jYsu8dZ29nds".freeze
 

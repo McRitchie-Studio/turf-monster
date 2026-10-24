@@ -8,8 +8,8 @@ module TurfMonster
   # test/lib/committed_secret_key_guard_test.rb, which runs it over every file
   # git tracks. turf-monster is a PUBLIC repository: a key committed here is a
   # key published, and git history keeps it after the line is deleted. Mack's
-  # devnet key (foUu…) sat in e2e/devnet-smoke.spec.js from 2026-04-12 until it
-  # was retired on 2026-10-24 (task rotate-leaked-devnet-mack-key).
+  # devnet key (foUu…) sat in e2e/devnet-smoke.spec.js until it was found and
+  # retired (task rotate-leaked-devnet-mack-key).
   #
   # WHAT COUNTS AS A SECRET KEY. A Solana keypair is 64 bytes: a 32-byte
   # Ed25519 seed followed by the 32-byte public key that seed derives. Two
@@ -21,8 +21,8 @@ module TurfMonster
   # A candidate is a finding only when its second half IS the public key its
   # first half derives. That one check is what separates a secret key from a
   # transaction signature, which is also 64 bytes of base58 and fills this
-  # repo's runbooks (measured 2026-10-24: 13 signatures, 0 keys, on the tree
-  # after the fix). The check cannot miss a real keypair: every secret key
+  # repo's runbooks (13 signatures and 0 keys on the tree when this guard
+  # landed). The check cannot miss a real keypair: every secret key
   # `solana-keygen`, web3.js or this app's Solana::Keypair writes satisfies it
   # by construction.
   #
