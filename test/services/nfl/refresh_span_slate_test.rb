@@ -22,7 +22,7 @@ class Nfl::RefreshSpanSlateTest < ActiveSupport::TestCase
 
   def add_game!(team_slug, week, score)
     opponent = OPPONENTS.fetch(week)
-    game = Game.create!(slug: "#{team_slug}-vs-#{opponent}", home_team_slug: team_slug,
+    game = Game.create!(week: week, slug: "#{team_slug}-vs-#{opponent}", home_team_slug: team_slug,
                         away_team_slug: opponent, status: "scheduled", kickoff_at: @kickoff + week.days)
     [@weekly.fetch(week), @span].each do |slate|
       SlateMatchup.create!(slate: slate, team_slug: team_slug, opponent_team_slug: opponent,

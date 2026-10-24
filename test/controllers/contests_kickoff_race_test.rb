@@ -18,7 +18,7 @@ class ContestsKickoffRaceTest < ActionDispatch::IntegrationTest
     @user = users(:sam)
     @user.update!(web3_solana_address: "Web3Race#{SecureRandom.hex(4)}")
     @kickoff = Time.current + 5.minutes
-    game = Game.create!(home_team_slug: "team-a", away_team_slug: "team-b", kickoff_at: @kickoff, status: "scheduled")
+    game = Game.create!(week: 1, home_team_slug: "team-a", away_team_slug: "team-b", kickoff_at: @kickoff, status: "scheduled")
     slate_matchups(:m1).update!(game_slug: game.slug)
     @entry = @contest.entries.create!(user: @user, status: :cart, entry_number: 0)
     %i[m1 m2 m3 m4 m5 m6].each { |name| @entry.selections.create!(slate_matchup: slate_matchups(name)) }

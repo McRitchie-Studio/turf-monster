@@ -30,7 +30,7 @@ class WcResetResultsTaskTest < ActiveSupport::TestCase
     e2 = frozen.entries.create!(user: users(:jordan), status: :active)
 
     # A game on the slate + a goal, with the matchup wired to it.
-    game = Game.create!(home_team_slug: "team-a", away_team_slug: "team-b", kickoff_at: 1.day.from_now)
+    game = Game.create!(week: 1, home_team_slug: "team-a", away_team_slug: "team-b", kickoff_at: 1.day.from_now)
     matchup = slate_matchups(:m1)
     goal = Goal.create!(game_slug: game.slug, team_slug: "team-a")
 

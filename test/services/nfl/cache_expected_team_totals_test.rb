@@ -38,6 +38,25 @@ class Nfl::CacheExpectedTeamTotalsTest < ActiveSupport::TestCase
     assert_equal 2, away_matchup.rank
   end
 
+  # The writer used to set no week, which is how 165 production games came to
+  # carry `week: NULL` while their matchups knew the week.
+  test "the game it creates carries the CSV row's week and regular-season slot" do
+    Nfl::CacheExpectedTeamTotals.call(path: csv_path)
+
+    game = Game.find_by!(slug: "team-a-vs-team-b")
+    assert_equal 18, game.week
+    assert_equal 2026, game.season_year
+    assert_equal 2, game.season_type
+  end
+
+  test "a game it adopts from an earlier writer is given the week too" do
+    Game.new(slug: "team-a-vs-team-b", home_team_slug: "team-a", away_team_slug: "team-b").save!(validate: false)
+
+    Nfl::CacheExpectedTeamTotals.call(path: csv_path)
+
+    assert_equal 18, Game.find_by!(slug: "team-a-vs-team-b").week
+  end
+
   test "re-running cache updates rows without duplicating projections" do
     Nfl::CacheExpectedTeamTotals.call(path: csv_path)
     Nfl::CacheExpectedTeamTotals.call(path: csv_path)

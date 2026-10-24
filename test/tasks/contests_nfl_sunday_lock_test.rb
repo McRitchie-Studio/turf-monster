@@ -44,7 +44,7 @@ class ContestsNflSundayLockTaskTest < ActiveSupport::TestCase
     @chain = FakeChain.new
     @slate = Slate.create!(name: "NFL 2026 Week 4 #{SecureRandom.hex(2)}", week: 4)
     { %w[team-a team-b] => TNF, %w[team-c team-d] => SUNDAY }.each do |(home, away), kickoff|
-      game = Game.create!(home_team_slug: home, away_team_slug: away, kickoff_at: kickoff, status: "scheduled")
+      game = Game.create!(week: 4, home_team_slug: home, away_team_slug: away, kickoff_at: kickoff, status: "scheduled")
       [[home, away], [away, home]].each do |team, opponent|
         SlateMatchup.create!(slate: @slate, team_slug: team, opponent_team_slug: opponent, game_slug: game.slug,
                              rank: 1, turf_score: 1.0, status: "pending")

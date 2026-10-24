@@ -226,7 +226,7 @@ class SlateSportYearTest < ActiveSupport::TestCase
     weekly = Slate.create!(name: "Week 1 Showcase 2032", week: 1, sport: "nfl", year: 2032)
     refute weekly.name.start_with?("NFL 2032"), "precondition: the name must defeat a LIKE scope"
 
-    game = Game.create!(slug: "ccc-test-vs-ddd-test", home_team_slug: team_a.slug,
+    game = Game.create!(week: 1, slug: "ccc-test-vs-ddd-test", home_team_slug: team_a.slug,
                         away_team_slug: team_b.slug, status: "scheduled")
     SlateMatchup.create!(slate: weekly, team_slug: team_a.slug, opponent_team_slug: team_b.slug,
                          game_slug: game.slug, week: 1, expected_score: 21.0)
@@ -265,7 +265,7 @@ class SlateSportYearTest < ActiveSupport::TestCase
     team_a = Team.create!(slug: "aaa-test", name: "AAA", league: "nfl")
     team_b = Team.create!(slug: "bbb-test", name: "BBB", league: "nfl")
     weekly = Slate.create!(name: "NFL 2031 Week 1", week: 1)
-    game = Game.create!(slug: "aaa-test-vs-bbb-test",
+    game = Game.create!(week: 1, slug: "aaa-test-vs-bbb-test",
                         home_team_slug: team_a.slug, away_team_slug: team_b.slug, status: "scheduled")
     SlateMatchup.create!(slate: weekly, team_slug: team_a.slug, opponent_team_slug: team_b.slug,
                          game_slug: game.slug, week: 1, expected_score: 20.0)

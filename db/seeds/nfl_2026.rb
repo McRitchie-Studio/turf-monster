@@ -146,11 +146,16 @@ data.fetch("games").each do |row|
   game_slug = "#{home_team.slug}-vs-#{away_team.slug}"
 
   game = Game.find_or_initialize_by(slug: game_slug)
+  # The schedule file's week, with the regular-season slot it belongs to. This
+  # seed used to write no week at all; Game now requires one on an NFL game.
   game.assign_attributes(
     home_team_slug: home_team.slug,
     away_team_slug: away_team.slug,
     kickoff_at: kickoff_at,
-    venue: venue
+    venue: venue,
+    week: Integer(row.fetch("week")),
+    season_year: game.season_year || Integer(data.fetch("season")),
+    season_type: game.season_type || Slate::DEFAULT_SEASON_TYPE
   )
   game.status = "scheduled" if game.status.blank?
   game.save!
@@ -172,6 +177,7 @@ games_by_week.sort.each do |week, entries|
     [[home_team, away_team], [away_team, home_team]].each do |team, opponent|
       matchup = SlateMatchup.find_or_initialize_by(slate: slate, team_slug: team.slug)
       matchup.assign_attributes(
+        week: game.week,
         opponent_team_slug: opponent.slug,
         game_slug: game.slug
       )

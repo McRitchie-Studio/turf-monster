@@ -80,7 +80,7 @@ The away side is `total - home`, not `(total + spread) / 2`. Both are algebraica
 same; only the first guarantees the two sides sum to exactly the game total after
 rounding.
 
-Sign convention, resolved at `app/services/nfl/cache_expected_team_totals.rb:313`
+Sign convention, resolved at `app/services/nfl/cache_expected_team_totals.rb:323`
 (`home_spread_for`): **the favorite's spread is negative.** When the home team is the
 favorite, `home_spread` is that negative number. When the away team is the favorite,
 `home_spread` is its absolute value. A row whose `favorite_team_slug` matches neither
@@ -90,7 +90,7 @@ side falls through to `0`.
 `derived`; the same command on the Thursday of Week 3 overwrites it with `posted`. It is a
 genuine overwrite, not an accumulation: `upsert_projection!` keys one row per
 `(year, week, game_slug, team_slug)`
-(`app/services/nfl/cache_expected_team_totals.rb:266-270`), so a week holds exactly
+(`app/services/nfl/cache_expected_team_totals.rb:276-280`), so a week holds exactly
 one projection per team and the derived value is gone once posted lands.
 
 ✅ **LIVE (`market-snapshot-impl`):** the `posted_line` column keeps DK's posted number
@@ -114,7 +114,7 @@ site and one still-unguarded one**. The still-open one — the schedule seed —
 one.
 
 **Site 1 — the ingest's own re-rank — ✅ NOW GUARDED (`slate-build-split`, #263).**
-`rank_slate_matchups!` (`app/services/nfl/cache_expected_team_totals.rb:247`) skips any
+`rank_slate_matchups!` (`app/services/nfl/cache_expected_team_totals.rb:257`) skips any
 matchup a player has already picked before it rewrites the row:
 
 ```ruby
@@ -126,7 +126,7 @@ It re-ranks by summed expected score, so an unguarded re-run would have yielded 
 prices on picked matchups. The guard now freezes those and re-ranks only the still-open ones.
 
 **Site 2 — the schedule seed**, which writes `rank` and `SlateMatchup.turf_score_for`
-straight over every matchup in the slate (`db/seeds/nfl_2026.rb:186-188`). It is
+straight over every matchup in the slate (`db/seeds/nfl_2026.rb:192-194`). It is
 reached because `lib/tasks/nfl.rake:6` loads `db/seeds/nfl_2026.rb` unless you pass
 `SKIP_SCHEDULE=1`:
 
@@ -145,7 +145,7 @@ team kicks off earliest. It runs over weeks 1–17, 256 games, and is the **one 
 unguarded** — a reseed, not a live market rebuild, but it re-ranks picked matchups all the
 same.
 
-**And its year is HARDCODED.** `db/seeds/nfl_2026.rb:163` builds
+**And its year is HARDCODED.** `db/seeds/nfl_2026.rb:168` builds
 `"NFL 2026 Week #{week}"` regardless of the `YEAR` you passed the rake task. So
 `YEAR=2027` makes the pre-flight check below inspect `NFL 2027 %` while the seed rewrites
 `NFL 2026 %` — **the check's scope and the command's write set come apart.** Always pass
@@ -172,7 +172,7 @@ week is itself a fail-open.
 **Before running step 3, check every slate the run can touch:**
 
 Slate names follow a fixed convention — **`NFL <year> Week <n>`**, written by
-`ensure_slate!` (`app/services/nfl/cache_expected_team_totals.rb:199`). A span slate is
+`ensure_slate!` (`app/services/nfl/cache_expected_team_totals.rb:209`). A span slate is
 named by `Nfl::BuildSpanSlate.slate_name` instead
 (`app/services/nfl/build_span_slate.rb:61-64`), which is **not** simply
 `NFL <year> Weeks <a>-<b>`: it inserts a `Preseason ` qualifier for a preseason span,
@@ -204,7 +204,7 @@ against — the pattern is that the check kept being narrower than the command:
   whole season — checking Week 3 and reading "safe" said nothing about weeks 1, 2, 4–18.
 - **Write set.** The check's year is a variable; the seed's is HARDCODED to 2026 — its
   `Slate.find_or_initialize_by` name is the literal `"NFL 2026 Week #{week}"`
-  (`db/seeds/nfl_2026.rb:163`). With `YEAR=2027` and no `SKIP_SCHEDULE=1`, the check
+  (`db/seeds/nfl_2026.rb:168`). With `YEAR=2027` and no `SKIP_SCHEDULE=1`, the check
   inspects `NFL 2027 %` while the seed rewrites `NFL 2026 %`. The `year` below must match
   the year the command will actually write, which for the seed path is always 2026.
 
@@ -416,15 +416,15 @@ this SOP describes.** Without it, `lib/tasks/nfl.rake:6` also loads
 `Nfl::CacheExpectedTeamTotals#call` (`app/services/nfl/cache_expected_team_totals.rb:58`)
 hands every CSV row to `cache_row` (`:115`), which creates Games (`:121`), Slates
 (`:122`) and SlateMatchups (`:131`). The re-rank is not a fourth call beside them — it
-rides INSIDE `ensure_matchups!` (`:223`), which is why `SKIP_SCHEDULE=1` narrows what
+rides INSIDE `ensure_matchups!` (`:233`), which is why `SKIP_SCHEDULE=1` narrows what
 this task writes but never stops it re-ranking. Those four belong to [[slate-build]] and
 move there under `slate-build-split`.
 
 **Idempotency — per-week at both grains.**
-`upsert_projection!` (`app/services/nfl/cache_expected_team_totals.rb:266-270`) keys on
+`upsert_projection!` (`app/services/nfl/cache_expected_team_totals.rb:276-280`) keys on
 `(year, week, game_slug, team_slug)`, which is per-week and needs no change.
-`delete_stale_rows` (`:305`) is **now scoped to the weeks the run actually built** —
-`where(year: @year, week: @touched_weeks.to_a)` at `:308` — not to the whole year, so a CSV narrower
+`delete_stale_rows` (`:315`) is **now scoped to the weeks the run actually built** —
+`where(year: @year, week: @touched_weeks.to_a)` at `:318` — not to the whole year, so a CSV narrower
 than the season only sweeps the weeks it covered, and the per-week `market:snapshot`
 (step 3) is safe by construction.
 
@@ -497,12 +497,12 @@ the `MarketSnapshot` that says when the lines were pulled.
 `nfl:expected_team_totals_cache` also writes:
 
 - `games` (insert, update) — `ensure_game!`,
-  `app/services/nfl/cache_expected_team_totals.rb:184`
+  `app/services/nfl/cache_expected_team_totals.rb:191`
 - `slates` (insert, update) — `ensure_slate!`,
-  `app/services/nfl/cache_expected_team_totals.rb:198`
+  `app/services/nfl/cache_expected_team_totals.rb:208`
 - `slate_matchups` (insert, update) — `ensure_matchups!`,
-  `app/services/nfl/cache_expected_team_totals.rb:210`; the **`rank` and `turf_score`**
-  columns are written by `rank_slate_matchups!` at `:261`
+  `app/services/nfl/cache_expected_team_totals.rb:220`; the **`rank` and `turf_score`**
+  columns are written by `rank_slate_matchups!` at `:271`
 
 Only `selections` and `contests` are genuinely untouched, and even those are reached
 indirectly: a rewritten `turf_score` is what settlement multiplies by.
@@ -527,14 +527,14 @@ Once the split lands, this SOP touches only the first list. Until then, treat st
   (`scripts/scrape_draftkings.js:246`), so a layout change yields zero rows rather than an
   exception. Assert a minimum row count for the week before writing the dataset.
 - **A CSV narrower than the season** — no longer a data-loss hazard:
-  `delete_stale_rows` (`app/services/nfl/cache_expected_team_totals.rb:305`) is scoped to
+  `delete_stale_rows` (`app/services/nfl/cache_expected_team_totals.rb:315`) is scoped to
   the weeks the run built (`@touched_weeks`), so a week-3-only CSV sweeps only week 3.
   See the idempotency note in step 3.
 - **Re-running against an already-picked week** — see the ⛔ warning above.
   `rank_slate_matchups!` now freezes picked matchups (`slate-build-split`,
-  `app/services/nfl/cache_expected_team_totals.rb:259`), but a reseed without
+  `app/services/nfl/cache_expected_team_totals.rb:269`), but a reseed without
   `SKIP_SCHEDULE=1` still re-ranks via the unguarded seed, whose
-  `SlateMatchup.turf_score_for` write is at `db/seeds/nfl_2026.rb:188`.
+  `SlateMatchup.turf_score_for` write is at `db/seeds/nfl_2026.rb:194`.
 
 ---
 

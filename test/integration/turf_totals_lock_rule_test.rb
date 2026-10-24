@@ -43,7 +43,7 @@ class TurfTotalsLockRuleTest < ActionDispatch::IntegrationTest
     @slate = Slate.create!(name: "Lock Rule Slate", slug: "lock-rule-slate",
                            sport: "fifa", starts_at: @early_kickoff)
 
-    early_game = Game.create!(slug: "lock-rule-early", home_team_slug: "team-a",
+    early_game = Game.create!(week: 1, slug: "lock-rule-early", home_team_slug: "team-a",
                               away_team_slug: "team-b", kickoff_at: @early_kickoff,
                               status: "scheduled")
     late_game = Game.create!(slug: "lock-rule-late", home_team_slug: "team-c",

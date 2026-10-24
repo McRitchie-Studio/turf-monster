@@ -3,7 +3,7 @@ require "test_helper"
 # [unit] What the focus card's rail lists, and in what order.
 class Live::RailFeedTest < ActiveSupport::TestCase
   setup do
-    @game = Game.create!(home_team_slug: "team-a", away_team_slug: "team-b", status: "in_progress",
+    @game = Game.create!(week: 1, home_team_slug: "team-a", away_team_slug: "team-b", status: "in_progress",
                          external_id: "777", kickoff_at: 1.hour.ago)
   end
 

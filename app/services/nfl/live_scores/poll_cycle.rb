@@ -379,7 +379,10 @@ module Nfl
         game.assign_attributes(
           external_id: row.external_id,
           home_team_slug: home.slug, away_team_slug: away.slug,
-          season_year: row.season_year, season_type: row.season_type, week: row.week,
+          # A row with no week keeps the one we hold rather than nulling it: Game
+          # refuses an NFL game whose week is CHANGED to nil, and a cycle that
+          # raises on one row is worse than a week left as it was.
+          season_year: row.season_year, season_type: row.season_type, week: row.week || game.week,
           kickoff_at: row.kickoff_at, status: status_for(game, row),
           period: row.period, clock: row.clock, status_detail: row.detail,
           # THE SITUATION IS WRITTEN THROUGH EVEN WHEN IT IS NIL, and that is

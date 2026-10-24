@@ -10,7 +10,7 @@ class Contest::LiveBroadcastTest < ActiveSupport::TestCase
   setup do
     @contest = contests(:one) # turf_totals, slate :one
     @contest.update!(starts_at: 1.hour.ago, status: "open") # → live? true
-    @game = Game.create!(home_team_slug: "team-a", away_team_slug: "team-b",
+    @game = Game.create!(week: 1, home_team_slug: "team-a", away_team_slug: "team-b",
                          kickoff_at: 30.minutes.ago, status: "scheduled")
     slate_matchups(:m1).update!(game_slug: @game.slug) # links the game to the contest's slate
   end

@@ -52,7 +52,12 @@ test.describe("Focus order board", () => {
     // below the fold is a set of coordinates the pointer never reaches — the
     // drag then silently does nothing and the board looks untouched, which is
     // indistinguishable from a board that cannot drag at all.
-    await page.setViewportSize({ width: 1280, height: 1000 });
+    //
+    // A FULL WEEK, which is up to sixteen cards. The dev seed's regular-season
+    // games carry their week (games-week-backfill), so the first week on the
+    // index is a real sixteen-game week, not the e2e seed's short preseason
+    // slot, and 1000px put the last card below the fold.
+    await page.setViewportSize({ width: 1280, height: 2600 });
     await loginAdmin(page);
     await page.goto("/admin/nfl/weeks");
 

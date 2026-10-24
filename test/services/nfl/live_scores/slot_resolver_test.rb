@@ -104,7 +104,8 @@ class NflSlotResolverTest < ActiveSupport::TestCase
   # No slate names it and no poller stamped it, so nothing can place it in a week
   # — and no SlateMatchup points at it either, so no contest scores off it.
   test "a game on no slate resolves to nothing" do
-    game = Game.create!(home_team_slug: teams(:team_a).slug, away_team_slug: teams(:team_b).slug)
+    game = Game.new(home_team_slug: teams(:team_a).slug, away_team_slug: teams(:team_b).slug)
+    game.save!(validate: false) # a legacy null-week row
 
     assert_empty Nfl::LiveScores::SlotResolver.call([game])
   end
@@ -167,8 +168,11 @@ class NflSlotResolverTest < ActiveSupport::TestCase
               matchup_week: nil, both_sides: false)
     home ||= teams(:team_a)
     away ||= teams(:team_b)
-    game = Game.create!(home_team_slug: home.slug, away_team_slug: away.slug,
-                        season_year: season_year, season_type: season_type, week: week)
+    # A LEGACY ROW, saved past Game's week guard on purpose: this resolver
+    # exists for the rows written before every writer set `week`.
+    game = Game.new(home_team_slug: home.slug, away_team_slug: away.slug,
+                    season_year: season_year, season_type: season_type, week: week)
+    game.save!(validate: false)
     sides = both_sides ? [[home, away], [away, home]] : [[home, away]]
     sides.each do |team, opponent|
       SlateMatchup.create!(slate: slate, team_slug: team.slug, opponent_team_slug: opponent.slug,

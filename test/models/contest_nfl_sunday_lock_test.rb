@@ -28,7 +28,7 @@ class ContestNflSundayLockTest < ActiveSupport::TestCase
     @rows = {}
     { %w[team-a team-b] => TNF, %w[team-c team-d] => SUNDAY,
       %w[team-e team-f] => SUNDAY, %w[team-g team-h] => SNF }.each_with_index do |((home, away), kickoff), index|
-      game = Game.create!(home_team_slug: home, away_team_slug: away, kickoff_at: kickoff, status: "scheduled")
+      game = Game.create!(week: 4, home_team_slug: home, away_team_slug: away, kickoff_at: kickoff, status: "scheduled")
       [[home, away], [away, home]].each_with_index do |(team, opponent), side|
         @rows[team] = SlateMatchup.create!(slate: @slate, team_slug: team, opponent_team_slug: opponent,
                                            game_slug: game.slug, rank: index * 2 + side + 1,

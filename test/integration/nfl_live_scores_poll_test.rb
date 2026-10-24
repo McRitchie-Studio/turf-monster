@@ -60,6 +60,40 @@ class NflLiveScoresPollTest < ActionDispatch::IntegrationTest
     assert_equal %w[score score score], result.changes.map(&:kind)
   end
 
+  # THE POLLER IS A WEEK WRITER: ESPN's `week.number` lands on the game, and on a
+  # game it ADOPTS from the odds CSV that was written before writers set weeks.
+  test "stamps ESPN's week onto the game it writes" do
+    client = StubClient.new(scoreboard: scoreboard(home: 0, away: 0))
+
+    Nfl::LiveScores::PollCycle.call(slot: @slot, client: client)
+
+    assert_equal [4, 2026, 1], Game.find_by!(external_id: "EV1").slice(:week, :season_year, :season_type).values
+  end
+
+  test "stamps ESPN's week onto a legacy null-week game it adopts by slug" do
+    legacy = Game.new(home_team_slug: "team-a", away_team_slug: "team-b")
+    legacy.save!(validate: false)
+    # Sluggable derives the slug on save; pin the one the feed row computes.
+    legacy.update_columns(slug: "team-a-vs-team-b-pre4")
+
+    Nfl::LiveScores::PollCycle.call(slot: @slot, client: StubClient.new(scoreboard: scoreboard(home: 0, away: 0)))
+
+    assert_equal 4, legacy.reload.week
+    assert_equal "EV1", legacy.external_id
+  end
+
+  # A row missing its week keeps the one we hold: nulling it would trip Game's
+  # week guard and raise mid-cycle.
+  test "a scoreboard row with no week keeps the week the game already holds" do
+    Nfl::LiveScores::PollCycle.call(slot: @slot, client: StubClient.new(scoreboard: scoreboard(home: 0, away: 0)))
+    board = scoreboard(home: 3, away: 0)
+    board["events"].first.delete("week")
+
+    Nfl::LiveScores::PollCycle.call(slot: @slot, client: StubClient.new(scoreboard: board))
+
+    assert_equal 4, Game.find_by!(external_id: "EV1").week
+  end
+
   # The idempotency guarantee the twelve-hour loop depends on: run it again and
   # nothing is written, because every play carries ESPN's own id under a unique
   # index.
