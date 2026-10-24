@@ -12,9 +12,10 @@ class Contest
   # zone, not a fixed offset, so the turn stays at 7 on the wall clock across
   # the DST change.
   #
-  # Kickoff time decides membership, not `games.week`. That column is stamped by
-  # the score poller, so a game the poller has not reached yet carries a null
-  # week — and the games of a week that has not started are exactly those.
+  # Kickoff time decides membership, not `games.week`. That column was once
+  # stamped only by the score poller, so a game it had not reached carried a null
+  # week. Every writer sets it now (games-week-backfill), but the board's week is
+  # a wall-clock window that turns on Tuesday, which kickoff answers directly.
   #
   # NEVER AN EMPTY BOARD. When the current week holds none of the contest's
   # games (it has not started yet, a bye in the span, or it is over), the board
