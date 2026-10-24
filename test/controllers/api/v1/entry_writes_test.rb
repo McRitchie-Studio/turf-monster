@@ -272,7 +272,7 @@ class Api::V1::EntryWritesTest < ActionDispatch::IntegrationTest
   test "POST wallet_not_server_signable: self-custodied, Phantom-linked, and no wallet" do
     arrangements = [
       -> { @user.update!(self_custodied_at: Time.current) },
-      -> { @user.update!(web3_solana_address: "foUuRyeibadQoGdKXZ9pBGDqmkb1jY1jYsu8dZ29nds") },
+      -> { @user.update!(web3_solana_address: "5fBgTg3hAtZ7mkr3YAukaA84ZUM8TgX43gPBvPpXqZE4") },
       -> { @user.update!(web2_solana_address: nil, encrypted_web2_solana_private_key: nil) }
     ]
 

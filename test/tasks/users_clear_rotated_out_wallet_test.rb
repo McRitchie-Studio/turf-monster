@@ -52,6 +52,25 @@ class UsersClearRotatedOutWalletTaskTest < ActiveSupport::TestCase
     assert_match(/cleared 1 user: turf\b/, out)
   end
 
+  # The leaked Mack key (task rotate-leaked-devnet-mack-key): its secret is
+  # public, so a row holding its address signs in for anyone.
+  test "clears the leaked Mack key from every row that holds it" do
+    leaked = Solana::RotatedOutWallet::LEAKED_MACK
+    mack = User.create!(email: "mack-task@mcritchie.studio", username: "mack", web3_solana_address: leaked)
+    mack.record_web3_authentication!(provider: "phantom")
+    token = mack.reload.session_token
+
+    out = run_task
+
+    mack.reload
+    assert_nil mack.web3_solana_address
+    assert_nil mack.web3_authenticated_at
+    refute_equal token, mack.session_token
+    assert_nil User.from_solana_wallet(leaked)
+    assert_match(/cleared 1 user: mack\b/, out)
+    refute_includes out, leaked
+  end
+
   test "prints the count and usernames, never the address" do
     User.create!(email: User::TURF_HOUSE_EMAIL, role: "admin", username: "turf", web3_solana_address: ROTATED, seeding_parked_identity: true)
 

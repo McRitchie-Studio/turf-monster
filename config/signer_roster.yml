@@ -106,13 +106,21 @@ keys:
     op_item: solana.turf.system.devnet
     role: turf-monster-qa's SOLANA_ADMIN_KEY
 
-  - address: foUuRyeibadQoGdKXZ9pBGDqmkb1jY1jYsu8dZ29nds
+  - address: 8UwJhRiNLr8uiqWyGUjgGDFqNEDY4SNQFfJud3ZSnowW
     name: Mack (devnet co-signer)
     holder: agent
     signs_in: script
     clusters: [devnet]
     op_item: solana.mack.agent
-    role: the devnet-only rehearsal co-signer
+    role: the devnet-only rehearsal co-signer; devnet VaultState slot 2 since 2026-10-24
+
+  - address: foUuRyeibadQoGdKXZ9pBGDqmkb1jY1jYsu8dZ29nds
+    name: Mack (retired, leaked)
+    holder: agent
+    signs_in: script
+    clusters: []
+    op_item: solana.mack.agent (RETIRED 2026-10-24 - foUu leaked)
+    role: retired 2026-10-24; its secret was committed to the public turf-monster repo, so it was evicted from the devnet VaultState, swept and archived; 8UwJ replaced it
 
   - address: BVQHNwUEo91ePwqPcR6Ro4g9Ejqt3qn3ajKPqJSSTd51
     name: Governance key (devnet)

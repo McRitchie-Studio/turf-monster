@@ -122,7 +122,7 @@ module TurfMonster
       # uses only those the chain seats, never the server key twice, and never
       # a key MainnetSignerFence lists. Mason is not on it (devnet-v026-upgrade): his
       # key (CytJ…) is fenced as a retired mainnet signer, and the devnet
-      # rotation evicted it from devnet. Mack (foUu…) is devnet-only.
+      # rotation evicted it from devnet. Mack (8UwJ…, since 2026-10-24) is devnet-only.
       VAULT_AGENTS = %w[mack].freeze
 
       attr_reader :app, :host, :cast, :io

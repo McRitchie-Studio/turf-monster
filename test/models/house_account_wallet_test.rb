@@ -22,6 +22,12 @@ class HouseAccountWalletTest < ActiveSupport::TestCase
     assert_nil User.parked_identity_for(wallet: ROTATED)
   end
 
+  test "no parked identity carries any rotated-out wallet" do
+    parked = User::PARKED_IDENTITIES.map { |i| i[:wallet] }.compact
+    assert_empty parked & Solana::RotatedOutWallet::ADDRESSES
+    Solana::RotatedOutWallet::ADDRESSES.each { |a| assert_nil User.parked_identity_for(wallet: a), a }
+  end
+
   # Every sign-in path runs claim_parked_identity!, which grants the parked role.
   test "an account created from the rotated-out wallet is an ordinary user" do
     user = User.create!(web3_solana_address: ROTATED)

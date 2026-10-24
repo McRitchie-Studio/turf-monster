@@ -17,7 +17,7 @@ class QaRehearsalMainnetSignerFenceTest < ActiveSupport::TestCase
   # Mainnet VaultState, read 2026-10-14 11:10 MDT by turf-vault scripts/check-signer-slots.js.
   MAINNET_SLOTS = [GOV_V2, ALEX, SERVER, "9gACbzsCLmkYF9Yx1EBGmwMvvyfuTquJ6qs8QsoQvHXf",
                    "3Qj4v9qjhXgkru6zCRCErRVhy8Q6qU3NrNpvpXLTZboA"].freeze
-  MACK  = "foUuRyeibadQoGdKXZ9pBGDqmkb1jY1jYsu8dZ29nds"
+  MACK  = "8UwJhRiNLr8uiqWyGUjgGDFqNEDY4SNQFfJud3ZSnowW" # devnet-only; foUu… retired 2026-10-24
   QA    = "2eGs8G3wzhEeNQQU2Q86BmmA2xTpDbMMae3Y1bvpZfx9"
 
   # ── the filed list ────────────────────────────────────────────────────────
