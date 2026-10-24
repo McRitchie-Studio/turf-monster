@@ -83,6 +83,7 @@ module Api
           settled: contest.graded?,
           cancelled: contest.cancelled?,
           coming_soon: contest.coming_soon?,
+          reveal_at: contest.scheduled_reveal_at&.iso8601,
           accepting_entries: accepting_entries?(locked, spots_left),
           locks_at: facts.locks_at(contest)&.iso8601,
           concludes_at: contest.concludes_at&.iso8601,

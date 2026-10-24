@@ -302,7 +302,8 @@ Open and settled contests, newest first. A contest that is still being created
 | `live` | `locked` and not yet `settled` |
 | `settled` | Graded. Ranks and payouts are final. |
 | `cancelled` | The contest was cancelled. It keeps `status: "open"`, so this flag is the only tell. |
-| `coming_soon` | Advertised but not ready to play |
+| `coming_soon` | Advertised but not ready to play. A coming-soon contest opens by itself at `reveal_at`. |
+| `reveal_at` | When a coming-soon contest opens to entries, by default seven days before `locks_at`. `null` when the contest is open, or when the operator is holding it closed on purpose (advertised, no scheduled opening). |
 | `accepting_entries` | The one-field answer to "would `POST .../entries` get past its gates now": a contest this API can enter (`supported`), open, not locked, not cancelled, not coming soon, a spot left, the player under their own limit, and an account that may write (not frozen; age verified when the age gate is on). It says nothing about the wallet: read `wallet.kind` and `free_entry_tokens` on `GET /api/v1/me` for that. |
 | `locks_at` | When the contest locks. Every pick in every entry is final from this moment, including picks whose own game starts later. `null` means no lock is scheduled. An NFL contest locks at 11:00 America/Denver on its opening Sunday (never before its first kickoff), so a Thursday or London game kicks off before it: that team is `locked` from its own kickoff. |
 | `concludes_at` | When results are scheduled to be final, if set |

@@ -64,7 +64,10 @@ test.describe("Contests featured rail", () => {
   });
 
   test("an admin flips Coming Soon and the card dims, sashes and sorts to the back", async ({ page }) => {
-    const { slugs } = await seedRailContests(page, 3);
+    // Locked a week out: Coming Soon on a contest within a day of its lock is
+    // refused at save (Contest::Reveal), and an unlocked seed has no lock time
+    // of its own, so it would inherit the slate's, which has passed.
+    const { slugs } = await seedRailContests(page, 3, { upcoming: true });
     const [newest, second] = slugs;   // seeded newest-first, so `newest` leads the rail
     await loginAdmin(page);
 

@@ -95,4 +95,21 @@ class ContestsLegacyCreateTokenTest < ActionDispatch::IntegrationTest
 
     assert_equal false, contest.reload.coming_soon
   end
+
+  # The create token carries no reveal_at: the Phantom path takes the default
+  # Contest::Reveal stamps from the lock, so a token minted before reveal_at
+  # existed and one minted after save the same way.
+  test "a token saves with reveal_at defaulted to seven days before the lock" do
+    contest = build_from(legacy_payload(coming_soon: true))
+    contest.save!
+
+    assert_in_delta (contest.locks_at - Contest::Reveal::REVEAL_LEAD).to_f, contest.reload.reveal_at.to_f, 1
+    refute contest.coming_soon_hold?
+  end
+
+  test "a token whose lock is within 24 hours with coming_soon is refused before any money moves" do
+    contest = build_from(legacy_payload(coming_soon: true, starts_at: 20.hours.from_now.iso8601))
+
+    assert_raises(ActiveRecord::RecordInvalid) { contest.save! }
+  end
 end

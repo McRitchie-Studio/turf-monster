@@ -321,7 +321,7 @@
           <%= f.check_box :coming_soon, class: "w-4 h-4", style: "accent-color: var(--color-primary)" %>
           <span class="text-sm text-secondary font-medium">Coming soon</span>
         </label>
-        <p class="text-xs text-muted mt-1">Shows on the contests page below the open contests, dimmed and sashed &ldquo;Coming Soon&rdquo;.</p>
+        <p class="text-xs text-muted mt-1">Shows on the contests page below the open contests, dimmed and sashed &ldquo;Coming Soon&rdquo;. It opens by itself <%= Contest::Reveal::REVEAL_LEAD.in_days.to_i %> days before the lock; to keep it closed on purpose, turn on Hold from the edit page.</p>
       </div>
 
       <div>

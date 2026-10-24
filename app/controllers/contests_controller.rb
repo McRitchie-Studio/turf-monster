@@ -3138,7 +3138,7 @@ class ContestsController < ApplicationController
   # its own #update_banner action. Permitting it would let any future field on
   # the edit form submit an empty value and purge the existing attachment.
   def contest_update_params
-    params.require(:contest).permit(:name, :tagline, :rank, :starts_at, :locks_at_date_selected, :locks_at_time_selected, :locks_at_timezone_selected, :chat_enabled, :coming_soon)
+    params.require(:contest).permit(:name, :tagline, :rank, :starts_at, :locks_at_date_selected, :locks_at_time_selected, :locks_at_timezone_selected, :chat_enabled, :coming_soon, :coming_soon_hold, :reveal_at_local)
   end
 
   # Would this edit MOVE the lock? Asked of an ASSIGNED, not-yet-saved contest,

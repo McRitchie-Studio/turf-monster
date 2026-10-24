@@ -81,7 +81,7 @@ class Api::V1::ContestsControllerTest < ActionDispatch::IntegrationTest
 
     assert_equal %w[accepting_entries cancelled coming_soon concludes_at currency entries_count entry_fee_cents
                     game_type games_per_team guaranteed_prize_cents live locked locks_at max_entries
-                    max_entries_per_player multi_week my_entries_count name payouts phase picks_required
+                    max_entries_per_player multi_week my_entries_count name payouts phase picks_required reveal_at
                     scoring_unit settled slug sport spots_left status supported tagline weeks], contest.keys.sort
     assert_equal 2, contest["entries_count"]
     assert_equal 1, contest["my_entries_count"], "jordan holds one of the two fixture entries"
