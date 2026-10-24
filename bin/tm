@@ -23,6 +23,9 @@
 #   bin/tm status             services, ports, one-Sidekiq check, optional Stripe status
 #   bin/tm logs [web|sidekiq|stripe]   tail -f a log (default: web + sidekiq)
 #
+# Every managed process starts under TM_ENV_ALLOW (below): an allow-listed
+# environment, so no agent credential in the launching shell reaches a server.
+#
 # Env overrides (default to the canonical primary stack):
 #   TM_PORT=3100  TM_REDIS_DB=0   — point at an isolated stack (e.g. smoke tests)
 #
@@ -31,7 +34,7 @@
 #
 set -uo pipefail   # deliberately no -e: failures are handled inline with messages
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 APP="$(basename "$ROOT")"
 
@@ -112,11 +115,20 @@ clear_wrong_rails_pid(){
   rm -f "$RAILS_PID"
 }
 
+# TM_ENV_ALLOW and tm_scrub_env: the allow-listed environment every managed
+# process starts with (bin/lib/desk_env.sh, shared with bin/parallel-server).
+# shellcheck source=lib/desk_env.sh
+source "$ROOT/bin/lib/desk_env.sh" || {
+  printf 'bin/tm: %s/bin/lib/desk_env.sh is missing; refusing to start servers with an unscrubbed environment\n' "$ROOT" >&2
+  return 1 2>/dev/null || exit 1
+}
+
 # spawn <logfile> <pidfile> <cmd...> — detached, survives this shell (nohup +
-# </dev/null + disown; macOS has no setsid).
+# </dev/null + disown; macOS has no setsid), under tm_scrub_env's environment.
+# TM_SPAWN_VIA=nohup skips screen (the tests drive both paths).
 spawn(){
   local log="$1" pf="$2"; shift 2
-  if command -v screen >/dev/null 2>&1; then
+  if [ "${TM_SPAWN_VIA:-auto}" != nohup ] && command -v screen >/dev/null 2>&1; then
     local session root_q log_q pf_q path_q cmd_q
     session="${APP}-$(basename "$pf" .pid)-${PORT}"
     printf -v root_q '%q' "$ROOT"
@@ -125,10 +137,11 @@ spawn(){
     printf -v path_q '%q' "$PATH"
     printf -v cmd_q '%q ' "$@"
     screen -S "$session" -X quit >/dev/null 2>&1 || true
-    screen -dmS "$session" bash -c "export PATH=$path_q; cd $root_q && echo \$\$ > $pf_q && exec $cmd_q >>$log_q 2>&1"
+    ( tm_scrub_env &&
+      exec screen -dmS "$session" bash -c "export PATH=$path_q; cd $root_q && echo \$\$ > $pf_q && exec $cmd_q >>$log_q 2>&1" )
     return 0
   fi
-  nohup "$@" </dev/null >"$log" 2>&1 &
+  ( tm_scrub_env && exec nohup "$@" </dev/null >"$log" 2>&1 ) &
   echo $! >"$pf"
   disown 2>/dev/null || true
 }
@@ -203,7 +216,9 @@ start_stripe(){
   # Pass the key via env (STRIPE_API_KEY), never --api-key, so it isn't exposed
   # in argv / `ps`. The Stripe CLI reads STRIPE_API_KEY natively.
   export STRIPE_API_KEY="$key"
+  SPAWN_KEEP_EXTRA="STRIPE_API_KEY"
   spawn "$ST_LOG" "$ST_PID" stripe listen --forward-to "$FORWARD"
+  SPAWN_KEEP_EXTRA=""
 }
 
 build_css(){
@@ -336,6 +351,9 @@ bin/tm — Turf Monster local stack control
        TM_STRIPE_LISTENER=1                   (same as --stripe)
 EOF
 }
+
+# Sourced (the tests drive spawn directly), define everything and dispatch nothing.
+[ "${BASH_SOURCE[0]}" = "$0" ] || return 0
 
 CMD="${1:-help}"; shift || true
 LOG_TARGET="all"
