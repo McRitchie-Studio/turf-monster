@@ -909,8 +909,7 @@ class Contest < ApplicationRecord
 
     # Build partially-signed TX for multisig cosigning
     vault = Solana::Vault.new
-    # The server and the platform cosigner sign here when they may, so the row
-    # needs one more signature (Solana::PlatformCosign); else today's build.
+    # Server + platform cosigner sign when they may (Solana::PlatformCosign).
     result = Solana::PlatformCosign.build_settle(vault: vault, slug: slug, settlements: winners)
 
     PendingTransaction.create!(
