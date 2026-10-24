@@ -103,7 +103,7 @@ Separate project at `/Users/alex/projects/turf-vault/`. Current deployment ident
 
 Signers (`VaultState` slots) on **mainnet**, read 2026-10-14 at 11:10 MDT by turf-vault `scripts/check-signer-slots.js --cluster mainnet`, after the rotation: slot 0 governance key v2 (`solana.turf.governance.v2`) `3LTLPG1s952sdNatZWtnfM7r9F3ivWSnPSqfhQLBepJ9`; slot 1 Mr. McRitchie, Phantom account 1 (= `INIT_AUTHORITY`) `7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr`; slot 2 production server key (`solana.turf.server`, `SOLANA_ADMIN_KEY` since 2026-10-14) `4S39sKHHPV8GPjUif9noN9gdsAFGs9WASuGxs7B9s5CY`; slot 3 Mr. McRitchie, Phantom account 2 `9gACbzsCLmkYF9Yx1EBGmwMvvyfuTquJ6qs8QsoQvHXf`; slot 4 Mr. McRitchie, second wallet `3Qj4v9qjhXgkru6zCRCErRVhy8Q6qU3NrNpvpXLTZboA`.
 - That rotation retired Xan (`8K81w4e6…`, the previous server key) and Mason (`CytJS23p…`).
-- Devnet is a different set, read the same day: `2eGs`, `foUu`, `BVQH`, `9gAC`, `3Qj4`.
+- Devnet is a different set, read 2026-10-24 after Mack's key rotation: `2eGs`, `8UwJ` (Mack), `BVQH`, slots 4 and 5 empty. `9gAC` and `3Qj4` left devnet on 2026-10-15, and Mack's old key `foUu`, whose secret leaked through this public repo, left on 2026-10-24 (`docs/qa-signing-key-rotation.md`).
 - The filed copies live in `config/mainnet_vault_signers.yml`, `config/solana_signers.yml` and `config/signer_roster.yml`.
 
 ### turf-vault v0.26 — governance-as-data, and how Rails carries TWO program shapes
@@ -373,7 +373,8 @@ lost key. Specifically:
 
 - **The QA rehearsal driver needed the devnet retune.** On devnet this gap
   closed on 2026-10-12 (card `devnet-v026-upgrade`): the rotation seated a
-  devnet-only agent key (Mack, `foUu…`) and `settle_contest` was retuned to 2
+  devnet-only agent key (Mack, `8UwJ…` since 2026-10-24, when it replaced the leaked
+  `foUu…`) and `settle_contest` was retuned to 2
   on devnet only, so `conclude --cosign agent` settles with the QA server key
   plus Mack, and the v0.26 lock and close take the same two. Mainnet keeps
   `settle_contest` at 3. See `docs/qa-contest-rehearsal.md`.

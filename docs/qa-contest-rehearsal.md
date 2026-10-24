@@ -10,7 +10,7 @@ and what Mr. McRitchie does when he co-signs by link instead.
 **Agents co-sign on devnet.** Since 2026-10-12 (card `devnet-v026-upgrade`)
 devnet runs turf-vault v0.26 with `settle_contest` retuned to 2 signatures, and
 `conclude` defaults to `--cosign agent`: the QA server key plus a seated
-devnet-only agent key (Mack, `foUu…`) settle with no human tap. A key that
+devnet-only agent key (Mack, `8UwJ…`; the leaked `foUu…` was retired on 2026-10-24) settle with no human tap. A key that
 holds MAINNET authority (a mainnet VaultState signer, seated or incoming, or a
 mainnet Squads member) is refused as a co-signer, even on devnet
 (`MainnetSignerFence`, `config/mainnet_vault_signers.yml`). First unattended
@@ -47,9 +47,11 @@ The steps do not check these, except where the table above says so:
   in the devnet `VaultState`. `create` funds the pool from its devnet USDC and,
   when that runs short, mints more: `2eGs…` is the devnet test mint's
   (`222Dcu…WBN9`) mint authority (read on chain 2026-10-12).
-- QA's `SOLANA_MULTISIG_SIGNERS` lists the devnet set, read 2026-10-12:
-  `2eGs…`, `foUu…` (Mack), `BVQH…` (`solana.turf.governance.devnet`),
-  `9gAC…`, `3Qj4…`.
+- QA's `SOLANA_MULTISIG_SIGNERS` reads, as of 2026-10-24 (release v302, which
+  swapped Mack's leaked `foUu…` for his new key): `2eGs…`, `8UwJ…` (Mack),
+  `BVQH…` (`solana.turf.governance.devnet`), `9gAC…`, `3Qj4…`. The chain seats
+  only the first three: `9gAC…` and `3Qj4…` left the devnet `VaultState` on
+  2026-10-15, and the list still names them.
 - QA's `SOLANA_VAULT_GOVERNANCE` is `on`, and `EXPECTED_IDL_HASH` pins both the
   v0.25 and v0.26 hashes (`f11446fa…,2d9f7151…`).
 
