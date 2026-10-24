@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # bin/lib/desk_env.sh — the environment a turf-monster dev server starts with.
-# Sourced by bin/tm and bin/parallel-server; defines TM_ENV_ALLOW and
+# Sourced by bin/tm, bin/dev, bin/parallel-server and bin/e2e-parallel; defines TM_ENV_ALLOW and
 # tm_scrub_env, and runs nothing.
 #
 # The environment every managed process starts with: an ALLOW-LIST.
