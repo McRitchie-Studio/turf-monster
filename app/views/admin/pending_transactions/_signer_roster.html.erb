@@ -17,6 +17,10 @@
   the server, and a number here would quietly contradict the status line the
   operator is reading at the same moment.
 
+  THE PLATFORM COSIGNER ROW (role "platform") is the server's second
+  signature on a platform-signed row (Solana::PlatformCosigner): it carries
+  the same Auto chip and cosign.js paints it signed with the server row.
+
   THE SERVER ROW IS NOT PRE-CHECKED. It carries an Auto chip and says it
   signs by itself, which is what makes it "not your job" — but its indicator
   still starts at pending, because at render time the server has not signed
