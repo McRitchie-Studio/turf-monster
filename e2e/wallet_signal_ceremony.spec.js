@@ -25,7 +25,7 @@ const { loginAdmin, reseed } = require("./helpers");
 // expected, silently, for as long as it was held. This app takes no such hold
 // and scopes by address instead, and that is the property under test.
 
-const SESSION_WALLET = "foUuRyeibadQoGdKXZ9pBGDqmkb1jY1jYsu8dZ29nds";
+const SESSION_WALLET = "5fBgTg3hAtZ7mkr3YAukaA84ZUM8TgX43gPBvPpXqZE4";
 const DECLARED_WALLET = "DecLared1111111111111111111111111111111111";
 const STRANGER_WALLET = "Stranger111111111111111111111111111111111";
 

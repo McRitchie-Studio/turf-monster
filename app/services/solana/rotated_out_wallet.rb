@@ -1,15 +1,25 @@
 module Solana
-  # A rotated-out key that was the house account's wallet. No parked identity
-  # carries it, and no user row may keep it: wallet sign-in finds its user by
-  # `web3_solana_address`, so a row holding this address signs in for whoever
-  # holds the key.
+  # Rotated-out keys whose addresses no user row may keep. Wallet sign-in finds
+  # its user by `web3_solana_address`, so a row holding one of these addresses
+  # signs in for whoever holds the key, and these keys are, or may be, held by
+  # people they were never meant for. No parked identity carries one either.
   module RotatedOutWallet
+    # The house account's former wallet (solana.turf.admin), rotated out of both
+    # Squads (task rotate-mainnet-admin-key).
     ADDRESS = "BLSBw8fXHzZc5pbaYCKMpMSsrtXBTbWXpUPVzMrXx9oo".freeze
+
+    # Mack's former devnet key. Its SECRET was committed to this public
+    # repository (e2e/devnet-smoke.spec.js), so anyone can sign with it; it holds
+    # no devnet vault seat and is retired (task rotate-leaked-devnet-mack-key). Mack's parked identity now carries
+    # his new key, so the QA rehearsal's seed step re-points his row.
+    LEAKED_MACK = "foUuRyeibadQoGdKXZ9pBGDqmkb1jY1jYsu8dZ29nds".freeze
+
+    ADDRESSES = [ADDRESS, LEAKED_MACK].freeze
 
     module_function
 
     def holders
-      User.where(web3_solana_address: ADDRESS)
+      User.where(web3_solana_address: ADDRESSES)
     end
 
     # Clears the address and the web3 sign-in memory from every holder and

@@ -29,7 +29,7 @@ class User < ApplicationRecord
     # `mcritchie`. Named "Team McRitchie" here and in mcritchie-studio.
     { email: "team@mcritchie.studio",  name: "Team McRitchie",  username: "mcritchie", role: "admin", wallet: "8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd" },
     { email: "mason@mcritchie.studio", name: "Mason McRitchie", username: "mason",     role: "user",  wallet: "CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR" },
-    { email: "mack@mcritchie.studio",  name: "Mack McRitchie",  username: "mack",      role: "user",  wallet: "foUuRyeibadQoGdKXZ9pBGDqmkb1jY1jYsu8dZ29nds" },
+    { email: "mack@mcritchie.studio",  name: "Mack McRitchie",  username: "mack",      role: "user",  wallet: "8UwJhRiNLr8uiqWyGUjgGDFqNEDY4SNQFfJud3ZSnowW" },
     # THIS APP'S ADMIN ON ITS OWN DOMAIN — and it is the house account itself now.
     # Every app seeds the shared identities plus an admin on its own domain, so a
     # session can be signed in as "the operator of THIS app" without borrowing

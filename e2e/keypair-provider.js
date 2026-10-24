@@ -89,4 +89,42 @@ async function setupKeypairProvider(page, base58Key) {
   }, secretKeyBytes);
 }
 
-module.exports = { setupKeypairProvider, BOT_PUBKEY, decodeBase58 };
+/**
+ * Encode bytes as base58 (the inverse of decodeBase58).
+ * @param {Uint8Array|number[]} bytes
+ * @returns {string}
+ */
+function encodeBase58(bytes) {
+  const ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  let n = BigInt(0);
+  for (const b of bytes) n = (n << 8n) + BigInt(b);
+  let out = "";
+  while (n > 0n) {
+    out = ALPHABET[Number(n % 58n)] + out;
+    n /= 58n;
+  }
+  for (const b of bytes) {
+    if (b !== 0) break;
+    out = "1" + out;
+  }
+  return out;
+}
+
+/**
+ * The public key a base58 64-byte Solana secret key signs as. Deriving it,
+ * rather than keeping a pubkey constant beside the secret, means the two can
+ * never drift apart when the key rotates.
+ *
+ * @param {string} base58Key
+ * @returns {string} base58 public key
+ */
+function derivePubkey(base58Key) {
+  const secret = decodeBase58(base58Key.trim());
+  if (secret.length !== 64) {
+    throw new Error(`expected a 64-byte Solana secret key, got ${secret.length} bytes`);
+  }
+  const nacl = require("tweetnacl");
+  return encodeBase58(nacl.sign.keyPair.fromSecretKey(secret).publicKey);
+}
+
+module.exports = { setupKeypairProvider, BOT_PUBKEY, decodeBase58, encodeBase58, derivePubkey };

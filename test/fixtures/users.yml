@@ -25,7 +25,7 @@ sam:
   name: Sam
   username: sam_test
   email: sam@mcritchie.studio
-  web3_solana_address: foUuRyeibadQoGdKXZ9pBGDqmkb1jY1jYsu8dZ29nds
+  web3_solana_address: 5fBgTg3hAtZ7mkr3YAukaA84ZUM8TgX43gPBvPpXqZE4
   session_token: <%= SecureRandom.hex(32) %>
 
 # A COMBO account: a managed web2 wallet AND a linked Phantom, on two DIFFERENT

@@ -13,6 +13,33 @@ signed every step:
 | v0.26 upgrade, `init_governance` | turf-vault `scripts/squad-upgrade.js`, `scripts/init-governance.js` | turf-vault `docs/CURRENT_DEPLOYMENT.md` |
 | ADD | `+ foUu (Mack), BVQH (solana.turf.governance.devnet)`, signed by `2eGs` + `8K81` + `CytJ` | `2VZepg7KRFG4Gv8Z9UEW8twSL1bJtoMFJiyVdaVfzXuL6fRwWmY5s9rfPC9UaKL5sCA7Q8NtyxsqyXjAGhmfzTzs` |
 | EVICT | `[2eGs, foUu, BVQH, 9gAC, 3Qj4]`, signed by `2eGs` + `foUu` + `BVQH` | `3CfnL5pcacmHt1kXPtrYxf2QtKpiYA5245uyaZN472j7HFRnshfgq39P7iRTV1x77sjyd3HsFZJ8HwR8hRmEPbiv` |
+| NARROW (2026-10-15 06:34Z) | `[2eGs, foUu, BVQH]`, slots 4 and 5 emptied, signed by `2eGs` + `foUu` + `BVQH` | `3TRebFfehoyqjzD7M94A5qDtTS4mEo1DtqCkivgNTxS3LTANZP4N2TXePEdbpPhtUs6jjq8E7Vxw3FBsWkhQsMS9` |
+| MACK ADD (2026-10-24) | `[2eGs, foUu, BVQH, 8UwJ]`, signed by `2eGs` + `BVQH` + `foUu` | `2mVU8cjiACbXGhaDAKW28t3mhETBHU2mzFfBJKW1yxDTfiZFd6Vj4tN7qUxNprFCJChHKCzezecxpKhpjNaRf5UD` |
+| MACK EVICT (2026-10-24) | `[2eGs, 8UwJ, BVQH]`, signed by `2eGs` + `BVQH` + `8UwJ` | `2KGbPeFAyKtDKQG8Z2G82dC9Ux4itgPjkzaQZQ4TPJcc9XqxqHJ372q66R9a9drAt6NPQPY1fMoWVATZnMkvkSma` |
+
+**2026-10-24: Mack's devnet key rotated (task `rotate-leaked-devnet-mack-key`).**
+The secret of `foUuRyeibadQoGdKXZ9pBGDqmkb1jY1jYsu8dZ29nds` sat as a string
+literal in `e2e/devnet-smoke.spec.js` from 2026-04-12 (commit `66e2d933`), and
+this repository is public. Git history still holds it; nothing rewrites history,
+so the key is treated as published for good. Mack's seat is now
+`8UwJhRiNLr8uiqWyGUjgGDFqNEDY4SNQFfJud3ZSnowW`, filed as `solana.mack.agent`
+(vault `studio-agents`); the old item is archived as `solana.mack.agent (RETIRED
+2026-10-24 - foUu leaked)`. `foUu` was swept to 0 SOL and its 2,995 devnet USDC
+moved to `8UwJ`. `node scripts/check-signer-slots.js --cluster devnet`
+(turf-vault) read `2eGs`, `8UwJ`, `BVQH` afterwards. QA's
+`SOLANA_MULTISIG_SIGNERS` names `8UwJ` in `foUu`'s place since release v302.
+
+It took two transactions, not one swap, because `update_signers` keeps three of
+its authorizers in the new set (`SignerContinuityRequired`, 6017) and the agents
+hold exactly three seated keys. Signing a direct `foUu → 8UwJ` swap with
+`2eGs` + `foUu` + `BVQH` leaves two survivors, and the chain refuses it. So the
+new key was added to the empty slot 4 first, and then signed its own way into
+slot 2 with `2eGs` + `BVQH`, evicting `foUu`. Any later rotation of an agent key
+on devnet runs the same two steps while a slot is free.
+
+The NARROW row removed `9gAC` and `3Qj4` (Mr. McRitchie's mainnet wallets) from
+devnet, so no key is a `VaultState` signer on both clusters; turf-vault
+`docs/CURRENT_DEPLOYMENT.md` carries the same rows.
 
 Still open: the devnet USDC test mint's authority is `8K81…` (step 4), so QA
 cannot mint; `2eGs…` must be funded from a devnet-only wallet before a

@@ -12,6 +12,12 @@ End-to-end tests that exercise Turf Monster against real Solana devnet. These te
   commands below check. **Not necessarily the same as `SOLANA_ADMIN_KEY`**, which
   holds Xan's current key `8K81w4e6…`; `e2e/keypair-provider.js` documents the
   split and the two ways to close it. Do not "fix" one side by editing this line.
+- `MACK_DEVNET_KEY` env var set to Mack's devnet private key, read from
+  1Password `solana.mack.agent` (vault `studio-agents`, field `private-key`);
+  its public key is `8UwJhRiN…ZSnowW`, which the spec derives from the key.
+  Never paste it into a file: this repository is public, and a guard test fails
+  CI on any committed Solana secret key. Mack's previous key (`foUu…`) was
+  committed in the spec and had to be retired on 2026-10-24.
 - That e2e bot wallet funded with ~0.2 SOL + ~$20 USDC on devnet
 - Mack wallet funded with ~1 SOL on devnet (USDC seeded by faucet in Test 6)
 
@@ -67,7 +73,8 @@ spl-token balance 222Dcu2RgAXE3T8A4mGSG3kQyXaNjqePx7vva1RdWBN9 --owner F6f8h5yyn
 ## Running the Tests
 
 ```bash
-# Full devnet suite (17 tests)
+# Full devnet suite (17 tests). Every command below also needs MACK_DEVNET_KEY:
+export MACK_DEVNET_KEY="$(op read 'op://studio-agents/solana.mack.agent/private-key')"
 SOLANA_BOT_KEY=<key> npx playwright test --project=devnet
 
 # Using the .env key directly
@@ -121,7 +128,7 @@ The `devnet` project in `playwright.config.js` filters tests by the `@devnet` ta
 ## Pre-Flight Checks (Automatic)
 
 The `beforeAll` hook automatically:
-1. Validates `SOLANA_BOT_KEY` env var is set
+1. Validates `SOLANA_BOT_KEY` and `MACK_DEVNET_KEY` are set (skips the spec otherwise)
 2. Links Alex's wallet to the bot pubkey in the dev DB (via `bin/rails runner`)
 3. Clears Mack's wallet address from existing users (for clean Web3 registration)
 4. Snapshots SOL and USDC balances for both Alex and Mack

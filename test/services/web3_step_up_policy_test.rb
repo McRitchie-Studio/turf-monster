@@ -78,8 +78,8 @@ class Web3StepUpPolicyTest < ActiveSupport::TestCase
   end
 
   test "the wallet hint shows four leading and four trailing characters" do
-    wallet_user.update_columns(web3_solana_address: "foUuRyeibadQoGdKXZ9pBGDqmkb1jY1jYsu8dZ29nds")
-    assert_equal "foUu…9nds", Web3StepUpPolicy.new(wallet_user, session_mode: :web2).wallet_hint
+    wallet_user.update_columns(web3_solana_address: "5fBgTg3hAtZ7mkr3YAukaA84ZUM8TgX43gPBvPpXqZE4")
+    assert_equal "5fBg…qZE4", Web3StepUpPolicy.new(wallet_user, session_mode: :web2).wallet_hint
   end
 
   test "a too-short address yields no hint rather than a misleading one" do
@@ -89,8 +89,8 @@ class Web3StepUpPolicyTest < ActiveSupport::TestCase
 
   test "to_h carries exactly what the modal reads" do
     wallet_user.update_columns(web3_wallet_provider: "solflare",
-                               web3_solana_address: "foUuRyeibadQoGdKXZ9pBGDqmkb1jY1jYsu8dZ29nds")
-    assert_equal({ provider: "solflare", providerLabel: "Solflare", walletHint: "foUu…9nds" },
+                               web3_solana_address: "5fBgTg3hAtZ7mkr3YAukaA84ZUM8TgX43gPBvPpXqZE4")
+    assert_equal({ provider: "solflare", providerLabel: "Solflare", walletHint: "5fBg…qZE4" },
                  Web3StepUpPolicy.new(wallet_user, session_mode: :web2).to_h)
   end
 

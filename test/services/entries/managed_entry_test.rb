@@ -162,7 +162,7 @@ class Entries::ManagedEntryTest < ActiveSupport::TestCase
   end
 
   test "funding: an account with no managed wallet refuses wallet_not_server_signable" do
-    @user.update!(web2_solana_address: nil, web3_solana_address: "foUuRyeibadQoGdKXZ9pBGDqmkb1jY1jYsu8dZ29nds")
+    @user.update!(web2_solana_address: nil, web3_solana_address: "5fBgTg3hAtZ7mkr3YAukaA84ZUM8TgX43gPBvPpXqZE4")
     managed = service
 
     assert_equal :wallet_not_server_signable, refusal(managed).code
