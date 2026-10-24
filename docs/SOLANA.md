@@ -363,11 +363,10 @@ signatures, and his wallet (7ZDJ, 3Qj4 or 9gAC) is always the third and final.
   9gAC", lists his wallets (7ZDJ included, since the named slot is no longer
   his) and Phantom prompts once.
 - **The other three-signature actions, on request.** Cancel, sweep, register,
-  and deactivate take the platform's signature only when the operator
+  and deactivate (never unpause) take the platform's signature only when the operator
   ticks "Platform signs too" on that row; `update_signers` only when he ticks
   it on the signer console, which adds the cosigner to the planner's
   server-held set (the planner still leaves the last signature to his wallet).
-  Unpause (`/admin/vault_state`) has no platform path and keeps two wallets.
 - **Two-signature actions, on a click.** `close_contest` can be completed by the
   server and the platform cosigner alone with "Complete with platform
   signatures" (`#complete_with_platform`). It runs #broadcast's claim, simulate,
