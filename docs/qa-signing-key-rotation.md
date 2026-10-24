@@ -13,7 +13,7 @@ signed every step:
 | v0.26 upgrade, `init_governance` | turf-vault `scripts/squad-upgrade.js`, `scripts/init-governance.js` | turf-vault `docs/CURRENT_DEPLOYMENT.md` |
 | ADD | `+ foUu (Mack), BVQH (solana.turf.governance.devnet)`, signed by `2eGs` + `8K81` + `CytJ` | `2VZepg7KRFG4Gv8Z9UEW8twSL1bJtoMFJiyVdaVfzXuL6fRwWmY5s9rfPC9UaKL5sCA7Q8NtyxsqyXjAGhmfzTzs` |
 | EVICT | `[2eGs, foUu, BVQH, 9gAC, 3Qj4]`, signed by `2eGs` + `foUu` + `BVQH` | `3CfnL5pcacmHt1kXPtrYxf2QtKpiYA5245uyaZN472j7HFRnshfgq39P7iRTV1x77sjyd3HsFZJ8HwR8hRmEPbiv` |
-| SHRINK (2026-10-15, first recorded 2026-10-24) | `[2eGs, foUu, BVQH]`, slots 4 and 5 emptied, signed by `2eGs` + `BVQH` + `foUu` | `3TRebFfehoyqjzD7M94A5qDtTS4mEo1DtqCkivgNTxS3LTANZP4N2TXePEdbpPhtUs6jjq8E7Vxw3FBsWkhQsMS9` |
+| NARROW (2026-10-15 06:34Z) | `[2eGs, foUu, BVQH]`, slots 4 and 5 emptied, signed by `2eGs` + `foUu` + `BVQH` | `3TRebFfehoyqjzD7M94A5qDtTS4mEo1DtqCkivgNTxS3LTANZP4N2TXePEdbpPhtUs6jjq8E7Vxw3FBsWkhQsMS9` |
 | MACK ADD (2026-10-24) | `[2eGs, foUu, BVQH, 8UwJ]`, signed by `2eGs` + `BVQH` + `foUu` | `2mVU8cjiACbXGhaDAKW28t3mhETBHU2mzFfBJKW1yxDTfiZFd6Vj4tN7qUxNprFCJChHKCzezecxpKhpjNaRf5UD` |
 | MACK EVICT (2026-10-24) | `[2eGs, 8UwJ, BVQH]`, signed by `2eGs` + `BVQH` + `8UwJ` | `2KGbPeFAyKtDKQG8Z2G82dC9Ux4itgPjkzaQZQ4TPJcc9XqxqHJ372q66R9a9drAt6NPQPY1fMoWVATZnMkvkSma` |
 
@@ -37,10 +37,9 @@ new key was added to the empty slot 4 first, and then signed its own way into
 slot 2 with `2eGs` + `BVQH`, evicting `foUu`. Any later rotation of an agent key
 on devnet runs the same two steps while a slot is free.
 
-The SHRINK row is a devnet transaction found on 2026-10-24 by reading the vault's
-signature history: on 2026-10-15 at 06:34 UTC the three agent keys removed
-`9gAC` and `3Qj4` from devnet, as turf-vault `CURRENT_DEPLOYMENT.md` said they
-must, and no document recorded it.
+The NARROW row removed `9gAC` and `3Qj4` (Mr. McRitchie's mainnet wallets) from
+devnet, so no key is a `VaultState` signer on both clusters; turf-vault
+`docs/CURRENT_DEPLOYMENT.md` carries the same rows.
 
 Still open: the devnet USDC test mint's authority is `8K81…` (step 4), so QA
 cannot mint; `2eGs…` must be funded from a devnet-only wallet before a
