@@ -180,12 +180,14 @@ class Contest
     end
 
     # Refused only when this save is the one that puts the contest in that
-    # state: a create, or a change to the flag, the hold or the lock. Every
-    # other write (grading, settlement, a tagline edit on a contest already in
-    # this state) is left alone, so a legacy row cannot jam a money path.
+    # state: a create, or a change to the flag or the hold. Every other write
+    # (grading, settlement, a tagline edit on a contest already in this state)
+    # is left alone, so a legacy row cannot jam a money path. A LOCK MOVE IS
+    # NOT REFUSED: #confirm_lock_time and Contests::ApplyNflSundayLock write
+    # starts_at AFTER the chain moved, and refusing that mirror would split
+    # chain from DB. The moved lock re-arms the alert instead.
     def coming_soon_clear_of_lock
-      return unless new_record? || will_save_change_to_coming_soon? ||
-                    will_save_change_to_coming_soon_hold? || will_save_change_to_starts_at?
+      return unless new_record? || will_save_change_to_coming_soon? || will_save_change_to_coming_soon_hold?
       return unless coming_soon? && !coming_soon_hold?
 
       at = locks_at

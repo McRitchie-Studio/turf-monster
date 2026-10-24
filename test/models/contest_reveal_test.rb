@@ -141,6 +141,14 @@ class ContestRevealTest < ActiveSupport::TestCase
     assert contest.update(tagline: "Still saves"), contest.errors.full_messages.to_sentence
   end
 
+  test "moving the lock of a coming-soon contest inside 24 hours is not refused: it mirrors the chain" do
+    contest = build(starts_at: 3.days.from_now, coming_soon: true).tap(&:save!)
+    contest.update_columns(coming_soon_alerted_at: 1.hour.ago)
+
+    assert contest.update(starts_at: 1.hour.from_now), contest.errors.full_messages.to_sentence
+    assert_nil contest.reload.coming_soon_alerted_at, "the moved lock re-arms the alert"
+  end
+
   test "the admin form reads and writes reveal_at in Denver time" do
     contest = build
     contest.reveal_at_local = "2026-10-30T09:30"
