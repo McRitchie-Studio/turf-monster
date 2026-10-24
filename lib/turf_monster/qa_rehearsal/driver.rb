@@ -1202,6 +1202,7 @@ module TurfMonster
         say ""
         say "  Magic Link: #{url}"
         say "  Open it on a desktop browser with Phantom on wallet #{link['cosigner']}."
+        say "  On QA that cosigner is the agent key 8UwJ… (solana.mack.agent), not Mr. McRitchie's own wallet."
         say "  Press Co-sign on #{graded.fetch('ptx_slug')} and approve in Phantom: the page builds a fresh"
         say "  transaction at the click. It worked when the row reads Confirmed."
         # The one halt that is not a courtesy: this step CANNOT proceed without

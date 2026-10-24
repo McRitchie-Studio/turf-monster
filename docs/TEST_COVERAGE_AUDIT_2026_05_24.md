@@ -146,7 +146,7 @@ Capybara + Selenium are configured in `test_helper.rb` but no system tests exist
 
 ## E2E coverage observations (Playwright)
 
-**Strong:** happy-path workflows. Devnet integration is rare to find at this depth in a Rails app — `devnet-smoke.spec.js` runs the full chain on real devnet nightly.
+**Strong:** happy-path workflows. Devnet integration is rare to find at this depth in a Rails app — `devnet-smoke.spec.js` runs the full chain on real devnet. (Corrected 2026-10-24: no workflow ever ran it on a schedule; it runs by hand per `e2e/DEVNET_RUNBOOK.md`, and the devnet signal is the per-release `contest-rehearsal` gauntlet.)
 
 **Missing:** every error path. Zero tests for:
 - Stripe card decline
