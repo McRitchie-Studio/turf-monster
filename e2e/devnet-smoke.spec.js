@@ -1,7 +1,7 @@
 // @ts-check
 const { test, expect } = require("@playwright/test");
 const { execSync } = require("child_process");
-const { setupKeypairProvider, BOT_PUBKEY } = require("./keypair-provider");
+const { setupKeypairProvider, BOT_PUBKEY, derivePubkey } = require("./keypair-provider");
 
 // All rails runner commands must target the test DB (Playwright webServer uses RAILS_ENV=test)
 const RUNNER_OPTS = { cwd: process.cwd(), timeout: 15000, stdio: "pipe", env: { ...process.env, RAILS_ENV: "test" } };
@@ -21,12 +21,22 @@ const RUNNER_OPTS = { cwd: process.cwd(), timeout: 15000, stdio: "pipe", env: { 
  *   - SOLANA_BOT_KEY env var set to the e2e bot wallet's (F6f8h5yy…) base58-encoded
  *     private key — the legacy pre-rotation signer, not Xan's SOLANA_ADMIN_KEY
  *     (see e2e/keypair-provider.js)
+ *   - MACK_DEVNET_KEY env var set to Mack's devnet wallet's base58-encoded private
+ *     key: 1Password `solana.mack.agent` (vault studio-agents, field private-key),
+ *     public key 8UwJhRiN…ZSnowW. CI passes it from the GitHub secret of the same
+ *     name (.github/workflows/devnet-nightly.yml). The spec skips without it.
+ *     NEVER paste a key into this file: turf-monster is a public repository, and
+ *     test/lib/committed_secret_key_guard_test.rb fails CI on any committed
+ *     Solana secret key. The previous Mack key (foUu…) sat here as a literal
+ *     from 2026-04-12 and was retired on 2026-10-24 for exactly that reason.
  *   - the bot wallet funded with ~0.2 SOL + ~$20 USDC on devnet
  *   - Mack wallet funded with ~1 SOL on devnet (USDC seeded by faucet test)
  *   - Test server seeded with SOLANA_BOT_PUBKEY=<bot pubkey>
  *
- * Run:
- *   SOLANA_BOT_KEY=<key> npx playwright test --project=devnet
+ * Run (keys from 1Password, never typed or pasted):
+ *   SOLANA_BOT_KEY=<key> \
+ *   MACK_DEVNET_KEY="$(op read 'op://studio-agents/solana.mack.agent/private-key')" \
+ *   npx playwright test --project=devnet
  */
 
 // ---------------------------------------------------------------------------
@@ -38,9 +48,12 @@ const USDC_MINT = "222Dcu2RgAXE3T8A4mGSG3kQyXaNjqePx7vva1RdWBN9";
 const MIN_SOL = 0.1;
 const MIN_USDC = 20; // Low — faucet seeds $50 before contests need USDC
 
-// Mack's wallet (Web3 registration + entry tests)
-const MACK_KEY = "2miFBu2EGS6vZscu31GZcXc7WZew1bHG786HRX1nA4RTohyjfLmWVpsV7Vjdgc9wCajyTd4hkFY7T4HsqgAZkmFB";
-const MACK_PUBKEY = "foUuRyeibadQoGdKXZ9pBGDqmkb1jY1jYsu8dZ29nds";
+// Mack's wallet (Web3 registration + entry tests). The secret comes from the
+// environment only; the public key is derived from it, so the two cannot drift.
+// An empty MACK_KEY skips the spec in beforeAll: it must never reach
+// setupKeypairProvider, which would silently fall back to SOLANA_BOT_KEY.
+const MACK_KEY = (process.env.MACK_DEVNET_KEY || "").trim();
+const MACK_PUBKEY = MACK_KEY ? derivePubkey(MACK_KEY) : "";
 
 // Shared state across tests (serial execution)
 let sharedSmallContestUrl;
@@ -99,6 +112,10 @@ test.beforeAll(async () => {
   test.skip(
     !process.env.SOLANA_BOT_KEY,
     "SOLANA_BOT_KEY env var is required. Set it to the e2e bot wallet's (F6f8h5yy…) base58 private key."
+  );
+  test.skip(
+    !MACK_KEY,
+    "MACK_DEVNET_KEY env var is required. Set it from 1Password solana.mack.agent (field private-key)."
   );
 
   // 2. Save original wallets, swap alex to bot key, clear Mack's wallet for fresh registration

@@ -1,9 +1,19 @@
 # Nightly devnet integration — runs Playwright tests tagged @devnet against
-# the deployed turf_vault devnet program. Requires a funded SOLANA_BOT_KEY
-# secret (operator: GitHub Settings → Secrets and variables → Actions).
+# the deployed turf_vault devnet program.
 #
-# If SOLANA_BOT_KEY is unset, the job skips silently. This prevents
-# fork-PR runs from spamming the bot wallet.
+# THE SWITCH: the job runs only when the repository VARIABLE
+# DEVNET_NIGHTLY_ENABLED is 'true' (Settings → Secrets and variables → Actions →
+# Variables). Otherwise it completes `skipped`; a secret's presence does not
+# decide it.
+#
+# THE SECRETS it reads (Settings → Secrets and variables → Actions → Secrets),
+# each a base58 64-byte Solana secret key:
+#   SOLANA_BOT_KEY   the e2e bot wallet (F6f8h5yy…), funded on devnet
+#   MACK_DEVNET_KEY  Mack's devnet wallet (8UwJhRiN…), from 1Password
+#                    solana.mack.agent (vault studio-agents, field private-key)
+# With either one unset, e2e/devnet-smoke.spec.js skips itself. Keys live only in
+# secrets: turf-monster is public, and test/lib/committed_secret_key_guard_test.rb
+# fails CI on any Solana secret key committed to the tree.
 
 name: Devnet Nightly
 
@@ -22,7 +32,8 @@ jobs:
   devnet:
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    # Skip if the bot key isn't configured (e.g. forks or fresh repo setup)
+    # Opt-in by repository variable (see the header), so forks and a fresh repo
+    # never spend the devnet wallets.
     if: ${{ vars.DEVNET_NIGHTLY_ENABLED == 'true' }}
 
     services:
@@ -71,6 +82,7 @@ jobs:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432
           REDIS_URL: redis://localhost:6379/0
           SOLANA_BOT_KEY: ${{ secrets.SOLANA_BOT_KEY }}
+          MACK_DEVNET_KEY: ${{ secrets.MACK_DEVNET_KEY }}
           SOLANA_RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
         run: npm test -- --grep "@devnet"
 
