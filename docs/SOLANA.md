@@ -331,6 +331,98 @@ NOT more nonce accounts. It is either an out-of-band ceremony for the rarest of
 the six, or solving the Lighthouse ix-0 ordering problem first — a wallet-behaviour
 investigation, not a Rails change.
 
+#### The platform's second signature — the operator signs once
+
+Mr. McRitchie ruled on 2026-10-24, after being asked for two Phantom signatures
+on one settle: "You need two signatures? We should have it so you can do two
+signatures and I'm only important if you need a third." So on a mainnet
+VaultState action the app's server key (`4S39…`, `SOLANA_ADMIN_KEY`) and the
+agent cosigner (`3LTL…`, 1Password `solana.turf.governance.v2`) supply two
+signatures, and his wallet (7ZDJ, 3Qj4 or 9gAC) is always the third and final.
+
+- **The key.** `SOLANA_PLATFORM_COSIGNER_KEY` holds the agent cosigner's secret
+  (base58, `SOLANA_ADMIN_KEY`'s format). `Solana::PlatformCosigner` loads it and
+  refuses any key that derives to one of his wallets (the roster's `holder:
+  alex` and the config defaults that name his Phantom), to the server's own key,
+  or to anything but the filed address: `3LTL…` on mainnet, the devnet
+  governance key `BVQH…` (`solana.turf.governance.devnet`) on QA. Deployed apps
+  log one `[platform-cosigner]` line at boot beside `[signer-isolation]`. It
+  never raises: absent or refused, the app keeps the two-wallet flow above and
+  the Treasury page says why. The name is deliberately not
+  `SOLANA_COSIGNER_KEYS`, which is a window variable the lock rake reads.
+- **Settles, automatically.** `Contest#settle_onchain!` builds through
+  `Solana::PlatformCosign.build_settle`: the platform cosigner takes the named
+  `cosigner` slot, his highest-priority seated wallet takes the one extra slot,
+  and the server signs the admin and cosigner slots. Every Co-sign rebuild does
+  the same (`Admin::PendingTransactionsController#rebuild`), records the signer
+  on the row (`metadata.platform_cosigner`) and returns `signer_queue` with his
+  wallet alone. The page reads "One signature needed: Alex, from 7ZDJ, 3Qj4 or
+  9gAC", lists his wallets (7ZDJ included, since the named slot is no longer
+  his) and Phantom prompts once.
+- **The other three-signature actions, on request.** Cancel, sweep, register,
+  deactivate and unpause take the platform's signature only when the operator
+  ticks "Platform signs too" on that row; `update_signers` only when he ticks
+  it on the signer console, which adds the cosigner to the planner's
+  server-held set (the planner still leaves the last signature to his wallet).
+- **Two-signature actions, on a click.** `close_contest` can be completed by the
+  server and the platform cosigner alone with "Complete with platform
+  signatures" (`#complete_with_platform`). It runs #broadcast's claim, simulate,
+  rewind and verify steps, and writes `metadata.platform_completion` (who
+  clicked, both signers, the signature) and a hub activity
+  (`Studio::PostActivity`); a hub that refuses is written on the row, never a
+  failure. Pause, lock and conclusion are also two-signature actions on mainnet
+  but have no platform path in the app: a lock is kept on his Phantom on
+  purpose (`ContestsController#update`).
+- **The invariant.** `CosignPlan#platform_cosign?` holds only while
+  `extra_cosigners_needed` is positive, so the platform never fills an extra
+  slot and never signs where two signatures would complete the action (a v0.25
+  boot, or a settle retuned to two; devnet's settle threshold is 2, so a QA
+  settle keeps the server plus one wallet). A nonce-anchored settle never takes
+  it.
+
+The local validator proof (`bin/v026-local-validator-proof`, test 4) shows a
+settle signed by the server and the platform cosigner is refused 6046 alone,
+leaves exactly one slot, and lands with one more signature.
+
+**Setting the key (Steffon; an agent never prints it).** The same argv-free
+Platform API call as [`qa-signing-key-rotation.md`](qa-signing-key-rotation.md)
+step 8: the secret goes from `op` into the request body over a pipe, the Heroku
+token into a `0600` header file, and only the HTTP status prints (`200` is
+success). The variable accepts the base58 form or a 64-byte JSON array.
+
+```bash
+# APP=turf-monster-mainnet ITEM=solana.turf.governance.v2      (derives 3LTL…)
+# APP=turf-monster-qa      ITEM=solana.turf.governance.devnet  (derives BVQH…)
+source ~/.zprofile.admin
+umask 077; h="$(mktemp)"
+heroku auth:token | sed 's/^/Authorization: Bearer /' > "$h"
+OP_SERVICE_ACCOUNT_TOKEN="$OP_ADMIN_SERVICE_ACCOUNT_TOKEN" \
+  op read "op://studio-agents-admin/$ITEM/private key" \
+  | ruby -rjson -e 'print JSON.generate("SOLANA_PLATFORM_COSIGNER_KEY" => $stdin.read.strip)' \
+  | curl -sS -o /dev/null -w '%{http_code}\n' -X PATCH \
+      "https://api.heroku.com/apps/$APP/config-vars" \
+      -H "Accept: application/vnd.heroku+json; version=3" \
+      -H "Content-Type: application/json" \
+      -H @"$h" --data-binary @-
+rm -P "$h"
+```
+
+Read it back as a public key only (the derive line reads the base58 form; for
+a JSON array the boot line is the read-back), then read the boot line:
+
+```bash
+heroku config:get SOLANA_PLATFORM_COSIGNER_KEY --app "$APP" \
+  | ruby -r ./lib/solana/signer_isolation -e 'puts Solana::SignerIsolation.derive_pubkey($stdin.read)'
+heroku logs --app "$APP" --source app -n 2000 | grep platform-cosigner
+# [platform-cosigner] mainnet-beta: The platform cosigner 3LTL… signs beside the server key.
+```
+
+The field label is `private key` (spaced) on `solana.turf.governance.v2`;
+confirm the devnet item's label with `op item get <item> --format json | jq
+'.fields[].label'` before the read. Rollback: `heroku config:unset
+SOLANA_PLATFORM_COSIGNER_KEY --app "$APP"` returns the app to two operator
+signatures per settle.
+
 #### The mint cap is the one threshold that moves during the day
 
 `mint_entry_token` is 1 signature inside the window's cap and 3 above it, so an
@@ -1067,9 +1159,9 @@ not one this server produced.
 
 ### Multisig Settlement Flow
 1. `Contest#grade!` scores and pays entries through `Contest::PayoutSplit` (never more paid entries than the contest's payout table has places, at most `Contest::MAX_PAID_RANKS`), then calls `settle_onchain!`, then marks the contest `settled`
-2. `settle_onchain!` pays each paid entry at `Entry#wallet_address`, the wallet that entered it (the one whose seeds derive its ContestEntry PDA, recorded by `Entry#record_entering_wallet` and backfilled by `bin/rails entries:backfill_wallet_address`), never `User#solana_address`; a paid entry with no recorded wallet raises `Contest::MissingPayoutWalletError` and grading refuses. It calls `Vault#build_settle_contest` → creates a `PendingTransaction` with the partially-signed TX (2-of-3). The builder measures the serialized wire and raises `Vault::SettleTooLargeError` past 1,232 bytes; any raise rolls the whole grade back, so a contest never reads `settled` without a queued settlement
+2. `settle_onchain!` pays each paid entry at `Entry#wallet_address`, the wallet that entered it (the one whose seeds derive its ContestEntry PDA, recorded by `Entry#record_entering_wallet` and backfilled by `bin/rails entries:backfill_wallet_address`), never `User#solana_address`; a paid entry with no recorded wallet raises `Contest::MissingPayoutWalletError` and grading refuses. It calls `Solana::PlatformCosign.build_settle` (→ `Vault#build_settle_contest`) → creates a `PendingTransaction` with the partially signed TX: on mainnet with the platform cosigner configured it already carries two of the three signatures (see "The platform's second signature"). The builder measures the serialized wire and raises `Vault::SettleTooLargeError` past 1,232 bytes; any raise rolls the whole grade back, so a contest never reads `settled` without a queued settlement
 3. Admin visits `/admin/pending_transactions` (Treasury page)
-4. Clicks "Co-sign" → Phantom signs as the second signer → TX submitted to Solana. A nonce-anchored row (a cluster with its settle nonce on) is cosigned with `bin/settle-nonce` instead (below)
+4. Clicks "Co-sign" → the server rebuilds on a fresh blockhash. With `SOLANA_PLATFORM_COSIGNER_KEY` set (mainnet: `3LTL…`), the server signs twice (admin `4S39…` and the platform cosigner) and Phantom signs once, from his chosen wallet: the third and final signature. Without it, Phantom signs the cosigner slot and the extra slot. The server simulates, broadcasts and verifies. A nonce-anchored row (a cluster with its settle nonce on) is cosigned with `bin/settle-nonce` instead (below)
 5. On-chain: per-winner SPL transfer `prize_pool` PDA → winner USDC ATA (PDA-signed by `VaultState` seeds); contest status → Settled
 
 ### Durable-nonce settlement

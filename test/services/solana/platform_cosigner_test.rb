@@ -84,6 +84,15 @@ class Solana::PlatformCosignerTest < ActiveSupport::TestCase
     assert_equal "BVQHNwUEo91ePwqPcR6Ro4g9Ejqt3qn3ajKPqJSSTd51", Solana::PlatformCosigner::EXPECTED_ADDRESSES["devnet"]
   end
 
+  test "a Solana CLI keypair array loads like the base58 form" do
+    kp = key("platform")
+    array = kp.to_bytes.bytes.to_json
+    platform = Solana::PlatformCosigner.load(env: { "SOLANA_PLATFORM_COSIGNER_KEY" => array }, network: "mainnet-beta",
+                                             roster: Roster.new, admin_address: nil, expected: kp.address)
+    assert platform.configured?, platform.notice
+    assert_equal kp.address, platform.address
+  end
+
   test "an unparseable key is refused without echoing it" do
     platform = Solana::PlatformCosigner.load(env: { "SOLANA_PLATFORM_COSIGNER_KEY" => "not-a-key!!" },
                                              network: "mainnet-beta", roster: Roster.new, admin_address: nil)

@@ -81,12 +81,11 @@ module Solana
       expected = EXPECTED_ADDRESSES[network.to_s] if expected == :filed
       return new(:absent, network: network, reason: "#{ENV_KEY} is not set") if secret.empty?
 
-      keypair = begin
-        Keypair.from_base58(secret)
-      rescue StandardError
-        nil
+      keypair = parse_secret(secret)
+      unless keypair
+        return new(:refused, network: network,
+                             reason: "#{ENV_KEY} is neither a base58 secret key nor a 64-byte JSON array")
       end
-      return new(:refused, network: network, reason: "#{ENV_KEY} is not a base58 secret key") unless keypair
 
       address = keypair.to_base58
       refusal = refusal_for(address, network: network, expected: expected,
@@ -95,6 +94,25 @@ module Solana
       return new(:refused, network: network, address: address, reason: refusal) if refusal
 
       new(:configured, network: network, address: address, keypair: keypair)
+    end
+
+    # SOLANA_ADMIN_KEY's base58 form, or a Solana CLI keypair file's 64-byte
+    # JSON array (how a 1Password item may store it). Nil when neither; the
+    # value is never echoed.
+    def self.parse_secret(secret)
+      if secret.start_with?("[")
+        bytes = JSON.parse(secret)
+        return nil unless bytes.is_a?(Array) && bytes.size == 64 && bytes.all? { |b| b.is_a?(Integer) && b.between?(0, 255) }
+
+        keypair = Keypair.from_bytes(bytes)
+        return keypair if keypair.public_key_bytes == bytes.last(32).pack("C*")
+
+        return nil
+      end
+
+      Keypair.from_base58(secret)
+    rescue StandardError
+      nil
     end
 
     # Why `address` may not be the platform cosigner, or nil when it may.
