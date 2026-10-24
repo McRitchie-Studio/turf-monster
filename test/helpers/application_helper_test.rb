@@ -1,24 +1,44 @@
 require "test_helper"
 
 class ApplicationHelperTest < ActionView::TestCase
-  # Lazarus audit #2: session replay runs only in production AND never on pages
-  # that render secrets (controllers set @suppress_session_replay).
+  # Lazarus audit #2: session replay runs only in production, only for a
+  # signed-in user, AND never on pages that render secrets (controllers set
+  # @suppress_session_replay). logged_in? is the controller's helper method;
+  # here the test answers it.
+  attr_writer :logged_in
+
+  def logged_in? = @logged_in
+
+  def in_production
+    original_env = Rails.env
+    Rails.env = "production"
+    yield
+  ensure
+    Rails.env = original_env
+  end
+
   test "session replay is off outside production" do
     @suppress_session_replay = nil
+    self.logged_in = true
     assert_not session_replay_active?, "replay must not run outside production (test env)"
   end
 
-  test "session replay runs in production by default but is suppressed on secret pages" do
-    original_env = Rails.env
-    Rails.env = "production"
-    begin
+  test "session replay runs in production for a signed-in user but is suppressed on secret pages" do
+    in_production do
+      self.logged_in = true
       @suppress_session_replay = nil
-      assert session_replay_active?, "replay should be active in production by default"
+      assert session_replay_active?, "replay should be active in production for a signed-in user"
 
       @suppress_session_replay = true
       assert_not session_replay_active?, "replay must be suppressed when a controller flags a secret page"
-    ensure
-      Rails.env = original_env
+    end
+  end
+
+  test "session replay never runs for an anonymous visitor, even in production" do
+    in_production do
+      self.logged_in = false
+      @suppress_session_replay = nil
+      assert_not session_replay_active?, "an anonymous visitor must load no LogRocket"
     end
   end
 
