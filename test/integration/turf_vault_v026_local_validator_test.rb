@@ -16,7 +16,10 @@ require "test_helper"
 #      is refused in Rails before anything is sent;
 #   3. CosignPlan sizes a cancel from the stored GovernanceConfig after an
 #      on-chain retune, accepts signers seated in slots 4 and 5, and the cancel
-#      lands — where the default sizing is refused 6046.
+#      lands — where the default sizing is refused 6046;
+#   4. a settle signed by the server and the platform cosigner
+#      (Solana::PlatformCosigner) is refused 6046 alone, has exactly one slot
+#      left, and lands with the operator's one signature.
 #
 # SKIPPED unless TURF_VAULT_V026_VALIDATOR=1. It needs a validator and a
 # v0.26 build, so it runs through `bin/v026-local-validator-proof`, which boots
@@ -137,6 +140,59 @@ class TurfVaultV026LocalValidatorTest < ActiveSupport::TestCase
     retune!("cancel_contest", 3) if self.class.enabled?
   end
 
+  # ── 4. the platform's second signature on a settle ────────────────────────
+  #
+  # Mr. McRitchie's 2026-10-24 ruling: the server (admin) and the platform
+  # cosigner sign a settle, and his wallet is the third and final signature.
+  # Here cosigner3 plays the platform cosigner and `operator` plays his wallet
+  # (the runner names it SOLANA_MULTISIG_COSIGNER, so the boot check treats it
+  # as his and refuses it as a platform key).
+
+  test "a settle with two platform signatures accepts exactly one more and lands" do
+    platform = Solana::PlatformCosigner.load(
+      env: { Solana::PlatformCosigner::ENV_KEY => Solana::Keypair.encode_base58(@c3.to_bytes) },
+      network: Solana::Config::NETWORK, expected: @c3.address
+    )
+    assert platform.configured?, platform.notice
+    refused = Solana::PlatformCosigner.load(
+      env: { Solana::PlatformCosigner::ENV_KEY => Solana::Keypair.encode_base58(@operator.to_bytes) },
+      network: Solana::Config::NETWORK, expected: @operator.address
+    )
+    assert_equal :refused, refused.state, "the operator's wallet is never a platform key"
+
+    plan = Solana::CosignPlan.new(tx_type: "settle_contest")
+    assert_equal 3, plan.required_signatures
+    assert plan.platform_cosign?(platform: platform), "seated, configured, and one slot left for the operator"
+
+    slug = create_contest!(lock: Time.now.to_i + 4)
+    wait_for_lock!(slug)
+
+    # The platform ALONE cannot settle: two signatures against three.
+    alone = @vault.build_settle_contest(slug, [], cosigner_pubkey: platform.address)
+    assert_equal INSUFFICIENT_SIGNERS, simulate_error(platform.sign_wire_base64(alone[:serialized_tx]))
+
+    # What the Treasury builds: platform in the named slot, his wallet in the extra.
+    built = @vault.build_settle_contest(slug, [], cosigner_pubkey: platform.address,
+                                                  extra_cosigners: [@operator.address])
+    two = platform.sign_wire_base64(built[:serialized_tx])
+    wire = Solana::WireMessage.parse_base64(two)
+    keys = wire.signer_keys.map(&:b)
+    slot = ->(kp) { keys.index(kp.public_key_bytes) }
+    assert_equal 3, keys.length, "three signer slots, no more"
+    assert wire.signature_valid?(slot.(@server)) && wire.signature_valid?(slot.(@c3)), "server and platform signed"
+    assert wire.signature_slot_empty?(slot.(@operator)), "the operator's slot is the only one left"
+    assert_raises(RuntimeError, "no slot exists for a fourth signer") do
+      Solana::Transaction.cosign_wire_base64(two, signer: @c4, require_complete: false)
+    end
+
+    signature = @client.send_and_confirm(
+      Solana::Transaction.cosign_wire_base64(two, signer: @operator, require_complete: true)
+    )
+    self.class.finalize!(@client, signature)
+    puts "\n[platform-cosign proof] settle #{slug} landed: #{signature}"
+    assert_equal "settled", @vault.read_contest(slug)[:status].to_s.downcase
+  end
+
   # ── harness ───────────────────────────────────────────────────────────────
 
   private
@@ -151,6 +207,21 @@ class TurfVaultV026LocalValidatorTest < ActiveSupport::TestCase
     signed = Solana::Transaction.cosign_wire_base64(built[:serialized_tx], signer: @operator, require_complete: false)
     expectation = @vault.contest_time_expectation(instruction, slug, ts, admin_pubkey: @operator.address)
     @vault.cosign_and_broadcast_contest_time(signed, expectation: expectation)
+  end
+
+  # settle_contest refuses (6028 ContestNotLocked) until the lock has passed
+  # on the clock of the bank the send preflights against, which is the
+  # FINALIZED one here (about 32 slots behind), so wait on that clock.
+  def wait_for_lock!(slug)
+    lock = @vault.read_contest(slug)[:lock_timestamp].to_i
+    120.times do
+      slot = @client.send(:call, "getSlot", [{ commitment: "finalized" }])
+      block_time = (@client.send(:call, "getBlockTime", [slot]) rescue nil).to_i
+      return if block_time > lock
+
+      sleep 0.5
+    end
+    flunk "the validator clock never passed the lock (#{lock})"
   end
 
   def cosign(wire, signers)

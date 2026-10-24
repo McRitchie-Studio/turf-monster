@@ -116,14 +116,16 @@ class Solana::PlatformCosignerTest < ActiveSupport::TestCase
     wire = load(platform_kp).sign_wire_base64(partial_wire(admin, platform_kp, operator))
     parsed = Solana::WireMessage.parse_base64(wire)
 
-    assert_equal [admin, platform_kp, operator].map(&:public_key_bytes), parsed.signer_keys.map(&:b)
-    assert parsed.signature_valid?(0), "the server's admin signature is present and valid"
-    assert parsed.signature_valid?(1), "the platform cosigner's signature is present and valid"
-    assert parsed.signature_slot_empty?(2), "the operator's slot is left for his wallet"
+    keys = parsed.signer_keys.map(&:b)
+    slot = ->(kp) { keys.index(kp.public_key_bytes) }
+    assert_equal 3, keys.length
+    assert parsed.signature_valid?(slot.(admin)), "the server's admin signature is present and valid"
+    assert parsed.signature_valid?(slot.(platform_kp)), "the platform cosigner's signature is present and valid"
+    assert parsed.signature_slot_empty?(slot.(operator)), "the operator's slot is left for his wallet"
 
     # Exactly one more signature completes it.
     complete = Solana::Transaction.cosign_wire_base64(wire, signer: operator, require_complete: true)
-    assert Solana::WireMessage.parse_base64(complete).signature_valid?(2)
+    assert Solana::WireMessage.parse_base64(complete).signature_valid?(slot.(operator))
   end
 
   test "the platform refuses a wire it holds no slot in" do
