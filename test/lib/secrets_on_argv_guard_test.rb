@@ -79,7 +79,7 @@ class SecretsOnArgvGuardTest < Minitest::Test
   end
 
   def scanned_files
-    Dir.chdir(ROOT) { `git ls-files -- #{SCANNED.join(' ')}`.split("\n").select { |f| File.file?(f) } - EXCLUDED }
+    Dir.chdir(ROOT) { `git ls-files -- #{SCANNED.join(" ")}`.split("\n").select { |f| File.file?(f) } - EXCLUDED }
   end
 
   def offenders_in(text, label)
