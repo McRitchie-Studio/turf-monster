@@ -51,9 +51,11 @@ module Solana
     AUTOMATIC_TX_TYPES = %w[settle_contest].freeze
 
     # The other three-signature actions: the platform signs only when the
-    # operator asks, per build.
+    # operator asks, per build. The Treasury rows ask with a checkbox; an
+    # update_signers asks from the signer console. Unpause (its own page,
+    # /admin/vault_state) has no platform path yet and keeps two wallets.
     ON_REQUEST_TX_TYPES = %w[cancel_contest sweep_operator_revenue register_currency
-                             deactivate_currency unpause update_signers].freeze
+                             deactivate_currency update_signers].freeze
 
     # Two-signature actions the server and this key may COMPLETE alone, from
     # an explicit admin click. Every completion is written to the

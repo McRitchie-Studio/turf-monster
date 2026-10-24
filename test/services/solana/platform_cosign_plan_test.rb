@@ -41,10 +41,16 @@ class Solana::PlatformCosignPlanTest < ActiveSupport::TestCase
 
   test "the other three-signature actions only when the operator asks" do
     with_governance do
-      %w[cancel_contest sweep_operator_revenue register_currency deactivate_currency unpause update_signers].each do |type|
+      %w[cancel_contest sweep_operator_revenue register_currency deactivate_currency update_signers].each do |type|
         refute plan(type).platform_cosign?(platform: Platform.new), "#{type} must not cosign by default"
         assert plan(type).platform_cosign?(requested: "true", platform: Platform.new), "#{type} cosigns on request"
       end
+    end
+  end
+
+  test "unpause has no platform path: lifting the brake keeps two of his wallets" do
+    with_governance do
+      refute plan("unpause").platform_cosign?(requested: "true", platform: Platform.new)
     end
   end
 

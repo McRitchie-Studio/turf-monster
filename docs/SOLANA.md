@@ -198,7 +198,7 @@ transaction, some with immovable floors. What changes for Rails:
 | `close_contest` | 1 | **2** | admin + 1 | the admin "Reclaim rent" button queues a Treasury cosign (one Phantom signature) instead of closing server-signed |
 | `set_contest_lock_time` / `..._conclusion_time` | 1 | **2** (3 to re-open/amend) | admin + 1 | operator (Phantom-first): Phantom as `admin`, the SERVER key in the named `cosigner` slot (it is the fee payer, so still one Phantom prompt); re-open/amend are refused in Rails. QA rehearsal: a seated agent key. `contests:nfl_sunday_lock`: `SOLANA_COSIGNER_KEYS` |
 | `burn_entry_token` | (never deployed) | **3** | admin + 2 | operator claw-back needs three |
-| `settle_contest` · `cancel_contest` · `sweep_operator_revenue` | 2 | **3** | admin + cosigner + 1 | the settle cosign flow needs a third wallet |
+| `settle_contest` · `cancel_contest` · `sweep_operator_revenue` | 2 | **3** | admin + cosigner + 1 | the settle cosign flow needs a third wallet; with the platform cosigner the server signs admin and cosigner and the operator's one wallet is the third ("The platform's second signature") |
 | `register_currency` · `deactivate_currency` · `unpause` | 2 | **3** | admin + cosigner + 1 | |
 | `pause` | 2 | **2** | unchanged | the brake stays cheapest, by design |
 | `mint_entry_token` within the day's cap | 1 | **1** | unchanged | Stripe fulfilment untouched |
@@ -267,6 +267,9 @@ cosigner" spelling puts the admin key in both; a list that is two keys but one
 key is refused here rather than on chain.
 
 #### Collecting the third signature — one session, two Phantom approvals
+
+This is the flow without the platform cosigner, and for every row the platform
+does not sign. With it, a settle asks for one Phantom approval (next section).
 
 The six raised OPERATOR paths (`settle_contest`, `cancel_contest`,
 `sweep_operator_revenue`, `register_currency`, `deactivate_currency`, `unpause`)
