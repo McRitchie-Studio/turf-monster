@@ -46,9 +46,12 @@ module Nfl
       # then correctly refuse to broadcast to it. That is not hypothetical: it
       # is exactly what the e2e seed produced on the first run.
       #
-      # `season_year` NOT NULL — every game predating the live feed has a null
-      # slot, and a null slot cannot be rendered as a week.
-      def self.scoped = Game.nfl.where.not(season_year: nil)
+      # The WHOLE slot NOT NULL — every game predating the live feed has a null
+      # slot, and a null slot cannot be rendered as a week. All three columns,
+      # not just `season_year`: a row carrying a year and no week used to win
+      # this lookup and hand `in_season_slot` a `week: nil`, which matched every
+      # unstamped game of the season at once.
+      def self.scoped = Game.nfl.where.not(season_year: nil).where.not(season_type: nil).where.not(week: nil)
 
       def self.in_progress
         scoped.where(status: "in_progress").order(:kickoff_at).first
