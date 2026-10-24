@@ -25,9 +25,30 @@ class Game < ApplicationRecord
   # checking one side keeps this a single subquery.
   scope :nfl, -> { where(home_team_slug: Team.nfl.select(:slug)) }
 
+  # A SLOT WITH A HOLE IN IT NAMES NO WEEK. `where(week: nil)` is SQL's
+  # `week IS NULL`, so a caller handed a half-stamped game (a row written before
+  # every writer set `week`) used to get back EVERY unstamped game of that
+  # season in one heap, and render or broadcast it as though it were a week.
+  # Any nil key answers `none` instead: no board beats a wrong board.
   scope :in_season_slot, ->(year:, season_type:, week:) {
+    next none if year.nil? || season_type.nil? || week.nil?
+
     where(season_year: year, season_type: season_type, week: week).order(:kickoff_at)
   }
+
+  # EVERY NFL GAME CARRIES ITS WEEK, from whichever source wrote it: ESPN's
+  # `week.number` (PollCycle), the odds CSV's week column
+  # (Nfl::CacheExpectedTeamTotals), the schedule file (db/seeds/nfl_2026.rb).
+  # Measured 2026-10-24 on production: 165 of 288 NFL games carried
+  # `week: NULL`, because two of those three writers never set it, so
+  # `Game.where(week: 8)` answered 0 for a week that existed.
+  # `games:backfill_week` repairs the rows written before this.
+  #
+  # Enforced on CREATE and on a write that CHANGES week, not on every save, so a
+  # legacy null-week row can still take a score update in the minutes between
+  # this deploy and the backfill instead of raising mid-poll. World Cup games
+  # share the table and have no weeks, so only an NFL home team triggers it.
+  validates :week, presence: true, if: :week_required?
 
   # THE OPERATOR'S ORDER for the live board, read by Live::FocusGame as the
   # tiebreak inside whichever set of games is eligible at that moment.
@@ -142,6 +163,12 @@ class Game < ApplicationRecord
     return base unless prefix
 
     [base, "#{prefix}#{week}"].join("-")
+  end
+
+  def week_required?
+    return false unless new_record? || will_save_change_to_week?
+
+    home_team&.league == "nfl"
   end
 
   def season_type_name

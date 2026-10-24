@@ -118,7 +118,7 @@ module Nfl
       away_team = Team.find_by!(slug: row.fetch("away_team_slug"))
       home_team = Team.find_by!(slug: row.fetch("home_team_slug"))
       favorite_team = Team.find_by!(slug: row.fetch("favorite_team_slug"))
-      game = ensure_game!(home_team: home_team, away_team: away_team)
+      game = ensure_game!(home_team: home_team, away_team: away_team, week: week)
       slate = ensure_slate!(week: week)
       derived = self.class.derive(
         game_total: decimal(row.fetch("game_total")),
@@ -181,13 +181,23 @@ module Nfl
       end
     end
 
-    def ensure_game!(home_team:, away_team:)
+    # THE CSV ROW'S WEEK IS WRITTEN ONTO THE GAME, with the season it implies.
+    # This writer used to set neither, which is how 165 production games came to
+    # carry `week: NULL` while their slate matchups knew the week perfectly well.
+    # The slot is ESPN's vocabulary (season_type 2 = regular season, the only
+    # season the odds CSV covers, which is also why the slug is the bare
+    # regular-season form); the poller overwrites all three with ESPN's own values
+    # when it adopts the game, and they agree.
+    def ensure_game!(home_team:, away_team:, week:)
       slug = "#{home_team.slug}-vs-#{away_team.slug}"
       game = Game.find_or_initialize_by(slug: slug)
       @games_created += 1 if game.new_record?
       game.assign_attributes(
         home_team_slug: home_team.slug,
         away_team_slug: away_team.slug,
+        week: week,
+        season_year: game.season_year || @year,
+        season_type: game.season_type || Slate::DEFAULT_SEASON_TYPE,
         venue: game.venue.presence || home_team.home_arena&.name
       )
       game.status = "scheduled" if game.status.blank?
