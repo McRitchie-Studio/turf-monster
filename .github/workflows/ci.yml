@@ -311,11 +311,11 @@ jobs:
     #
     #   COVERAGE, STATED HONESTLY: server-side on-chain paths are NOT
     #   exercised by any e2e that currently runs. This job excludes the
-    #   @devnet specs (--grep-invert), and devnet-nightly.yml — the workflow
-    #   that would run them — is DISABLED: it gates on
-    #   `vars.DEVNET_NIGHTLY_ENABLED == 'true'`, and every scheduled run has
-    #   completed `skipped`. It has never run. Do not read this pin as
-    #   "covered elsewhere" — it is covered nowhere today.
+    #   @devnet specs (--grep-invert), and no workflow runs them: the Devnet
+    #   Nightly workflow that was meant to never ran on schedule and was
+    #   deleted (turf-devnet-config-truth). The devnet signal is the
+    #   per-release `contest-rehearsal` gauntlet (docs/SOLANA.md). Do not read
+    #   this pin as "covered elsewhere" in CI — it is covered nowhere in CI.
     #
     #   WHAT LICENSES THE PIN: no e2e asserts the observables these RPCs
     #   feed. That is a MEASUREMENT, not an argument — the full chromium
@@ -463,7 +463,7 @@ jobs:
         # tracks the matrix automatically. Playwright shards by test; safe
         # because every spec is reseed-independent (no beforeAll state in the
         # chromium project — that lives only in the @devnet specs, which are
-        # excluded here and run by devnet-nightly.yml).
+        # excluded here and run only by hand: e2e/DEVNET_RUNBOOK.md).
         run: npm test -- --grep-invert "@devnet" --shard=${{ matrix.shard }}/${{ strategy.job-total }} --reporter=list,json
 
       # ALWAYS, not `if: failure()`. A FAILING spec still RAN — the executed-set gate must

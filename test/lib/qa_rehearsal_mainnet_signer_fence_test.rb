@@ -109,6 +109,36 @@ class QaRehearsalMainnetSignerFenceTest < ActiveSupport::TestCase
     refute TurfMonster::QaRehearsal::KeyStore::ITEMS.key?("mason")
   end
 
+  # Mr. McRitchie's PERSONAL Turf wallet, filed in the agent-readable item
+  # solana.turf.alex (studio-agents). It signs for no program, but it holds his
+  # own money, so the rehearsal must never load it (turf-devnet-config-truth).
+  PERSONAL = "DKbvUsinni745s326a7xesEYCTcxSXv47xW79M1Z7E7r"
+
+  test "Mr. McRitchie's personal wallet is filed under personal and fenced" do
+    filed = YAML.safe_load_file(Rails.root.join("config/mainnet_vault_signers.yml"))
+    assert_includes filed.fetch("personal"), PERSONAL
+    refute_includes filed.fetch("seated"), PERSONAL, "DKbv holds no VaultState slot; it is fenced as personal"
+    assert Fence.default.fenced?(PERSONAL)
+  end
+
+  test "the rehearsal refuses to load the personal wallet as a player" do
+    store = Struct.new(:kp) { def keypair(_who) = kp }.new(Struct.new(:to_base58).new(PERSONAL))
+    keys = Fence::FencedKeys.new(store, Fence.default)
+
+    error = assert_raises(Fence::Refused) { keys.keypair("turf") }
+    assert_match(/turf \(#{PERSONAL}\) also holds MAINNET authority or money/, error.message)
+    assert_match(/personal wallets/, error.message)
+  end
+
+  test "the personal list is read: dropping it from the file unfences the wallet" do
+    Dir.mktmpdir do |dir|
+      fence = File.join(dir, "fence.yml")
+      filed = YAML.safe_load_file(Rails.root.join("config/mainnet_vault_signers.yml"))
+      File.write(fence, filed.except("personal").to_yaml)
+      refute_includes Fence.load_keys(fence_path: fence), PERSONAL
+    end
+  end
+
   test "the devnet-only keys are not fenced" do
     fence = Fence.default
     refute fence.fenced?(MACK), "Mack is the devnet rehearsal key"

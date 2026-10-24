@@ -276,4 +276,20 @@ class QaRehearsalKeyStoreTest < ActiveSupport::TestCase
     assert_match(/op read failed for solana\.mack\.agent/, error.message)
     assert_match(/rate-limited/, error.message)
   end
+
+  # The comments in key_store.rb describe the vault, so they go stale on a
+  # re-file (turf-devnet-config-truth). Provenance ids are PREFIXES, since a
+  # re-file mints a new id; and the field-name note counts five solana.turf.*
+  # items, one of them (solana.turf.alex) with the spaced `wallet address`.
+  test "the key store's vault notes record id prefixes, never whole 1Password ids" do
+    source = File.read(Rails.root.join("lib/turf_monster/qa_rehearsal/key_store.rb"))
+    comments = source.lines.grep(/^\s*#/).join
+    refute_match(/solana\.turf\.system(\.devnet)?\s+[a-z0-9]{26}\b/, comments,
+                 "a whole op item id goes stale on the next re-file; record a prefix")
+    assert_match(/solana\.turf\.system\s+abwn…/, comments)
+    assert_match(/solana\.turf\.system\.devnet\s+5muv…/, comments)
+    refute_match(/all three solana\.turf\./, comments)
+    assert_match(/four of the five solana\.turf\.\* items/, comments)
+    assert_includes Store::ADDRESS_FIELDS, "wallet address", "solana.turf.alex still spells it with a space"
+  end
 end

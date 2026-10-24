@@ -2,13 +2,15 @@
 
 > **ARCHIVE-ONLY PLANNING SNAPSHOT.** This captured the May 2026 devnet test
 > plan. Use `docs/TEST_COVERAGE_STATUS.md` for current test coverage
-> orientation, and verify live CI before relying on nightly devnet proof.
+> orientation. The nightly workflow below never ran on schedule and was
+> deleted on 2026-10-24 (`turf-devnet-config-truth`); the devnet signal is the
+> per-release `contest-rehearsal` gauntlet (`docs/SOLANA.md`).
 
-> **Status (2026-05-23): PARTIALLY CLOSED.** `e2e/devnet-smoke.spec.js` (~890 lines) ships a comprehensive devnet smoke suite covering the Rails ↔ program contract end-to-end: vault round-trip, contest create/enter/settle, entry tokens, settlement with cosign. The nightly CI workflow may or may not be live — verify before depending on it. Remaining work below is mostly edge cases + the nightly CI plumbing.
+> **Status (2026-05-23): PARTIALLY CLOSED.** `e2e/devnet-smoke.spec.js` (~890 lines) ships a comprehensive devnet smoke suite covering the Rails ↔ program contract end-to-end: vault round-trip, contest create/enter/settle, entry tokens, settlement with cosign. No CI workflow runs it (see the note above). Remaining work below is mostly edge cases.
 
 The 2026-05-17 ecosystem audit recommended a small Playwright suite (10-15 cases) tagged `@devnet` that hits the **deployed devnet** `turf-vault` program from the turf-monster Rails layer. This catches integration drift between the program and the Rails service classes — the existing `turf-vault/tests/turf-vault.ts` covers the program against localnet but not the Rails ↔ program contract.
 
-The nightly CI workflow at `.github/workflows/devnet-nightly.yml` is already in place (audit Tier 2 #13) and will run any tests tagged `@devnet`. This file lists the tests to write.
+The nightly CI workflow this plan relied on (`.github/workflows/devnet-nightly.yml`, audit Tier 2 #13) was deleted on 2026-10-24 without ever running on schedule. This file lists the tests to write.
 
 ## Setup needed (operator, one-time)
 
@@ -18,7 +20,7 @@ The nightly CI workflow at `.github/workflows/devnet-nightly.yml` is already in 
    - `SOLANA_BOT_KEY` (base58 secret)
    - `SOLANA_RPC_URL` (paid Helius/QuickNode — public devnet rate-limits at scale)
    - `RECONCILER_ALERT_WEBHOOK` (optional; Slack/Discord)
-4. **Set repo variable** `DEVNET_NIGHTLY_ENABLED=true` (gates the nightly workflow)
+4. ~~Set repo variable `DEVNET_NIGHTLY_ENABLED=true`~~ (the workflow it gated is deleted)
 
 ## Test list (target: 10-15 cases)
 

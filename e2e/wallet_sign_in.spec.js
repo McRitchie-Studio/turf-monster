@@ -12,7 +12,7 @@ const { reseed } = require("./helpers");
 // signIn, and the fallback is exercised by explicitly switching it back off.
 //
 // Uses a FRESHLY GENERATED keypair per test rather than e2e/keypair-provider.js,
-// which needs SOLANA_BOT_KEY and is devnet-nightly only. A fresh wallet has no
+// which needs SOLANA_BOT_KEY and serves only the hand-run @devnet specs. A fresh wallet has no
 // user row, so each run exercises the create-or-login signup side.
 
 async function injectFreshKeypair(page) {

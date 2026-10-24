@@ -234,7 +234,7 @@
 # shipped with zero browser coverage while all three shards reported green, which
 # is the precise failure this whole ledger exists to make impossible.
 # (An earlier draft of this note credited e2e/keypair-provider.js. Wrong file:
-# that one is the devnet-nightly SOLANA_BOT_KEY harness and this change does not
+# that one is the hand-run @devnet SOLANA_BOT_KEY harness and this change does not
 # touch it. Corrected in review — a ledger whose prose points at the wrong file
 # is the same class of stale-derivation problem the warnings above describe.)
 #
@@ -1303,10 +1303,10 @@ total_specs: 521
 # `--grep-invert "@devnet"` because they need funded devnet wallets: the secrets
 # SOLANA_BOT_KEY and MACK_DEVNET_KEY (never literals; test/lib/committed_secret_key_guard_test.rb).
 #
-# ⚠️ THESE ARE COVERED NOWHERE TODAY. devnet-nightly.yml is the only workflow that would run
-# them and it is gated on `vars.DEVNET_NIGHTLY_ENABLED == 'true'`, which has completed
-# `skipped` on every scheduled run it has ever had (verified 8 consecutive days,
-# 2026-08-12..19). That is /tasks/turn-on-devnet-nightly, NOT this file's job. What this
+# ⚠️ NO WORKFLOW RUNS THESE. The Devnet Nightly workflow never ran on schedule (161 of 162
+# runs skipped) and was deleted (turf-devnet-config-truth); they run by hand per
+# e2e/DEVNET_RUNBOOK.md, and the devnet signal is the per-release contest-rehearsal
+# gauntlet (docs/SOLANA.md). What this
 # file does is make the hole VISIBLE and pinned to its exact size, so widening the
 # exclusion later is a red build rather than a quiet loss of coverage.
 excluded: 17

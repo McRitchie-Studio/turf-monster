@@ -49,7 +49,7 @@ de-scoped.
 | `Solana::Reconciler` unit tests | Still no `test/services/solana/reconciler_test.rb`; current coverage is focused on `Entries::OnchainReconciler`, not the older account/contest divergence reconciler. |
 | Full `Solana::Vault` omnibus test | No single `test/services/solana/vault_test.rb`; coverage exists as focused `vault_*` test files. Add missing edge cases as focused files unless a broader contract test becomes clearer. |
 | MoonPay | MoonPay is not active launch infrastructure. Keep MoonPay-specific May-audit findings historical unless the provider is reintroduced. |
-| Devnet nightly proof | `DEVNET_INTEGRATION_TESTS_TO_ADD.md` remains historical planning. Verify actual CI before relying on nightly devnet coverage. |
+| Devnet proof | No CI workflow runs the `@devnet` specs: Devnet Nightly never ran on schedule and was deleted on 2026-10-24. The devnet signal is the per-release `contest-rehearsal` gauntlet against QA (`docs/qa-contest-rehearsal.md`); the `@devnet` specs run by hand (`e2e/DEVNET_RUNBOOK.md`). `DEVNET_INTEGRATION_TESTS_TO_ADD.md` remains historical planning. |
 | Coverage reporting | No SimpleCov threshold is documented as active. Add only when the suite runtime and noise profile are acceptable. |
 
 ## Maintenance Rule

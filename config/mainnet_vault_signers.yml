@@ -30,6 +30,12 @@
 # and no seat in the squad list below. They stay fenced under `retired`, so the
 # rotation does not unfence them as a side effect; letting the rehearsal load a
 # retired key is its own decision, made by removing it from that list.
+#
+# `personal` holds wallets that sign for no program at all but hold Mr.
+# McRitchie's own money: a rehearsal must never load one as a player or a
+# co-signer, whatever vault it is filed in. Added 2026-10-24
+# (turf-devnet-config-truth) after a review found his personal Turf wallet filed
+# in the agent-readable 1Password item solana.turf.alex (vault studio-agents).
 
 seated:
   - 3LTLPG1s952sdNatZWtnfM7r9F3ivWSnPSqfhQLBepJ9 # solana.turf.governance.v2, the fresh governance key
@@ -51,3 +57,6 @@ squad:
   - 3LTLPG1s952sdNatZWtnfM7r9F3ivWSnPSqfhQLBepJ9 # solana.turf.governance.v2; replaced 4bKN by config tx #10
   - 7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr # Mr. McRitchie, Phantom account 1
   - 9gACbzsCLmkYF9Yx1EBGmwMvvyfuTquJ6qs8QsoQvHXf # Mr. McRitchie, Phantom account 2
+
+personal:
+  - DKbvUsinni745s326a7xesEYCTcxSXv47xW79M1Z7E7r # Mr. McRitchie's PERSONAL Turf wallet (1Password solana.turf.alex); never a rehearsal player
