@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_11_064136) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_24_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -246,6 +246,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_11_064136) do
     t.boolean "accepts_usdt", default: false, null: false
     t.boolean "chat_enabled", default: true, null: false
     t.boolean "coming_soon", default: false, null: false
+    t.datetime "coming_soon_alerted_at"
+    t.boolean "coming_soon_hold", default: false, null: false
     t.datetime "concludes_at"
     t.string "contest_type", default: "small", null: false
     t.datetime "created_at", null: false
@@ -264,6 +266,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_11_064136) do
     t.string "onchain_tx_signature"
     t.bigint "payout_table_cents", array: true
     t.integer "rank"
+    t.datetime "reveal_at"
     t.integer "season_id"
     t.text "settlement_error"
     t.bigint "slate_id"
