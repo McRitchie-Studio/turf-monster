@@ -480,12 +480,37 @@ module Solana
     # it is what `initialize` wrote, and raising it would change neither chain.
     MULTISIG_THRESHOLD = ENV.fetch("SOLANA_MULTISIG_THRESHOLD", "2").to_i
 
-    # Default cosigner for partially-signed treasury TXs (Mr. McRitchie — signs via Phantom)
-    MULTISIG_COSIGNER = ENV.fetch("SOLANA_MULTISIG_COSIGNER", "7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr")
+    # The default cosigner for partially-signed treasury TXs, PER CLUSTER.
+    #
+    # 7ZDJ… is Mr. McRitchie's Phantom, slot 1 of the MAINNET VaultState set, and
+    # `turf-monster-mainnet` runs on this default (it does not set the variable;
+    # read 2026-10-24). The DEVNET vault does not seat 7ZDJ… (its set is 2eGs…,
+    # 8UwJ…, BVQH…), so a deployed devnet app on this default would ask him to
+    # cosign with a wallet the vault refuses. A deployed app (Rails production)
+    # on any cluster but mainnet must therefore name its own cosigner, and boot
+    # refuses without one, naming the variable: `turf-monster-qa` sets 8UwJ…
+    # (`solana.mack.agent`) since release v304. Development and test keep the
+    # mainnet literal, which their fixtures are written against; neither signs
+    # a real transaction with it.
+    MAINNET_MULTISIG_COSIGNER = "7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr"
+
+    def self.resolve_multisig_cosigner(value:, network:, deployed:)
+      return value.strip if value.present?
+      return MAINNET_MULTISIG_COSIGNER if network == "mainnet-beta" || !deployed
+
+      raise "SOLANA_MULTISIG_COSIGNER required on #{network.inspect}: the default " \
+            "#{MAINNET_MULTISIG_COSIGNER[0, 4]}… is the mainnet VaultState cosigner and the " \
+            "#{network} vault does not seat it. Set it to a wallet that cluster's VaultState " \
+            "seats (turf-monster-qa uses 8UwJ…, solana.mack.agent)."
+    end
+
+    MULTISIG_COSIGNER = resolve_multisig_cosigner(
+      value: ENV["SOLANA_MULTISIG_COSIGNER"], network: NETWORK, deployed: Rails.env.production?
+    )
 
     # turf-vault v0.15.0+: the ONLY wallet permitted to call `initialize` on
     # mainnet builds (per `state.rs::INIT_AUTHORITY`). Today this is the same
-    # key as MULTISIG_COSIGNER (Mr. McRitchie's Phantom), but it's kept separate so a
+    # key as mainnet's MULTISIG_COSIGNER (Mr. McRitchie's Phantom), but it's kept separate so a
     # future rotation of either role doesn't silently move the other.
     INIT_AUTHORITY = ENV.fetch("SOLANA_INIT_AUTHORITY", "7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr")
 
