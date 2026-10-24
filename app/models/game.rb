@@ -168,8 +168,11 @@ class Game < ApplicationRecord
   def week_required?
     return false unless new_record? || will_save_change_to_week?
 
-    home_team&.league == "nfl"
+    nfl?
   end
+
+  # The per-row form of the `nfl` scope: the HOME team's league decides.
+  def nfl? = home_team&.league == "nfl"
 
   def season_type_name
     SEASON_TYPES[season_type]

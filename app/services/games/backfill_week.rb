@@ -7,9 +7,16 @@ module Games
   # answered 0, so every reader that asks for a week by its slot saw nothing.
   #
   # SOURCES, in precedence order, for each NFL game whose week is null:
-  #   1. its slate matchups' `week` — written by the odds-CSV ingest and the span
-  #      slate builder. Used only when they agree on ONE week; a game whose
-  #      matchups name two weeks is ambiguous and reported, never guessed.
+  #   1. its slate matchups: the matchup's own `week`, else the week(s) its
+  #      slate's NAME covers (`Slate#week_range`). Used only when every matchup
+  #      agrees on ONE week; a span slate whose matchups carry no week names
+  #      several, and an ambiguous game is reported, never guessed.
+  #
+  #      NOT Nfl::LiveScores::SlotResolver.weeks_for, deliberately. That reader
+  #      prefers the slate's `week` COLUMN over its name, and a span slate
+  #      ("Weeks 8-10") carries its FIRST week there. For a request key that is
+  #      harmless (an extra ESPN call); written onto a game it would file a week
+  #      10 game under week 8.
   #   2. ESPN's own event, when the row carries an ESPN id (`external_id`):
   #      the summary's `header.week`.
   #   3. Neither: the row is left null and REPORTED by slug.
@@ -70,25 +77,35 @@ module Games
 
     private
 
-    # ONE query for every candidate's week-carrying matchups, slates included,
-    # grouped by game slug.
+    # ONE query for every candidate's matchups, slates included, grouped by slug.
     def matchup_slots_for(games)
-      SlateMatchup.where(game_slug: games.map(&:slug)).where.not(week: nil)
+      SlateMatchup.where(game_slug: games.map(&:slug))
                   .includes(:slate)
                   .group_by(&:game_slug)
     end
 
     def resolve(game, matchups)
-      weeks = Array(matchups).map(&:week).uniq
+      placed = Array(matchups).filter_map do |matchup|
+        next if matchup.slate.nil?
+
+        weeks_for(matchup).map { |week| [week, matchup.slate] }
+      end.flatten(1)
+      weeks = placed.map(&:first).uniq
       if weeks.size == 1
-        slate = matchups.first.slate
-        return [change_for(game, weeks.first, slate&.season_year&.to_i, slate&.season_type, "matchup"), nil]
+        slate = placed.first.last
+        return [change_for(game, weeks.first, slate.season_year&.to_i, slate.season_type, "matchup"), nil]
       end
       return [nil, "matchups name #{weeks.size} weeks (#{weeks.sort.join(', ')})"] if weeks.size > 1
 
       return [nil, "no matchup week and no ESPN id"] if game.external_id.blank?
 
       espn_change(game)
+    end
+
+    def weeks_for(matchup)
+      return [matchup.week] if matchup.week.present?
+
+      matchup.slate.week_range&.to_a || []
     end
 
     def espn_change(game)

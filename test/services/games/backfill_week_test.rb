@@ -73,6 +73,28 @@ class GamesBackfillWeekTest < ActiveSupport::TestCase
     assert_match(/2 weeks \(8, 10\)/, result.unresolved.first.reason)
   end
 
+  # The seed's shape: matchups with no week on a slate named for one week.
+  test "a matchup with no week takes its single-week slate's week" do
+    weekly = Slate.create!(name: "NFL 2026 Week 11", slug: "nfl-2026-week-11")
+    game = legacy_game!("team-a-vs-team-b")
+    SlateMatchup.create!(slate: weekly, team_slug: "team-a", opponent_team_slug: "team-b", game_slug: game.slug)
+
+    Games::BackfillWeek.call(apply: true, client: StubClient.new)
+
+    assert_equal 11, game.reload.week
+  end
+
+  # A span slate whose matchups carry no week names all three: never guessed.
+  test "a span slate with no matchup week is ambiguous and reported" do
+    game = legacy_game!("team-a-vs-team-b")
+    SlateMatchup.create!(slate: @slate, team_slug: "team-a", opponent_team_slug: "team-b", game_slug: game.slug)
+
+    result = Games::BackfillWeek.call(apply: true, client: StubClient.new)
+
+    assert_nil game.reload.week
+    assert_match(/3 weeks \(8, 9, 10\)/, result.unresolved.first.reason)
+  end
+
   test "falls back to ESPN's event week when the row carries an ESPN id" do
     game = legacy_game!("team-a-vs-team-b", external_id: "401873010")
     client = StubClient.new("401873010" => { "week" => 7, "season" => { "year" => 2026, "type" => 2 } })
