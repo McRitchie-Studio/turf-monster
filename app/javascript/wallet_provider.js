@@ -206,6 +206,10 @@ var KeypairProvider = {
     return new Promise(function(resolve, reject) {
       var s = document.createElement('script');
       s.src = 'https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js';
+      // The layout's pin for this exact URL (openssl dgst -sha384 over the
+      // fetched file): a remote script loads only with its integrity.
+      s.integrity = 'sha384-05+sicyRJQ56XpL4U9HJ8YbtSzFDvAg7apPKOGV6A0JsAJKFM68jp5oLnUjG5mEp';
+      s.crossOrigin = 'anonymous';
       s.onload = function() {
         self._keypair = { publicKey: secret.slice(32), secretKey: secret };
         self._publicKeyObj = self._makePublicKey(self._keypair.publicKey);
