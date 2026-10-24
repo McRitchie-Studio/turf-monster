@@ -776,16 +776,19 @@ class TestController < ApplicationController
   #                  and returns their slugs
   #   hold: "false"  with slugs: [...] puts exactly those back
   # The spec releases in afterEach, so a failing assertion cannot strand them.
+  # update_all on purpose: it bypasses Contest::Reveal's 24-hour refusal, which
+  # would otherwise refuse a seed contest close to its lock. Hold rides with
+  # the flag so Contests::RevealSweepJob cannot reveal them mid-spec.
   def hold_open_contests
     if params[:hold].to_s == "false"
       slugs = Array(params[:slugs])
-      Contest.where(slug: slugs).update_all(coming_soon: false)
+      Contest.where(slug: slugs).update_all(coming_soon: false, coming_soon_hold: false)
       return render json: { ok: true, released: slugs }
     end
 
     held = Contest.open.where(coming_soon: false)
     slugs = held.pluck(:slug)
-    held.update_all(coming_soon: true)
+    held.update_all(coming_soon: true, coming_soon_hold: true)
     render json: { ok: true, held: slugs }
   end
 
