@@ -500,3 +500,166 @@ test.describe("Treasury cosign with two wallets", () => {
     expect(signedBy).toEqual([fixture.named, fixture.extra]);
   });
 });
+
+// ── THE PLATFORM'S SECOND SIGNATURE (platform-cosigns-mainnet-settles) ──────
+//
+// Mr. McRitchie: "I'm only important if you need a third." With the platform
+// cosigner configured, the server signs the admin AND the named cosigner slot
+// before the bytes reach the browser, and answers with signer_queue = his one
+// wallet. The browser must prompt Phantom ONCE (no account switch), and report
+// the platform as the named cosigner and his wallet as the extra, or the audit
+// row names the wrong signer and drops the platform's signature.
+async function buildPlatformSignedWire(page) {
+  return page.evaluate(() => {
+    const lab = window.__cosignLab;
+    const admin = solanaWeb3.Keypair.generate();     // the server's key (4S39 on mainnet)
+    const platform = solanaWeb3.Keypair.generate();  // the platform cosigner (3LTL on mainnet)
+    const his = solanaWeb3.Keypair.generate();       // his wallet, the third signature
+
+    const tx = new solanaWeb3.Transaction();
+    tx.recentBlockhash = solanaWeb3.Keypair.generate().publicKey.toBase58();
+    tx.feePayer = admin.publicKey;
+    tx.add(
+      new solanaWeb3.TransactionInstruction({
+        keys: [
+          { pubkey: platform.publicKey, isSigner: true, isWritable: false },
+          { pubkey: his.publicKey, isSigner: true, isWritable: false }
+        ],
+        programId: solanaWeb3.SystemProgram.programId,
+        data: new Uint8Array([0])
+      })
+    );
+    tx.partialSign(admin, platform);
+    const bytes = tx.serialize({ requireAllSignatures: false, verifySignatures: false });
+    const wire = btoa(String.fromCharCode.apply(null, new Uint8Array(bytes)));
+
+    lab.queue = [his.publicKey.toBase58()];
+    lab.active = 0;
+    lab.signed = [];
+    lab.sign = async (incoming) => {
+      incoming.partialSign(his);
+      return incoming;
+    };
+    window.confirmSolanaNetworkIntent = async () => true;
+
+    return {
+      wire: wire,
+      admin: admin.publicKey.toBase58(),
+      platform: platform.publicKey.toBase58(),
+      his: lab.queue[0]
+    };
+  });
+}
+
+test.describe("Treasury cosign with the platform cosigner", () => {
+  test("asks Phantom once and reports the platform as the named cosigner", async ({ page }) => {
+    await installPhantomLab(page);
+    await loginAdmin(page);
+
+    let fixture = null;
+    const broadcastBodies = [];
+    const titles = [];
+
+    await page.route("**/admin/pending_transactions/*/rebuild", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          status: "rebuilt",
+          serialized_tx: fixture.wire,
+          required_signatures: 3,
+          cosigner_address: fixture.platform,
+          extra_cosigners: [fixture.his],
+          platform_cosigner_address: fixture.platform,
+          signer_queue: [fixture.his]
+        })
+      });
+    });
+    await page.route("**/admin/pending_transactions/*/broadcast", async (route) => {
+      broadcastBodies.push(route.request().postDataJSON());
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ status: "confirmed", tx_signature: "PlatformPlusOne1111111111" })
+      });
+    });
+
+    await page.goto("/admin/pending_transactions");
+    fixture = await buildPlatformSignedWire(page);
+
+    // Record every title the modal shows, so a "Switch Phantom Account" step
+    // (a second wallet asked for) cannot slip past between polls.
+    await page.evaluate(() => {
+      window.__titles = [];
+      const m = window.Alpine.store("solanaModal");
+      const show = m.show.bind(m);
+      m.show = (title, body) => { window.__titles.push(title); return show(title, body); };
+    });
+
+    await startCosign(page, [fixture.his]);
+    await expect.poll(() => broadcastBodies.length, { timeout: 10_000 }).toBe(1);
+    await page.evaluate(() => window.__cosignDone);
+
+    // ONE Phantom signature, from his wallet, with no account switch asked for.
+    expect(await page.evaluate(() => window.__cosignLab.signed)).toEqual([fixture.his]);
+    titles.push(...(await page.evaluate(() => window.__titles)));
+    expect(titles).not.toContain("Switch Phantom Account");
+
+    const body = broadcastBodies[0];
+    expect(body.cosigner_address).toBe(fixture.platform);
+    expect(body.extra_cosigners).toEqual([fixture.his]);
+
+    // The wire that leaves the browser carries all three signatures, and the
+    // server's two survived his signing untouched.
+    const merged = await page.evaluate((b64) => {
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      const tx = window.solanaWeb3.Transaction.from(bytes);
+      return { verifies: tx.verifySignatures(), signed: tx.signatures.filter((p) => p.signature).length };
+    }, body.signed_tx);
+    expect(merged).toEqual({ verifies: true, signed: 3 });
+  });
+
+  test("carries the row's platform opt-in into the rebuild", async ({ page, request }) => {
+    await installPhantomLab(page);
+    await seedPendingSignatures(request, 1);
+    await loginAdmin(page);
+
+    const rebuilds = [];
+    await page.route("**/admin/pending_transactions/*/rebuild", async (route) => {
+      rebuilds.push(route.request().postDataJSON());
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ status: "rebuilt", serialized_tx: "" })
+      });
+    });
+
+    await page.goto("/admin/pending_transactions");
+    await page.evaluate(() => { window.confirmSolanaNetworkIntent = async () => true; });
+
+    // THE CHECKBOX IS THIS SPEC'S FIXTURE, for the reasons the file header
+    // gives for the select: governance is off in this lane and the probe row's
+    // tx_type is not one CosignPlan offers the platform on.
+    const row = page.locator("[data-cosign-controls]").first();
+    await row.evaluate((scope) => {
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.setAttribute("data-platform-cosign", "");
+      scope.prepend(box);
+    });
+
+    await row.locator(COSIGN_BUTTON).click();
+    await expect.poll(() => rebuilds.length, { timeout: 5_000 }).toBe(1);
+    expect(rebuilds[0].platform_cosign).toBe(false);
+
+    // The first attempt's error modal now covers the page, so the second
+    // round ticks and clicks through the DOM: what is under test is what the
+    // row's own button sends, not the overlay.
+    await row.evaluate((scope, button) => {
+      scope.querySelector("[data-platform-cosign]").checked = true;
+      scope.querySelector(button).click();
+    }, COSIGN_BUTTON);
+    await expect.poll(() => rebuilds.length, { timeout: 5_000 }).toBe(2);
+    expect(rebuilds[1].platform_cosign).toBe(true);
+  });
+});
