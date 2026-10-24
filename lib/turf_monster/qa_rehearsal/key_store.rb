@@ -134,12 +134,12 @@ module TurfMonster
       # SECRET_FIELDS and ADDRESS_FIELDS exclude the devnet-* spellings, so a
       # recombined item cannot sign as the wrong wallet.
       #
-      # "turf" (solana.turf.alex, 39QTL1dd) is the PLAYER. Its UserAccount already
+      # "turf" (solana.turf.agent, 39QTL1dd) is the PLAYER. Its UserAccount already
       # exists, which is the whole reason it works -- ensure_user_account
       # short-circuits on an existing account and never looks at the username.
       ITEMS = {
         "mack"       => Item.new(title: "solana.mack.agent"),
-        "turf"       => Item.new(title: "solana.turf.alex")
+        "turf"       => Item.new(title: "solana.turf.agent")
       }.freeze
 
       def initialize(runner: nil)

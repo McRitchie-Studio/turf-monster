@@ -84,6 +84,14 @@ class QaRehearsalKeyStoreTest < ActiveSupport::TestCase
     assert_equal %w[mack turf], Store::ITEMS.keys
   end
 
+  # The rehearsal player's key lives in solana.turf.agent. solana.turf.alex
+  # holds Mr. McRitchie's own wallet, which is no cast member's.
+  test "each cast member reads its own item" do
+    assert_equal "solana.mack.agent", Store::ITEMS.fetch("mack").title
+    assert_equal "solana.turf.agent", Store::ITEMS.fetch("turf").title
+    refute_includes Store::ITEMS.values.map(&:title), "solana.turf.alex"
+  end
+
   # --- Addressing: by title, never by id -------------------------------
 
   # The admin item is archived, and `op item get` does not read the archive. A
@@ -130,7 +138,7 @@ class QaRehearsalKeyStoreTest < ActiveSupport::TestCase
                       seen: seen)
 
     assert_equal keypair.to_base58, store.address("turf")
-    assert_equal "solana.turf.alex", seen.first.locator
+    assert_equal "solana.turf.agent", seen.first.locator
   end
 
   test "the older spaced filing is still read" do
@@ -227,7 +235,7 @@ class QaRehearsalKeyStoreTest < ActiveSupport::TestCase
     end
 
     assert_equal keypair.to_base58, result.to_base58
-    assert_equal %w[op item get solana.turf.alex --vault studio-agents --format json], argv
+    assert_equal %w[op item get solana.turf.agent --vault studio-agents --format json], argv
     refute_includes argv, DEAD_ID
   end
 
@@ -236,11 +244,11 @@ class QaRehearsalKeyStoreTest < ActiveSupport::TestCase
   # op failure it reads like a missing item or a throttle and sends the reader
   # to the wrong fix.
   test "a colliding title raises an error naming the pin as the remedy" do
-    error = stub_op(stderr: '[ERROR] More than one item matches "solana.turf.alex"') do
+    error = stub_op(stderr: '[ERROR] More than one item matches "solana.turf.agent"') do
       assert_raises(Store::AmbiguousItemError) { Store.new.keypair("turf") }
     end
 
-    assert_match(/solana\.turf\.alex/, error.message)
+    assert_match(/solana\.turf\.agent/, error.message)
     assert_match(/Pin the one this cast member means by id/, error.message)
     refute_match(/op read failed/, error.message,
                  "an ambiguity reported as a generic read failure sends the reader to the wrong remedy")
@@ -254,7 +262,7 @@ class QaRehearsalKeyStoreTest < ActiveSupport::TestCase
       assert_raises(Store::MissingKeyError) { Store.new.keypair("turf") }
     end
 
-    assert_match(/op read failed for solana\.turf\.alex/, error.message)
+    assert_match(/op read failed for solana\.turf\.agent/, error.message)
     assert_match(/isn't an item/, error.message)
   end
 
