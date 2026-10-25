@@ -28,8 +28,8 @@ test.describe("turf-monster-v2 explainer", () => {
     } else if (Date.now() > DROPS_AT + 60_000) {
       await expect(live).toBeVisible();
       // It names the open contest when there is one, else the next one coming;
-      // never a fixed span (the cancelled Weeks 7-9 contest, 2026-10-24).
-      await expect(live.locator("h2")).toHaveText(/ is live$|^The next contest is on its way$/);
+      // never a fixed span. "is live" is joined by a no-break space, so \s.
+      await expect(live.locator("h2")).toHaveText(/\sis\slive$|^The next contest is on its way$/);
     }
   });
 
