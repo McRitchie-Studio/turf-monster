@@ -683,7 +683,7 @@
 }
 
 @layer utilities {
-  /* Navbar responsive sizing. Promoted from layouts/_navbar.html.erb's
+  /* Navbar responsive sizing. Promoted from the old layouts/_navbar fork's
    inline style block 2026-05-24 — these rules fight Tailwind text,
    gap, and sizing utilities applied to the same elements. This block
    compiles into the utilities layer AFTER Tailwind's own utilities, so
@@ -719,7 +719,10 @@
      THE FLOOR IS DERIVED, NOT CHOSEN, and it is why this app cannot simply copy
      studio-engine's `min(14rem, 46vw)`. The engine's column holds icons and a
      name; THIS one carries a 5-section seeds bar with a hard `min-w-[8rem]`
-     (components/_user_nav Div 2) and a `flex-shrink-0` avatar. Its minimum is:
+     (components/_nav_seeds_row, the user nav's div2_slot) and a `flex-shrink-0`
+     avatar. Its minimum, measured on Turf's own user nav before
+     /tasks/turf-readopts-engine-navbar (the engine's needs 184px: no pull, no
+     inset; the floor was kept), was:
 
          8rem seeds bar                    128px
          less the row's -6px pull           -6px
@@ -1507,7 +1510,7 @@ body.modal-open { overflow: hidden; }
   .free-entry-glow { animation: none; box-shadow: 0 0 14px 5px rgb(var(--color-primary-500-rgb) / 0.45); }
 }
 
-/* === "✨ Free Entry" label (layouts/_navbar.html.erb balance slot) ======
+/* === "✨ Free Entry" label (components/_nav_balance, the balance slot) ======
    The second face of the navbar balance slot. Two ways it shows:
      .fe-peek (on the slot) — the ✨ badge on the avatar is hovered, so the
                              label PEEKS over the amount as a pill. Out of

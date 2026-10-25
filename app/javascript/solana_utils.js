@@ -315,7 +315,7 @@ function clearOnchainSettleMarker(id) {
 }
 
 // Put the balance pill back into the server's cache-cold "loading" shape:
-// hidden, with no dollar figure. Mirrors _navbar.html.erb's `hide_balance`
+// hidden, with no dollar figure. Mirrors components/_nav_balance's `hide_balance`
 // branch, so the client's loading state and the server's are the same state.
 // ONE WRITER OWNS THE PILL WHILE A SETTLE IS PENDING.
 //
@@ -676,7 +676,7 @@ function updateWalletTiles(data) {
 // "✨ Free Entry", because the amount they can enter for really is zero
 // dollars. Everything else shows the amount.
 //
-// This is the CLIENT half of the rule _navbar.html.erb renders server-side;
+// This is the CLIENT half of the rule components/_nav_balance renders server-side;
 // both refreshBalance() and updateNavTokens() call it so the two halves can't
 // drift. hasTokens defaults to "is the ✨ badge visible", which is the same
 // signal the badge itself is toggled on.

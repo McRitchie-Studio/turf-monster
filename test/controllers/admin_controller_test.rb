@@ -68,8 +68,8 @@ class AdminControllerTest < ActionDispatch::IntegrationTest
     get faucet_path
     assert_response :success
     assert_select "button[data-gear-sidebar-trigger][aria-controls=?]", "gear-sidebar gear-sidebar-mobile"
-    assert_select "button[data-username-display][aria-controls=?]", "gear-sidebar gear-sidebar-mobile"
-    assert_select "button[data-profile-image-toggle][aria-controls=?]", "gear-sidebar gear-sidebar-mobile"
+    # The name and avatar are ONE engine account button (Studio.navbar_account_sidebar).
+    assert_select "button[data-nav-account][data-profile-image-toggle][aria-controls=?]", "gear-sidebar gear-sidebar-mobile"
     # Slim admin shortlist (everything else lives on the Link Hub, reachable
     # from the dashboard — no longer linked from the gear).
     assert_select "a[href=?]", admin_dashboard_path     # Admin: Dashboard

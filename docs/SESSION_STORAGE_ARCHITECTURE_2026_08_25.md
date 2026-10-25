@@ -232,7 +232,7 @@ absent from a wallet audit. It is defined as
 `SESSION_KEY = :wallet_brand` (`app/services/solana/current_wallet.rb:36`), so a
 `session[:literal]` grep cannot see it — and it is **one of two** such keys. The
 second matters more: `Studio.session_key`, configured to `:turf_user_id`
-(`config/initializers/studio.rb:44`), is the **primary authentication key**, written
+(`config/initializers/studio.rb:159`), is the **primary authentication key**, written
 by the engine and never a literal in `app/`/`lib/` — revision 2 missed it exactly as
 revision 1 missed `wallet_brand`. A third constant,
 `Studio::FIRST_NAME_SKIP_SESSION_KEY` (`studio-engine/lib/studio.rb:343`), resolves
@@ -346,8 +346,11 @@ real page gives `false`, so the preview renders a branch the live app never take
 
 Readers number **six**, not the five revision 1 listed: studio-engine's
 `app/views/components/_user_nav.html.erb:123` also reads `seedsNavbar`, and
-reaches this app through `app/views/layouts/_navbar.html.erb:103`. Found by the
-engine axis, not named in review.
+reached this app through the navbar. Found by the engine axis, not named in
+review. (Since /tasks/turf-readopts-engine-navbar this app renders the engine's
+user nav itself, and always fills its `div2_slot` with the seeds bar
+(`components/_nav_seeds_row`), so the engine's level row, where that reader
+lives, never renders here.)
 
 **The disagreement:** writer 4 exists specifically to stop a stale server value
 from lowering the cache. Writers 3 and 5 have no such guard, and writer 3 can

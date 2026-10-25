@@ -132,16 +132,14 @@
 <div class="py-8 space-y-10" x-data="{
        previewName: '',
        updateNames() {
-         var els = document.querySelectorAll('.navbar-preview [data-username-display]');
+         var els = document.querySelectorAll('.navbar-preview [data-nav-name]');
          var name = this.previewName;
          els.forEach(function(el) {
            el.textContent = name || el.getAttribute('data-original-name');
-           var data = Alpine.$data(el);
-           if (data) { data.overflows = el.scrollWidth > el.clientWidth; }
          });
        },
        init() {
-         var els = document.querySelectorAll('.navbar-preview [data-username-display]');
+         var els = document.querySelectorAll('.navbar-preview [data-nav-name]');
          els.forEach(function(el) { el.setAttribute('data-original-name', el.textContent.trim()); });
        }
      }" x-effect="updateNames()">
