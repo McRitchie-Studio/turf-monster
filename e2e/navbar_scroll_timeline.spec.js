@@ -191,14 +191,16 @@ test.describe("Navbar scroll timeline", () => {
         const column = h.querySelector("[data-nav-tools]").getBoundingClientRect();
         const username = h.querySelector("[data-nav-account] [data-nav-name]");
         const name = username.getBoundingClientRect();
-        const ink = document.createRange();
-        ink.selectNodeContents(username);
         const content = document.querySelector("body > .max-w-7xl");
         const box = content.getBoundingClientRect();
         const contentRight = box.right - parseFloat(getComputedStyle(content).paddingRight);
         return { y: Math.round(scrollY), avatar: avatar.height, avatarRight: avatar.right, contentRight, name: name.height,
-          gap: ink.getBoundingClientRect().left - column.right, nameGap: avatar.left - ink.getBoundingClientRect().right,
-          clipped: username.scrollWidth > username.clientWidth + 0.5 };
+          // The name's BOX, not its ink: from 768 to 1066px the name may truncate
+          // (application.css, THE NAME GIVES WAY, NOT THE ICONS), and a clipped
+          // name's ink runs past its box.
+          gap: name.left - column.right, nameGap: avatar.left - name.right,
+          clipped: username.scrollWidth > username.clientWidth + 0.5,
+          ellipsis: getComputedStyle(username).textOverflow === "ellipsis" };
       }, HEADER);
       const top = await read();
       const ramp = await page.locator(HEADER).evaluate((h) => {
@@ -215,7 +217,7 @@ test.describe("Navbar scroll timeline", () => {
       expect(mid.avatar, `mid-collapse is between the two sizes ${both}`).toBeGreaterThan(32.5);
       for (const at of [top, mid, compact]) {
         expect(Math.abs(at.nameGap - HUB_NAME_GAP), `the name sits the hub's ${HUB_NAME_GAP}px from the avatar ${both}`).toBeLessThanOrEqual(1);
-        expect(at.clipped, `the name is not clipped ${both}`).toBe(false);
+        if (at.clipped) expect(at.ellipsis, `a clipped name ends in an ellipsis ${both}`).toBe(true);
       }
 
       expect(Math.abs(top.avatar - 40), `the avatar is 40px at rest ${both}`).toBeLessThanOrEqual(0.5);

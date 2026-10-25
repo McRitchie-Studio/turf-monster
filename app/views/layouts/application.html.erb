@@ -935,7 +935,7 @@
             return;
           }
 
-          var trigger = event.target.closest('[data-gear-sidebar-trigger], [data-username-display], [data-profile-image-toggle]');
+          var trigger = event.target.closest('[data-gear-sidebar-trigger], [data-profile-image-toggle]');
           if (!trigger) return;
           if (!trigger.matches(<%= raw %([aria-controls~="#{GearSidebarPanels::DESKTOP}"]).to_json %>)) return;
 

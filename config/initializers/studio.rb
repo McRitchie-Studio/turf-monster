@@ -112,11 +112,13 @@ Studio.configure do |config|
   # no trace on the page. So each lookup is guarded on its own: a page whose
   # controller lacks a helper, or a lookup that fails, loses only its own bar.
   config.navbar_header_bars = ->(view) {
+    # ErrorLog, the house sink, and never a raise from the report itself.
+    report = ->(e) { ErrorLog.capture!(e) rescue nil }
     bars = []
     impersonating = begin
       view.respond_to?(:impersonating?) && view.impersonating? && view.true_user
     rescue StandardError => e
-      Rails.error.report(e, handled: true, context: { navbar_header_bar: "impersonation" })
+      report.call(e)
       false
     end
     if impersonating
@@ -127,7 +129,7 @@ Studio.configure do |config|
     frozen = begin
       view.respond_to?(:account_frozen?) && view.account_frozen?
     rescue StandardError => e
-      Rails.error.report(e, handled: true, context: { navbar_header_bar: "frozen_account" })
+      report.call(e)
       false
     end
     bars << "shared/frozen_account_banner" if frozen

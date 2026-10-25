@@ -950,6 +950,23 @@
   }
 }
 
+/* THE NAME GIVES WAY, NOT THE ICONS (/tasks/turf-readopts-engine-navbar).
+   studio-engine's account button is flex-shrink-0 and its name may grow to
+   md:max-w-40, while the icon column beside it is min-w-0. In this app's fixed
+   column a long name therefore drew OVER the theme toggle, the gear and the
+   seeds bar's "Level", and a click on the gear opened the account sidebar
+   (9+ characters at 768-1066px, 13+ at 1280-1440px). Turf's own user nav capped
+   the name at 7rem and let it shrink; this restores that on the engine's markup:
+   the icon column keeps its content width, and the account button shrinks, its
+   name truncating with an ellipsis inside a 7rem cap. Unlayered, to beat the
+   engine's flex-shrink-0 and md:max-w-40 utilities. The engine could take this
+   as a setting (a name cap and a shrinking account); that is a follow-up. */
+@media (min-width: 768px) {
+  .nav-shell .user-nav-col [data-nav-tools] { min-width: min-content; }
+  .nav-shell .user-nav-col [data-nav-account] { flex-shrink: 1; min-width: 0; }
+  .nav-shell .user-nav-col [data-nav-account] > span:first-child { min-width: 0; max-width: 7rem; }
+}
+
 
 /* THE ACCOUNT ROW, SIZED AND ALIGNED AS ON THE HUB (/tasks/turf-navbar-avatar-table-header;
    on the engine user nav since /tasks/turf-readopts-engine-navbar).
