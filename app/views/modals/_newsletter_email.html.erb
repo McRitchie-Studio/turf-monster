@@ -1,3 +1,21 @@
+<%#
+  ENGINE STATUS (studio-engine 0.113.0.rc1, measured 2026-10-24
+  (turf-readopts-engine-modals)): KEPT. This card hands the address back to the
+  caller (props.onSubmit) and posts nothing; the engine's newsletter-email posts
+  its own form. The engine newsletter modals (studio/profiles/_newsletter_modals)
+  are NOT a drop-in:
+    - they answer to $store.profileModals, not the app host's $store.modals;
+    - they post a plain form (turbo off, full reload) to the engine's
+      profile_newsletter_path, while this app posts JSON to its own
+      newsletter_subscribe_path / newsletter_unsubscribe_path and applies the
+      25-seed StateFanout and the newsletter-state-changed event in place;
+    - they register only newsletter-email and newsletter-unsubscribe: the engine
+      has no subscribe card with a consent box, no Subscribed! beat and no goodbye
+      beat, and its copy differs.
+  Engine follow-up: newsletter modals that take modal_store, a JSON submit mode
+  with a success hook, and optional subscribe / success / goodbye cards with
+  app copy. Until then this card stays here.
+%>
 <%# Web3 email-capture modal — opened by the questNewsletter factory via
     $store.modals.open('newsletter-email', { onSubmit: fn }). Captures the email
     (web3 users have none on file), closes itself, then hands the address back to
