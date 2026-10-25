@@ -220,10 +220,15 @@ class Contest < ApplicationRecord
   # ever reached with the explicit pin nil, and a nil pin makes it resolve to
   # exactly the query written here — so the indirection hid where the filter
   # belongs without changing which contest came back.
+  #
+  # A CANCELLED CONTEST IS SKIPPED THE SAME WAY, in the query. It keeps
+  # `status: "open"` (#cancelled? reads onchain_cancelled), so without the
+  # filter the newest cancelled contest could be the lobby's unfurl image and
+  # a gift's landing (the cancelled Weeks 7-9 contest, 2026-10-24).
   def self.featured
     SeasonConfig.main_contest_explicit ||
-      where(status: :open, coming_soon: false).order(created_at: :desc).first ||
-      where(status: LISTED_STATUSES, coming_soon: false).order(created_at: :desc).first
+      where(status: :open, coming_soon: false, onchain_cancelled: false).order(created_at: :desc).first ||
+      where(status: LISTED_STATUSES, coming_soon: false, onchain_cancelled: false).order(created_at: :desc).first
   end
 
   # ─── Multi-week span ────────────────────────────────────────────────
