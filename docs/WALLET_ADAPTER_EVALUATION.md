@@ -334,9 +334,9 @@ header, an importmap pointing at jsdelivr's `+esm` build, and one call to
 **What it proves:** the library loads and gates itself on the platform, and
 our CSP admitted it then, when `script_src` allowed `:https`. It no longer
 does: turf-vendors-cdn-scripts replaced `:https` with each named remote source
-(`config/initializers/content_security_policy.rb:85`), so loading the library from
+(`config/initializers/content_security_policy.rb:87`), so loading the library from
 a CDN now needs its source added to `RemoteScriptSources`. `connect_src` still
-allows `:https` and `:wss` (`:87`). 58 module requests is too many
+allows `:https` and `:wss` (`:89`). 58 module requests is too many
 for production, where it would be vendored with `bin/importmap pin --download`
 (not tested). **It does not prove** a signing round trip. That needs an Android
 device with Phantom or Solflare.
