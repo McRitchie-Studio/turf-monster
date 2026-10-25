@@ -24,6 +24,9 @@ Rails.application.configure do
   # Disable serving static files from `public/`, relying on NGINX/Apache to do so instead.
   # config.public_file_server.enabled = false
 
+  # Digested assets never change under one URL, so the browser may keep them a year.
+  config.public_file_server.headers = { "cache-control" => "public, max-age=#{1.year.to_i}" }
+
   # Compress CSS using a preprocessor.
   # config.assets.css_compressor = :sass
 

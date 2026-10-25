@@ -42,6 +42,7 @@ class Contest < ApplicationRecord
   # route the first time they are fetched — one slow fetch, then cached.
   OG_CARD_SIZE       = [1200, 630].freeze
   OG_CARD_BACKGROUND = "#1e1b35".freeze # --color-page, matches the theme-color meta
+  CARD_BANNER_SIZE   = [768, 288].freeze # 2x the 384x144 sm:w-96 h-36 card banner
 
   has_one_attached :contest_image do |attachable|
     attachable.variant :og_card, preprocessed: true, format: :png,
@@ -49,6 +50,7 @@ class Contest < ApplicationRecord
                                    *OG_CARD_SIZE,
                                    { background: OG_CARD_BACKGROUND, gravity: "Center" }
                                  ]
+    attachable.variant :card, resize_to_fill: CARD_BANNER_SIZE
   end
 
   # Name is repeatable + branded — NO uniqueness. Slug is the unique key.

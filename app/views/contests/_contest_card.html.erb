@@ -37,7 +37,7 @@
             class: "#{live ? 'card-hover tt-contest-card' : 'card'} flex flex-col h-full overflow-hidden relative",
             data: { contest_card: contest.slug, contest_hover: (live ? "lift" : nil) } do %>
   <% if contest.contest_image.attached? %>
-    <%= image_tag contest.contest_image, class: "tt-contest-card-banner w-full h-36 object-cover", alt: contest.name %>
+    <%= image_tag contest.contest_image.variant(:card), class: "tt-contest-card-banner w-full h-36 object-cover", alt: contest.name %>
   <% else %>
     <div class="tt-contest-card-banner w-full h-36" style="background: linear-gradient(135deg, var(--color-primary-700), var(--color-primary-900))"></div>
   <% end %>

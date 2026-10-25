@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
   <head>
     <%# Title, description and icons. The page's link-preview tags (og:/twitter:)
         come from studio-engine's layouts/studio/_head below, resolved by the
@@ -1907,9 +1907,9 @@
     <%= render "components/gear_sidebar" if logged_in? %>
     <%= render "shared/landed_entry_prompt" if logged_in? %>
 
-    <div class="max-w-7xl mx-auto px-4">
+    <main class="max-w-7xl mx-auto px-4">
       <%= yield %>
-    </div>
+    </main>
 
     <%# Global footer: studio-engine's site footer, configured in
         config/initializers/studio.rb (config.site_footer). Brand, the
