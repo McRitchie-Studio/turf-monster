@@ -42,14 +42,12 @@ class Contest < ApplicationRecord
   # route the first time they are fetched — one slow fetch, then cached.
   OG_CARD_SIZE       = [1200, 630].freeze
   OG_CARD_BACKGROUND = "#1e1b35".freeze # --color-page, matches the theme-color meta
-  CARD_BANNER_SIZE   = [768, 288].freeze # 2x the 384x144 sm:w-96 h-36 card banner
+  CARD_BANNER_SIZE   = [768, 288].freeze # 2x the lobby card banner's largest box, 384x144
 
   has_one_attached :contest_image do |attachable|
     attachable.variant :og_card, preprocessed: true, format: :png,
-                                 resize_and_pad: [
-                                   *OG_CARD_SIZE,
-                                   { background: OG_CARD_BACKGROUND, gravity: "Center" }
-                                 ]
+                                 resize_and_pad: [*OG_CARD_SIZE, { background: OG_CARD_BACKGROUND, gravity: "Center" }]
+    # The lobby card renders :card (contests/_contest_card), never the raw upload.
     attachable.variant :card, resize_to_fill: CARD_BANNER_SIZE
   end
 
