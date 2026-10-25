@@ -9,8 +9,10 @@ require "test_helper"
 #   1. the badge is a small ✨ circle immediately LEFT of the profile avatar,
 #   2. the balance slot swaps that $0 for "✨ Free Entry" instead of hiding it,
 #   3. hovering the badge peeks that same label OVER the amount (the answer to
-#      "what is this sparkle?"), through `freeEntryHover` in the _user_nav
-#      Alpine scope,
+#      "what is this sparkle?"): the badge dispatches free-entry-peek and the
+#      balance slot's own scope listens on the window (the badge and the slot
+#      sit in different subtrees of the engine user nav since
+#      /tasks/turf-readopts-engine-navbar),
 #   4. a level-up glows the badge (.free-entry-glow, armed from the layout's
 #      navbar-seeds-update listener).
 #
@@ -45,34 +47,27 @@ class EntryTokenBadgePlacementTest < ActionDispatch::IntegrationTest
     end
   end
 
+  # The seat is the engine's (Studio.navbar_avatar_badge): [data-nav-avatar-badge],
+  # the account control's next sibling, which engine.css (THE AVATAR BADGE)
+  # places out of flow over the avatar's upper-left corner, so the row gives it
+  # no width whether or not the user holds a token. Never inside the account
+  # button: a button inside a button reaches a screen reader as nothing.
   test "the ✨ badge tucks into the avatar corner, out of the row's flow" do
     render_navbar(usdc: 12.0, tokens: 1) do |body|
-      # Match the ATTRIBUTE form: the layout's gear-sidebar delegation script
-      # names these same hooks as CSS selectors earlier in the document, and a
-      # bare index() would find that string instead of the element.
-      badge_at    = body.index('data-free-entry-badge="true"')
-      username_at = body.index('data-username-display="true"')
-      avatar_at   = body.index('data-profile-image-toggle="true"')
-      balance_at  = body.index('data-balance-display="true"')
+      header = Nokogiri::HTML5.parse(body).at_css("header[data-navbar-root]")
+      badge = header.at_css("[data-free-entry-badge]")
+      assert badge, "the entry-token badge should render for a token holder"
 
-      assert badge_at, "the entry-token badge should render for a token holder"
-      assert badge_at > username_at,
-        "the badge moved out of the balance row — it must render AFTER the username"
-      assert badge_at < avatar_at,
-        "the badge must render immediately BEFORE the avatar toggle"
-      assert balance_at < username_at,
-        "sanity: the balance still leads the row"
+      seat = badge.ancestors("[data-nav-avatar-badge]").first
+      assert seat, "the badge rides the engine's avatar-badge seat"
+      account = seat.previous_element
+      assert account && account.key?("data-nav-account"), "the seat is the account control's next sibling"
+      assert account.at_css("[aria-hidden] img, [aria-hidden] div"), "the account control holds the avatar"
+      assert_nil badge.ancestors("[data-nav-account]").first, "the badge is never inside the account button"
 
-      # The tuck is absolute, not a negative margin: the badge's .hidden lives
-      # on the BUTTON, so a flow-positioned wrapper would survive a hidden
-      # badge and drag the avatar left into the username. ml-3 on the cluster
-      # reserves the 8px of badge that overhangs the avatar; md:ml-1 makes the
-      # desktop gap the hub's 12px and still clears the name by 4px.
-      cluster = body[username_at, (avatar_at - username_at) + 400]
-      assert_includes cluster, %(class="relative ml-3 md:ml-1 flex flex-shrink-0 items-center")
-      assert_includes cluster, %(class="absolute -left-2 -top-1 z-20")
-      assert_match(/dm-green relative z-10/, cluster,
-        "the avatar keeps its own stacking rung under the badge")
+      tools = header.at_css("[data-nav-tools]")
+      assert tools.at_css("[data-balance-display]"), "sanity: the balance still leads the icon column"
+      assert_nil tools.at_css("[data-free-entry-badge]"), "the badge moved out of the balance row"
     end
   end
 
@@ -169,8 +164,8 @@ class EntryTokenBadgePlacementTest < ActionDispatch::IntegrationTest
   test "hover still peeks the label after the click became a sidebar toggle" do
     render_navbar(usdc: 12.0, tokens: 1) do |body|
       badge = body[body.index('data-free-entry-badge="true"') - 1200, 1600]
-      assert_includes badge, '@mouseenter="freeEntryHover = true"'
-      assert_includes badge, '@focus="freeEntryHover = true"'
+      assert_includes badge, %(@mouseenter="$dispatch('free-entry-peek', true)")
+      assert_includes badge, %(@focus="$dispatch('free-entry-peek', true)")
     end
   end
 
@@ -245,13 +240,21 @@ class EntryTokenBadgePlacementTest < ActionDispatch::IntegrationTest
 
   test "hovering the badge peeks the label over the amount" do
     render_navbar(usdc: 12.0, tokens: 1) do |body|
-      # One Alpine channel, three ends: declared on the _user_nav wrapper, set
-      # by the badge, read by the balance slot.
-      assert_includes body, 'x-data="{ freeEntryHover: false }"'
-      assert_includes body, '@mouseenter="freeEntryHover = true"'
-      assert_includes body, '@focus="freeEntryHover = true"',
+      # One event, two ends: the badge dispatches free-entry-peek, and the
+      # balance slot's own scope (components/_nav_balance) listens on the window.
+      badge = Nokogiri::HTML5.parse(body).at_css("[data-free-entry-badge]")
+      assert_equal "$dispatch('free-entry-peek', true)", badge["@mouseenter"]
+      assert_equal "$dispatch('free-entry-peek', false)", badge["@mouseleave"]
+      assert_equal "$dispatch('free-entry-peek', true)", badge["@focus"],
         "keyboard focus must open the same explanation as hover"
-      assert_includes body, %(x-bind:class="freeEntryHover ? 'fe-peek' : ''")
+      assert_equal "$dispatch('free-entry-peek', false)", badge["@blur"]
+
+      slot = Nokogiri::HTML5.parse(body).at_css("[data-nav-tools] [data-balance-slot]")
+      assert slot, "the balance slot sits in the engine user nav's icon column"
+      assert_equal "{ peek: false }", slot["x-data"]
+      assert_equal "peek = $event.detail", slot["@free-entry-peek.window"]
+      assert_equal "peek ? 'fe-peek' : ''", slot["x-bind:class"]
+      refute_includes body, "freeEntryHover", "the shared-scope channel is gone with the fork that held it"
     end
   end
 

@@ -87,9 +87,9 @@
      reviewer's own instrument.
 
      REMOVED, 2026-09-28: three `.username-cap` rules, at 5/6/7rem. No element in
-     this app has ever carried that class — components/_user_nav caps the name
-     with `max-w-[4.5rem] min-[400px]:max-w-[6rem] md:max-w-[7rem]` and fades the
-     clipped edge through navUsernameFade's mask. The rules were dead the day they
+     this app has ever carried that class — the name was capped by utilities on
+     its own button (studio-engine's user nav since
+     /tasks/turf-readopts-engine-navbar, which caps it md:max-w-40). The rules were dead the day they
      were written, they disagreed with the live 4.5rem at the tiny band, and they
      read to the next person sizing this header like a cap already in force.
      studio-engine dropped its own three the same way in 0.77.1. */

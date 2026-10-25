@@ -1598,9 +1598,9 @@ body.modal-open { overflow: hidden; }
    measurement anyone took: MEASURED at 768/900/1024/1100/1280/1366 after
    applyBalanceSlotRule() swapped the face, the painted right edge was
    byte-identical to having no mask at all — a hard cut through the middle of a
-   glyph. Fixed by navUsernameFade (task: fade-mask-follows-face-swap), which
-   re-measures on every box change; e2e/navbar_layout.spec.js asserts the taper
-   in painted pixels rather than in computed style.
+   glyph. Fixed by navUsernameFade (task: fade-mask-follows-face-swap). Since
+   /tasks/turf-readopts-engine-navbar the name is studio-engine's, beside the
+   avatar rather than in this row, and it ellipsizes in its own capped box.
 
    So trim the FACE, not the name. The decorative sparkle steps out (it is
    aria-hidden, and the real one is the ✨ badge on the avatar two controls
