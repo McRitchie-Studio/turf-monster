@@ -1,4 +1,13 @@
 <%#
+  ENGINE STATUS (studio-engine 0.113.0.rc1, measured 2026-10-24
+  (turf-readopts-engine-modals)): KEPT, AND ALREADY THE ENGINE'S where it
+  counts: the rename itself renders studio/modals/blocks/_change_username. What
+  stays here is product gating the engine block does not carry and should not:
+  the frozen-account branch (OPSEC-048) and the enter-a-contest-first lock with
+  its main-contest CTA. Engine follow-up (optional): a locked-state local on
+  _change_username so the two gate cards could be locals instead of branches.
+%>
+<%#
   Username modal — on-chain rename. Mounted by studio-engine's modal
   host as id 'username'; host owns backdrop / escape / ARIA.
   Trigger: $store.modals.open('username').
