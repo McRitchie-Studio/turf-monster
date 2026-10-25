@@ -288,7 +288,15 @@ class EnginePinContractTest < ActiveSupport::TestCase
   #          the page scrolls, with no error anywhere, so this pin is the only
   #          guard. DERIVED from the gem repo: the earliest tag containing the
   #          commit that adds it (71a5545, 2026-10-18) is v0.111.3.
-  MINIMUM = Gem::Version.new("0.111.3")
+  # 0.113.0 — the consumer navbar slots (/tasks/turf-readopts-engine-navbar),
+  #          a BOOT floor. Turf deleted its forked layouts/_navbar,
+  #          components/_user_nav and components/_sidebar_panel; the initializer
+  #          sets config.navbar_items (geo badge, wallet signal) and
+  #          config.navbar_avatar_badge (entry-token badge), which first exist in
+  #          0.113.0, so below it Studio.configure raises at boot. DERIVED from
+  #          the gem repo: the earliest tag containing the commit that adds it
+  #          (6c00792, 2026-10-24) is v0.113.0.
+  MINIMUM = Gem::Version.new("0.113.0")
 
   test "the resolved studio-engine is at or above the floor this app depends on" do
     resolved = Gem::Version.new(Studio::VERSION)
@@ -298,7 +306,7 @@ class EnginePinContractTest < ActiveSupport::TestCase
                     "a host-owned layered banner needs >= 0.43; the adopted first-name onboarding " \
                     "endpoints need >= 0.46; the shared /profile page and its section registry need " \
                     ">= 0.52; the shared date-of-birth field rendered by modals/_birthday needs " \
-                    ">= 0.54; the rail-row and close-x chrome primitives this app RENDERS need >= 0.61, and an UNESCAPED rail-row click handler needs >= 0.62.2; and the shared layer scale this app no longer mirrors locally needs >= 0.63; and the wallet surface needs >= 0.64 — config.wallet_debug_sink is SET in this app's initializer, so below it Studio.configure raises at boot; and Studio::FULL_NAME_MAX_LENGTH needs >= 0.69.5 — the engine's studio/modals/onboarding/first_name reads it for the field maxlength and layouts/application renders that partial on EVERY page, so below it every request raises NameError; and the first-name card's placeholder_names local and its done-event detail.saved key need >= 0.72.0, both of which fail SILENTLY below it — the typed placeholder goes static, and the entry-gate resume never fires; and the link-preview primitive needs >= 0.82.0 — ApplicationController includes Studio::LinkPreviewBots, so below it nothing boots; and Contest's on-chain rename refusal needs >= 0.93.0 — it calls has_slug_children and slug_format= in its class body, so below it Contest raises NoMethodError when it loads; and seed assets that reference production need >= 0.103.0 — the initializer sets config.s3_production_public_url, so below it Studio.configure raises at boot; and the scroll-driven navbar and the live pinned-stack read need >= 0.111.1 — the initializer sets config.navbar_scroll_timeline, so below 0.111.0 Studio.configure raises at boot; and the desktop links that follow the shrinking logo need >= 0.111.3 — SILENTLY, the data-nav-links hook renders and nothing slides, so the gap to Contests widens as the page scrolls)"
+                    ">= 0.54; the rail-row and close-x chrome primitives this app RENDERS need >= 0.61, and an UNESCAPED rail-row click handler needs >= 0.62.2; and the shared layer scale this app no longer mirrors locally needs >= 0.63; and the wallet surface needs >= 0.64 — config.wallet_debug_sink is SET in this app's initializer, so below it Studio.configure raises at boot; and Studio::FULL_NAME_MAX_LENGTH needs >= 0.69.5 — the engine's studio/modals/onboarding/first_name reads it for the field maxlength and layouts/application renders that partial on EVERY page, so below it every request raises NameError; and the first-name card's placeholder_names local and its done-event detail.saved key need >= 0.72.0, both of which fail SILENTLY below it — the typed placeholder goes static, and the entry-gate resume never fires; and the link-preview primitive needs >= 0.82.0 — ApplicationController includes Studio::LinkPreviewBots, so below it nothing boots; and Contest's on-chain rename refusal needs >= 0.93.0 — it calls has_slug_children and slug_format= in its class body, so below it Contest raises NoMethodError when it loads; and seed assets that reference production need >= 0.103.0 — the initializer sets config.s3_production_public_url, so below it Studio.configure raises at boot; and the scroll-driven navbar and the live pinned-stack read need >= 0.111.1 — the initializer sets config.navbar_scroll_timeline, so below 0.111.0 Studio.configure raises at boot; and the desktop links that follow the shrinking logo need >= 0.111.3 — SILENTLY, the data-nav-links hook renders and nothing slides, so the gap to Contests widens as the page scrolls; and the navbar item and avatar-badge slots need >= 0.113.0 — the initializer sets config.navbar_items and config.navbar_avatar_badge, so below it Studio.configure raises at boot)"
   end
 
   # ── THE FLOOR, ASKED OF THE SOURCE INSTEAD OF OF A NUMBER ───────────────
