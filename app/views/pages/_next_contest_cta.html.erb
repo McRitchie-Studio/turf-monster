@@ -14,5 +14,5 @@
         class: "btn btn-primary btn-lg shadow-lg shadow-primary/30 text-base sm:text-lg whitespace-nowrap", data: { test: test_id, cta: "play" } %>
 <% else %>
   <a href="#notify" class="btn btn-primary btn-lg shadow-lg shadow-primary/30 text-base sm:text-lg whitespace-nowrap" data-test="<%= test_id %>" data-cta="play"
-     @click.prevent="$store.modals.open('drop-notify', { title: '<%= j(NextSlateDrop.dropped? ? "The #{NextSlateDrop::LABEL} slate is live" : "Get notified when #{NextSlateDrop::LABEL} drops") %>' })">Play Turf Monster</a>
+     @click.prevent="$store.modals.open('drop-notify', { title: '<%= j(NextSlateDrop.dropped? ? "The next contest is on its way" : "Get notified when the next contest drops") %>' })">Play Turf Monster</a>
 <% end %>

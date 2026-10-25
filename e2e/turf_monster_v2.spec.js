@@ -27,7 +27,9 @@ test.describe("turf-monster-v2 explainer", () => {
       await expect(page.locator('[data-test="v2-notify-form"]')).toBeVisible();
     } else if (Date.now() > DROPS_AT + 60_000) {
       await expect(live).toBeVisible();
-      await expect(live).toContainText("The Weeks 7-9 slate is live");
+      // It names the open contest when there is one, else the next one coming;
+      // never a fixed span. "is live" is joined by a no-break space, so \s.
+      await expect(live.locator("h2")).toHaveText(/\sis\slive$|^The next contest is on its way$/);
     }
   });
 
@@ -73,7 +75,7 @@ test.describe("turf-monster-v2 explainer", () => {
     await expect(seconds).not.toHaveText(before, { timeout: 2500 });
 
     // A bad address first: the server's 422 must NOT read as success.
-    const input = page.getByLabel("Notify me when Weeks 7-9 drops");
+    const input = page.getByLabel("Notify me when the next contest drops");
     await input.fill("not-an-email");
     await page.getByRole("button", { name: "Notify me" }).click();
     await expect(page.getByRole("alert")).toContainText("valid email");
@@ -141,7 +143,7 @@ test.describe("turf-monster-v2 explainer", () => {
       if (Date.now() >= DROPS_AT - 60_000) return; // after the drop the modal says "live" instead
 
       await cta.click();
-      const dialog = page.getByRole("dialog", { name: "Get notified when Weeks 7-9 drops" });
+      const dialog = page.getByRole("dialog", { name: "Get notified when the next contest drops" });
       await expect(dialog).toBeVisible();
       const modal = dialog.locator('[data-test="drop-modal"]');
       const seconds = modal.locator("[x-text=seconds]");
@@ -150,7 +152,7 @@ test.describe("turf-monster-v2 explainer", () => {
       await expect(seconds).not.toHaveText(before, { timeout: 2500 });
 
       const answered = page.waitForResponse((res) => res.url().endsWith("/drop-signups") && res.request().method() === "POST");
-      await modal.getByLabel("Notify me when Weeks 7-9 drops").fill(`e2e-modal-${Date.now()}@example.com`);
+      await modal.getByLabel("Notify me when the next contest drops").fill(`e2e-modal-${Date.now()}@example.com`);
       await modal.getByRole("button", { name: "Notify me" }).click();
       expect((await answered).status()).toBe(200);
       await expect(modal.locator('[data-test="drop-modal-success"]')).toContainText("You’re on the list.");

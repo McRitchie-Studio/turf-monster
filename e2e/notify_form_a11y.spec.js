@@ -76,7 +76,7 @@ test.describe("notify-me form accessibility", () => {
       if (!formIsUp()) return;
 
       await cta.click();
-      const dialog = page.getByRole("dialog", { name: "Get notified when Weeks 7-9 drops" });
+      const dialog = page.getByRole("dialog", { name: "Get notified when the next contest drops" });
       await expect(dialog).toBeVisible();
       await expect(dialog.locator('[data-test="drop-modal-title"]')).toHaveText("Weeks 7–9 drops Oct 20");
       await assertErrorThenSuccess(page, dialog.locator('[data-test="drop-modal"]'), "drop_modal", "drop-modal-success");
@@ -90,7 +90,7 @@ test.describe("notify-me form accessibility", () => {
       if (!formIsUp()) return;
       const cta = page.locator('[data-test="v2-hero-cta"]');
       await cta.click();
-      const dialog = page.getByRole("dialog", { name: "Get notified when Weeks 7-9 drops" });
+      const dialog = page.getByRole("dialog", { name: "Get notified when the next contest drops" });
       await expect(dialog).toBeVisible();
       await expect(dialog.locator("#drop_modal_email")).toBeFocused();
       // Stacked: the button sits under a full-width field of the same height.

@@ -1,7 +1,9 @@
 <%# locals: (initial: "idle", id_prefix: "drop_signup", test_id: "v2-notify", card: true, stacked: false, visible_label: true)
 
-    The notify-me form for the next slate drop, used by /turf-monster-v2's notify
-    section and by the drop-notify modal. Posts to DropSignupsController.
+    The notify-me form for the next contest, used by /turf-monster-v2's notify
+    section and by the drop-notify modal. Posts to DropSignupsController. Its
+    copy names no span ("the next contest"), so it does not go stale when a
+    slate ships or a contest is cancelled; NextSlateDrop still keys the row.
 
     A plain POST without JS (the controller redirects back with a flash the page
     reads into `initial`: "done" / "error" / "idle"); the Alpine submit
@@ -34,7 +36,7 @@
   <div x-show="state === 'done'" <%= 'style="display: none;"'.html_safe unless initial == "done" %>
        role="status" tabindex="-1" x-ref="success" data-test="<%= test_id %>-success">
     <p class="text-xl font-bold text-heading">You&rsquo;re on the list.</p>
-    <p class="text-secondary text-sm mt-1">We&rsquo;ll send one email when the <%= NextSlateDrop.display_label %> slate drops.</p>
+    <p class="text-secondary text-sm mt-1">We&rsquo;ll send one email when the next contest drops.</p>
   </div>
 
   <%= form_with url: drop_signups_path, method: :post, local: true,
@@ -42,7 +44,7 @@
         html: { "x-show": "state !== 'done'", "@submit.prevent": "submit($event)", novalidate: true,
                 "data-cta-submit": "notify",
                 style: (initial == "done" ? "display: none;" : nil) } do %>
-    <label for="<%= id_prefix %>_email" class="<%= visible_label ? 'block text-sm font-semibold text-heading mb-2' : 'sr-only' %>">Notify me when <%= NextSlateDrop::LABEL %> drops</label>
+    <label for="<%= id_prefix %>_email" class="<%= visible_label ? 'block text-sm font-semibold text-heading mb-2' : 'sr-only' %>">Notify me when the next contest drops</label>
     <%# ONE JOINED ROW from sm up: the input fills the space up to the button,
         both the same height, the seam squared off. Stacked full width below
         sm. input-field is the engine's standard field (surface fill, strong

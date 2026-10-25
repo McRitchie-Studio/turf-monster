@@ -201,14 +201,14 @@ class Contest < ApplicationRecord
   # truth for the entry-gift landing (EntryGift#landing_contest) and the admin
   # gift and free-entry defaults.
   #
-  # THE FALLBACKS SKIP COMING SOON; THE ADMIN PIN DOES NOT. `coming_soon` is a
+  # THE FALLBACKS SKIP COMING SOON (AND CANCELLED); THE PIN DOES NOT. `coming_soon` is a
   # boolean independent of status, so a coming-soon contest IS `open` and can be
   # the newest open row — which is how "/" came to land a visitor on a contest
   # it was advertising rather than one they could enter. The two automatic rungs
-  # filter it out and fall through to the newest contest that is actually
-  # playable. The pin is left alone on purpose: an admin picking a specific
+  # filter it out, and a cancelled one (status stays open), and fall through to
+  # the newest playable contest. A coming-soon pin is honored on purpose: an admin picking a specific
   # contest at /admin/dashboard is deliberately advertising it, and that choice
-  # outranks this rule.
+  # outranks this rule. A CANCELLED pin falls through: cancelled is terminal and nobody can enter it.
   #
   # THE FILTER BELONGS IN THE QUERY, NOT AFTER IT. Post-filtering the row a rung
   # returned (`row unless row.coming_soon?`) reads the same and is not: it sends
@@ -221,9 +221,9 @@ class Contest < ApplicationRecord
   # exactly the query written here — so the indirection hid where the filter
   # belongs without changing which contest came back.
   def self.featured
-    SeasonConfig.main_contest_explicit ||
-      where(status: :open, coming_soon: false).order(created_at: :desc).first ||
-      where(status: LISTED_STATUSES, coming_soon: false).order(created_at: :desc).first
+    SeasonConfig.main_contest_explicit.then { |pin| pin unless pin&.cancelled? } ||
+      where(status: :open, coming_soon: false, onchain_cancelled: false).order(created_at: :desc).first ||
+      where(status: LISTED_STATUSES, coming_soon: false, onchain_cancelled: false).order(created_at: :desc).first
   end
 
   # ─── Multi-week span ────────────────────────────────────────────────

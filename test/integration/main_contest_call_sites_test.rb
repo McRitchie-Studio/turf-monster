@@ -67,6 +67,23 @@ class MainContestCallSitesTest < ActionDispatch::IntegrationTest
     refute_equal soon, Contest.featured
   end
 
+  test "featured passes over a cancelled contest for an older playable one" do
+    playable = build_contest("Playable", status: :open, created_at: 30.days.ago)
+    dead     = build_contest("Called Off", status: :open, created_at: 1.minute.ago)
+    dead.update_columns(onchain_cancelled: true)
+
+    # A cancelled contest keeps status open, so it was the newest open row.
+    assert_equal playable, Contest.featured
+  end
+
+  test "featured never falls through to a cancelled contest on the last rung" do
+    settled = build_contest("Settled", status: :settled, created_at: 3.days.ago)
+    dead    = build_contest("Called Off", status: :open, created_at: 1.minute.ago)
+    dead.update_columns(onchain_cancelled: true)
+
+    assert_equal settled, Contest.featured
+  end
+
   test "featured is nil when every contest is coming soon" do
     build_contest("Soon A", status: :open, created_at: 2.days.ago, coming_soon: true)
     build_contest("Soon B", status: :open, created_at: 1.day.ago, coming_soon: true)
@@ -83,6 +100,15 @@ class MainContestCallSitesTest < ActionDispatch::IntegrationTest
     # The fallbacks skip coming soon; the pin does not. An admin choosing this
     # contest at /admin/dashboard is advertising it deliberately.
     assert_equal pinned, Contest.featured
+  end
+
+  test "featured falls through an admin pin on a cancelled contest" do
+    pinned = build_contest("Pinned Dead", status: :open, created_at: 30.days.ago)
+    newer  = build_contest("Newer Open", status: :open, created_at: 1.day.ago)
+    pinned.update_columns(onchain_cancelled: true)
+    SeasonConfig.set_main_contest!(pinned)
+
+    assert_equal newer, Contest.featured
   end
 
   # --- /account referral widget ---
