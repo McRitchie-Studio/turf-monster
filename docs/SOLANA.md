@@ -412,15 +412,33 @@ OP_SERVICE_ACCOUNT_TOKEN="$OP_ADMIN_SERVICE_ACCOUNT_TOKEN" \
 rm -P "$h"
 ```
 
-Read it back as a public key only (the derive line reads the base58 form; for
-a JSON array the boot line is the read-back), then read the boot line:
+Read it back by the boot line, the public key the booted app derived, which is
+the proof the running release holds the key (it covers the JSON-array form too):
 
 ```bash
-heroku config:get SOLANA_PLATFORM_COSIGNER_KEY --app "$APP" \
-  | ruby -r ./lib/solana/signer_isolation -e 'puts Solana::SignerIsolation.derive_pubkey($stdin.read)'
 heroku logs --app "$APP" --source app -n 2000 | grep platform-cosigner
 # [platform-cosigner] mainnet-beta: The platform cosigner 3LTL… signs beside the server key.
 ```
+
+To check the config itself, read it as a public key only, through `heroku
+config --json` and never `heroku config:get`, which the rotation SOP bans
+(absent, empty and a failed read all print one bare newline). The first line is
+the control (`0` is a failed read, and a `false` after it is an unset key); the
+second derives the public key and refuses an empty read rather than deriving
+from nothing (base58 form; for a JSON array the boot line is the read-back):
+
+```bash
+heroku config --json --app "$APP" | jq 'length, ((.SOLANA_PLATFORM_COSIGNER_KEY // "") != "")'
+heroku config --json --app "$APP" | jq -r '.SOLANA_PLATFORM_COSIGNER_KEY // empty' \
+  | ruby -r ./lib/solana/signer_isolation \
+      -e 'v = $stdin.read; abort "EMPTY: refusing to derive from nothing" if v.strip.empty?
+          puts Solana::SignerIsolation.derive_pubkey(v)'
+```
+
+Heroku's config reads can lag a PATCH by about a minute: a read-back that
+still shows the old state just after a `200` is a stale read, not a failed
+write. Wait a minute and read again before you re-PATCH; the boot line of the
+release the PATCH made is the authoritative answer.
 
 The field label is `private key` (spaced) on `solana.turf.governance.v2`;
 confirm the devnet item's label with `op item get <item> --format json | jq
