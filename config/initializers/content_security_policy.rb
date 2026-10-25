@@ -50,9 +50,11 @@ module RemoteScriptSources
   ].freeze
 
   # tokens/_paypal_sdk injects https://www.paypal.com/sdk/js; the SDK then
-  # loads its fraud script from c.paypal.com and its components from
-  # www.paypalobjects.com. PayPal's own CSP guidance names both wildcards.
-  PAYPAL = [ "https://*.paypal.com", "https://*.paypalobjects.com" ].freeze
+  # loads its fraud script from c.paypal.com, its components from
+  # www.paypalobjects.com and, with enable-funding=venmo, Venmo's from
+  # *.venmo.com. PayPal's CSP guidance (developer.paypal.com/sdk/js/csp)
+  # names all three wildcards for script-src.
+  PAYPAL = [ "https://*.paypal.com", "https://*.paypalobjects.com", "https://*.venmo.com" ].freeze
 
   def self.for(paypal:)
     paypal ? ALWAYS + PAYPAL : ALWAYS

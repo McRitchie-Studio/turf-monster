@@ -21,7 +21,7 @@ class AppScriptSrcTest < ActionDispatch::IntegrationTest
     https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js
     https://cdn.logr-in.com
   ].freeze
-  PAYPAL = %w[https://*.paypal.com https://*.paypalobjects.com].freeze
+  PAYPAL = %w[https://*.paypal.com https://*.paypalobjects.com https://*.venmo.com].freeze
   EXPECTED = [ "'self'", *REMOTE, "'unsafe-inline'", "'unsafe-eval'" ].freeze
 
   setup do
