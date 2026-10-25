@@ -201,12 +201,12 @@ class Contest < ApplicationRecord
   # truth for the entry-gift landing (EntryGift#landing_contest) and the admin
   # gift and free-entry defaults.
   #
-  # THE FALLBACKS SKIP COMING SOON; THE ADMIN PIN DOES NOT. `coming_soon` is a
+  # THE FALLBACKS SKIP COMING SOON (AND CANCELLED); THE PIN DOES NOT. `coming_soon` is a
   # boolean independent of status, so a coming-soon contest IS `open` and can be
   # the newest open row — which is how "/" came to land a visitor on a contest
   # it was advertising rather than one they could enter. The two automatic rungs
-  # filter it out and fall through to the newest contest that is actually
-  # playable. The pin is left alone on purpose: an admin picking a specific
+  # filter it out, and a cancelled one (status stays open), and fall through to
+  # the newest playable contest. The pin is left alone on purpose: an admin picking a specific
   # contest at /admin/dashboard is deliberately advertising it, and that choice
   # outranks this rule.
   #
@@ -220,11 +220,6 @@ class Contest < ApplicationRecord
   # ever reached with the explicit pin nil, and a nil pin makes it resolve to
   # exactly the query written here — so the indirection hid where the filter
   # belongs without changing which contest came back.
-  #
-  # A CANCELLED CONTEST IS SKIPPED THE SAME WAY, in the query. It keeps
-  # `status: "open"` (#cancelled? reads onchain_cancelled), so without the
-  # filter the newest cancelled contest could be the lobby's unfurl image and
-  # a gift's landing (the cancelled Weeks 7-9 contest, 2026-10-24).
   def self.featured
     SeasonConfig.main_contest_explicit ||
       where(status: :open, coming_soon: false, onchain_cancelled: false).order(created_at: :desc).first ||

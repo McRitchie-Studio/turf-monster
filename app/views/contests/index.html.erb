@@ -109,6 +109,12 @@
       are admin-only: contest creation is gated server-side (ContestsController
       #new/#create require_admin), and settled contests stay hidden for
       everyone else because only this button can reveal them. ===== %>
+  <%# ALL CONTESTS DROPS A CANCELLED CONTEST, the rail's rule
+      (Contest.featured_order) applied to the table. A cancelled contest keeps
+      status "open" (Contest#cancelled? reads onchain_cancelled), so `listed`
+      lets it through. My Contests keeps it: for a player who entered,
+      "Cancelled" is how the contest ended, which is what that band reports. %>
+  <% all_contests = @contests.reject(&:cancelled?) %>
   <section data-contest-band="all">
     <div class="flex items-center justify-between gap-2 mb-4">
       <h2 class="text-xl font-bold text-heading">All Contests</h2>
@@ -123,9 +129,9 @@
       <% end %>
     </div>
 
-    <% if @all_contests.any? %>
+    <% if all_contests.any? %>
       <%= render "contests/contest_table",
-                 contests: @all_contests,
+                 contests: all_contests,
                  entry_counts: @entry_counts,
                  entered_contest_ids: @entered_contest_ids,
                  payouts: nil,
@@ -134,7 +140,7 @@
       <%# Empty state: every contest in the list is settled, so the table
           renders no visible rows with the toggle OFF. Show a subtle note
           (revealed away once settled are shown). %>
-      <% if @all_contests.all?(&:graded?) %>
+      <% if all_contests.all?(&:graded?) %>
         <p data-settled-filter-target="empty" class="text-secondary mt-3">No open contests right now.</p>
       <% end %>
     <% else %>
