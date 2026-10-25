@@ -48,12 +48,18 @@ class RootLandingPageTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "the landing's Play now links go to the lobby, never back to /" do
+  # The live band's link names the open contest when there is one ("Play now"
+  # to that contest) and otherwise sends the reader to the lobby ("See
+  # contests"). Either way it leaves this page: root IS this page.
+  test "the landing's live-band link goes to the lobby or a contest, never back to /" do
     get root_path
 
-    play_now = css_select("a").select { |a| a.text.strip == "Play now" }
-    assert_not_empty play_now, "the landing's live band carries a Play now link"
-    assert_equal [contests_path], play_now.map { |a| a["href"] }.uniq
+    links = css_select('[data-test="v2-live"] a')
+    assert_not_empty links, "the landing's live band carries a link out"
+    links.each do |a|
+      refute_equal root_path, a["href"]
+      assert_match %r{\A/contests(/[^/]+)?\z}, a["href"]
+    end
   end
 
   test "[component] root hands a signed-out visitor's saved cart back; /turf-monster-v2 does not" do
