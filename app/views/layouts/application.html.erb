@@ -1950,12 +1950,7 @@
         <%= render "studio/modals/blocks/success_card",
               icon_emoji: "📬", title: "Confirm your email change",
               slot_position: :message, cta_label: "Got it", cta_close: true do %>
-          We sent a confirmation link to
-          <span class="text-heading font-medium" x-text="($store.modals.current().props || {}).currentEmail"></span>
-          (your current address). Click the link in that email to confirm changing your
-          email to
-          <span class="text-heading font-medium" x-text="($store.modals.current().props || {}).newEmail"></span>.
-          Your email won't change until you do — the link expires in 30 minutes.
+          <%= render "modals/email_change_pending_message" %>
         <% end %>
       </template>
       <%# Tier-1 "general" rate-limit wait modal — opened by the authedFetch 429
@@ -1963,8 +1958,8 @@
       <template x-if="$store.modals.current().id === 'rate-limit-general'">
         <%= render "studio/modals/blocks/error_card",
               icon_emoji: "✋", title: "Easy there",
-              message_key: "($store.modals.current().props || {}).message || 'You are going a bit fast.'",
-              countdown_key: "($store.modals.current().props || {}).secondsLeft",
+              message_key: "$store.modals.current().props.message || 'You are going a bit fast.'",
+              countdown_key: "$store.modals.current().props.secondsLeft",
               secondary_label: "Dismiss", secondary_close: true %>
       </template>
       <template x-if="$store.modals.current().id === 'auth'">
@@ -2035,10 +2030,10 @@
           registrations above cannot drift apart from each other — nor from any
           future second list, which is what the helper was written for when
           layouts/modal_preview kept one. %>
-      <template x-if="$store.modals.current().id === 'onboarding' && !($store.modals.current().props || {}).required">
+      <template x-if="$store.modals.current().id === 'onboarding' && !$store.modals.current().props.required">
         <%= render "studio/modals/onboarding/first_name", **first_name_modal_locals %>
       </template>
-      <template x-if="$store.modals.current().id === 'onboarding' && !!($store.modals.current().props || {}).required">
+      <template x-if="$store.modals.current().id === 'onboarding' && !!$store.modals.current().props.required">
         <%= render "studio/modals/onboarding/first_name", **first_name_modal_locals(required: true) %>
       </template>
       <template x-if="$store.modals.current().id === 'wallet-setup'">

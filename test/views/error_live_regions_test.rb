@@ -40,8 +40,10 @@ class ErrorLiveRegionsTest < ActiveSupport::TestCase
     ["modals/_auth.html.erb", "props.phantomError"]             => "alert",
     ["modals/_auth.html.erb", "props.formError"]                => "alert",
     ["modals/_cdp_ramp.html.erb", "props.sendError"]            => "alert",
-    ["modals/_newsletter_subscribe.html.erb", "error"]          => "alert",
-    ["modals/_unsubscribe_confirm.html.erb", "error"]           => "alert",
+    # The newsletter subscribe and unsubscribe error lines left with their cards:
+    # turf-readopts-engine-modals renders the engine's studio/profiles/
+    # _newsletter_modals (studio-engine 0.114.0), whose JSON-mode error lines carry
+    # role="alert", aria-live="assertive" and aria-atomic="true" themselves.
     ["modals/_wallet_changed.html.erb", "error"]                => "alert",
     ["modals/_wallet_setup.html.erb", "error"]                  => "alert",
     # props.resendError is NOT listed any more, and the sweep below FORCED that rather

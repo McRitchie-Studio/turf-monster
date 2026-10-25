@@ -22,18 +22,18 @@ admin:
   inline_script: 9
   inline_handler: 0
 entry:
-  x_data: 40
-  x_show: 75
+  x_data: 31
+  x_show: 69
   x_if: 62
   x_for: 1
-  x_model: 5
-  x_text: 70
+  x_model: 2
+  x_text: 66
   x_html: 0
-  x_bind: 42
-  x_on: 92
+  x_bind: 40
+  x_on: 78
   x_init: 3
   x_ref: 7
-  x_cloak: 23
+  x_cloak: 19
   x_transition: 0
   x_effect: 0
   x_other: 0
@@ -62,7 +62,7 @@ board:
 marketing:
   x_data: 8
   x_show: 13
-  x_if: 35
+  x_if: 30
   x_for: 2
   x_model: 0
   x_text: 11

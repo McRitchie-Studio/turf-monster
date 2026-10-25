@@ -34,12 +34,16 @@ class BirthdayModalAdoptionTest < ActionView::TestCase
   helper BirthdayGeoStateStub
 
   DELETED_FORK = Rails.root.join("app/views/modals/_age_verify.html.erb")
+  DELETED_WRAPPER = Rails.root.join("app/views/modals/_birthday.html.erb")
 
   # ActionView::TestCase#rendered ACCUMULATES across calls, so every refute below
   # would pass vacuously off the union of renders. Use the return value.
   def render_card(state: "IA")
     BirthdayGeoStateStub.value = state
-    render partial: "modals/birthday"
+    # The layout's own call: modals/_birthday, the wrapper that drew the chain
+    # pill above the engine card, was deleted by turf-readopts-engine-modals once
+    # studio-engine 0.114.0 took the pill as a local.
+    render partial: "studio/modals/blocks/birthday", locals: birthday_modal_locals
   end
 
   # --- the card is the engine's -----------------------------------------------
@@ -58,6 +62,8 @@ class BirthdayModalAdoptionTest < ActionView::TestCase
     # the same markup, which is what let the duplication survive so long.
     assert_not File.exist?(DELETED_FORK),
       "#{DELETED_FORK.basename} is back — the engine owns this card now"
+    assert_not File.exist?(DELETED_WRAPPER),
+      "#{DELETED_WRAPPER.basename} is back — the engine draws the chain pill from progress_pill now"
   end
 
   test "the engine's date-of-birth field still renders through the card" do
@@ -126,11 +132,11 @@ class BirthdayModalAdoptionTest < ActionView::TestCase
     assert_equal 1, pill.scan("rounded-full bg-inset").size,
       "step 2 of 3 means exactly one unfilled bar"
 
-    # ORDER, not mere presence. The pill moved OUT of the shell when this app
-    # adopted the engine card (the engine block has no yield slot), and above the
-    # title is where the chain's other two steps already put theirs. A pill that
-    # rendered BELOW the title would still pass a presence check while looking
-    # unlike steps 1 and 3.
+    # ORDER, not mere presence. Above the title is where the chain's other two
+    # steps put theirs; since studio-engine 0.114.0 the engine draws it there,
+    # first inside the card, from the progress_pill local. A pill that rendered
+    # BELOW the title would still pass a presence check while looking unlike
+    # steps 1 and 3.
     assert_operator html.index(pill), :<, html.index("Your birthday"),
       "the pill must read above the card's title, matching steps 1 and 3"
   end
