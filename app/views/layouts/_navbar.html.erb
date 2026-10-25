@@ -2,7 +2,24 @@
     Locals (all optional):
       show_logged_in — override for logged_in? (default: real session)
       preview        — if true, disables scroll handler and sticky positioning
-%>
+
+    WHY THIS FORK OF studio-engine's layouts/_navbar STAYS (measured against
+    0.113.0, /tasks/turf-readopts-engine-navbar). Its content already comes from
+    the engine: Studio.navbar_links, Studio.navbar_items and
+    Studio.navbar_avatar_badge in config/initializers/studio.rb. What the
+    engine's header cannot yet carry:
+      1. the seeds bar. Its navbar forwards only balance_html and
+         extra_icons_html to components/_user_nav, never div2_slot;
+      2. the pinned in-header bars (impersonation, OPSEC-046; frozen account).
+         It has no slot inside the header, and its bar stack scrolls away;
+      3. the one Sign in that opens the auth modal. Its button and
+         navbar_signed_out_cta are plain links to login_path;
+      4. the phone row's gear-sidebar trigger. It draws the link sidebar's
+         trigger or the admin dropdown there;
+      5. the brand: /icon-192.png at 48x48 and the tm-wordmark half, where it
+         draws Studio.logo_for and a text-primary last word;
+      6. the --z-nav tier (it hard-codes z-50) and the data-navbar-root hook.
+    Delete this file when the engine takes those; the follow-up card lists them. %>
 <% show_user = local_assigns.fetch(:show_logged_in, logged_in?) %>
 <% is_preview = local_assigns.fetch(:preview, false) %>
 

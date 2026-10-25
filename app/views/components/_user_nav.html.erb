@@ -3,7 +3,22 @@
       balance_html     — raw HTML for balance display (e.g. Turf Monster wallet balance)
       extra_icons_html — raw HTML for app-specific icon buttons (e.g. refresh button)
       div2_html        — raw HTML to replace default Div 2 (e.g. Turf Monster seeds bar)
-%>
+
+    WHY THIS FORK OF studio-engine's components/_user_nav STAYS (measured
+    against 0.113.0, /tasks/turf-readopts-engine-navbar). The engine's copy
+    takes balance_slot and div2_slot, and the avatar badge rides
+    Studio.navbar_avatar_badge here too, but it would change the bar:
+      1. the name and avatar are a link to account_path (or open the engine's
+         link sidebar), never this app's gear sidebar ($store.sidebars.gearOpen);
+      2. below md the name is screen-reader text, where this one shows it with
+         the navUsernameFade mask;
+      3. its icon rail draws the admin dropdown, not the gear sidebar trigger;
+      4. it carries [data-nav-tools] and [data-nav-account], which engine.css
+         restyles, not data-turf-nav-column and data-turf-nav-avatar, which
+         this app's scroll-timeline rules scale;
+      5. the freeEntryHover scope that joins the ✨ badge to the balance slot's
+         peek lives on this wrapper; the engine seats the badge outside it.
+    And the engine's layouts/_navbar cannot pass div2_slot to it at all. %>
 <% balance_html     ||= nil %>
 <% extra_icons_html ||= nil %>
 <% div2_html        ||= nil %>

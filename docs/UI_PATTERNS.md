@@ -332,6 +332,8 @@ something calls `showWalletTopup`, or some other opener passes that prop.
 
 ## Navbar
 
+**What the bar shows is the engine's to declare** (studio-engine 0.113.0): `Studio.navbar_links` (Contests, Rules), `Studio.navbar_items` (the geo badge, then the wallet signal) and `Studio.navbar_avatar_badge` (the ✨ free-entry badge) live in `config/initializers/studio.rb`. The forked `layouts/_navbar` and `components/_user_nav` draw them through the engine's helpers; each fork's header lists what the engine cannot carry yet, which is why the forks stay. `test/integration/navbar_engine_slots_test.rb` empties each setting and checks the bar empties with it.
+
 Extracted to `layouts/_navbar.html.erb` partial. Sticky, scroll-responsive. The non-preview header is `nav-shell vt-pinned-header sticky top-0 z-[var(--z-nav)] bg-page transition-shadow duration-300` — `--z-nav` deliberately sits below the shared modal host backdrop at `--z-modal`, so every modal covers persistent navigation chrome. Both come from the shared layer scale (see **Layer scale** below); the header also carries a z-index, which makes it a stacking context, so the environment bars render as a SIBLING above it rather than inside it.
 
 ### The collapse is scroll-LINKED, not a threshold plus a clock
@@ -450,7 +452,7 @@ Beside the geo badge in **both** navbar rows (desktop nav and mobile sub-navbar)
 ### Right side — logged out
 - Theme toggle morph (`hidden md:flex`) + a **"Sign in"** button, right-aligned. Theme toggle morph appears in mobile sub-navbar instead.
 - The button is `class="btn btn-primary"` — the theme's primary color, not a hardcoded green.
-- It is a **modal trigger, not a navigation**: `@click.prevent` opens the in-page auth modal via `$store.modals.open('auth', { step: 'credentials', mode: 'signup', … })`. The `signin_path` href is only the no-JS fallback. Login and signup are one create-or-login flow, so the single CTA reads "Sign in" while opening at `mode: 'signup'` (`_navbar.html.erb:118-124`).
+- It is a **modal trigger, not a navigation**: `@click.prevent` opens the in-page auth modal via `$store.modals.open('auth', { step: 'credentials', mode: 'signup', … })`. The `signin_path` href is only the no-JS fallback. Login and signup are one create-or-login flow, so the single CTA reads "Sign in" while opening at `mode: 'signup'` (`_navbar.html.erb:248-253`).
 
 ## Site footer
 
@@ -1094,7 +1096,7 @@ The strict policy is report-only until `config.x.signing_csp_enforced` is `true`
 `shared/_solana_modal.html.erb` — Now a thin compatibility proxy over `$store.modals` (see § Modal Host above). The store name `Alpine.store('solanaModal')` is preserved for older callsites; new code should call `$store.modals` directly. Three logical states still apply (processing / success / error). `fireSuccessConfetti()` from `solana_utils.js` fires 4 confetti bursts (center, left cannon, right cannon, delayed shower) on the success state via `$watch`.
 
 ## Sidebar Primitive and Gear Menu
-- **Sidebar primitive** (`components/_sidebar_panel.html.erb`): fixed right panel using `--nav-h`, shared slide transitions, default width `w-80 max-w-full`, optional width override, and optional header actions / close / click-outside / Escape behavior.
+- **Sidebar primitive** (`components/_sidebar_panel.html.erb`, a fork of studio-engine's copy kept only for `title_html` and the id-bearing `data-sidebar-panel-close` hook; its header says why): fixed right panel using `--nav-h`, shared slide transitions, default width `w-80 max-w-full`, optional width override, and optional header actions / close / click-outside / Escape behavior.
 - **Shared push class** (`.tm-sidebar-pushed` in `app/assets/tailwind/application.css`): same breakpoint cascade the contest picks sidebar used before extraction — 20rem at `768px`, then 15rem / 10rem / 5rem / overlay at wider breakpoints.
 - **The push is invisible to Tailwind's breakpoints, so it needs companion rules.** `md:`/`lg:` are VIEWPORT queries; they cannot see the 320px this class just took away, so a component sized on a breakpoint is sized on a width the pushed column does not have. Two companion rules in the same stylesheet correct that, and both follow the same convention — **plain, unlayered CSS scoped under `.tm-sidebar-pushed`**, never a Tailwind variant. Unlayered author CSS outranks anything inside `@layer utilities` regardless of specificity or source order, so `md:grid-cols-4` and `lg:text-sm` cannot win it back; and the `.tm-sidebar-pushed` scope means the rule applies only while the sidebar is actually open.
   - `768px-1119.98px` — the pushed column wears the phone's grid (`.tm-team-grid` → 2 columns, `.tm-pair-grid` → 1). Below 1120px a four-up card in the pushed column is narrower than the same card on a 390px phone.
