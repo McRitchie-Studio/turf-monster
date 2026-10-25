@@ -54,6 +54,31 @@ Studio.configure do |config|
   # logo so their gap holds (/tasks/turf-nav-links-follow).
   config.navbar_scroll_timeline = true
 
+  # ---- Navbar slots (studio-engine 0.113.0, README "Navbar items" and
+  # "Avatar badge"; /tasks/turf-readopts-engine-navbar) ----
+  # What the bar shows is declared here, as on every engine navbar. This app
+  # still forks layouts/_navbar and components/_user_nav (the engine cannot yet
+  # carry the seeds bar, the pinned in-header bars, the auth-modal sign-in or
+  # the gear sidebar's account toggle; the forks' headers say which), but the
+  # forks render these three settings through the engine's own helpers, so the
+  # bar's content has one home and the forks hold only markup.
+  #
+  # active: false keeps the bar as it was: the forked links never took the
+  # primary tone on their own page. Dropping it turns on the engine's
+  # aria-current and primary tone, a product call rather than a migration.
+  config.navbar_links = ->(view) {
+    [
+      { label: "Contests", href: view.contests_path, active: false },
+      { label: "Rules", href: view.turf_monster_v1_path, active: false }
+    ]
+  }
+  # After the links in both rows, signed in and out. Each renders twice (desktop
+  # nav and phone row), so neither partial may carry an id.
+  config.navbar_items = %w[components/geo_badge shared/wallet_signal]
+  # The ✨ free-entry badge on the avatar's upper-left corner. The fork seats it
+  # in its own absolutely placed wrapper (components/_user_nav, Div 3).
+  config.navbar_avatar_badge = "components/entry_token_badge"
+
   # nav_spinner_min_ms is a minimum DISPLAY FLOOR, not a timeout: the engine
   # computes remaining = max(0, min_ms - elapsed), so a slow op (Solana RPC
   # included) already exceeds any floor and is unaffected — the floor only

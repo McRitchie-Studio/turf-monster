@@ -96,7 +96,13 @@
         from 768px, as on the hub (application.css). The badge rides inside,
         so it scales with the avatar it sits on. %>
     <div class="relative ml-3 md:ml-1 flex flex-shrink-0 items-center" data-turf-nav-avatar>
-      <div class="absolute -left-2 -top-1 z-20"><%= render "components/entry_token_badge" %></div>
+      <%# Studio.navbar_avatar_badge (studio-engine 0.113.0) names the badge;
+          this wrapper seats it. The engine's [data-nav-avatar-badge] seat is
+          sized for its own account row (a 2rem box on the row's right edge),
+          not this 40px avatar, so the fork keeps its own -left-2 -top-1 seat
+          and does not carry that hook. %>
+      <% avatar_badge = studio_navbar_avatar_badge %>
+      <% if avatar_badge %><div class="absolute -left-2 -top-1 z-20"><%= studio_navbar_slot_tag(avatar_badge) %></div><% end %>
       <button type="button"
               class="dm-green relative z-10 hover:opacity-80 transition flex-shrink-0 flex items-center bg-transparent border-0 p-0"
               @click.stop="<%= gear_toggle_action %>"

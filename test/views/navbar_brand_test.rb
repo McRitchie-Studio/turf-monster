@@ -68,13 +68,22 @@ class NavbarBrandTest < ActionView::TestCase
   # Counted, not merely present: the bar draws Rules TWICE (desktop nav and the
   # mobile sub-navbar), and a repoint that moved only the one you looked at is
   # exactly the miss an assert_includes sails past.
+  #
+  # THE LINKS ARE ONE DECLARATION NOW (Studio.navbar_links in the initializer,
+  # studio-engine 0.113.0), drawn by the fork in both rows. So the count moved
+  # from the link literal to the loop: the declaration must name the NFL page,
+  # and the fork must draw the declared links in BOTH rows.
   test "both Rules links point at the season being played" do
-    src = NAVBAR.read
+    rules = navbar_links.select { |link| link[:label] == "Rules" }
 
-    assert_equal 2, src.scan(/link_to "Rules", turf_monster_v1_path/).size,
-                 "desktop AND mobile Rules links must point at the NFL rules page"
-    refute_includes src, 'link_to "Rules", turf_totals_v1_path',
-                    "no Rules link may still point at the World Cup page"
+    assert_equal [ view.turf_monster_v1_path ], rules.map { |link| link[:href] },
+                 "the bar's one Rules declaration must point at the NFL rules page"
+    assert_equal 2, NAVBAR.read.scan(/studio_navbar_links\.each/).size,
+                 "the fork must draw the declared links twice: desktop nav AND mobile sub-navbar"
+  end
+
+  def navbar_links
+    Studio.navbar_links_for(view)
   end
 
   # ONE LABEL, ONE DESTINATION — the sweep that would have caught THIS bug.
@@ -100,7 +109,7 @@ class NavbarBrandTest < ActionView::TestCase
   # carries DIGITS deliberately — both rules routes are versioned
   # (turf_monster_v1_path), and an [a-z_]+ class matches NEITHER, which is a
   # sweep that reads nothing and reports a clean site.
-  RULES_LINK = /"Rules",\s*(?:url:\s*)?(?:view\.)?([a-z0-9_]+_path)/
+  RULES_LINK = /"Rules",\s*(?:(?:url|href):\s*)?(?:view\.)?([a-z0-9_]+_path)/
 
   def rules_links
     RULES_LINK_SURFACES.flat_map { |glob| Dir[Rails.root.join(glob)] }.flat_map do |file|
@@ -115,13 +124,13 @@ class NavbarBrandTest < ActionView::TestCase
 
     # A sweep that reads NOTHING passes everything, so prove it reached the
     # known sites before trusting what it says about them.
-    assert_operator found.size, :>=, 4,
+    assert_operator found.size, :>=, 3,
                     "the sweep found #{found.size} Rules links; it must reach at least " \
-                    "the navbar's two, the footer's and the transparency hub's"
-    assert_equal 2, files.count("app/views/layouts/_navbar.html.erb"),
-                 "the bar draws Rules twice — desktop nav and mobile sub-navbar"
-    assert_includes files, "config/initializers/studio.rb",
-                    "the site footer's Rules link must be in the sweep"
+                    "the navbar's declaration, the footer's and the transparency hub's"
+    # The initializer holds two: the navbar's Studio.navbar_links entry (drawn
+    # in both rows by the fork) and the site footer's fact row.
+    assert_equal 2, files.count("config/initializers/studio.rb"),
+                 "the navbar's and the site footer's Rules links must both be in the sweep"
     assert_includes files, "app/views/transparency/show.html.erb",
                     "the transparency hub's Rules tile must be in the sweep"
 
@@ -196,13 +205,12 @@ class NavbarBrandTest < ActionView::TestCase
   # --- the move ---------------------------------------------------------------
 
   test "NFL Totals and Reserves left the navbar" do
-    src = NAVBAR.read
+    labels = navbar_links.map { |link| link[:label] }
 
-    refute_includes src, '"NFL Totals"', "NFL Totals moved to the gear sidebar"
-    refute_includes src, '"Reserves"', "Reserves moved to the gear sidebar"
-    # The two that earned their slot are still there.
-    assert_includes src, '"Contests"'
-    assert_includes src, '"Rules"'
+    refute_includes labels, "NFL Totals", "NFL Totals moved to the gear sidebar"
+    refute_includes labels, "Reserves", "Reserves moved to the gear sidebar"
+    # The two that earned their slot are still there, and nothing else.
+    assert_equal %w[Contests Rules], labels
   end
 
   # HALF OF THIS MOVE HAS SINCE BEEN UNDONE, deliberately. NFL Totals came off
