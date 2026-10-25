@@ -197,7 +197,7 @@ test.describe("Navbar scroll timeline", () => {
         const box = content.getBoundingClientRect();
         const contentRight = box.right - parseFloat(getComputedStyle(content).paddingRight);
         return { y: Math.round(scrollY), avatar: avatar.height, avatarRight: avatar.right, contentRight, name: name.height,
-          gap: avatar.left - column.right, nameGap: avatar.left - ink.getBoundingClientRect().right,
+          gap: ink.getBoundingClientRect().left - column.right, nameGap: avatar.left - ink.getBoundingClientRect().right,
           clipped: username.scrollWidth > username.clientWidth + 0.5 };
       }, HEADER);
       const top = await read();
@@ -224,7 +224,10 @@ test.describe("Navbar scroll timeline", () => {
       for (const at of [top, compact]) {
         expect(Math.abs(at.avatarRight - at.contentRight), `the avatar's right edge is the container's ${both}`).toBeLessThanOrEqual(1);
       }
-      expect(Math.abs(compact.gap - top.gap), `the column follows the avatar in ${both}`).toBeLessThanOrEqual(1);
+      // The engine slides the icon column right by what the name and avatar
+      // give up (nav-tl-tools, --nav-tools-shift), so the gap from the column
+      // to the NAME holds; the name sits between the column and the avatar.
+      expect(Math.abs(compact.gap - top.gap), `the column follows the name in ${both}`).toBeLessThanOrEqual(1);
     });
   }
 
