@@ -228,12 +228,15 @@ class TurfMonsterV2PageTest < ActionDispatch::IntegrationTest
   end
 
   test "the no-JS round trip draws the success state from the flash" do
-    post drop_signups_path, params: { email: "nojs@example.com" }
-    assert_redirected_to turf_monster_v2_path(anchor: "notify")
-    follow_redirect!
-    success = page_node.css('[data-test="v2-notify-success"]').first
-    refute_match(/display:\s*none/, success["style"].to_s)
-    assert_includes success.text, "You’re on the list."
+    travel_to(NextSlateDrop::DROPS_AT - 1.day) do
+      post drop_signups_path, params: { email: "nojs@example.com" }
+      assert_redirected_to turf_monster_v2_path(anchor: "notify")
+      follow_redirect!
+      success = page_node.css('[data-test="v2-notify-success"]').first
+      refute_match(/display:\s*none/, success["style"].to_s)
+      assert_includes success.text, "You’re on the list."
+      assert_includes success.text, "when the next contest drops"
+    end
   end
 
   test "the /about page is untouched by this route" do

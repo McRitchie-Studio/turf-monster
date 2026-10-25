@@ -86,13 +86,17 @@ class DropSignupsControllerTest < ActionDispatch::IntegrationTest
     assert_equal({ "ok" => true }, response.parsed_body)
   end
 
+  # The page draws the form only before the drop (after it the countdown half
+  # is left out), so the round trip is read on that side of the instant.
   test "a plain form post with a bad address redirects back to the error state" do
-    post drop_signups_path, params: { email: "nope" }
-    assert_redirected_to turf_monster_v2_path(anchor: "notify")
-    follow_redirect!
-    assert_select '[data-test="v2-notify-form"] noscript', text: /valid email/
-    assert_includes css_select('[data-test="v2-notify-form"]').first["x-data"], "dropNotifyForm('error')",
-                    "with JS, the form starts in its error state and Alpine writes the message"
+    travel_to(NextSlateDrop::DROPS_AT - 1.day) do
+      post drop_signups_path, params: { email: "nope" }
+      assert_redirected_to turf_monster_v2_path(anchor: "notify")
+      follow_redirect!
+      assert_select '[data-test="v2-notify-form"] noscript', text: /valid email/
+      assert_includes css_select('[data-test="v2-notify-form"]').first["x-data"], "dropNotifyForm('error')",
+                      "with JS, the form starts in its error state and Alpine writes the message"
+    end
   end
 
   # allow_forgery_protection is off in the test env and does not arm inside an
