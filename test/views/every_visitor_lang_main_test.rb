@@ -8,7 +8,8 @@ require "test_helper"
 # The app layout shipped a bare `<html>` and no `<main>`: a screen reader guessed
 # the page's language and had no landmark to skip to, and axe flagged
 # html-has-lang and landmark-one-main on every page that uses it. The landing
-# layout already carried `lang`, so it is not tested here.
+# layout already carried `lang` but had no `<main>` either, so a funnel page
+# (/lp/:slug) is held to the same two claims.
 #
 # Two claims, each with a falsifier the other cannot satisfy:
 #
@@ -29,6 +30,15 @@ class EveryVisitorLangMainTest < ActionDispatch::IntegrationTest
       assert_select "main *", minimum: 1
       assert_select "footer main", count: 0, message: "the footer must sit outside the main landmark"
     end
+  end
+
+  test "[component] a landing page renders html lang=en and exactly one main around the page" do
+    get landing_page_path(landing_pages(:launch).slug)
+
+    assert_response :success
+    assert_select "html[lang='en']", count: 1
+    assert_select "main", count: 1
+    assert_select "main *", minimum: 1
   end
 
   test "[component] the lobby's contest rail renders inside main" do
