@@ -50,14 +50,12 @@ class AuthSubmittingCoercionTest < ActiveSupport::TestCase
   AUTH_PARTIAL = "app/views/modals/_auth.html.erb".freeze
   SOLANA_UTILS = "app/javascript/solana_utils.js".freeze
 
-  # The two production openers of the CREDENTIALS card. Whatever these pass is
-  # the shape every other opener owes; reading them rather than restating them
-  # here means a key added to the live payload turns this red instead of quietly
-  # widening the gap.
-  LIVE_CALL_SITES = [
-    "app/views/components/_user_nav.html.erb",
-    "app/views/layouts/_navbar.html.erb"
-  ].freeze
+  # The production opener of the CREDENTIALS card from the navbar is ONE
+  # declaration since /tasks/turf-readopts-engine-navbar: the props of
+  # Studio.navbar_signed_out_cta's modal: (config/initializers/studio.rb), which
+  # the engine navbar turns into the button's $store.modals.open call. The
+  # navbar and the user nav each used to carry a copy, which is why this file
+  # once had to hold the two to the same shape.
 
   # Comments are page content as far as a naive scan is concerned — the partial
   # DESCRIBES the coercion in prose a few lines above the markup that performs
@@ -275,30 +273,23 @@ class AuthSubmittingCoercionTest < ActiveSupport::TestCase
                  "mid-submit (or the lock moved to another call, which does not count)"
   end
 
-  # Keys of the object literal the given file hands to modals.open('auth', {...}).
-  def live_keys(path)
-    payload = Rails.root.join(path).read[/\$store\.modals\.open\('auth',\s*\{([^}]*)\}\)/m, 1]
-    assert payload.present?,
-           "#{path} no longer opens the auth modal with an inline object — this test reads the " \
-           "live prop shape out of it, so it needs retuning alongside that call site"
-    payload.scan(/(\w+)\s*:/).flatten.map(&:to_sym).sort
-  end
+  # Read off the RENDER, where the engine has turned the declared props into the
+  # button's $store.modals.open call, so this sees what a press sends.
+  test "the navbar's Sign in opens the credentials card seeding submitting" do
+    html = ApplicationController.render(partial: "layouts/navbar", locals: { show_logged_in: false })
+    button = Nokogiri::HTML5.fragment(html).at_css("a[data-nav-cta-modal='auth']")
+    assert button, "the engine navbar no longer draws the Sign in as an auth-modal opener"
 
-  test "both live call sites open the credentials card with the same prop shape" do
-    shapes = LIVE_CALL_SITES.to_h { |path| [path, live_keys(path)] }
+    json = button["@click"].to_s[/\$store\.modals\.open\("auth", (\{.*\})\)\)\z/, 1]
+    assert json, "the opener no longer reads $store.modals.open(\"auth\", {...}): #{button["@click"]}"
+    props = JSON.parse(json)
 
-    # Calibration, and it is not ceremony: two openers that BOTH stopped passing
-    # `submitting` would agree perfectly with each other while reintroducing the
-    # exact defect this file exists for. The agreement assertion cannot see that;
-    # this can.
-    assert_includes shapes.values.first, :submitting,
-                    "neither live call site passes `submitting` any more — the agreement " \
-                    "assertion below would then be satisfied by two equally broken openers"
-
-    assert_equal shapes.values.first, shapes.values.last,
-                 "the navbar and the user-nav open the same modal with different props " \
-                 "(#{shapes.inspect}). A key one of them omits is a control the other renders " \
-                 "live and this one renders dead."
+    assert_equal "credentials", props["step"]
+    assert props.key?("submitting"), "the navbar's opener no longer seeds `submitting`"
+    assert_nil props["submitting"], "submitting starts null: no submit is in flight"
+    %w[formError phantomError googleError].each do |key|
+      assert_equal "", props[key], "#{key} starts empty, or the card opens on a stale error"
+    end
   end
 
   test "the 401 reopen seeds submitting rather than omitting it" do

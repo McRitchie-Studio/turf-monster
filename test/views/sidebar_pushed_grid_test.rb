@@ -21,7 +21,8 @@ require "test_helper"
 class SidebarPushedGridTest < ActiveSupport::TestCase
   APP_CSS = Rails.root.join("app/assets/tailwind/application.css")
   BOARD   = Rails.root.join("app/views/contests/_turf_totals_board.html.erb")
-  PANEL   = Rails.root.join("app/views/components/_sidebar_panel.html.erb")
+  # studio-engine's panel since /tasks/turf-readopts-engine-navbar (Turf's fork is gone).
+  PANEL   = Studio::Engine.root.join("app/views/components/_sidebar_panel.html.erb")
 
   # The band: md (where the push starts) up to the crossover at 1120px.
   FALLBACK_QUERY = /@media \(min-width: 768px\) and \(max-width: 1119\.98px\) \{(.*?)\n\}/m

@@ -18,7 +18,6 @@ require "test_helper"
 # Playwright reducedMotion line being dropped and e2e going flaky on swaps.
 class SmoothLoadComponentTest < ActiveSupport::TestCase
   ENGINE_CSS  = Studio::Engine.root.join("app/assets/tailwind/studio_engine/engine.css")
-  NAVBAR_ERB  = Rails.root.join("app/views/layouts/_navbar.html.erb")
   PW_CONFIG   = Rails.root.join("playwright.config.js")
 
   test "[component] Studio.smooth_load is enabled" do
@@ -46,17 +45,19 @@ class SmoothLoadComponentTest < ActiveSupport::TestCase
       "(they reach TM's build via the studio_engine import guarded in component_css_provenance_test)"
   end
 
+  # The navbar is studio-engine's (/tasks/turf-readopts-engine-navbar), which
+  # pins the header itself when Studio.smooth_load is on. So render both forms:
+  # the admin navbar-review page renders preview copies in the body, and a
+  # duplicate view-transition-name silently disables ALL transitions.
   test "[component] navbar pins vt-pinned-header on the real render only, never the preview" do
-    erb = NAVBAR_ERB.read
-    assert_includes erb, "vt-pinned-header", "navbar header must carry vt-pinned-header"
-    # The class must live in the non-preview branch of the ternary — the admin
-    # navbar-review page renders preview copies of this partial in the body,
-    # and a duplicate view-transition-name silently disables ALL transitions.
-    assert_match(/is_preview \? 'bg-page' : 'vt-pinned-header /, erb,
-      "vt-pinned-header must be in the NON-preview class branch only")
-    assert_equal 2, erb.scan("vt-pinned-header").size,
-      "expected vt-pinned-header exactly twice in the partial (comment + class); " \
-      "a third occurrence suggests the preview branch got pinned too"
+    live = ApplicationController.render(partial: "layouts/navbar", locals: { show_logged_in: false })
+    preview = ApplicationController.render(partial: "layouts/navbar", locals: { show_logged_in: false, preview: true })
+    header = ->(html) { Nokogiri::HTML5.fragment(html).at_css("header")["class"].to_s.split }
+
+    assert_includes header.(live), "vt-pinned-header", "navbar header must carry vt-pinned-header"
+    refute_includes header.(preview), "vt-pinned-header", "a preview copy must never pin"
+    refute Rails.root.join("app/views/layouts/_navbar.html.erb").exist?,
+           "a host copy of the navbar would shadow the engine's pin rule"
   end
 
   test "[component] playwright forces reducedMotion so e2e gets instant swaps" do

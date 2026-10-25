@@ -104,10 +104,12 @@ class BannerTooltipContainmentTest < ActiveSupport::TestCase
     end
   end
 
+  # Through the engine's bar stack (studio/banners/_stack renders the environment
+  # bar), which the layout renders before the navbar.
   test "turf still renders the banner whose tooltip this guards" do
-    navbar = Rails.root.join("app/views/layouts/_navbar.html.erb").read
+    layout = Rails.root.join("app/views/layouts/application.html.erb").read.gsub(/<%#.*?%>/m, " ")
 
-    assert_includes navbar, %(render "studio/banners/environment"),
+    assert_includes layout, %(render "studio/banners/stack"),
                     "no banner, no tooltip, and this whole patch would be dead weight"
   end
 end

@@ -83,12 +83,14 @@ class WalletSetupPreviewTest < ActionDispatch::IntegrationTest
     # Resolve the host rather than reading a path — see ResolvedModalHost for why
     # the identifier must never be asserted to contain "/gems/".
     host = ResolvedModalHost.source.gsub(/<%#.*?%>/m, "")
-    navbar = Rails.root.join("app/views/layouts/_navbar.html.erb").read.gsub(/<%#.*?%>/m, "")
+    # The navbar is studio-engine's (/tasks/turf-readopts-engine-navbar); its
+    # live tier is Studio.navbar_z_tier's, so read it off a live render.
+    navbar = ApplicationController.render(partial: "layouts/navbar", locals: { show_logged_in: false })
     engine_css = Studio::Engine.root.join("app/assets/tailwind/studio_engine/engine.css").read
     flash = Studio::Engine.root.join("app/views/layouts/studio/_flash.html.erb").read
 
     modal_tier = host[/<div class="fixed inset-0 z-\[var\((--z-[a-z-]+)\)\][^"]*modal-backdrop-mount"/, 1]
-    navbar_tier = navbar[/vt-pinned-header sticky top-0 z-\[var\((--z-[a-z-]+)\)\]/, 1]
+    navbar_tier = navbar[/sticky top-0 z-\[var\((--z-[a-z-]+)\)\]/, 1]
     toast_tier = flash[/--studio-toast-z,\s*var\((--z-[a-z-]+)/, 1]
 
     assert modal_tier.present?, "could not locate the shared modal backdrop layer"

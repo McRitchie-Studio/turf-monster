@@ -77,13 +77,15 @@ require "tmpdir"
 #       that have nothing to do with colour. Re-derive it with
 #       `grep -rEn '(^|[^-\w:])style:[[:space:]]' app/views app/helpers
 #       --include='*.erb' --include='*.rb' | wc -l` rather than trusting it.
-#    9  of those also match this file's `color:` regex, /(?<![-\w])color\s*:/
-#    7  of those nine yield a parseable CSS declaration — the two in
+#    8  of those also match this file's `color:` regex, /(?<![-\w])color\s*:/
+#       (9 until /tasks/turf-readopts-engine-navbar deleted shared/_impersonation_banner,
+#       whose "Return" button_to wrote one; the engine's banner replaced it)
+#    6  of those eight yield a parseable CSS declaration — the two in
 #       tokens/_paypal_sdk are JS object literals whose `color: 'blue'` is a
 #       PayPal funding enum, not a colour, and `static_color` drops them
-#    3  of those seven resolve to a REGISTERED SERIES COLOUR (in dark)
+#    3  of those six resolve to a REGISTERED SERIES COLOUR (in dark)
 #
-# The 9, the 7 and the 3 are each ASSERTED below. That is the point of the
+# The 8, the 6 and the 3 are each ASSERTED below. That is the point of the
 # rewrite: the figure this paragraph carried before was a hand count, it was
 # wrong, and nothing would have failed when it went wrong.
 #
@@ -155,7 +157,7 @@ class VioletTextContrastTest < ActiveSupport::TestCase
 
   # HOW BIG THE BLIND SPOT IS, ASSERTED. Every line under app/views +
   # app/helpers carrying a `style:` option whose text also matches this file's
-  # `color:` regex, by file. The total is the NINE in the header; a hand count
+  # `color:` regex, by file. The total is the EIGHT in the header; a hand count
   # said five, which is why it is a constant now and not a sentence. A new
   # tag-helper `color:` bumps a number here and fails, so the blind spot cannot
   # quietly grow — same doctrine as BARE_TEXT_VIOLET_ALLOWED above.
@@ -163,7 +165,6 @@ class VioletTextContrastTest < ActiveSupport::TestCase
     "app/views/admin/error_logs/index.html.erb" => 2,
     "app/views/admin/seasons/index.html.erb" => 3,
     "app/views/magic_links/confirm.html.erb" => 1,
-    "app/views/shared/_impersonation_banner.html.erb" => 1,
     "app/views/tokens/_paypal_sdk.html.erb" => 2
   }.freeze
 
@@ -780,21 +781,21 @@ class VioletTextContrastTest < ActiveSupport::TestCase
                  "asserted because a hand count of it was wrong by four (five, actually nine — see the header). " \
                  "Re-derive it, update TAG_HELPER_COLOR_SITES, and check whether the new site paints a series " \
                  "colour — the lane below measures it if it does."
-    assert_equal 9, found.values.sum, "the header states NINE tag-helper `color:` lines; keep the two in step"
+    assert_equal 8, found.values.sum, "the header states EIGHT tag-helper `color:` lines; keep the two in step"
 
     # THE PARSEABLE SUBSET, which is the number the lane below actually works
-    # over. It is SEVEN, not nine, and the gap is the whole reason the header
+    # over. It is SIX, not eight, and the gap is the whole reason the header
     # spells the partition out: tokens/_paypal_sdk's two `style: { color:
     # 'blue' }` are JS object literals, and `color: 'blue'` is a PayPal funding
-    # enum rather than a colour. If this ever equals the nine above, the value
+    # enum rather than a colour. If this ever equals the eight above, the value
     # pattern in `tag_helper_style_colors` has started swallowing quoted JS and
     # the lane is resolving strings that are not CSS.
     parseable = SCANNED.sum do |root|
       Dir[root.join("**/*.{erb,rb}")].sum { |path| tag_helper_style_colors(path).length }
     end
-    assert_equal 7, parseable,
-                 "#{parseable} tag-helper `style:` lines yield a parseable CSS colour, not 7. The header " \
-                 "partitions the blind spot 9 matched / 7 parseable / 3 registered — re-derive all three."
+    assert_equal 6, parseable,
+                 "#{parseable} tag-helper `style:` lines yield a parseable CSS colour, not 6. The header " \
+                 "partitions the blind spot 8 matched / 6 parseable / 3 registered — re-derive all three."
   end
 
   test "a tag-helper style: option may not paint a series colour that fails AA" do
