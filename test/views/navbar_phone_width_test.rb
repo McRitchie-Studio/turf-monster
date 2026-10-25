@@ -1,7 +1,9 @@
 require "test_helper"
 
-# [component] The forked header's PHONE WIDTH contract — the markup chain and
-# the two width caps that let layouts/_navbar shrink instead of spilling.
+# [component] The header's PHONE WIDTH contract — the markup chain and the two
+# width caps that let layouts/_navbar shrink instead of spilling. The navbar is
+# studio-engine's since /tasks/turf-readopts-engine-navbar; the caps are still
+# this app's (application.css, THE COLUMN WIDTHS, unlayered over the engine's).
 #
 # WHAT THE DEFECT WAS, because it is not the obvious one. The header row is two
 # columns: `flex-1` on the left (logo + wordmark) and a `flex-shrink-0` column
@@ -21,9 +23,8 @@ require "test_helper"
 # overflows its SIBLING's territory never reaches documentElement.
 #
 # WHY THIS APP NEEDED ITS OWN FIX. studio-engine shipped the same repair in
-# 0.77.1, and turf-monster gets none of it: it renders its own fork of
-# layouts/_navbar and declares its own `.user-nav-col` steps in
-# app/assets/tailwind/application.css. The shapes differ too — this column
+# 0.77.1, as a share of the viewport; this app declares its own `.user-nav-col`
+# steps in app/assets/tailwind/application.css, which win over the engine's. The shapes differ too — this column
 # carries a seeds bar with a hard `min-w-[8rem]`, which gives it a content floor
 # the engine's column does not have — so the cap is this app's own arithmetic,
 # not a copy of the engine's share.
@@ -36,11 +37,20 @@ require "test_helper"
 # that states the numbers. Each of those is a separate way for the fix to be
 # half-undone without any pixel moving in a test.
 class NavbarPhoneWidthTest < ActiveSupport::TestCase
-  NAVBAR  = Rails.root.join("app/views/layouts/_navbar.html.erb")
   CSS     = Rails.root.join("app/assets/tailwind/application.css")
   PREVIEW = Rails.root.join("app/views/admin/navbar.html.erb")
   DOC     = Rails.root.join("docs/UI_PATTERNS.md")
-  USER_NAV = Rails.root.join("app/views/components/_user_nav.html.erb")
+  # The seeds bar's wrapper (the engine user nav's div2_slot), whose min-width
+  # is the column's content floor, and the engine user nav that seats it.
+  SEEDS_ROW = Rails.root.join("app/views/components/_nav_seeds_row.html.erb")
+  ENGINE_USER_NAV = Studio::Engine.root.join("app/views/components/_user_nav.html.erb")
+
+  # The header as the engine draws it with this app's brand, signed out.
+  def navbar
+    @navbar ||= Nokogiri::HTML5.fragment(
+      ApplicationController.render(partial: "layouts/navbar", locals: { show_logged_in: false, preview: true })
+    )
+  end
 
   # STRIP COMMENTS BEFORE PARSING, and it is not tidiness. A naive CSS splitter
   # treats "everything since the last }" as a selector, so a `/* … */` block
@@ -72,43 +82,39 @@ class NavbarPhoneWidthTest < ActiveSupport::TestCase
   # ── A. the min-w-0 chain ────────────────────────────────────────────────
 
   test "every flex item between the row and the wordmark can shrink" do
-    src = NAVBAR.read
-
     # The row's left item. `flex-1` alone is `flex: 1 1 0%` WITH `min-width:
     # auto`, which floors it at its own min-content — the 0% basis is irrelevant.
-    assert_includes src, %(class="flex-1 min-w-0 px-4"),
-                    "the row's left column must be allowed below its min-content"
-    assert_includes src, %(class="flex items-center gap-6 min-w-0"),
-                    "the inner flex that holds the logo link is a flex item too"
-    # Written as a `class:` option on link_to, not a literal attribute.
-    assert_match(/class: "nav-logo-link inline-flex items-center gap-3 group min-w-0"/, src,
-                 "the logo link is a flex item too and belongs in the chain")
+    assert navbar.at_css(".nav-row > div.flex-1.min-w-0.px-4"),
+           "the row's left column must be allowed below its min-content"
+    assert navbar.at_css(".nav-row > div.flex-1 > div.flex.items-center.gap-6.min-w-0"),
+           "the inner flex that holds the logo link is a flex item too"
+    assert navbar.at_css("a.nav-logo-link.min-w-0"),
+           "the logo link is a flex item too and belongs in the chain"
 
     # THE ONE THAT ACTUALLY BINDS. Removed one at a time and measured at all six
     # widths, only this one changes a pixel: without it both words return to
     # 88px at 320px and paint to x=156, 26px past a column ending at 130. The
     # other three measured identical with and without, so this file does not
     # claim they are load-bearing — it claims the chain is complete.
-    assert_match(/<h1 class="nav-title[^"]*\bmin-w-0\b/, src,
-                 "the wordmark's own box has to be allowed below its text — this is the " \
-                 "link in the chain whose removal is measurable")
+    assert navbar.at_css("h1.nav-title.min-w-0"),
+           "the wordmark's own box has to be allowed below its text — this is the " \
+           "link in the chain whose removal is measurable"
   end
 
   # ── B. the spans truncate, not the h1 ───────────────────────────────────
 
   test "both wordmark spans truncate individually" do
-    src = NAVBAR.read
-
     # .nav-title is itself display:flex — a column below 768px, a baseline row
     # above — so the boxes that need clipping are the SPANS. `truncate` on the
     # h1 clips the flex CONTAINER and leaves its items drawing outside it, which
-    # is the bug rather than the fix.
-    assert_match(/<h1 class="nav-title[^"]*"><span class="dm-salmon truncate">Turf<\/span>/, src,
-                 "the wordmark's first word must clip itself")
-    assert_match(/<span class="dm-yellow tm-wordmark truncate">Monster<\/span>/, src,
-                 "the wordmark's second word must clip itself")
-    refute_match(/<h1 class="nav-title[^"]*\btruncate\b/, src,
-                 "truncate belongs on the spans; on the flex container it clips the wrong box")
+    # is the bug rather than the fix. The engine draws Studio.navbar_brand's
+    # words so, each its own span with the word's class plus truncate.
+    words = navbar.css("h1.nav-title > span")
+    assert_equal %w[Turf Monster], words.map(&:text), "the wordmark is the two declared words"
+    assert_equal %w[truncate], words.first["class"].split, "the wordmark's first word must clip itself"
+    assert_equal %w[tm-wordmark truncate], words.last["class"].split, "the wordmark's second word must clip itself"
+    refute_includes navbar.at_css("h1.nav-title")["class"].split, "truncate",
+                    "truncate belongs on the spans; on the flex container it clips the wrong box"
   end
 
   # THE OTHER HALF OF TRUNCATION, and the half that actually bit. Below 768px
@@ -161,31 +167,37 @@ class NavbarPhoneWidthTest < ActiveSupport::TestCase
   end
 
   # THE FLOOR IS THIS COLUMN'S OWN CONTENT MINIMUM, and it is the number that
-  # makes this app's cap different from the engine's. `width: min-content` on
-  # the column measures exactly 190px = 11.875rem: the seeds bar's 8rem less the
-  # row's -6px pull, plus the gap, the avatar's ml-3 inset, the 32px avatar and
-  # the column's pr-4. Below it the seeds bar slides UNDER the avatar — and the
-  # column's own scrollWidth keeps reporting a contented fit all the way down to
-  # 122px, so that measurement cannot find it either.
+  # makes this app's cap different from the engine's. Below it the seeds bar
+  # slides UNDER the avatar, and the column's own scrollWidth keeps reporting a
+  # contented fit, so that measurement cannot find it.
+  #
+  # 11.875rem (190px) was measured on Turf's own user nav: the seeds bar's 8rem
+  # less its -6px pull, the gap, the avatar's 12px inset, the 32px avatar and
+  # the column's pr-4. The engine user nav (/tasks/turf-readopts-engine-navbar)
+  # needs 6px less, 184px: the seeds bar, the row's gap-2, the 32px avatar
+  # (the name is screen-reader text on a phone, Studio.navbar_phone_name off)
+  # and the pr-4. The floor was kept, so the column only ever has room to spare.
   #
   # Derived from the seeds bar's declared minimum rather than restated, because
-  # the floor is a CONSEQUENCE of that utility: change the bar and this number
-  # is wrong, silently, in the direction that puts the overlap back.
-  test "the column's floor is what its own contents need" do
+  # the floor is a CONSEQUENCE of that utility: grow the bar and this goes red
+  # in the direction that puts the overlap back.
+  test "the column's floor covers what its own contents need" do
     floor = user_nav_col_blocks.first[/--user-nav-floor:\s*([^;]+);/, 1]
     assert floor, "the base .user-nav-col rule must declare the floor"
     assert_equal "11.875rem", floor.strip
 
-    bar_min = USER_NAV.read[/min-w-\[(\d+(?:\.\d+)?)rem\]/, 1]
+    bar_min = SEEDS_ROW.read[/min-w-\[(\d+(?:\.\d+)?)rem\]/, 1]
     assert bar_min, "the seeds bar wrapper no longer declares a min-width in " \
-                    "#{USER_NAV.basename}; this floor was derived from it"
+                    "#{SEEDS_ROW.basename}; this floor was derived from it"
+    refute Studio.navbar_phone_name, "a phone name beside the avatar takes the seeds bar's width"
+    assert_includes ENGINE_USER_NAV.read, %(<div class="flex gap-2">), "the account's row gap is the engine's gap-2"
 
-    # 8rem bar - 6px pull + 0.5rem gap + 0.75rem avatar inset + 2rem avatar + 1rem padding
-    derived = (bar_min.to_f * 16) - 6 + 8 + 12 + 32 + 16
-    assert_equal derived / 16, floor.to_f,
-                 "the floor (#{floor}) no longer equals what the column's contents need " \
-                 "(#{derived}px derived from a #{bar_min}rem seeds bar). Retune both or " \
-                 "the seeds bar goes back under the avatar."
+    # 8rem bar + 0.5rem gap + 2rem avatar + 1rem padding
+    derived = (bar_min.to_f * 16) + 8 + 32 + 16
+    assert_operator floor.to_f * 16, :>=, derived,
+                    "the floor (#{floor}) is below what the column's contents need " \
+                    "(#{derived}px derived from a #{bar_min}rem seeds bar). Retune both or " \
+                    "the seeds bar goes back under the avatar."
   end
 
   # ── D. the caps are ordered ─────────────────────────────────────────────
@@ -202,9 +214,9 @@ class NavbarPhoneWidthTest < ActiveSupport::TestCase
 
   # ── E. the dead class is gone, everywhere ───────────────────────────────
 
-  # `.username-cap` never existed as an element in this app: the name is capped
-  # by Tailwind utilities on the button (`max-w-[4.5rem] min-[400px]:max-w-[6rem]
-  # md:max-w-[7rem]`) and faded by navUsernameFade's mask. Three rules under that
+  # `.username-cap` never existed as an element in this app: the name was capped
+  # by Tailwind utilities on its own button, and is now the engine user nav's
+  # (`md:max-w-40`, truncating). Three rules under that
   # name sat in the navbar-review page claiming a 5/6/7rem cap that was never in
   # force, and they disagreed with the live 4.5rem at the narrow band.
   #
@@ -236,16 +248,13 @@ class NavbarPhoneWidthTest < ActiveSupport::TestCase
   end
 
   test "the username is capped where it actually is capped" do
-    src = USER_NAV.read
-    button = src[/<button[^>]*data-username-display[^>]*>/m] || src[/<button[^>]*nav-username[^>]*>/m]
-    assert button, "the username button no longer parses out of #{USER_NAV.basename}"
-
-    # The premise of deleting .username-cap: the real cap is here. If these move,
-    # the doc paragraph that now names them is wrong too.
-    %w[max-w-[4.5rem] min-[400px]:max-w-[6rem] md:max-w-[7rem] overflow-hidden].each do |utility|
-      assert_includes button, utility,
-                      "the live username cap must stay on the button itself: #{button}"
-    end
+    src = ENGINE_USER_NAV.read
+    # The premise of deleting .username-cap: the real cap is the engine's. Below
+    # md the name is screen-reader text; from md it is capped and truncates.
+    assert_includes src, %(<span class="sr-only md:not-sr-only md:max-w-40">),
+                    "the engine user nav caps the name's box from md"
+    assert_match(/<span class="block truncate text-right[^\n]*?data-nav-name>/, src,
+                 "and the name truncates inside it")
   end
 
   # ── F. the reviewer's instrument tells the truth ────────────────────────

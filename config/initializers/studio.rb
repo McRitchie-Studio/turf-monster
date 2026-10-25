@@ -141,8 +141,11 @@ Studio.configure do |config|
   # GearSidebarPanels (lib/gear_sidebar_panels.rb).
   config.navbar_menu_trigger = "components/gear_sidebar_trigger"
   config.navbar_account_sidebar = { flag: "gearOpen", controls: GearSidebarPanels::IDS }
-  # The name shows on a phone too, capped, and fades where it overflows.
-  config.navbar_phone_name = true
+  # NO PHONE NAME (navbar_phone_name stays false): below 768px the name is
+  # screen-reader text and the avatar stands alone, as on every engine navbar.
+  # On the engine user nav the name sits beside the avatar, not above the seeds
+  # bar, so on a phone it takes the seeds bar's width: measured with it on, the
+  # bar's 8rem floor ran 24px under the name at 390px and 46px at 320px.
   # The navbar has always said display_name, never the engine's first name.
   config.navbar_user_name = :display_name
 

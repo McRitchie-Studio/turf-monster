@@ -925,12 +925,9 @@
   /* Theme CSS custom properties are now engine-generated via studio_theme_css_tag */
 }
 
-/* THE COLUMN WIDTHS (.user-nav-col), the measured phone caps described in the
-   layer above. UNLAYERED, and that is the point: studio-engine's layouts/_navbar
-   carries its own .user-nav-col widths in an inline <style>, which is unlayered,
-   and an unlayered rule beats a layered one whatever its specificity. .nav-shell
-   in front lifts these over that equal-specificity rule, which comes later in
-   the page. Their numbers are unchanged from when this app forked the navbar. */
+/* THE COLUMN WIDTHS (.user-nav-col), the phone caps measured above. UNLAYERED:
+   the engine navbar's inline <style> sets its own widths unlayered, which beats
+   any layered rule, and .nav-shell outranks it on specificity. */
 .nav-shell .user-nav-col {
   --user-nav-floor: 11.875rem;
   --nav-left-need: 11.125rem;
@@ -950,35 +947,16 @@
   }
 }
 
-/* THE IN-HEADER BARS ON THE SCROLL TIMELINE: the impersonation and frozen-account
-   bars (Studio.navbar_header_bars, config/initializers/studio.rb) hold at the top
-   of the window by studio-engine's own rule (engine.css, THE IN-HEADER BARS),
-   lifted from the one this app measured here (/tasks/turf-engine-navbar-timeline). */
 
-/* THE ACCOUNT ROW, SIZED AND ALIGNED AS ON THE HUB (/tasks/turf-navbar-avatar-table-header,
-   re-keyed onto the engine user nav in /tasks/turf-readopts-engine-navbar).
-
-   ALIGNMENT. The row stops at the page container: 80rem wide and centred, the
-   width of the max-w-7xl the pages lay out in, so its px-4 columns put the logo
-   on the content's left edge and the avatar on its right edge. Full width, the
-   avatar sat at the window edge, 80px right of the content at 1440. The hub
-   (mcritchie-studio application.css) carries the same rule.
-
-   SIZE, from 768px. The avatar is 40px at rest and 32px collapsed, as the
-   hub's is. engine.css sizes it so only on a ONE-row nav (data-nav-rows="1",
-   THE ACCOUNT ROW there) and keeps a two-row nav's at 2rem; this nav is two
-   rows (the seeds bar is its div2_slot) and keeps the hub's 40px, by the
-   engine's own --nav-avatar, which is a calc() off --nav-p. The free-entry
-   badge's seat tracks it, as it tracks a one-row avatar. --nav-p 1 is also how
-   the nav-collapse controller reads the COLLAPSED header when it measures the
-   band and the scales, so the compact bar is measured with the 32px avatar in
-   it, and on the scroll timeline engine.css scales the avatar, the badge, the
-   name and the icon column by what it measured (nav-tl-avatar, nav-tl-name,
-   nav-tl-tools).
-
-   THE NAME keeps this app's size, lg at rest to base collapsed
-   (--nav-username-size above), where the engine draws a two-row nav's at
-   base. */
+/* THE ACCOUNT ROW, SIZED AND ALIGNED AS ON THE HUB (/tasks/turf-navbar-avatar-table-header;
+   on the engine user nav since /tasks/turf-readopts-engine-navbar).
+   The row stops at the page container (80rem, the pages' max-w-7xl), so the
+   logo and avatar sit on the content's edges, as on the hub. From 768px the
+   avatar is the hub's 40px at rest and 32px collapsed: engine.css does that
+   only for a ONE-row nav, and this one has two (the seeds bar), so it is
+   applied here on the engine's own --nav-avatar, with the badge seat tracking
+   it. The engine's timeline scales avatar, badge, name and icon column by what
+   nav-collapse measures. The name keeps this app's --nav-username-size. */
 @layer utilities {
   .nav-shell > .nav-row { max-width: 80rem; margin-inline: auto; }
   .nav-shell [data-nav-account] [data-nav-name] { font-size: var(--nav-username-size); }

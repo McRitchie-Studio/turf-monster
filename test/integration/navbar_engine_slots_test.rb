@@ -1,15 +1,14 @@
 require "test_helper"
 
-# [component] The navbar's content comes from studio-engine's slots
-# (0.113.0; /tasks/turf-readopts-engine-navbar). config/initializers/studio.rb
+# [component] The navbar is studio-engine's (/tasks/turf-readopts-engine-navbar)
+# and its content comes from the engine's slots. config/initializers/studio.rb
 # declares Studio.navbar_links (Contests, Rules), Studio.navbar_items (the geo
 # badge, the wallet signal) and Studio.navbar_avatar_badge (the ✨ free-entry
-# badge), and the forked layouts/_navbar and components/_user_nav draw them
-# through the engine's helpers.
+# badge), and the engine's layouts/_navbar and components/_user_nav draw them.
 #
-# EACH SLOT IS PROVEN LIVE BY EMPTYING IT. A fork that still hard-coded the geo
-# badge would pass every presence check here; only a render that loses the
-# badge when the setting goes empty shows the fork reads the setting.
+# EACH SLOT IS PROVEN LIVE BY EMPTYING IT. A host copy of either partial that
+# hard-coded the geo badge would pass every presence check here; only a render
+# that loses the badge when the setting goes empty shows the bar reads it.
 class NavbarEngineSlotsTest < ActionDispatch::IntegrationTest
   HEADER = "header[data-navbar-root]".freeze
   DESKTOP_NAV = "#{HEADER} nav.md\\:flex".freeze
@@ -36,22 +35,30 @@ class NavbarEngineSlotsTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "the links keep the forked bar's look: no primary tone on their own page" do
+  test "the links keep the bar's old look: no primary tone on their own page" do
     get contests_path
     assert_select "#{HEADER} a[href='#{contests_path}'][aria-current]", 0
     assert_select "#{HEADER} a[href='#{contests_path}'].text-secondary", 2
   end
 
-  test "the avatar badge renders in the fork's seat over the avatar, signed in only" do
+  test "the avatar badge renders in the engine's seat beside the account control, signed in only" do
     get contests_path
     assert_select "#{HEADER} [data-free-entry-badge]", 0
 
     log_in_as(users(:alex))
     get contests_path
-    assert_select "#{HEADER} [data-turf-nav-avatar] > div.absolute [data-free-entry-badge]", 1
+    assert_select "#{HEADER} [data-nav-account] + [data-nav-avatar-badge] [data-free-entry-badge]", 1
+    assert_select "#{HEADER} [data-nav-account] [data-free-entry-badge]", 0,
+                  "never inside the account button: a button in a button reaches a screen reader as nothing"
   end
 
-  test "emptying a slot empties the bar: the fork reads the settings" do
+  test "Turf keeps no copy of the engine's navbar or user nav" do
+    %w[app/views/layouts/_navbar.html.erb app/views/components/_user_nav.html.erb].each do |path|
+      refute Rails.root.join(path).exist?, "#{path} would shadow the engine's in this non-isolated engine"
+    end
+  end
+
+  test "emptying a slot empties the bar: the engine reads the settings" do
     items, badge, links = Studio.navbar_items, Studio.navbar_avatar_badge, Studio.navbar_links
     Studio.navbar_items = []
     Studio.navbar_avatar_badge = nil

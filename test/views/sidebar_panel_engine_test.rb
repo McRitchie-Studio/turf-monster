@@ -1,10 +1,10 @@
 require "test_helper"
 
-# [component] components/_sidebar_panel is a fork of studio-engine's copy kept
-# for two deltas (title_html and the id-bearing close hook; the file's header
-# says why). Everything else follows the engine 0.113.0 copy, including the
-# hardening of the three dismissal handlers.
-class SidebarPanelForkTest < ActionView::TestCase
+# [component] components/_sidebar_panel is studio-engine's. Turf forked it for
+# two deltas, title_html and the id-bearing close hook, until 0.114.0 took both
+# (/tasks/turf-readopts-engine-navbar). These pin what the gear sidebar and the
+# entry sidebar rely on, so an engine release that drops either goes red here.
+class SidebarPanelEngineTest < ActionView::TestCase
   QUOTED = %(cartOpen = false; track("closed")).freeze
 
   def panel(**locals)
@@ -12,7 +12,7 @@ class SidebarPanelForkTest < ActionView::TestCase
     Nokogiri::HTML5.fragment(html).at_css("aside")
   end
 
-  # The regression this fork carried until the engine's hardening was ported:
+  # The regression the fork carried until it ported the engine's hardening:
   # each handler was built as %(@name="#{action}").html_safe, so the double
   # quote inside track("closed") ended the attribute and the rest of the
   # expression became attributes of the aside.
@@ -36,10 +36,19 @@ class SidebarPanelForkTest < ActionView::TestCase
     assert_nil aside["aria-labelledby"], "title_html is content, not the panel's name"
   end
 
-  test "the close button carries the panel id the gear click handler matches" do
-    button = panel(close_action: "cartOpen = false").at_css("button[aria-label='Close sidebar']")
+  test "close_hook: true gives the close button the panel id the gear click handler matches" do
+    button = panel(id: GearSidebarPanels::DESKTOP, close_hook: true, close_action: "cartOpen = false")
+               .at_css("button[aria-label='Close sidebar']")
 
-    assert_equal "entry-sidebar", button["data-sidebar-panel-close"]
-    assert_includes button["class"], "focus-visible:ring-2", "the engine copy's focus ring came with the port"
+    assert_equal GearSidebarPanels::DESKTOP, button["data-sidebar-panel-close"]
+    assert_includes button["class"], "focus-visible:ring-2"
+  end
+
+  test "Turf keeps no copy, and both gear panels ask for the close hook" do
+    refute Rails.root.join("app/views/components/_sidebar_panel.html.erb").exist?,
+           "a host copy shadows the engine's in this non-isolated engine"
+    gear = Rails.root.join("app/views/components/_gear_sidebar.html.erb").read
+    assert_equal 2, gear.scan("close_hook: true").size, "the desktop and phone panels"
+    assert_equal 2, gear.scan("title_html: status_html").size
   end
 end

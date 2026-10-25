@@ -1,6 +1,7 @@
 require "test_helper"
 
-# [component] Turf's forked navbar opts into studio-engine's scroll-driven
+# [component] Turf's navbar (studio-engine's own layouts/_navbar since
+# /tasks/turf-readopts-engine-navbar) opts into studio-engine's scroll-driven
 # collapse (config.navbar_scroll_timeline, engine 0.111.1;
 # /tasks/turf-engine-navbar-timeline). The collapse itself is computed style on
 # a scroll timeline, settled in a browser (e2e/navbar_scroll_timeline.spec.js);
@@ -34,7 +35,7 @@ class NavbarScrollTimelineTest < ActionDispatch::IntegrationTest
     html = ApplicationController.render(partial: "layouts/navbar",
                                         locals: { show_logged_in: false, preview: true })
     header = Nokogiri::HTML5.fragment(html).at_css("header")
-    %w[data-nav-timeline data-pin data-studio-controller].each do |attr|
+    %w[data-nav-timeline data-studio-controller].each do |attr|
       refute header.key?(attr), "a preview header carries no #{attr}: /admin/navbar repeats it"
     end
   end
@@ -59,10 +60,10 @@ class NavbarScrollTimelineTest < ActionDispatch::IntegrationTest
       html = ApplicationController.render(partial: "layouts/navbar",
                                           locals: { show_logged_in: false }.merge(extra))
       fragment = Nokogiri::HTML5.fragment(html)
-      assert fragment.at_css("nav.dm-teal"), "the desktop nav still renders (#{extra})"
+      assert fragment.at_css("nav.md\\:flex"), "the desktop nav still renders (#{extra})"
       assert_nil fragment.at_css("[data-nav-links]"), "#{extra} renders no data-nav-links"
-      assert_includes html, '<nav class="dm-teal hidden md:flex items-center gap-4 min-w-0">',
-                      "#{extra} keeps the desktop nav's opening tag as it was"
+      assert_includes html, '<nav class="hidden md:flex items-center gap-4" aria-label="Main">',
+                      "#{extra} renders the engine's desktop nav opening tag, hook-free"
     end
   end
 
@@ -100,68 +101,54 @@ class NavbarScrollTimelineTest < ActionDispatch::IntegrationTest
     assert_select "#{HEADER} > [data-nav-header-bars] [data-frozen-banner]", 1
   end
 
-  test "the in-header bars move down by the band on the header's own timeline" do
-    rule = CSS[/\.nav-shell\[data-nav-timeline\] > \[data-nav-header-bars\] \{[^}]*\}/]
-    assert rule, "application.css carries the in-header bars' timeline rule"
+  # studio-engine lifted this rule from Turf (0.114.0, engine.css THE IN-HEADER
+  # BARS), so the bars ride the engine's copy and Turf keeps none of its own.
+  test "the in-header bars move down by the band on the engine's timeline rule" do
+    engine_css = File.read(Studio::Engine.root.join("app/assets/tailwind/studio_engine/engine.css"))
+    rule = engine_css[/\.nav-shell\[data-nav-timeline\] > \[data-nav-header-bars\] \{[^}]*\}/]
+    assert rule, "engine.css carries the in-header bars' timeline rule"
     assert_includes rule, "animation-timeline: scroll(root block)"
     assert_includes rule, "animation-range: var(--nav-start, 0px) calc(var(--nav-start, 0px) + var(--nav-band))",
                     "the same range the engine scrolls the band away over, or the bars drift"
-    assert_match(/@keyframes turf-nav-header-bars \{ to \{ transform: translateY\(var\(--nav-band\)\); \} \}/, CSS)
-    assert_match(/animation: turf-nav-header-bars linear both/, CSS,
-                 "linear, as the sticky header's own travel is linear in the scroll")
+    assert_includes rule, "animation: nav-tl-header-bars linear both"
+    refute_match(/turf-nav-header-bars/, CSS, "no second copy: two animations on one element, one wins by order")
   end
 
   test "fixed readers of the header edge follow it on the timeline" do
-    sidebar = File.read(Rails.root.join("app/views/components/_sidebar_panel.html.erb"))
+    sidebar = File.read(Studio::Engine.root.join("app/views/components/_sidebar_panel.html.erb"))
     assert_match(/^\s*data-pin-edge$/, sidebar, "the side panels carry data-pin-edge")
 
     chat = File.read(Rails.root.join("app/views/contests/_chat_panel.html.erb"))
     assert_includes chat, "window.studioPinnedStack", "the reaction picker reads the stack live"
   end
 
-  # /tasks/turf-navbar-avatar-table-header. The forked account carries neither
-  # engine hook ([data-nav-account], [data-nav-tools]), so on the timeline it
-  # kept full size in the compact bar. It carries Turf's own two, and the
-  # stylesheet scales both on the engine's timeline and range.
-  test "the account column and avatar carry the hooks the timeline scales, and no engine account hook" do
+  # /tasks/turf-navbar-avatar-table-header, on the engine user nav since
+  # /tasks/turf-readopts-engine-navbar. The account is the engine's: the icon
+  # column is [data-nav-tools], the name and avatar one [data-nav-account]
+  # button that opens the gear sidebar, and the ✨ badge its sibling seat. The
+  # engine scales all three on its own timeline (nav-tl-tools, nav-tl-name,
+  # nav-tl-avatar) by what nav-collapse measures, so Turf adds no keyframes.
+  test "the account is the engine's, with the hooks its timeline scales" do
     log_in_as(users(:alex))
     get contests_path
     assert_response :success
-    assert_select "#{HEADER} .user-nav-col [data-turf-nav-column]", 1
-    assert_select "#{HEADER} .user-nav-col [data-turf-nav-avatar] [data-profile-image-toggle]", 1
-    assert_select "#{HEADER} [data-nav-account], #{HEADER} [data-nav-tools]", 0,
-                  "the engine hooks would also restyle the icon rail and its gaps"
+    assert_select "#{HEADER} .user-nav-col [data-nav-tools][data-nav-rows='2']", 1
+    assert_select "#{HEADER} .user-nav-col button[data-nav-account][data-profile-image-toggle][aria-controls=?]",
+                  GearSidebarPanels::CONTROLS, 1
+    assert_select "#{HEADER} .user-nav-col [data-nav-account] + [data-nav-avatar-badge] [data-free-entry-badge]", 1
+    assert_select "#{HEADER} [data-turf-nav-column], #{HEADER} [data-turf-nav-avatar]", 0
+    refute_match(/turf-nav-avatar|turf-nav-column/, CSS, "the engine's keyframes scale the account now")
   end
 
-  test "the account scales on the header's timeline: avatar 40 to 32 from its right edge, the column by 7/8" do
-    %w[data-turf-nav-avatar data-turf-nav-column].each do |hook|
-      assert_match(/\.nav-shell\[data-nav-timeline\] \[#{hook}\][^{]*\{[^}]*animation-timeline: scroll\(root block\);[^}]*animation-range: var\(--nav-start, 0px\) calc\(var\(--nav-start, 0px\) \+ var\(--nav-ramp\)\);[^}]*transform-origin: right center;/m,
-                   CSS, "[#{hook}] runs on the engine's timeline and ramp, from its right edge")
-    end
-    assert_match(/--turf-nav-avatar: calc\(2\.5rem - 0\.5rem \* var\(--nav-p, 0\)\);/, CSS,
+  # The engine sizes a ONE-row nav's avatar 40 -> 32 on --nav-avatar and keeps a
+  # two-row nav's at 2rem. Turf's nav is two rows (the seeds bar) and keeps the
+  # hub's 40px, by the engine's own --nav-avatar, and the badge seat tracks it.
+  test "from 768px the two-row account keeps the hub's 40px avatar on the engine's --nav-avatar" do
+    assert_match(/\.nav-shell \[data-nav-account\] > \[aria-hidden\] > \* \{\s*width: var\(--nav-avatar\);\s*height: var\(--nav-avatar\);/, CSS)
+    assert_match(/\.nav-shell \[data-nav-account\] \+ \[data-nav-avatar-badge\] \{\s*width: var\(--nav-avatar\);\s*height: var\(--nav-avatar\);/, CSS)
+    engine_css = File.read(Studio::Engine.root.join("app/assets/tailwind/studio_engine/engine.css"))
+    assert_match(/--nav-avatar: calc\(2\.5rem - 0\.5rem \* var\(--nav-p, 0\)\);/, engine_css,
                  "40px at rest and 32px at --nav-p 1, which is how the controller measures the compact bar")
-    assert_match(/--turf-nav-avatar-scale: 0\.8;/, CSS)
-    assert_match(/@keyframes turf-nav-avatar \{ to \{ transform: scale\(var\(--turf-nav-avatar-scale, 1\)\); \} \}/, CSS)
-    assert_match(/@keyframes turf-nav-column \{\s*to \{ transform: translateX\(var\(--turf-nav-avatar-shrink, 0px\)\) scale\(var\(--turf-nav-column-scale, 1\)\); \}\s*\}/, CSS,
-                 "the column slides right by what the avatar gave up, so the gap between them holds")
-  end
-
-  # /tasks/turf-avatar-name-gap. From 768px the name sits the hub's 12px from
-  # the avatar: the name row ends on the column's edge (md:pr-0) and the row's
-  # gap-2 plus the avatar's md:ml-1 make the 12px. The column's 6px padding,
-  # the gap and a 12px margin stacked to 26px before. A phone keeps pr-1.5 and
-  # ml-3. e2e/navbar_scroll_timeline.spec.js measures the gap in a browser.
-  test "from 768px the name row ends on the column's edge and the avatar sits the hub's 12px from it" do
-    log_in_as(users(:alex))
-    get contests_path
-    assert_response :success
-    assert_select "#{HEADER} .user-nav-col > div.flex.gap-2", 1
-    row = css_select("#{HEADER} [data-turf-nav-column] > div").first
-    assert row, "the name row is the column's first child"
-    assert_equal %w[pr-1.5 md:pr-0], row["class"].split & %w[pr-1.5 md:pr-0], "the phone keeps 6px, desktop none"
-    refute_match(/padding-right/, row["style"].to_s, "an inline padding would beat md:pr-0")
-    avatar = css_select("#{HEADER} [data-turf-nav-avatar]").first
-    assert_equal %w[ml-3 md:ml-1], avatar["class"].split & %w[ml-3 md:ml-1], "gap-2 (8px) + md:ml-1 (4px) = the hub's 12px"
   end
 
   test "the nav row stops at the page container, so the avatar sits on the content's right edge" do

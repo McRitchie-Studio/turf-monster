@@ -13,7 +13,9 @@ require "test_helper"
 #    logged-out visitor would lose NFL Totals entirely if the footer did not
 #    carry it — which is a page vanishing from the site, not a layout tweak.
 class NavbarBrandTest < ActionView::TestCase
-  NAVBAR = Rails.root.join("app/views/layouts/_navbar.html.erb")
+  # The navbar is studio-engine's (/tasks/turf-readopts-engine-navbar). Its
+  # brand and links are declared in config/initializers/studio.rb and drawn by
+  # the engine's layouts/_navbar, which these render where they read markup.
   # The footer is the engine's site footer now; its links are declared as
   # facts in the initializer (config.site_footer), not drawn in a partial.
   FOOTER = Rails.root.join("config/initializers/studio.rb")
@@ -27,11 +29,16 @@ class NavbarBrandTest < ActionView::TestCase
   # --- the wordmark -----------------------------------------------------------
 
   test "the wordmark reads Turf Monster" do
-    src = NAVBAR.read
+    brand = Studio.navbar_brand
+    words = brand.fetch(:words).map { |word| word[:text] }
 
-    assert_includes src, ">Monster</span>", "the wordmark's second half must read Monster"
-    refute_includes src, ">Totals</span>", "no half of the wordmark may still say Totals"
-    assert_includes src, 'alt="Turf Monster"', "the logo's alt text is brand copy too"
+    assert_equal %w[Turf Monster], words, "the wordmark's halves must read Turf and Monster"
+    refute_includes words, "Totals", "no half of the wordmark may still say Totals"
+    assert_equal "Turf Monster", brand[:alt], "the logo's alt text is brand copy too"
+
+    html = ApplicationController.render(partial: "layouts/navbar", locals: { show_logged_in: false, preview: true })
+    assert_includes html, ">Monster</span>", "the engine draws the declared words"
+    assert_includes html, 'alt="Turf Monster"'
   end
 
   test "the game mode keeps its name" do
@@ -69,17 +76,18 @@ class NavbarBrandTest < ActionView::TestCase
   # mobile sub-navbar), and a repoint that moved only the one you looked at is
   # exactly the miss an assert_includes sails past.
   #
-  # THE LINKS ARE ONE DECLARATION NOW (Studio.navbar_links in the initializer,
-  # studio-engine 0.113.0), drawn by the fork in both rows. So the count moved
-  # from the link literal to the loop: the declaration must name the NFL page,
-  # and the fork must draw the declared links in BOTH rows.
+  # THE LINKS ARE ONE DECLARATION NOW (Studio.navbar_links in the initializer),
+  # drawn by the engine navbar in both rows. So the count moved from the link
+  # literal to the render: the declaration must name the NFL page, and the
+  # rendered bar must carry it in BOTH rows.
   test "both Rules links point at the season being played" do
     rules = navbar_links.select { |link| link[:label] == "Rules" }
 
     assert_equal [ view.turf_monster_v1_path ], rules.map { |link| link[:href] },
                  "the bar's one Rules declaration must point at the NFL rules page"
-    assert_equal 2, NAVBAR.read.scan(/studio_navbar_links\.each/).size,
-                 "the fork must draw the declared links twice: desktop nav AND mobile sub-navbar"
+    html = ApplicationController.render(partial: "layouts/navbar", locals: { show_logged_in: false, preview: true })
+    assert_equal 2, Nokogiri::HTML5.fragment(html).css("a[href='#{view.turf_monster_v1_path}']").size,
+                 "the declared Rules link renders twice: desktop nav AND mobile sub-navbar"
   end
 
   def navbar_links
