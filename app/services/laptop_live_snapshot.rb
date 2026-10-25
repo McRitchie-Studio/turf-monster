@@ -289,6 +289,11 @@ class LaptopLiveSnapshot
     header["style"] = "--nav-p: 1; #{header['style']}".strip
     header["class"] = [header["class"], SCROLLED_NAV_CLASSES].compact.join(" ")
     header.remove_attribute("data-navbar-root")
+    # studio-engine's navbar (this app's since /tasks/turf-readopts-engine-navbar)
+    # marks even a preview header data-pin="nav", and studio/pinned_stack reads
+    # every [data-pin] on the page, so the picture would join the page's pinned
+    # stack as a second nav layer and answer for the real header's edge.
+    header.remove_attribute("data-pin")
     header["data-test"] = "laptop-navbar"
   end
 
