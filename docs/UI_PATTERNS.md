@@ -71,7 +71,8 @@ the private `amazon` services, whose `.url` is a signature that expires.
 A contest banner (`Contest#contest_image`) is a normal private attachment that
 also has to unfurl, and moving every existing banner into a public bucket to get
 that is the wrong trade. Instead `OgHelper#contest_og_image_url` hands out
-`rails_storage_proxy_url(... .variant(:og_card))` — the representation **proxy**
+`rails_storage_proxy_url(... .variant(:og_card))` and the lobby card renders
+`.variant(:card)` (768x288, 2x its banner box) through the representation **proxy**
 route, which is permanent (the signed blob id carries no expiry), lives on our
 own domain, and streams from the same private bucket. Use the proxy route, never
 `rails_storage_redirect_url`, which hands back the expiring service URL this
