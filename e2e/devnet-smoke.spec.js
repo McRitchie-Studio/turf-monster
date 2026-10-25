@@ -23,8 +23,8 @@ const RUNNER_OPTS = { cwd: process.cwd(), timeout: 15000, stdio: "pipe", env: { 
  *     (see e2e/keypair-provider.js)
  *   - MACK_DEVNET_KEY env var set to Mack's devnet wallet's base58-encoded private
  *     key: 1Password `solana.mack.agent` (vault studio-agents, field private-key),
- *     public key 8UwJhRiN…ZSnowW. No CI workflow runs this spec (Devnet Nightly was
- *     deleted, turf-devnet-config-truth); run it by hand. The spec skips without it.
+ *     public key 8UwJhRiN…ZSnowW. No CI workflow runs this spec
+ *     (Devnet Nightly was deleted, turf-devnet-config-truth); run it by hand. The spec skips without it.
  *     NEVER paste a key into this file: turf-monster is a public repository, and
  *     test/lib/committed_secret_key_guard_test.rb fails CI on any committed
  *     Solana secret key. The previous Mack key (foUu…) sat here as a literal

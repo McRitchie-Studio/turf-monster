@@ -11,7 +11,8 @@ require "test_helper"
 class DockerfileBuildEnvTest < ActiveSupport::TestCase
   DOCKERFILE = Rails.root.join("Dockerfile")
   BOOT_GUARDED = (StorageBackend::R2_VARIABLES +
-                  %w[MANAGED_WALLET_ENCRYPTION_KEY SOLANA_PROGRAM_ID SOLANA_RPC_URL SOLANA_NETWORK]).freeze
+                  %w[MANAGED_WALLET_ENCRYPTION_KEY SOLANA_PROGRAM_ID SOLANA_RPC_URL SOLANA_NETWORK
+                     SOLANA_MULTISIG_COSIGNER]).freeze
 
   test "the precompile line names a placeholder for every variable a production boot requires" do
     assert_equal BOOT_GUARDED.sort, (precompile_env.keys & BOOT_GUARDED).sort

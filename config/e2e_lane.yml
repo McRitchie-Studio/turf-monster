@@ -1303,8 +1303,8 @@ total_specs: 521
 # `--grep-invert "@devnet"` because they need funded devnet wallets: the secrets
 # SOLANA_BOT_KEY and MACK_DEVNET_KEY (never literals; test/lib/committed_secret_key_guard_test.rb).
 #
-# ⚠️ NO WORKFLOW RUNS THESE. The Devnet Nightly workflow never ran on schedule (161 of 162
-# runs skipped) and was deleted (turf-devnet-config-truth); they run by hand per
+# ⚠️ NO WORKFLOW RUNS THESE. The Devnet Nightly workflow was deleted (turf-devnet-config-truth)
+# after it never ran on schedule (161 of 162 runs skipped); they run by hand per
 # e2e/DEVNET_RUNBOOK.md, and the devnet signal is the per-release contest-rehearsal
 # gauntlet (docs/SOLANA.md). What this
 # file does is make the hole VISIBLE and pinned to its exact size, so widening the

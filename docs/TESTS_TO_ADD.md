@@ -6,7 +6,7 @@
 
 > **Status (2026-05-23):**
 > - **Priority 1** (Vault client boundary ~20 tests) — ⏳ **NOT STARTED at Rails unit level.** `test/services/solana/vault_test.rb` does not exist yet. Devnet smoke spec (`e2e/devnet-smoke.spec.js`, ~890 lines) covers happy paths end-to-end at the Playwright level, but Rails unit coverage for edge cases (insufficient selected currency, locked contest, lamports-for-rent shortfall, sync of non-existent PDA/ATA) is still missing.
-> - **Priority 2** (Reconciler ~15 tests) — ⏳ **NOT STARTED.** `test/services/solana/reconciler_test.rb` does not exist. The Sidekiq-cron job is wired and writes to `ErrorLog` / `RECONCILER_ALERT_WEBHOOK`, but divergence-detection logic is not unit-tested.
+> - **Priority 2** (Reconciler ~15 tests) — ⏳ **NOT STARTED.** `test/services/solana/reconciler_test.rb` does not exist. The reconciler runs by hand (`bin/rails solana:reconcile`; its cron was removed under OPSEC-040) and writes each discrepancy to `ErrorLog` (`app/services/solana/reconciler.rb`, `log_discrepancies`); no webhook is wired. Divergence-detection logic is not unit-tested.
 > - **Priority 3+** (Contest grading, settlement, edge cases) — ⏳ **PARTIAL.** `test/models/contest_test.rb` exists but doesn't cover all listed scenarios. Devnet smoke spec covers grade-then-settle end-to-end.
 > - Devnet integration tests are tracked separately in [`DEVNET_INTEGRATION_TESTS_TO_ADD.md`](DEVNET_INTEGRATION_TESTS_TO_ADD.md).
 >
