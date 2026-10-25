@@ -1,0 +1,6 @@
+# Beside alpine_and_inline_script_ceilings.yml. remote_script_integrity_ceiling_test.rb
+# counts every remote script this app's own source loads (app/views, app/javascript)
+# without an integrity attribute, less the named exemptions there. It is zero, and
+# stays zero: a remote script ships with its SRI pin or is vendored.
+---
+remote_script_without_integrity: 0

@@ -4,11 +4,11 @@
 # loads:
 #   - Phantom wallet from injected window object (no external script)
 #   - YouTube (privacy-mode) player iframe for the wallet-setup explainer video
-#   - Solana web3 and tweetnacl via CDN (script-src https:)
+#   - Solana web3 and tweetnacl via CDN (named by file in RemoteScriptSources)
 #   - Stripe Checkout redirect (form POST to checkout.stripe.com — needs a form-action entry)
 #   - Google OAuth (OmniAuth google_oauth2 form POST to accounts.google.com — needs a form-action entry)
-#   - PayPal JS SDK when PAYMENT_PROVIDER=paypal (script-src :https covers the
-#     SDK itself; the button + checkout/QR overlay iframes need frame-src
+#   - PayPal JS SDK when PAYMENT_PROVIDER=paypal (script-src names PayPal's
+#     hosts, RemoteScriptSources; the button + checkout/QR overlay iframes need frame-src
 #     entries for *.paypal.com and *.venmo.com — added conditionally below so
 #     Stripe-provider deploys serve byte-identical headers)
 #   - Transactional email providers are server-side only
@@ -19,6 +19,47 @@
 # (SigningCsp, app/controllers/concerns/signing_csp.rb). Report-only in dev
 # so we surface accidental violations without blocking; enforced in
 # production.
+
+# EVERY REMOTE SCRIPT THIS APP LOADS, for the app policy's script-src. It
+# replaced https:, which let an injected <script src> load anything from any
+# host. A host missing here blocks its script in production, and QA runs this
+# policy report-only, so QA will not see the block:
+# test/integration/app_script_src_test.rb asserts the header, and its census
+# fails when a view, app/javascript or a locked gem's view names a remote
+# script this list does not.
+#
+# Named by FILE where the host mirrors every npm package (cdn.jsdelivr.net,
+# unpkg.com, cdnjs.cloudflare.com), as signing_script_src below does; a bare
+# host there would admit any package. By host where the vendor serves only its
+# own code. Chart.js and SortableJS are vendored and load from 'self'.
+module RemoteScriptSources
+  ALWAYS = [
+    # layouts/application (SRI-pinned), app/javascript/wallet_provider.js's
+    # lazy load, solana-studio's solana_studio/_deeplink_assets (not rendered
+    # here, same file).
+    "https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js",
+    # layouts/application (SRI-pinned).
+    "https://unpkg.com/@solana/web3.js@1.98.4/lib/index.iife.min.js",
+    # studio-engine's studio/_cropper_assets: accounts/show, contests/new and
+    # edit, admin/landing_pages/_form.
+    "https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js",
+    # LogRocket, layouts/application, signed-in production only. LogRocket.min.js
+    # loads its recorder (logger.min.js) from the origin it was itself served
+    # from, so the one host covers both.
+    "https://cdn.logr-in.com"
+  ].freeze
+
+  # tokens/_paypal_sdk injects https://www.paypal.com/sdk/js; the SDK then
+  # loads its fraud script from c.paypal.com, its components from
+  # www.paypalobjects.com and, with enable-funding=venmo, Venmo's from
+  # *.venmo.com. PayPal's CSP guidance (developer.paypal.com/sdk/js/csp)
+  # names all three wildcards for script-src.
+  PAYPAL = [ "https://*.paypal.com", "https://*.paypalobjects.com", "https://*.venmo.com" ].freeze
+
+  def self.for(paypal:)
+    paypal ? ALWAYS + PAYPAL : ALWAYS
+  end
+end
 
 Rails.application.configure do
   # ENV read directly (not Payments / config.x.payment_provider): initializers
@@ -43,7 +84,7 @@ Rails.application.configure do
     policy.font_src    :self, :https, :data
     policy.img_src     :self, :https, :data, :blob
     policy.object_src  :none
-    policy.script_src  :self, :https, :unsafe_inline, :unsafe_eval
+    policy.script_src  :self, *RemoteScriptSources.for(paypal: paypal_provider), :unsafe_inline, :unsafe_eval
     policy.style_src   :self, :https, :unsafe_inline
     policy.connect_src :self, :https, :wss   # XHR + Solana RPC + websockets
     policy.worker_src  :self, :blob          # canvas-confetti + LogRocket spawn Web Workers from blob: URLs (default_src has no blob → blocked in prod)

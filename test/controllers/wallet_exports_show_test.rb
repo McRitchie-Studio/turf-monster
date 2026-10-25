@@ -1,4 +1,5 @@
 require "test_helper"
+require "minitest/mock"
 
 # Lazarus audit #2 (2026-05-31): the wallet-export reveal page renders a
 # decrypted private key into the DOM. It must never load third-party session
@@ -31,6 +32,20 @@ class WalletExportsShowTest < ActionDispatch::IntegrationTest
     # ...but a page holding a private key must not ship it to LogRocket.
     assert_no_match %r{logr-in\.com}, response.body, "LogRocket must not load on the key-reveal page"
     assert_no_match(/LogRocket\.identify/, response.body)
+  end
+
+  # The control the test above cannot be: outside production nobody loads
+  # replay, so its absence there proves nothing. Signed in, with the replay
+  # environment answered as production, the layout would load LogRocket on any
+  # other page (session_replay_layout_test.rb); the reveal page still does not.
+  test "a signed-in owner in production still loads no session replay on the reveal page" do
+    log_in_as(@managed)
+    ApplicationHelper.stub(:session_replay_environment?, true) do
+      get wallet_export_path(token: @token)
+    end
+    assert_response :success
+    assert_not response.body.include?("logr-in.com"), "LogRocket must not load on the key-reveal page"
+    assert_not response.body.include?("LogRocket.identify"), "LogRocket.identify must not render on the key-reveal page"
   end
 
   test "secret-key blocks are marked data-private for replay redaction" do

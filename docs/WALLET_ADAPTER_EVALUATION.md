@@ -95,7 +95,7 @@ and studio-engine owns the page a wallet returns to.
 | Callback page: `walletOps` resume dispatch, plus the legacy sign-in branch with its **own** base58 decoder and nacl decrypt | `studio-engine: app/views/solana_sessions/phantom_callback.html.erb#hasResumer,b58decode` | 406 |
 | `window.tmWalletOp`: return address, cluster, handoff watch, and the way back | `app/views/shared/_wallet_op_runner.html.erb:49` (`CALLBACK_PATH`), `:163` (`watchHandoff`), `:233` (`window.tmWalletOp`) | 319 (re-measured 2026-09-13) |
 | Intents: entry, create + bundle, rename | `app/views/shared/_contest_entry_intent.html.erb`, `_contest_create_intent.html.erb`, `_username_rename_intent.html.erb` | 435 / 201 / 307 (entry re-measured 2026-09-20, 70 lines lighter since the `redirectLink` default was retired; the other two 2026-09-13) |
-| Provider registry, inline codec, mobile `detect()` | `app/javascript/wallet_provider.js:83` (`INLINE_TX_CODEC`), `:516` (`detect`), `:698` (`requireInlineProvider`) | 708 (re-measured 2026-09-15) |
+| Provider registry, inline codec, mobile `detect()` | `app/javascript/wallet_provider.js:83` (`INLINE_TX_CODEC`), `:520` (`detect`), `:702` (`requireInlineProvider`) | 712 (re-measured 2026-10-24) |
 | Stand-in wallet + its spec | `e2e/stub-wallet.js`, `e2e/stub_wallet_round_trip.spec.js` | 498 / 607 (re-measured 2026-09-13) |
 
 **Totals.** The gem's four transport files come to **1,428 lines** in 0.9.3.
@@ -111,7 +111,7 @@ this app needs costs a floor bump.
 
 **Two of the three vendor dialects never run here.** `detect()` returns
 `redirectProvider.forWallet('phantom')` on every phone
-(`app/javascript/wallet_provider.js:548`), and its own comment says why. The
+(`app/javascript/wallet_provider.js:552`), and its own comment says why. The
 wallet picker offers Solflare and Backpack only as a **browse handoff** into
 their in-app browsers
 (`solana-studio: app/views/solana_studio/modals/_wallet_connect.html.erb#openInWallet`).
@@ -288,7 +288,7 @@ deprecated. And our own round trip completed on a QA iPhone (per
 | Constraint | Ours | MWA (Android) | Phantom Connect | AppKit |
 |---|---|---|---|---|
 | **1. No key-bearing credential in `localStorage`.** The export flow signs a message carrying the token that guards the decrypted-key page (`WalletExportsController.prove_message`, `app/controllers/wallet_exports_controller.rb:94-99`; reasons at `app/views/wallet_exports/show.html.erb:129-177`). | ✅ The journal holds the dapp's ephemeral secret and the unsigned transaction, neither key-bearing (architecture doc §4). Export stays inline. ⚠ **0.10.0 adds a session record with no expiry**, and its own comment says nothing calls `purge()` yet while turf sweeps only `phantom_dl_`. | ✅ The page survives, so nothing needs journalling. This could even let export sign on Android without persisting the challenge — moot for export, which Mr. McRitchie made unsupported on a phone browser by design on 2026-09-10 (see the architecture doc). The default authorization cache stores a wallet auth token (location **unverified**). | ⚠ depends on `@phantom/indexed-db-stamper` (npm deps); what it stores is **unverified** | ⚠ WalletConnect keeps session keys client-side (storage **unverified**) |
-| **2. Session replay stays suppressed on every page a sensitive hop lands on.** Only `WalletExportsController#harden_secret_response` suppresses it (`app/controllers/wallet_exports_controller.rb:109`); `session_replay_active?` is otherwise true in production (`app/helpers/application_helper.rb:148-150`). | ✅ for transactions. The callback runs with replay **on**, which is why export must never cross it. | ✅ no landing page | ⚠ its auth redirect lands on a page we choose; the page must suppress replay if it carries anything sensitive | ✅ for WalletConnect; the in-app browser path is our inline path |
+| **2. Session replay stays suppressed on every page a sensitive hop lands on.** Only `WalletExportsController#harden_secret_response` suppresses it (`app/controllers/wallet_exports_controller.rb:109`); `session_replay_active?` is otherwise true in production for a signed-in user (`app/helpers/application_helper.rb:151-153`). | ✅ for transactions. The callback runs with replay **on**, which is why export must never cross it. | ✅ no landing page | ⚠ its auth redirect lands on a page we choose; the page must suppress replay if it carries anything sensitive | ✅ for WalletConnect; the in-app browser path is our inline path |
 | **3. Contest entry keeps its server-held `ptx_slug` model.** The wallet signs only; the server cosigns and broadcasts. | ✅ | ⚠ the library exposes `solana:signTransaction` (0.6.0 `lib/esm/index.js`), but spec 2.0 lists `sign_transactions` as deprecated. Whether Phantom and Solflare keep answering it is **unverified**. | ❌ "Phantom embedded wallets do not accept pre-signed transactions." A second signer must go through `presignTransaction` on `signAndSendTransaction`. The server would sign **before** the user and lose the look at the signed bytes before broadcast. | ✅ for Phantom and Solflare (in-app browser, inline path); **unverified** for Backpack over WalletConnect |
 
 ---
@@ -301,7 +301,7 @@ deprecated. And our own round trip completed on a QA iPhone (per
 | Intents (`prepare` / `complete`) | unchanged | unchanged | unchanged | `complete` rewritten: Phantom broadcasts |
 | Resume wrapper around `walletOps.resume` | **retired 2026-09-20** — solana-studio journals `redirectLink` in `beginConnect` from 0.9.3 and the Gemfile floor is now `>= 0.12.0`, so this piece no longer exists in any column | — | — | — |
 | Journal + engine callback page | unchanged | stay for iOS | droppable, but only by accepting the iOS downgrade above | stay (auth redirect) |
-| `detect()` ordering (`wallet_provider.js:516-551`) | unchanged | must prefer MWA over `forWallet('phantom')` on Android Chrome | replaced | replaced |
+| `detect()` ordering (`wallet_provider.js:520-555`) | unchanged | must prefer MWA over `forWallet('phantom')` on Android Chrome | replaced | replaced |
 | e2e stub | unchanged | a **new** harness: MWA talks over a local WebSocket, which `context.route` cannot intercept (**unverified** how to stub) | new relay stub | new stub |
 | Server (`prepare_entry` / `confirm_onchain_entry`) | unchanged | unchanged | unchanged | cosign moves before the user's signature; confirm becomes reconcile-by-signature |
 | Vendor accounts | none | none | Reown project ID | Phantom Portal app + verified domain |
@@ -332,9 +332,11 @@ header, an importmap pointing at jsdelivr's `+esm` build, and one call to
 | iPhone Safari (UA swap) | ✅ | 0 | `[]` | 58 |
 
 **What it proves:** the library loads and gates itself on the platform, and
-our CSP admits it. `script_src` already allows `:https`
-(`config/initializers/content_security_policy.rb:46`), and `connect_src` allows
-`:https` and `:wss` (`:48`). 58 module requests is too many
+our CSP admitted it then, when `script_src` allowed `:https`. It no longer
+does: turf-vendors-cdn-scripts replaced `:https` with each named remote source
+(`config/initializers/content_security_policy.rb:87`), so loading the library from
+a CDN now needs its source added to `RemoteScriptSources`. `connect_src` still
+allows `:https` and `:wss` (`:89`). 58 module requests is too many
 for production, where it would be vendored with `bin/importmap pin --download`
 (not tested). **It does not prove** a signing round trip. That needs an Android
 device with Phantom or Solflare.

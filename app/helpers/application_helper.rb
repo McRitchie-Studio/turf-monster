@@ -140,13 +140,22 @@ module ApplicationHelper
   end
 
   # Whether to load LogRocket session replay on this request. Replay runs only
-  # in production AND never on pages that render secrets — a controller marks
-  # those by setting @suppress_session_replay (see WalletExportsController).
-  # The wallet-export reveal page renders a decrypted private key into the DOM;
-  # without this gate LogRocket would stream that key (and the user's email via
-  # identify()) to a third party (Lazarus audit #2, 2026-05-31).
+  # in production, only for a signed-in user, AND never on pages that render
+  # secrets — a controller marks those by setting @suppress_session_replay (see
+  # WalletExportsController). The wallet-export reveal page renders a decrypted
+  # private key into the DOM; without this gate LogRocket would stream that key
+  # (and the user's email via identify()) to a third party (Lazarus audit #2,
+  # 2026-05-31). An anonymous visitor loads no LogRocket at all: replay is for
+  # diagnosing a player's session, and the recorder is a third-party script
+  # with no integrity pin (turf-vendors-cdn-scripts).
   def session_replay_active?
-    Rails.env.production? && !@suppress_session_replay
+    ApplicationHelper.session_replay_environment? && logged_in? && !@suppress_session_replay
+  end
+
+  # Replay records production only. A module method so a request test can
+  # answer it for one render without stubbing Rails.env for the whole app.
+  def self.session_replay_environment?
+    Rails.env.production?
   end
 
   # --- LogRocket deep links (admin dashboard) ---
