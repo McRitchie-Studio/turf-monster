@@ -22,6 +22,12 @@ pin "cdp_offramp_send"
 pin "page_experiments"
 pin "nav_band_watch"
 
+# The request wrappers studio-engine's cards borrow by name (the newsletter cards
+# name authedFetch). The engine pins "studio/host_fetchers" to an empty module;
+# this map is drawn after the engine's, so this pin wins. Imported on the first
+# press that needs it, so it is not preloaded. app/javascript/host_fetchers.js.
+pin "studio/host_fetchers", to: "host_fetchers.js", preload: false
+
 # Turf's Stimulus application (turf_stimulus) runs on every page. Every file
 # under controllers/ and turf/ (their logic modules) is pinned. Only a module
 # turf_stimulus imports statically is preloaded, and it is listed in
