@@ -2030,10 +2030,10 @@
           registrations above cannot drift apart from each other — nor from any
           future second list, which is what the helper was written for when
           layouts/modal_preview kept one. %>
-      <template x-if="$store.modals.current().id === 'onboarding' && !$store.modals.current().props.required">
+      <template x-if="$store.modals.current().id === 'onboarding' && !($store.modals.current().props || {}).required">
         <%= render "studio/modals/onboarding/first_name", **first_name_modal_locals %>
       </template>
-      <template x-if="$store.modals.current().id === 'onboarding' && !!$store.modals.current().props.required">
+      <template x-if="$store.modals.current().id === 'onboarding' && !!($store.modals.current().props || {}).required">
         <%= render "studio/modals/onboarding/first_name", **first_name_modal_locals(required: true) %>
       </template>
       <template x-if="$store.modals.current().id === 'wallet-setup'">

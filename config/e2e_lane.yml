@@ -1312,7 +1312,12 @@
 # /, /contests and /getting-started at 1280 and 390, logged out. Axe is what the audit
 # saw fail, and axe runs only in a browser. Runs in chromium, no skip, so excluded holds
 # at 17 and allowed_skips at 4. Derived with bin/e2e-lane-derive --write.
-total_specs: 529
+# 529 -> 535 (turf-readopts-engine-modals): e2e/engine_modal_readoption.spec.js, six specs
+# for the nine cards Turf now renders from studio-engine 0.114.0 — open, focus trap and
+# Escape at 390 and 1280, the rate-limit countdown's auto-close, the email-change Got it,
+# and the newsletter join and leave through the engine's JSON mode. Chromium, no skip, so
+# excluded holds at 17 and allowed_skips at 4.
+total_specs: 535
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need funded devnet wallets: the secrets
 # SOLANA_BOT_KEY and MACK_DEVNET_KEY (never literals; test/lib/committed_secret_key_guard_test.rb).
@@ -1718,7 +1723,9 @@ allowed_skips: 4
 # total_specs above; chromium, no skip.
 # 502 -> 508 (turf-every-visitor-lang-main-cache): the six axe lang and main specs beside
 # total_specs above; chromium, no skip.
-executed: 508
+# 508 -> 514 (turf-readopts-engine-modals): the six engine-modal readoption specs beside
+# total_specs above; chromium, no skip.
+executed: 514
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

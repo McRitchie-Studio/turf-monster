@@ -3,7 +3,7 @@
 # the value to paste when one moves.
 ---
 admin:
-  x_data: 12
+  x_data: 11
   x_show: 8
   x_if: 8
   x_for: 3
