@@ -206,9 +206,9 @@ class Contest < ApplicationRecord
   # the newest open row — which is how "/" came to land a visitor on a contest
   # it was advertising rather than one they could enter. The two automatic rungs
   # filter it out, and a cancelled one (status stays open), and fall through to
-  # the newest playable contest. The pin is left alone on purpose: an admin picking a specific
+  # the newest playable contest. A coming-soon pin is honored on purpose: an admin picking a specific
   # contest at /admin/dashboard is deliberately advertising it, and that choice
-  # outranks this rule.
+  # outranks this rule. A CANCELLED pin falls through: cancelled is terminal and nobody can enter it.
   #
   # THE FILTER BELONGS IN THE QUERY, NOT AFTER IT. Post-filtering the row a rung
   # returned (`row unless row.coming_soon?`) reads the same and is not: it sends
@@ -221,7 +221,7 @@ class Contest < ApplicationRecord
   # exactly the query written here — so the indirection hid where the filter
   # belongs without changing which contest came back.
   def self.featured
-    SeasonConfig.main_contest_explicit ||
+    SeasonConfig.main_contest_explicit.then { |pin| pin unless pin&.cancelled? } ||
       where(status: :open, coming_soon: false, onchain_cancelled: false).order(created_at: :desc).first ||
       where(status: LISTED_STATUSES, coming_soon: false, onchain_cancelled: false).order(created_at: :desc).first
   end

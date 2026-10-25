@@ -102,6 +102,15 @@ class MainContestCallSitesTest < ActionDispatch::IntegrationTest
     assert_equal pinned, Contest.featured
   end
 
+  test "featured falls through an admin pin on a cancelled contest" do
+    pinned = build_contest("Pinned Dead", status: :open, created_at: 30.days.ago)
+    newer  = build_contest("Newer Open", status: :open, created_at: 1.day.ago)
+    pinned.update_columns(onchain_cancelled: true)
+    SeasonConfig.set_main_contest!(pinned)
+
+    assert_equal newer, Contest.featured
+  end
+
   # --- /account referral widget ---
 
   test "GET /account uses SeasonConfig.main_contest for the share widget" do
