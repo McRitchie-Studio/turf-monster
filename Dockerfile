@@ -57,6 +57,7 @@ RUN SECRET_KEY_BASE_DUMMY=1 \
     R2_SECRET_ACCESS_KEY=build-time R2_PUBLIC_URL=https://build-time.invalid \
     MANAGED_WALLET_ENCRYPTION_KEY=build-time \
     SOLANA_PROGRAM_ID=build-time SOLANA_RPC_URL=https://build-time.invalid SOLANA_NETWORK=build-time \
+    SOLANA_MULTISIG_COSIGNER=build-time \
     ./bin/rails assets:precompile
 
 
