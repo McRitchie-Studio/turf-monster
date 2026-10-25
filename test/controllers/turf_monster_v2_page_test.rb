@@ -94,7 +94,8 @@ class TurfMonsterV2PageTest < ActionDispatch::IntegrationTest
       get turf_monster_v2_path
       live = page_node.css('[data-test="v2-live"]').first
       refute_match(/display:\s*none/, live["style"].to_s)
-      assert_equal "NFL Turf Monster: Weeks 8–10 Contest is live", live.at_css("h2").text.strip
+      # "is live" is bound with a no-break space so the verb never wraps alone.
+      assert_equal "NFL Turf Monster: Weeks 8–10 Contest is\u00A0live", live.at_css("h2").text.strip
       assert live.css(%(a[href="#{contest_path(contest)}"])).any?, "Play now goes straight to the open contest"
       refute_includes section_text("v2-notify"), NextSlateDrop::LABEL, "the shipped slate's countdown is not drawn at all"
       refute_includes section_text("v2-hero"), "Get notified", "the hero stops promising a notification once the slate is out"

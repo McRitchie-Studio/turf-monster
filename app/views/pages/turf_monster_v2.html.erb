@@ -288,7 +288,7 @@
     <% live_contest = @next_contest&.contest %>
     <div x-show="dropped" <%= 'style="display: none;"'.html_safe unless dropped %> data-test="v2-live">
       <% if live_contest %>
-        <h2 class="text-3xl md:text-4xl font-bold text-heading mb-3"><%= live_contest.name %> is live</h2>
+        <h2 class="text-3xl md:text-4xl font-bold text-heading mb-3"><%= live_contest.name %> is&nbsp;live</h2>
         <p class="text-secondary mb-8">The board is open. Pick your 6 teams before the contest locks.</p>
         <%= link_to "Play now", contest_path(live_contest), class: "btn btn-primary btn-lg shadow-lg shadow-primary/20 text-lg" %>
       <% else %>
