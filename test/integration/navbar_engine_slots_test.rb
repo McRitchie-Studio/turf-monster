@@ -58,6 +58,51 @@ class NavbarEngineSlotsTest < ActionDispatch::IntegrationTest
     end
   end
 
+  # OPSEC-046. A navbar_header_bars callable that raises drops EVERY bar for that
+  # render (README "Header bars"), the impersonation escape with it, so Turf's
+  # guards each lookup on its own. A lookup that fails loses only its own bar.
+  test "the header-bars callable never raises, and one failing lookup keeps the other bar" do
+    view = Object.new
+    def view.impersonating? = raise(ActiveRecord::ConnectionNotEstablished, "lookup failed")
+    def view.account_frozen? = true
+
+    bars = nil
+    assert_nothing_raised { bars = Studio.navbar_header_bars.call(view) }
+    assert_equal [ "shared/frozen_account_banner" ], bars,
+                 "the frozen bar survives a failing impersonation lookup"
+
+    bare = Object.new # a view whose controller has neither helper
+    assert_equal [], Studio.navbar_header_bars.call(bare)
+  end
+
+  test "the impersonation bar is the engine's, with Turf's escape path" do
+    admin = users(:alex)
+    player = users(:jordan)
+    [ admin, player ].each { |u| u.update_column(:slug, u.send(:name_slug)) }
+    log_in_as(admin)
+    post admin_impersonate_path(player.slug)
+
+    get contests_path
+    assert_select "#{HEADER} > [data-nav-header-bars]", 1 do
+      assert_select "form[action=?] button[data-studio-banner-button]", admin_stop_impersonating_path, 1
+      assert_select "input[name=_method][value=delete]", 1, "a JS-free native DELETE, as OPSEC-046 asks"
+    end
+  end
+
+  test "the engine's link sidebar stays off: the gear sidebar is the one menu" do
+    log_in_as(users(:alex))
+    get contests_path
+    assert_select "#studio-link-sidebar, #studio-link-sidebar-mobile, [data-link-sidebar-trigger]", 0
+    assert_select "#{HEADER} [data-gear-sidebar-trigger]", 2, "the rail and the phone row"
+    assert_select "##{GearSidebarPanels::DESKTOP}, ##{GearSidebarPanels::MOBILE}", 2
+  end
+
+  test "signed out, one Sign in, and it opens the auth modal" do
+    get contests_path
+    assert_select "#{HEADER} a[data-nav-signed-out-cta][data-nav-cta-modal=auth][aria-haspopup=dialog][href=?]", signin_path, 1
+    assert_select "#{HEADER} [data-nav-sign-in]", 0, "sign_in_link: false: no second sign-in link"
+  end
+
   test "emptying a slot empties the bar: the engine reads the settings" do
     items, badge, links = Studio.navbar_items, Studio.navbar_avatar_badge, Studio.navbar_links
     Studio.navbar_items = []

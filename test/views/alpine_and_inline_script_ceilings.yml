@@ -18,7 +18,7 @@ admin:
   x_transition: 0
   x_effect: 1
   x_other: 0
-  alpine_api: 13
+  alpine_api: 12
   inline_script: 9
   inline_handler: 0
 entry:
@@ -60,19 +60,19 @@ board:
   inline_script: 12
   inline_handler: 0
 marketing:
-  x_data: 8
-  x_show: 13
+  x_data: 6
+  x_show: 12
   x_if: 35
   x_for: 2
   x_model: 0
   x_text: 11
   x_html: 0
-  x_bind: 23
-  x_on: 23
+  x_bind: 20
+  x_on: 16
   x_init: 1
   x_ref: 3
-  x_cloak: 6
-  x_transition: 6
+  x_cloak: 5
+  x_transition: 0
   x_effect: 0
   x_other: 1
   alpine_api: 29
