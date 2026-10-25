@@ -24,6 +24,10 @@ Rails.application.configure do
   # Disable serving static files from `public/`, relying on NGINX/Apache to do so instead.
   # config.public_file_server.enabled = false
 
+  # A week for the unfingerprinted files under public/ (logo, icons, manifest);
+  # DigestedAssetCache (lib/digested_asset_cache.rb) raises /assets/* to a year.
+  config.public_file_server.headers = { "cache-control" => "public, max-age=#{1.week.to_i}" }
+
   # Compress CSS using a preprocessor.
   # config.assets.css_compressor = :sass
 

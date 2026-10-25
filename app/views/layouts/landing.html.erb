@@ -23,6 +23,8 @@
     <%# relative z-20: the funnel backgrounds are position:fixed at z-index 0 and
         the splash is relative z-10, so an unpositioned banner paints under both. %>
     <% if account_frozen? %><div class="relative z-20" data-frozen-banner-layer><%= render "shared/frozen_account_banner" %></div><% end %>
-    <%= yield %>
+    <main>
+      <%= yield %>
+    </main>
   </body>
 </html>
