@@ -71,7 +71,7 @@ pre-PayPal main will flag contest pages even with the flag off.
 | Pack card select mode | `tokens/_pack_button` `select_js:`/`selected_expr:` locals (same orb-glow card, no checkout form) |
 | Auth-modal picker branch | `app/views/modals/auth/_tokens.html.erb` (`tokens-picker` step) |
 | Capture → wizard hand-off | `paypal-order-captured` window event → selectionBoard listener (`contests/_turf_totals_board.html.erb`) advances to `tokens-confirming` and runs `pollTokenStatus(orderId, 'order_id')` |
-| CSP | `config/initializers/content_security_policy.rb` adds `*.paypal.com` / `*.venmo.com` frame-src, `https://*.paypal.com` and `https://*.paypalobjects.com` to the app policy's script-src (`RemoteScriptSources::PAYPAL`: the SDK, its `c.paypal.com` fraud script and its component bundles), and `https://www.paypal.com` to the signing pages' script-src, only when `PAYMENT_PROVIDER=paypal` |
+| CSP | `config/initializers/content_security_policy.rb` adds `*.paypal.com` / `*.venmo.com` frame-src, `https://*.paypal.com`, `https://*.paypalobjects.com` and `https://*.venmo.com` to the app policy's script-src (`RemoteScriptSources::PAYPAL`: the SDK, its `c.paypal.com` fraud script, its component bundles and Venmo's funding scripts), and `https://www.paypal.com` to the signing pages' script-src, only when `PAYMENT_PROVIDER=paypal` |
 
 Flow: pack card selects → standalone Venmo (primary) / PayPal button →
 `createOrder` POSTs `/tokens/paypal_order` (server derives the amount from the
