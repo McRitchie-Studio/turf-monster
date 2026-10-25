@@ -6,7 +6,7 @@
         class="flex text-secondary hover:text-heading transition"
         title="<%= current_user.admin? ? 'Admin' : 'Settings' %>"
         aria-label="<%= current_user.admin? ? 'Toggle admin menu' : 'Toggle settings menu' %>"
-        aria-controls="gear-sidebar gear-sidebar-mobile"
+        aria-controls="<%= GearSidebarPanels::CONTROLS %>"
         aria-haspopup="dialog"
         :aria-expanded="$store.sidebars && $store.sidebars.gearOpen ? 'true' : 'false'"
         data-gear-sidebar-trigger="true">

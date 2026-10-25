@@ -899,7 +899,7 @@
         }
 
         function gearSidebarPanels() {
-          return document.querySelectorAll('#gear-sidebar, #gear-sidebar-mobile');
+          return document.querySelectorAll(<%= raw GearSidebarPanels::IDS.map { |id| "##{id}" }.join(", ").to_json %>);
         }
 
         function applyGearSidebarPanelState(open) {
@@ -926,7 +926,7 @@
         }
 
         function handleGearSidebarClick(event) {
-          var closeTrigger = event.target.closest('[data-sidebar-panel-close="gear-sidebar"], [data-sidebar-panel-close="gear-sidebar-mobile"]');
+          var closeTrigger = event.target.closest(<%= raw GearSidebarPanels::IDS.map { |id| %([data-sidebar-panel-close="#{id}"]) }.join(", ").to_json %>);
           if (closeTrigger) {
             event.preventDefault();
             event.stopPropagation();
@@ -937,7 +937,7 @@
 
           var trigger = event.target.closest('[data-gear-sidebar-trigger], [data-username-display], [data-profile-image-toggle]');
           if (!trigger) return;
-          if (!trigger.matches('[aria-controls~="gear-sidebar"]')) return;
+          if (!trigger.matches(<%= raw %([aria-controls~="#{GearSidebarPanels::DESKTOP}"]).to_json %>)) return;
 
           var sidebars = ensureGearSidebarStore();
           if (!sidebars) return;
@@ -1903,7 +1903,14 @@
       })();
     </script>
     <%= render "layouts/studio/flash" %>
-    <%= render "layouts/navbar" %>
+    <%# The bar stack (the environment bar) is the navbar's SIBLING, above it, in
+        normal flow: the header is a stacking context, so a bar inside it could
+        never rise over an open modal, and engine.css lifts .studio-bar-stack over
+        the modal backdrop. The impersonation and frozen-account bars are the
+        opposite case and ride INSIDE the pinned header (navbar_header_bars,
+        config/initializers/studio.rb). %>
+    <%= render "studio/banners/stack", devnet: Solana::Config.devnet? %>
+    <%= render "layouts/navbar", **turf_navbar_slots %>
     <%= render "components/gear_sidebar" if logged_in? %>
     <%= render "shared/landed_entry_prompt" if logged_in? %>
 

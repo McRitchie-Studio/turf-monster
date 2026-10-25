@@ -1,8 +1,10 @@
 <%# Navbar ✨ Entry token badge.
 
-    Sits ON the profile avatar's upper-left corner (components/_user_nav
-    "Div 3"), NOT next to the wallet balance — the balance slot instead swaps its amount
-    for the full "✨ Free Entry" label (see layouts/_navbar.html.erb). Visible
+    Sits ON the profile avatar's upper-left corner, NOT next to the wallet
+    balance: Studio.navbar_avatar_badge (config/initializers/studio.rb) seats it
+    in the engine user nav's [data-nav-avatar-badge], and engine.css (THE AVATAR
+    BADGE) places it over the avatar. The balance slot instead swaps its amount
+    for the full "✨ Free Entry" label (components/_nav_balance). Visible
     when current_user has any unconsumed entry tokens (web2 token economy — see
     docs/UI_PATTERNS.md "Entry Tokens (Web2 flow)").
 
@@ -16,9 +18,12 @@
     Three affordances, all on the one 20px disc:
       hover/focus — reveals "✨ Free Entry" OVER the wallet balance, so a user
                     who doesn't recognise the sparkle gets the answer where
-                    they were already looking. Driven by `freeEntryHover` in
-                    the _user_nav Alpine scope (Alpine scope is DOM-based, so
-                    the balance slot rendered into that same wrapper reads it).
+                    they were already looking. The badge dispatches
+                    free-entry-peek (true on enter and focus, false on leave
+                    and blur) and the balance slot's own scope listens on the
+                    window (components/_nav_balance): the badge's seat and the
+                    balance sit in different subtrees of the engine user nav,
+                    so no one Alpine scope holds both.
       click       — opens the settings sidebar, exactly as the avatar and the
                     username beside it do. It used to pop its own 2-second
                     count popover; that made the badge the ONE control in this
@@ -74,19 +79,19 @@
 <% plural_suffix = free_entries == 1 ? "" : "s" %>
 
 <%# .free-entry-badge / .free-entry-punch / .free-entry-glow / .free-entry-label
-    live in app/assets/tailwind/application.css. No x-data here any more — the
-    popover took the count with it into the sidebar, and the hover writes to
-    `freeEntryHover` in the _user_nav scope above, not to a scope of its own. %>
+    live in app/assets/tailwind/application.css. No x-data here: the popover
+    took the count with it into the sidebar, and the hover only dispatches, which
+    the navbar header's own Alpine scope already allows. %>
 <div class="relative flex-shrink-0 leading-none">
   <button type="button"
           @click.stop="$store.sidebars.gearOpen = !$store.sidebars.gearOpen"
-          @mouseenter="freeEntryHover = true"
-          @mouseleave="freeEntryHover = false"
-          @focus="freeEntryHover = true"
-          @blur="freeEntryHover = false"
+          @mouseenter="$dispatch('free-entry-peek', true)"
+          @mouseleave="$dispatch('free-entry-peek', false)"
+          @focus="$dispatch('free-entry-peek', true)"
+          @blur="$dispatch('free-entry-peek', false)"
           title="<%= free_entries %> unconsumed entry token<%= plural_suffix %> — free entry"
           aria-label="Free entry tokens — open settings"
-          aria-controls="gear-sidebar gear-sidebar-mobile"
+          aria-controls="<%= GearSidebarPanels::CONTROLS %>"
           aria-haspopup="dialog"
           :aria-expanded="$store.sidebars && $store.sidebars.gearOpen ? 'true' : 'false'"
           class="free-entry-badge legendary-badge inline-flex items-center justify-center w-5 h-5 rounded-full cursor-pointer <%= 'hidden' unless free_entries.positive? %>"

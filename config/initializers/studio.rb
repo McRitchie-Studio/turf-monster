@@ -25,6 +25,11 @@ Studio.draw_auth_routes = false
 # the gateless consume path.
 Studio.draw_link_routes = false
 
+# The gear sidebar's panel ids, which navbar_account_sidebar names below.
+# Required rather than autoloaded: it is read at boot, so the file is on the
+# autoload_lib ignore list in config/application.rb.
+require_relative "../../lib/gear_sidebar_panels"
+
 Studio.configure do |config|
   # ---- Site identity + link preview (studio-engine docs/LINK_PREVIEW.md) ----
   # The DRAFTED title and description; the operator edits them at
@@ -45,27 +50,23 @@ Studio.configure do |config|
 
   # The navbar collapses on the page's scroll timeline from 768px: one header
   # height, the shrink as compositor transforms, no script per frame (engine
-  # 0.111, docs/NAVBAR_SETUP.md "Scroll-Driven Collapse"). This app forks
-  # layouts/_navbar, which reads this setting for its data-nav-timeline; the
-  # impersonation and frozen-account bars stay pinned inside the header
-  # (application.css, THE IN-HEADER BARS ON THE SCROLL TIMELINE). Phones keep
-  # the --nav-p collapse. (/tasks/turf-engine-navbar-timeline) From engine
-  # 0.111.3 the desktop links (data-nav-links) slide left with the shrinking
-  # logo so their gap holds (/tasks/turf-nav-links-follow).
+  # 0.111, docs/NAVBAR_SETUP.md "Scroll-Driven Collapse"). The impersonation
+  # and frozen-account bars stay pinned inside the header (navbar_header_bars
+  # below; engine.css, THE IN-HEADER BARS). Phones keep the --nav-p collapse.
+  # (/tasks/turf-engine-navbar-timeline) The desktop links slide left with the
+  # shrinking logo so their gap holds (/tasks/turf-nav-links-follow).
   config.navbar_scroll_timeline = true
 
-  # ---- Navbar slots (studio-engine 0.113.0, README "Navbar items" and
-  # "Avatar badge"; /tasks/turf-readopts-engine-navbar) ----
-  # What the bar shows is declared here, as on every engine navbar. This app
-  # still forks layouts/_navbar and components/_user_nav (the engine cannot yet
-  # carry the seeds bar, the pinned in-header bars, the auth-modal sign-in or
-  # the gear sidebar's account toggle; the forks' headers say which), but the
-  # forks render these three settings through the engine's own helpers, so the
-  # bar's content has one home and the forks hold only markup.
+  # ---- The navbar (studio-engine 0.114.0, README "Navbar items" through
+  # "Brand, root hook and layer tier"; /tasks/turf-readopts-engine-navbar) ----
+  # This app renders the engine's layouts/_navbar and components/_user_nav; it
+  # forks neither. Everything Turf about the bar is declared here, and the two
+  # seats the user nav takes as partials (the balance and the seeds bar) are
+  # passed where the navbar is rendered (layouts/application).
   #
-  # active: false keeps the bar as it was: the forked links never took the
-  # primary tone on their own page. Dropping it turns on the engine's
-  # aria-current and primary tone, a product call rather than a migration.
+  # active: false keeps the bar as it was: the links never took the primary
+  # tone on their own page. Dropping it turns on the engine's aria-current and
+  # primary tone, a product call rather than a migration.
   config.navbar_links = ->(view) {
     [
       { label: "Contests", href: view.contests_path, active: false },
@@ -75,9 +76,75 @@ Studio.configure do |config|
   # After the links in both rows, signed in and out. Each renders twice (desktop
   # nav and phone row), so neither partial may carry an id.
   config.navbar_items = %w[components/geo_badge shared/wallet_signal]
-  # The ✨ free-entry badge on the avatar's upper-left corner. The fork seats it
-  # in its own absolutely placed wrapper (components/_user_nav, Div 3).
+  # The ✨ free-entry badge on the avatar's upper-left corner.
   config.navbar_avatar_badge = "components/entry_token_badge"
+
+  # The logo is the 192px app icon drawn at 48, and the wordmark is two words:
+  # "Turf" and the tm-wordmark "Monster". Tailwind never reads this file, so a
+  # class named here must be one application.css defines outright, as
+  # .tm-wordmark is, never a utility only this file names (README: "The word
+  # classes live in the host's initializer").
+  config.navbar_brand = {
+    logo: "/icon-192.png", logo_size: 48, alt: "Turf Monster",
+    words: [{ text: "Turf" }, { text: "Monster", class: "tm-wordmark" }]
+  }
+  # data-navbar-root on the header (live and preview), and the live header on
+  # the shared layer scale's --z-nav, under --z-modal, not a bare z-50.
+  config.navbar_root_hook = true
+  config.navbar_z_tier = true
+
+  # One Sign in, and it opens the in-page auth modal at the credentials step
+  # (login and signup are one create-or-login flow: magic link, Google and
+  # wallet all find or create). /signin is its href, the no-JS fallback.
+  config.navbar_signed_out_cta = ->(view) {
+    { label: "Sign in", path: view.signin_path, sign_in_link: false,
+      modal: { id: "auth", props: { step: "credentials", mode: "signup", submitting: nil,
+                                    formError: "", phantomError: "", googleError: "" } } }
+  }
+
+  # Inside the pinned header, so they never scroll away. The impersonation bar
+  # is an OPSEC control (OPSEC-046): its "Return to <admin>" is a JS-free
+  # button_to, and an admin who scrolls must keep both the warning and the way
+  # out. The frozen-account bar (OPSEC-048) rides with it.
+  #
+  # THIS CALLABLE MUST NOT RAISE. A raising callable drops EVERY header bar for
+  # that render (reported once), and the impersonation escape would vanish with
+  # no trace on the page. So each lookup is guarded on its own: a page whose
+  # controller lacks a helper, or a lookup that fails, loses only its own bar.
+  config.navbar_header_bars = ->(view) {
+    bars = []
+    impersonating = begin
+      view.respond_to?(:impersonating?) && view.impersonating? && view.true_user
+    rescue StandardError => e
+      Rails.error.report(e, handled: true, context: { navbar_header_bar: "impersonation" })
+      false
+    end
+    if impersonating
+      bars << { partial: "studio/banners/impersonation",
+                locals: { impersonated_user: view.current_user, admin_user: view.true_user,
+                          stop_path: view.admin_stop_impersonating_path } }
+    end
+    frozen = begin
+      view.respond_to?(:account_frozen?) && view.account_frozen?
+    rescue StandardError => e
+      Rails.error.report(e, handled: true, context: { navbar_header_bar: "frozen_account" })
+      false
+    end
+    bars << "shared/frozen_account_banner" if frozen
+    bars
+  }
+
+  # The menu is the gear sidebar, not the admin dropdown or the engine's link
+  # sidebar: its trigger takes the dropdown's seat in the icon rail and the
+  # phone row (it carries no id; it renders in both), and the name and avatar
+  # are one button that toggles $store.sidebars.gearOpen. The panel ids are
+  # GearSidebarPanels (lib/gear_sidebar_panels.rb).
+  config.navbar_menu_trigger = "components/gear_sidebar_trigger"
+  config.navbar_account_sidebar = { flag: "gearOpen", controls: GearSidebarPanels::IDS }
+  # The name shows on a phone too, capped, and fades where it overflows.
+  config.navbar_phone_name = true
+  # The navbar has always said display_name, never the engine's first name.
+  config.navbar_user_name = :display_name
 
   # nav_spinner_min_ms is a minimum DISPLAY FLOOR, not a timeout: the engine
   # computes remaining = max(0, min_ms - elapsed), so a slow op (Solana RPC

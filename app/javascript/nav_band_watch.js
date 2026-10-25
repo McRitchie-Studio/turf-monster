@@ -19,7 +19,7 @@
 // rest, taller than the two rows beside it, so the hydrate that grows the rows
 // by 2px no longer grows the column: the avatar holds its height. The COLLAPSED
 // bar still grows, because there the avatar is 32px and the rows are the tallest
-// thing in it. So the rows ([data-turf-nav-column]) are observed as well, and a
+// thing in it. So the rows (the engine user nav's [data-nav-tools]) are observed too, and a
 // change in either one asks for the re-measure.
 //
 // IT WATCHES THE LOGO LINK'S WIDTH TOO (/tasks/turf-nav-links-follow). From
@@ -41,7 +41,7 @@ function watch() {
   const column = header && header.querySelector(".user-nav-col")
   if (!column || typeof ResizeObserver !== "function") return
   const brand = header.querySelector(".nav-logo-link")
-  const watched = [column, column.querySelector("[data-turf-nav-column]"), brand].filter(Boolean)
+  const watched = [column, column.querySelector("[data-nav-tools]"), brand].filter(Boolean)
   // The column's rows change the band by their height; the logo link changes
   // --nav-brand-shrink by its width.
   const size = (el) => (el === brand ? el.offsetWidth : el.offsetHeight)

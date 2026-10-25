@@ -194,7 +194,7 @@
               </button>
             </div>
             <div class="navbar-preview <%= bp[:classes] %>" data-navbar-preview-target="frame" style="width: <%= bp[:device_w] %>px; --nav-p: 0">
-              <%= render "layouts/navbar", preview: true, show_logged_in: section[:show_logged_in] %>
+              <%= render "layouts/navbar", preview: true, show_logged_in: section[:show_logged_in], **turf_navbar_slots %>
             </div>
           </div>
         <% end %>
