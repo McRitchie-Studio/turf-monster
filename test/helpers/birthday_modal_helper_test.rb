@@ -53,6 +53,15 @@ class BirthdayModalHelperTest < ActionView::TestCase
 
   # --- the birthday card's locals -------------------------------------------
 
+  test "the birthday card is step 2 of 3 of the onboarding chain" do
+    # The engine draws the pill from this local (studio-engine 0.114.0); the
+    # wrapper that drew it, modals/_birthday, is gone. The engine refuses any
+    # key but current and total, so the shape is pinned as well as the numbers.
+    def geo_state = "CO"
+
+    assert_equal({ current: 2, total: 3 }, birthday_modal_locals[:progress_pill])
+  end
+
   test "the birthday card gets AgePolicy's minimum for the detected state" do
     def geo_state = "IA"
 

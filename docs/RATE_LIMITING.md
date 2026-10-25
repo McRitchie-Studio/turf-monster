@@ -293,7 +293,10 @@ requests have (a private `REMOTE_ADDR`, the real client in `X-Forwarded-For`).
 - **Two new modal partials** registered in the layout host
   (`application.html.erb`), each a single-root `<template x-if>` (honor the
   single-root rule), reusing `modals/blocks/_card_header`:
-  - `modals/_rate_limit_general` — countdown from `Retry-After`, auto-close at 0.
+  - `rate-limit-general` — countdown from `Retry-After`, auto-close at 0. Since
+    studio-engine 0.114.0 the layout renders the engine's
+    `studio/modals/blocks/_error_card` for it (`countdown_key:`); the local
+    `modals/_rate_limit_general` was deleted (turf-readopts-engine-modals).
   - `modals/_rate_limit_auth` — countdown derived from `reset_at` (reload-safe).
 - **Resend modal-swap feedback** reuses the existing
   `$store.modals.advance()`/`swap()` directional-slide API: each successful
@@ -363,7 +366,7 @@ glue**, not engine-provided.
 1. **Phase 1 — Tier 1 + the faucet playground (turf-monster, shippable).**
    `general/ip` strict-allowlist throttle + EXEMPT-by-default; extend the
    responder (`tier: general`, `X-RateLimit-Tier`); add the 429 branch to
-   `authedFetch` + `modals/_rate_limit_general`; **wire the public faucet
+   `authedFetch` + the `rate-limit-general` card; **wire the public faucet
    through the interceptor + give it a fast test limit.** Acceptance: Mint USDC
    demonstrates the wait modal; a curl/test matrix proves pollers, webhooks,
    `/cable`, `/up`, `/geo/check`, and all GETs are **not** counted and the

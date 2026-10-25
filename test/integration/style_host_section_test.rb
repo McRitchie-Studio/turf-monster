@@ -52,8 +52,8 @@ class StyleHostSectionTest < ActionDispatch::IntegrationTest
 
     # ─── batch 3, the middle five (2026-09-09) ───────────────────────────────
     # BOTH ADDRESSES, because the card carries NO fallbacks:
-    # modals/_email_change_pending renders bare x-text on props.currentEmail and
-    # props.newEmail, so a prop left out paints an EMPTY span where an address
+    # the engine success card the layout renders for it binds bare x-text on
+    # props.currentEmail and props.newEmail, so a prop left out paints an EMPTY span where an address
     # belongs. The retired mirror defaulted both to sample addresses, which is
     # the convenience that hides an omitted prop instead of exposing it.
     "email-change-pending" => %w[currentEmail newEmail],
@@ -115,9 +115,17 @@ class StyleHostSectionTest < ActionDispatch::IntegrationTest
 
   # Where a prop may legitimately be READ. The partial is the obvious place; the
   # Alpine factory is the one that made the first version of this test blind.
+  # The layout and the newsletter success slot joined the list when
+  # turf-readopts-engine-modals deleted nine local cards for the engine's
+  # (studio-engine 0.114.0): rate-limit-general reads its props in the layout's
+  # render call, and email-change-pending and newsletter-success read theirs in
+  # the slot this app hands each engine card.
   PROP_SOURCES = [
     "app/views/modals/_%s.html.erb",
-    "app/views/shared/_alpine_factories.html.erb"
+    "app/views/shared/_alpine_factories.html.erb",
+    "app/views/layouts/application.html.erb",
+    "app/views/modals/_newsletter_success_next.html.erb",
+    "app/views/modals/_email_change_pending_message.html.erb"
   ].freeze
 
   # Ids whose registration is capability-gated. Their card is rendered DISABLED
@@ -544,7 +552,7 @@ class StyleHostSectionTest < ActionDispatch::IntegrationTest
   # reports the key as "earned" — a mismatch against a correctly declared
   # `seeds_earned` that reads as specimen drift while the markup is right. Every
   # prop the section passed before 2026-09-09 was camelCase, so nothing had ever
-  # exercised it; modals/_newsletter_success reads props.seeds_earned.
+  # exercised it; modals/_newsletter_success_next (the slot in the engine card) reads props.seeds_earned.
   # EVERY trigger for an id, unioned — not just the first.
   #
   # It read only the first match until 2026-09-09, which left a SECOND card for

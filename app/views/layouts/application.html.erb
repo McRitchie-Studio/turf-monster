@@ -1954,12 +1954,20 @@
           server flash[:email_change_pending] via the inline script in
           accounts/show.html.erb. %>
       <template x-if="$store.modals.current().id === 'email-change-pending'">
-        <%= render "modals/email_change_pending" %>
+        <%= render "studio/modals/blocks/success_card",
+              icon_emoji: "📬", title: "Confirm your email change",
+              slot_position: :message, cta_label: "Got it", cta_close: true do %>
+          <%= render "modals/email_change_pending_message" %>
+        <% end %>
       </template>
       <%# Tier-1 "general" rate-limit wait modal — opened by the authedFetch 429
           interceptor (solana_utils.js) when a general-tier throttle trips. %>
       <template x-if="$store.modals.current().id === 'rate-limit-general'">
-        <%= render "modals/rate_limit_general" %>
+        <%= render "studio/modals/blocks/error_card",
+              icon_emoji: "✋", title: "Easy there",
+              message_key: "$store.modals.current().props.message || 'You are going a bit fast.'",
+              countdown_key: "$store.modals.current().props.secondsLeft",
+              secondary_label: "Dismiss", secondary_close: true %>
       </template>
       <template x-if="$store.modals.current().id === 'auth'">
         <%= render "modals/auth" %>
@@ -1973,7 +1981,7 @@
           this app already shipped once, when a second registration list existed
           for the age-verify card to be missing from. %>
       <template x-if="$store.modals.current().id === 'birthday'">
-        <%= render "modals/birthday" %>
+        <%= render "studio/modals/blocks/birthday", **birthday_modal_locals %>
       </template>
       <template x-if="$store.modals.current().id === 'age-gate'">
         <%= render "studio/modals/blocks/age_gate", **age_gate_modal_locals %>
@@ -2135,10 +2143,7 @@
       </template>
       <% if logged_in? %>
         <template x-if="$store.modals.current().id === 'username'">
-          <%= render "modals/username" %>
-        </template>
-        <template x-if="$store.modals.current().id === 'newsletter-email'">
-          <%= render "modals/newsletter_email" %>
+          <%= render "studio/modals/blocks/change_username", **username_modal_locals %>
         </template>
         <%# Quest / newsletter flow modals (v0.23 quest). quest-success is the
             off-contest-page celebration after a username change; the newsletter
@@ -2149,18 +2154,10 @@
         <template x-if="$store.modals.current().id === 'quest-success'">
           <%= render "modals/quest_success" %>
         </template>
-        <template x-if="$store.modals.current().id === 'newsletter-subscribe'">
-          <%= render "modals/newsletter_subscribe" %>
-        </template>
-        <template x-if="$store.modals.current().id === 'newsletter-success'">
-          <%= render "modals/newsletter_success" %>
-        </template>
-        <template x-if="$store.modals.current().id === 'unsubscribe-confirm'">
-          <%= render "modals/unsubscribe_confirm" %>
-        </template>
-        <template x-if="$store.modals.current().id === 'unsubscribe-goodbye'">
-          <%= render "modals/unsubscribe_goodbye" %>
-        </template>
+        <%# The newsletter five are the engine's (studio-engine 0.114.0), under this
+            app's ids, routes and copy; each card registers its own template x-if.
+            NewsletterModalHelper holds the locals and says what each one keeps. %>
+        <%= render "studio/profiles/newsletter_modals", **newsletter_modal_locals %>
         <%# free-entry-earned — level-up (every 100 seeds) free-entry celebration,
             opened by the seeds StateFanout level-up handler. %>
         <template x-if="$store.modals.current().id === 'free-entry-earned'">

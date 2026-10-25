@@ -16,12 +16,15 @@
     correct for an app with no rewards, wrong for this one, where joining is worth
     25 seeds and leaving costs them.
 
-    THE MODALS ARE THE APP'S, not the engine's. newsletter-subscribe,
+    THE MODALS ARE THE ENGINE'S CARDS UNDER THIS APP'S IDS. newsletter-subscribe,
     newsletter-email, newsletter-success, unsubscribe-confirm and
-    unsubscribe-goodbye are registered in layouts/application.html.erb on the
+    unsubscribe-goodbye are studio-engine's studio/profiles/_newsletter_modals in
+    JSON mode (0.114.0), with this app's routes, copy and seeds step
+    (NewsletterModalHelper). layouts/application.html.erb registers them on the
     shared `$store.modals` host, inside the logged_in? block — so they are already
     mounted on every authenticated page, /profile included. Nothing extra needs
-    registering there.
+    registering there. This row still REPLACES the engine's own (a form and a
+    reload): that row posts to the engine's route and grants no seeds.
 
     Each state carries a matching min-height so toggling subscribed <->
     not-subscribed does not change the card height (no jump). `subscribed` is

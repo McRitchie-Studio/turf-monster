@@ -786,6 +786,24 @@
     });
   }
 
+  // newsletter-state-changed listener — the seeds half of a newsletter join. The
+  // cards are studio-engine's (studio/profiles/_newsletter_modals, JSON mode,
+  // NewsletterModalHelper); on a success the engine dispatches this event with
+  // { subscribed, email, response }, response being newsletter#subscribe's JSON.
+  // The +25 seeds of a first-ever join ride on that answer, so StateFanout runs
+  // here, as the deleted modals/_newsletter_subscribe did before its swap. The
+  // quest factory's join never dispatches this event (it calls
+  // questNewsletterSuccess), so no join is fanned out twice. Guarded so a
+  // re-run of this partial never double-binds.
+  if (!window.__tmNewsletterSeedsBound) {
+    window.__tmNewsletterSeedsBound = true;
+    window.addEventListener("newsletter-state-changed", function (e) {
+      var detail = (e && e.detail) || {};
+      if (!detail.subscribed || !window.seedFanoutPayloadPresent(detail.response)) return;
+      window.applyStateFanoutWhenReady("seeds", detail.response, { source: "newsletter-modal", dispatchDelay: 300 });
+    });
+  }
+
   // === emailValidator — studio/modals/shared/_email_field.html.erb live email check ======
   // Mirror of the (tightened) server-side User#email format validation —
   // URI::MailTo::EMAIL_REGEXP PLUS a real dotted TLD. The server stays the real

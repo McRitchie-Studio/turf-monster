@@ -1095,9 +1095,9 @@ Rules worth knowing:
   section at `/admin/style#host-modals`, while steps 1 and 2 are engine cards
   carded on the engine's section at `/admin/style#modals` — `onboarding-first-name`
   and `birthday`. Note what that second row does NOT cover: the engine shows the
-  engine's birthday card, and turf's `modals/_birthday` adapter around it (the
-  3-of-3 progress pill plus the jurisdiction locals `BirthdayModalHelper`
-  resolves) is carded nowhere. The ORDERED WALK has no review surface at all, and
+  engine's birthday card, and turf's locals for it (the 2-of-3 progress pill
+  plus the jurisdiction locals, both from `BirthdayModalHelper`) are carded
+  nowhere. The ORDERED WALK has no review surface at all, and
   nothing replaced it.
 
 ## Account Management

@@ -1,0 +1,29 @@
+<%#
+  The slot inside the engine's newsletter-success card
+  (studio/profiles/_newsletter_modals, success_card partial:), rendered by
+  NewsletterModalHelper. The card's props are the subscribe endpoint's JSON
+  answer, in scope here as `props`. This is the product half of the beat; the
+  card around it is the engine's.
+
+  THE SEEDS BAR IS FIRST-JOIN ONLY. A re-subscribe earns nothing, so the bar is
+  hidden rather than showing a flat zero. It self-heals from the seedsNavbar
+  cache the seeds StateFanout just bumped (shared/_alpine_factories, the
+  newsletter-state-changed listener).
+
+  THE CTA IS SERVER-DECIDED. With the username quest still open (next_quest is
+  :username) it swaps straight into the username card; otherwise it sends the
+  player to browse contests. The engine card adds the Close link under it.
+%>
+<template x-if="(props.seeds_earned || 0) > 0">
+  <div class="mb-5">
+    <%= render "components/seeds_bar", seeds_data: display_seeds_data, compact: false %>
+  </div>
+</template>
+<% if current_user.next_quest == :username %>
+  <button type="button" @click="$store.modals.swap('username')" class="btn btn-primary btn-lg w-full">
+    Next Quest
+  </button>
+<% else %>
+  <%= link_to "Check Out Contests", contests_path,
+              class: "btn btn-primary btn-lg w-full", "@click": "$store.modals.close()" %>
+<% end %>

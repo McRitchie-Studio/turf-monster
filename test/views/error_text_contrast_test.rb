@@ -119,8 +119,9 @@ class ErrorTextContrastTest < ActiveSupport::TestCase
     "app/views/modals/_wallet_setup.html.erb"              => 1,
     "app/views/modals/_auth.html.erb"                      => 3,
     "app/views/modals/_cdp_ramp.html.erb"                  => 3,
-    "app/views/modals/_newsletter_subscribe.html.erb"      => 1,
-    "app/views/modals/_unsubscribe_confirm.html.erb"       => 1,
+    # _newsletter_subscribe and _unsubscribe_confirm are gone with their files:
+    # turf-readopts-engine-modals renders the engine's newsletter cards
+    # (studio-engine 0.114.0), which paint their error lines text-danger-ink.
     "app/views/modals/_wallet_changed.html.erb"            => 1,
     # app/views/modals/auth/_resend_footer.html.erb is GONE from this list because the FILE
     # is gone: /tasks/turf-adopts-resend-footer deleted this app's fork and renders the

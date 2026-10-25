@@ -1,0 +1,18 @@
+<%#
+  The message inside the engine's email-change-pending card
+  (studio/modals/blocks/_success_card, slot_position: :message), rendered from
+  layouts/application. Copy only: the card, its Got it button and its close are
+  the engine's (studio-engine 0.114.0; turf-readopts-engine-modals deleted the
+  local card that carried all of it).
+
+  BOTH ADDRESSES ARE PRINTED ON PURPOSE. AccountsController#update holds the
+  change and mails the CURRENT address: the person who did not ask for the change
+  is the one who needs to notice it. No fallbacks, so a missing prop shows as an
+  empty span. 30 minutes is EMAIL_CHANGE_TOKEN_TTL.
+%>
+We sent a confirmation link to
+<span class="text-heading font-medium" x-text="$store.modals.current().props.currentEmail"></span>
+(your current address). Click the link in that email to confirm changing your
+email to
+<span class="text-heading font-medium" x-text="$store.modals.current().props.newEmail"></span>.
+Your email won't change until you do — the link expires in 30 minutes.
