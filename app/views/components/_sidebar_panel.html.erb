@@ -1,4 +1,18 @@
 <%# Shared fixed right-sidebar shell.
+
+    A FORK OF studio-engine's components/_sidebar_panel (0.113.0), kept for two
+    deltas the engine copy cannot carry yet (/tasks/turf-readopts-engine-navbar):
+      title_html   the gear sidebar's live status line in the title's place.
+                   The engine's header has only `title` (an escaped h3) and
+                   actions_html, which sits in the right-hand ml-auto group,
+                   so the status line would move from the left to beside the x.
+      close hook   data-sidebar-panel-close="<id>", which the gear sidebar's
+                   capture-phase click handler in layouts/application matches
+                   by panel id. The engine's button says
+                   data-link-sidebar-close="true", with no id.
+    Everything else is the engine's copy, including its tag.attributes
+    dismissal handlers and the close button's focus ring. Delete this file once
+    the engine takes title_html and an id-bearing close hook.
     Locals:
       id             - DOM id for aria-controls
       title          - header title (plain text; also feeds the accessible name)
@@ -43,9 +57,15 @@
   <% if id.present? %>id="<%= id %>"<% end %>
   x-cloak
   x-show="<%= open %>"
-  <%= %(#{outside_action.present? ? "@click.outside=\"#{outside_action}\"" : ""}).html_safe %>
-  <%= %(#{escape_action.present? ? "@keydown.escape.window=\"#{escape_action}\"" : ""}).html_safe %>
-  <%= %(#{close_action.present? ? "@turbo:before-cache.window=\"#{close_action}\"" : ""}).html_safe %>
+  <%# THE THREE DISMISSAL HANDLERS, EMITTED BY tag.attributes, as in the
+      engine's copy. They were %(@name="#{action}").html_safe, the attribute's
+      own quotes assembled in Ruby and marked safe, so a double quote in an
+      action closed the attribute and the rest became markup. The actions stay
+      html_safe (they are Alpine expressions the caller wrote); tag_option still
+      turns a double quote into &quot;, so none can end its attribute. %>
+  <%= tag.attributes("@click.outside": outside_action.html_safe) if outside_action.present? %>
+  <%= tag.attributes("@keydown.escape.window": escape_action.html_safe) if escape_action.present? %>
+  <%= tag.attributes("@turbo:before-cache.window": close_action.html_safe) if close_action.present? %>
   x-transition:enter="transition ease-out duration-300"
   x-transition:enter-start="translate-x-full"
   x-transition:enter-end="translate-x-0"
@@ -87,7 +107,7 @@
           <% if close_action.present? %>
             <button type="button"
                     @click="<%= close_action %>"
-                    class="flex items-center justify-center w-8 h-8 rounded-full text-secondary hover:text-heading hover:bg-surface-alt transition"
+                    class="flex items-center justify-center w-8 h-8 rounded-full text-secondary hover:text-heading hover:bg-surface-alt focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 transition"
                     aria-label="Close sidebar"
                     data-sidebar-panel-close="<%= id %>">
               <span class="text-xl leading-none">&times;</span>
