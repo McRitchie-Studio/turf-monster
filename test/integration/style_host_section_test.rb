@@ -552,7 +552,7 @@ class StyleHostSectionTest < ActionDispatch::IntegrationTest
   # reports the key as "earned" — a mismatch against a correctly declared
   # `seeds_earned` that reads as specimen drift while the markup is right. Every
   # prop the section passed before 2026-09-09 was camelCase, so nothing had ever
-  # exercised it; modals/_newsletter_success reads props.seeds_earned.
+  # exercised it; modals/_newsletter_success_next (the slot in the engine card) reads props.seeds_earned.
   # EVERY trigger for an id, unioned — not just the first.
   #
   # It read only the first match until 2026-09-09, which left a SECOND card for
