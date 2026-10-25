@@ -963,6 +963,14 @@
    as a setting (a name cap and a shrinking account); that is a follow-up. */
 @media (min-width: 768px) {
   .nav-shell .user-nav-col [data-nav-tools] { min-width: min-content; }
+  /* The engine pads a two-row nav's icon row 6px each side, inline; Turf's own
+     rows pulled 6px left instead, so the balance started where the seeds bar
+     does. Zeroed, the row is 12px narrower, which is the name's to have: on the
+     Free Entry face that row, not the seeds bar, sets the column's width, and
+     without the 12px "alex" showed 3 characters at 1024px
+     (e2e/navbar_layout.spec.js, the Free Entry pass). !important to beat the
+     inline style, as engine.css does for a one-row nav. */
+  .nav-shell .user-nav-col [data-nav-tools] > div:first-child { padding-inline: 0 !important; }
   .nav-shell .user-nav-col [data-nav-account] { flex-shrink: 1; min-width: 0; }
   .nav-shell .user-nav-col [data-nav-account] > span:first-child { min-width: 0; max-width: 7rem; }
 }
