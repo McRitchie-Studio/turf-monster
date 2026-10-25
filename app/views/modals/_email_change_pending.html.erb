@@ -1,4 +1,14 @@
 <%#
+  ENGINE STATUS (studio-engine 0.113.0.rc1, measured 2026-10-24
+  (turf-readopts-engine-modals)): KEPT. The candidate,
+  studio/modals/blocks/_success_card, does not match: its CTA can only follow a
+  href or dispatch an event (no close of the modal store), its message is a
+  single string or x-text key where this card interleaves two bound addresses
+  with bold spans, and its icon and title sizes differ from the
+  blocks/_card_header this card already uses. Engine follow-up: a
+  close-the-store CTA on _success_card and a message block slot.
+%>
+<%#
   Email-change-pending modal — opened via
   $store.modals.open('email-change-pending', { currentEmail, newEmail }).
   Rendered inside studio/_modal_host, which provides backdrop, card

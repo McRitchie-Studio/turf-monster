@@ -1,4 +1,14 @@
 <%#
+  ENGINE STATUS (studio-engine 0.113.0.rc1, measured 2026-10-24
+  (turf-readopts-engine-modals)): KEPT. The candidate,
+  studio/modals/blocks/_error_card, does not match: it has no countdown seeded
+  from Retry-After and no auto-close at zero, its buttons only dispatch window
+  events (nothing closes the modal store), and its title is text-sm under a
+  text-5xl emoji where this card uses blocks/_card_header's text-lg title.
+  Engine follow-up: an error_card countdown (seconds key plus auto-close) and a
+  close-the-store action, or a blocks/_rate_limit card.
+%>
+<%#
   Tier-1 "general" rate-limit wait modal (rate-limit epic, Phase 1). Opened by
   the authedFetch 429 interceptor (solana_utils.js) when a general-tier throttle
   trips — e.g. hammering "Mint USDC". Friendly "give it a sec" beat with a live
