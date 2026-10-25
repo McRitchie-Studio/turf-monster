@@ -66,6 +66,13 @@ class ContestsController < ApplicationController
     # All Contests table's hide-settled default.
     @my_contests = @contests.select { |c| @entered_contest_ids.include?(c.id) }
     @featured_contests = Contest.featured_order(@contests)
+    # ALL CONTESTS DROPS A CANCELLED CONTEST, the rail's rule (featured_order)
+    # applied to the table. A cancelled contest keeps `status: "open"`
+    # (Contest#cancelled? reads onchain_cancelled), so `listed` lets it through
+    # and the table drew a dead contest as its second row under a red badge.
+    # My Contests keeps it: for a player who entered, "Cancelled" is how the
+    # contest ended, which is the thing that band reports.
+    @all_contests = @contests.reject(&:cancelled?)
     load_my_contest_totals
   end
 

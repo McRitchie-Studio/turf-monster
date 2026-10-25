@@ -123,9 +123,9 @@
       <% end %>
     </div>
 
-    <% if @contests.any? %>
+    <% if @all_contests.any? %>
       <%= render "contests/contest_table",
-                 contests: @contests,
+                 contests: @all_contests,
                  entry_counts: @entry_counts,
                  entered_contest_ids: @entered_contest_ids,
                  payouts: nil,
@@ -134,7 +134,7 @@
       <%# Empty state: every contest in the list is settled, so the table
           renders no visible rows with the toggle OFF. Show a subtle note
           (revealed away once settled are shown). %>
-      <% if @contests.all?(&:graded?) %>
+      <% if @all_contests.all?(&:graded?) %>
         <p data-settled-filter-target="empty" class="text-secondary mt-3">No open contests right now.</p>
       <% end %>
     <% else %>

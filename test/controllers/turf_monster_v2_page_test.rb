@@ -50,9 +50,19 @@ class TurfMonsterV2PageTest < ActionDispatch::IntegrationTest
   end
 
   test "sets its own title and meta description" do
-    get turf_monster_v2_path
-    assert_select "title", /Pick 6 NFL Teams/
-    assert_select %(meta[name="description"][content*="Weeks 7-9"])
+    travel_to(NextSlateDrop::DROPS_AT - 1.day) do
+      get turf_monster_v2_path
+      assert_select "title", /Pick 6 NFL Teams/
+      assert_select %(meta[name="description"][content*="Weeks 7-9"])
+    end
+  end
+
+  test "after the drop the meta description stops promising the shipped slate" do
+    travel_to(NextSlateDrop::DROPS_AT + 1.day) do
+      get turf_monster_v2_path
+      assert_select %(meta[name="description"][content*="Underdogs carry the bigger multiplier."])
+      assert_select %(meta[name="description"][content*="#{NextSlateDrop::LABEL}"]), count: 0
+    end
   end
 
   test "the countdown's server fallback shows the remaining time before the drop" do
@@ -71,15 +81,35 @@ class TurfMonsterV2PageTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "after the drop the page says the slate is live and points at play" do
+  # AFTER THE DROP THE LIVE STATE NAMES THE CONTEST, NOT THE SPAN. The page
+  # said "The Weeks 7-9 slate is live" after that contest was cancelled
+  # (2026-10-24), because the span was a constant. It now names the CTA's own
+  # pick, and with no pick it says the next contest is coming.
+  test "after the drop the page names the open contest and links straight to it" do
     travel_to(NextSlateDrop::DROPS_AT + 1.minute) do
+      slate = Slate.create!(name: "NFL 2026 Weeks 8-10", slug: "nfl-2026-weeks-8-10-live", sport: "nfl", starts_at: 5.days.from_now)
+      contest = Contest.create!(name: "NFL Turf Monster: Weeks 8–10 Contest", slug: "nfl-weeks-8-10-live", status: "open",
+                                entry_fee_cents: 1900, max_entries: 9, contest_type: "standard",
+                                slate: slate, starts_at: 5.days.from_now)
       get turf_monster_v2_path
       live = page_node.css('[data-test="v2-live"]').first
       refute_match(/display:\s*none/, live["style"].to_s)
-      assert_includes live.text, "The Weeks 7-9 slate is live"
-      assert live.css(%(a[href="#{contests_path}"])).any?, "Play now goes to the lobby; root is this page"
+      assert_equal "NFL Turf Monster: Weeks 8–10 Contest is live", live.at_css("h2").text.strip
+      assert live.css(%(a[href="#{contest_path(contest)}"])).any?, "Play now goes straight to the open contest"
+      refute_includes section_text("v2-notify"), NextSlateDrop::LABEL, "the shipped slate's countdown is not drawn at all"
       refute_includes section_text("v2-hero"), "Get notified", "the hero stops promising a notification once the slate is out"
       assert_includes section_text("v2-hero"), "Play Turf Monster"
+    end
+  end
+
+  test "after the drop with nothing open to enter, the page says the next contest is coming" do
+    travel_to(NextSlateDrop::DROPS_AT + 1.minute) do
+      Contest.update_all(coming_soon: true)
+      get turf_monster_v2_path
+      live = page_node.css('[data-test="v2-live"]').first
+      assert_equal "The next contest is on its way", live.at_css("h2").text.strip
+      assert live.css(%(a[href="#{contests_path}"])).any?, "with no contest to name, the lobby; root is this page"
+      refute_includes section_text("v2-notify"), NextSlateDrop::LABEL
     end
   end
 

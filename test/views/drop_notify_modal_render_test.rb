@@ -5,7 +5,8 @@ require "test_helper"
 # The card opens whenever no contest is open to enter (NextContest.pick), and
 # that stays true after the drop until the new slate's contests exist. Its
 # header used to say "drops Tuesday morning" on both sides of the instant; it
-# now says "Weeks 7–9 drops Oct 20", the date read from NextSlateDrop.
+# now says "Weeks 7–9 drops Oct 20", the date read from NextSlateDrop. After
+# the drop it names no span at all (see the at-the-drop test).
 # Return values, not #rendered (it accumulates across calls).
 class DropNotifyModalRenderTest < ActionView::TestCase
   def modal
@@ -27,19 +28,27 @@ class DropNotifyModalRenderTest < ActionView::TestCase
       assert_equal "The board goes live Tuesday, October 20 at 8:00 AM Mountain. Get one email when it does.",
                    doc.at_css('[data-test="drop-modal-subtitle"]').text
       refute_includes doc.at_css('[data-test="drop-modal-title"]').text, "live"
-      assert_equal "Get notified when Weeks 7-9 drops", cta_title
+      assert_equal "Get notified when the next contest drops", cta_title
     end
   end
 
-  test "at the drop instant the header says the slate is live" do
+  # After the drop the card opens only when nothing is open to enter, so it
+  # cannot honestly name a span as live: the Weeks 7-9 contest it named was
+  # cancelled and the card still said "Weeks 7-9 is live" (2026-10-24). It
+  # points at the next contest, and the stale span is nowhere in its markup,
+  # x-text alternatives included.
+  test "at the drop instant the header points at the next contest and names no span" do
     travel_to(NextSlateDrop::DROPS_AT) do
       doc = modal
       assert_equal "true", doc.at_css('[data-test="drop-modal"]')["data-dropped"]
-      assert_equal "Weeks 7-9 is live", doc.at_css('[data-test="drop-modal-title"]').text
-      assert_equal "The board went live Tuesday, October 20 at 8:00 AM Mountain.",
+      assert_equal "The next contest is on its way", doc.at_css('[data-test="drop-modal-title"]').text
+      assert_equal "Every open contest has locked. The lobby has live scores and what comes next.",
                    doc.at_css('[data-test="drop-modal-subtitle"]').text
-      refute_includes doc.at_css('[data-test="drop-modal-title"]').text, "Tuesday"
-      assert_equal "The Weeks 7-9 slate is live", cta_title
+      assert_nil doc.at_css('[data-test="drop-modal-title"]')["x-text"], "past the instant nothing can flip back"
+      refute_includes doc.to_html, NextSlateDrop::LABEL
+      refute_includes doc.to_html, NextSlateDrop.display_label
+      assert_equal "The next contest is on its way", cta_title
+      assert doc.css(%(a[href="#{contests_path}"])).any?, "the card sends the reader to the lobby"
     end
   end
 
@@ -49,9 +58,9 @@ class DropNotifyModalRenderTest < ActionView::TestCase
   test "the header flips live with the countdown, and Alpine's first paint matches the server" do
     travel_to(NextSlateDrop::DROPS_AT - 1.hour) do
       title = modal.at_css('[data-test="drop-modal-title"]')
-      assert_equal "dropped ? 'Weeks 7-9 is live' : 'Weeks 7–9 drops Oct 20'", title["x-text"]
+      assert_equal "dropped ? 'The next contest is on its way' : 'Weeks 7–9 drops Oct 20'", title["x-text"]
       sub = modal.at_css('[data-test="drop-modal-subtitle"]')
-      assert_match(/\Adropped \? 'The board went live .+\.' : 'The board goes live .+ Get one email when it does\.'\z/, sub["x-text"])
+      assert_match(/\Adropped \? 'Every open contest has locked\..+' : 'The board goes live .+ Get one email when it does\.'\z/, sub["x-text"])
     end
   end
 
@@ -63,7 +72,7 @@ class DropNotifyModalRenderTest < ActionView::TestCase
       doc = modal
       label = doc.at_css('label[for="drop_modal_email"]')
       assert_equal "sr-only", label["class"]
-      assert_equal "Notify me when Weeks 7-9 drops", label.text.strip
+      assert_equal "Notify me when the next contest drops", label.text.strip
       row = doc.at_css('[data-test="drop-modal-row"]')
       assert_equal %w[flex flex-col items-stretch gap-3], row["class"].split
       assert_includes doc.at_css("#drop_modal_email")["class"].split, "w-full"

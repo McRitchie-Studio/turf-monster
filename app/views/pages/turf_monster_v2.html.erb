@@ -32,7 +32,7 @@
 <% assignment = page_experiment_assignment %>
 <% headline_lines = variant&.headline_lines.presence || ["Pick 6 teams.", "Stack points.", "Get paid."] %>
 <% content_for :title, variant&.meta_title.presence || "Turf Monster — Pick 6 NFL Teams, Stack Points" %>
-<% content_for :meta_description, variant&.meta_description.presence || "NFL pick'em: choose 6 teams, every point they score over the three-week slate counts, times their Turf Score. Underdogs carry the bigger multiplier. The #{NextSlateDrop::LABEL} slate drops Tuesday morning." %>
+<% content_for :meta_description, variant&.meta_description.presence || "NFL pick'em: choose 6 teams, every point they score over the three-week slate counts, times their Turf Score. Underdogs carry the bigger multiplier.#{" The #{NextSlateDrop::LABEL} slate drops Tuesday morning." unless NextSlateDrop.dropped?}" %>
 <% content_for :og_image, contest_og_image_url(Contest.featured) if @root_landing %>
 <%= render "shared/pending_cart_handoff" if @root_landing %>
 <%# NO TURBO SNAPSHOT WHILE THE LAPTOP PLAYS: a cached copy keeps the laptop's
@@ -258,7 +258,11 @@
            x-data="dropCountdown('<%= NextSlateDrop.drops_at.utc.iso8601 %>', <%= remaining[:days] %>, <%= remaining[:hours] %>, <%= remaining[:minutes] %>, <%= dropped %>)">
     <p class="text-primary font-mono text-sm mb-2">Next contest</p>
 
-    <div x-show="!dropped" <%= 'style="display: none;"'.html_safe if dropped %>>
+    <%# Before the drop both states render so Alpine can flip them at the
+        instant. After it the countdown half can never show again, so the
+        server leaves it out: it names a slate that has shipped. %>
+    <% unless dropped %>
+    <div x-show="!dropped">
       <h2 class="text-3xl md:text-4xl font-bold text-heading mb-3"><%= NextSlateDrop::LABEL %> slate drops Tuesday morning</h2>
       <p class="text-secondary mb-8">
         The board for NFL <%= NextSlateDrop::LABEL %> goes live <%= NextSlateDrop.drops_at.strftime("%A, %B %-d") %> at <%= NextSlateDrop.drops_at.strftime("%-l:%M %p") %> Mountain.
@@ -274,11 +278,24 @@
                  id_prefix: "drop_signup" %>
       </div>
     </div>
+    <% end %>
 
+    <%# THE LIVE STATE NAMES THE CONTEST, NOT A SPAN. @next_contest is the hero
+        CTA's pick (NextContest): the soonest-locking NFL contest still open to
+        enter. With one, this names it and links straight to it; with none
+        (every board locked, or the only one cancelled), it says the next one
+        is coming and sends the reader to the lobby. %>
+    <% live_contest = @next_contest&.contest %>
     <div x-show="dropped" <%= 'style="display: none;"'.html_safe unless dropped %> data-test="v2-live">
-      <h2 class="text-3xl md:text-4xl font-bold text-heading mb-3">The <%= NextSlateDrop::LABEL %> slate is live</h2>
-      <p class="text-secondary mb-8">The board is open. Pick your 6 teams before the contest locks.</p>
-      <%= link_to "Play now", contests_path, class: "btn btn-primary btn-lg shadow-lg shadow-primary/20 text-lg" %>
+      <% if live_contest %>
+        <h2 class="text-3xl md:text-4xl font-bold text-heading mb-3"><%= live_contest.name %> is live</h2>
+        <p class="text-secondary mb-8">The board is open. Pick your 6 teams before the contest locks.</p>
+        <%= link_to "Play now", contest_path(live_contest), class: "btn btn-primary btn-lg shadow-lg shadow-primary/20 text-lg" %>
+      <% else %>
+        <h2 class="text-3xl md:text-4xl font-bold text-heading mb-3">The next contest is on its way</h2>
+        <p class="text-secondary mb-8">Every open contest has locked. The lobby has live scores and what comes next.</p>
+        <%= link_to "See contests", contests_path, class: "btn btn-primary btn-lg shadow-lg shadow-primary/20 text-lg" %>
+      <% end %>
     </div>
   </section>
 

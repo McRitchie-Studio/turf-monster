@@ -84,6 +84,43 @@ class ContestsPageBandsTest < ActionDispatch::IntegrationTest
     assert_select "#{ALL} [data-contest-row='#{done.slug}']", count: 1
   end
 
+  # A cancelled contest keeps status "open" (Contest#cancelled? reads the
+  # onchain_cancelled flag), so `listed` returns it. The rail already dropped
+  # it; the All Contests table drew it under a red badge, which is how the
+  # cancelled Weeks 7-9 contest sat second on the page (2026-10-24). Asserted
+  # on the WHOLE page: a cancelled contest is nowhere on /contests for a
+  # reader who never entered it, hidden row or not.
+  test "[integration] a cancelled contest appears nowhere on the page for a reader who did not enter it" do
+    dead = build_contest("called-off")
+    dead.update_columns(onchain_cancelled: true)
+    live = build_contest("still-playing")
+    log_in_as(@alex)
+
+    get contests_path
+
+    assert_response :success
+    assert_select "[data-contest-card='#{dead.slug}']", count: 0
+    assert_select "[data-contest-row='#{dead.slug}']", count: 0
+    assert_no_match(/#{dead.slug}/, response.body, "no link, card or row may name the cancelled contest")
+    # The pair: an open sibling built the same way is still listed, so the
+    # refutations above are not passing on an empty table.
+    assert_select "#{ALL} [data-contest-row='#{live.slug}']", count: 1
+    assert_select "#{RAIL} [data-contest-card='#{live.slug}']", count: 1
+  end
+
+  test "[integration] a cancelled contest the viewer entered stays in My Contests only" do
+    dead = build_contest("called-off-mine")
+    Entry.create!(user: @alex, contest: dead, status: "complete", payout_cents: 0)
+    dead.update_columns(onchain_cancelled: true)
+    log_in_as(@alex)
+
+    get contests_path
+
+    assert_response :success
+    assert_select "#{MINE} [data-contest-row='#{dead.slug}']", count: 1
+    assert_select "#{ALL} [data-contest-row='#{dead.slug}']", count: 0
+  end
+
   # --- Band 2: My Contests ----------------------------------------------
 
   test "[integration] My Contests is a table of the contests the viewer is in" do
