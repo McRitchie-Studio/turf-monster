@@ -5,8 +5,10 @@ require "minitest/mock"
 # multisig and the fee payer/signer for create_contest, enter_contest and
 # mint_entry_token. Its absence MUST stay a hard raise everywhere except test.
 #
-# Why the test-env fallback exists: SOLANA_ADMIN_KEY (and the RAILS_MASTER_KEY
-# that decrypts credentials.secret_key_base) are GitHub *repository* secrets.
+# Why the test-env fallback exists: SOLANA_ADMIN_KEY was (and the RAILS_MASTER_KEY
+# that decrypts credentials.secret_key_base still is) a GitHub *repository*
+# secret. Since 2026-10-24 CI supplies no SOLANA_ADMIN_KEY at all, so every CI
+# run takes this fallback.
 # Dependabot pull requests run against the separate Dependabot secret store and
 # cannot read repository secrets by design, so every dependency PR on this repo
 # failed these same unit tests permanently. The unit tests only assemble and
@@ -30,7 +32,7 @@ class Solana::KeypairAdminFallbackTest < ActiveSupport::TestCase
 
   # dotenv loads .env in dev AND test, and .env sets SOLANA_ADMIN_KEY, so the
   # ambient shell must be controlled or these tests measure the developer's
-  # machine rather than the code. (CI's unit job exports it too.)
+  # machine rather than the code. (CI no longer exports it.)
   def with_admin_key(value)
     had = ENV.key?("SOLANA_ADMIN_KEY")
     previous = ENV["SOLANA_ADMIN_KEY"]

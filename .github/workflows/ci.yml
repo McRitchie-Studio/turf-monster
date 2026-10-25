@@ -91,7 +91,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
-    # NONE of these three is REQUIRED by the unit suite any more — see
+    # NEITHER of these two is REQUIRED by the unit suite any more — see
     # app/services/solana/keypair.rb. Under Rails.env.test? ONLY, Solana::Keypair
     # falls back to fixed non-secret values for the admin signer and for
     # secret_key_base, so the suite runs with no credentials at all. That is
@@ -103,19 +103,19 @@ jobs:
     # the fallbacks stay unreachable in every non-test environment.
     #
     # They are still supplied here so that ORDINARY (non-Dependabot) PRs
-    # exercise the real key material and the real credentials derivation rather
-    # than the fallback:
+    # exercise the real credentials derivation rather than the fallback:
     # MANAGED_WALLET_ENCRYPTION_KEY: throwaway value so the v2 managed-wallet
     #   encryptor has a non-empty key (KeyGenerator). NOT the OPSEC-015 prod key.
     # RAILS_MASTER_KEY: repo secret so credentials.secret_key_base decrypts, so
     #   the LEGACY keypair encryptor is exercised against a real secret_key_base.
-    # SOLANA_ADMIN_KEY: a THROWAWAY base58 keypair (NOT the prod Xan
-    #   signer). No test asserts the pubkey, so any valid keypair works;
-    #   secret-stored so the value never lands in the repo.
+    # No SOLANA_ADMIN_KEY, on purpose: the throwaway CI secret was deleted
+    #   (turf-ci-drops-admin-key-secret). Solana::Keypair.admin takes its
+    #   test-env TEST_ADMIN_SEED fallback, exactly as Dependabot PRs always
+    #   have. No signing key lives in CI; test/lib/ci_no_signing_key_secrets_test.rb
+    #   fails if a workflow reads one again.
     env:
       MANAGED_WALLET_ENCRYPTION_KEY: ci-test-only-managed-wallet-key-not-a-real-secret
       RAILS_MASTER_KEY: ${{ secrets.RAILS_MASTER_KEY }}
-      SOLANA_ADMIN_KEY: ${{ secrets.SOLANA_ADMIN_KEY }}
 
     services:
       postgres:
@@ -291,11 +291,9 @@ jobs:
         shard: [1, 2, 3]
     # See the test job. Managed-wallet flows (signup) need the encryption
     # key; RAILS_MASTER_KEY lets credentials decrypt for the test server.
-    # SOLANA_ADMIN_KEY (throwaway, see test job) — the test server boots the
-    # app, and admin-signed Solana paths call Solana::Keypair.admin. The server
-    # boots in RAILS_ENV=test, so it too would reach the test-env fallback if
-    # this were absent; it is supplied so ordinary PRs run against real key
-    # material.
+    # No SOLANA_ADMIN_KEY (see test job): the test server boots in
+    # RAILS_ENV=test, so admin-signed Solana paths take the TEST_ADMIN_SEED
+    # fallback in Solana::Keypair.admin.
     # SOLANA_RPC_URL: black-hole loopback so the e2e stack is HERMETIC.
     #   Without it the test server defaults to public devnet
     #   (https://api.devnet.solana.com) and every authenticated HTML request
@@ -364,7 +362,6 @@ jobs:
     env:
       MANAGED_WALLET_ENCRYPTION_KEY: ci-test-only-managed-wallet-key-not-a-real-secret
       RAILS_MASTER_KEY: ${{ secrets.RAILS_MASTER_KEY }}
-      SOLANA_ADMIN_KEY: ${{ secrets.SOLANA_ADMIN_KEY }}
       SOLANA_RPC_URL: http://127.0.0.1:9
       # No storage variables on purpose: a test boot is keyless, so Active
       # Storage is Disk and Studio::S3 holds lib/storage_backend.rb's placeholder
