@@ -52,7 +52,7 @@ class UsernameRenameIntentLayoutTest < ActionDispatch::IntegrationTest
 
     assert_js js, "walletOps.define('username_rename'", "the intent is not registered on the account page"
     assert_js js, "window.tmUsernameFinalize",
-                 "the engine's finalize_hook is looked up on window by NAME — modals/_username names it"
+                 "the engine's finalize_hook is looked up on window by NAME — UsernameModalHelper names it"
   end
 
   test "the finalize URL is emitted as a real path, resolved by the router" do
