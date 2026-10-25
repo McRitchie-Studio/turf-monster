@@ -411,7 +411,7 @@ class AccountsController < ApplicationController
     new_username = (params[:value].presence || params[:username]).to_s.strip
     @user.username = new_username
 
-    # Server-side mirror of the UI gate (modals/_username.html.erb +
+    # Server-side mirror of the UI gate (UsernameModalHelper +
     # User#can_change_username?). Belt-and-suspenders so a direct POST
     # can't bypass the "enter a contest first" lock.
     unless @user.can_change_username?

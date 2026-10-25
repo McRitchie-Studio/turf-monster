@@ -31,13 +31,22 @@ module BirthdayModalHelper
                    "Skill-based contest age limits: 18+ most states; " \
                    "19+ AL/NE; 21+ IA/MA/VA.".freeze
 
+  # progress_pill is step 2 of the onboarding chain (studio-engine 0.114.0 draws
+  # it first inside the card; modals/_birthday was the wrapper that drew it above
+  # the card until then). SHOWN UNCONDITIONALLY, including when the entry gate
+  # opens this card on its own for a user who never walked the chain. That is
+  # the operator's call; if a standalone "2 of 3" ever reads wrong, gate it on a
+  # prop the chain driver passes rather than guessing from session state.
+  CHAIN_STEP = { current: 2, total: 3 }.freeze
+
   def birthday_modal_locals
     state = geo_state.to_s
     {
-      min_age:    AgePolicy.minimum_age(state),
-      state:      state,
-      submit_url: age_verify_path,
-      fine_print: AGE_FINE_PRINT
+      min_age:       AgePolicy.minimum_age(state),
+      state:         state,
+      submit_url:    age_verify_path,
+      fine_print:    AGE_FINE_PRINT,
+      progress_pill: CHAIN_STEP.dup
     }
   end
 
