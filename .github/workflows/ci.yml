@@ -59,7 +59,7 @@ jobs:
   # which is why test/lib/ci_workflow_triggers_test.rb permits it and refuses every
   # event-context condition.
   static:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # pinned, not the floating latest label: that moves to images Playwright cannot install chromium on (guard: test/lib/ci_runner_image_pin_test.rb)
     timeout-minutes: 45
 
     steps:
@@ -88,7 +88,7 @@ jobs:
         run: bin/rubocop -f github
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
 
     # NEITHER of these two is REQUIRED by the unit suite any more — see
@@ -272,7 +272,7 @@ jobs:
         run: bin/rails db:test:prepare test
 
   playwright:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     # Shard the single-worker E2E suite across N isolated jobs. In-process
     # Playwright workers are UNSAFE here: POST /test/reseed (TestController) is
@@ -514,7 +514,7 @@ jobs:
   # parallel in about a minute — so a stale counter is reported early instead of
   # after the full e2e lane.
   e2e_declared_set:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
 
     steps:
@@ -557,7 +557,7 @@ jobs:
   # No bundler cache: the gate is stdlib-only (json + yaml). It audits the suite, so it must
   # not be breakable by a dependency problem in the thing it audits.
   e2e_executed_set:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     needs: playwright
     if: always()
