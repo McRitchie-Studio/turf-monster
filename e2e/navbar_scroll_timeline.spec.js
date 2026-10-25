@@ -185,9 +185,11 @@ test.describe("Navbar scroll timeline", () => {
       const read = () => page.evaluate(async (sel) => {
         for (let i = 0; i < 2; i++) await new Promise((r) => requestAnimationFrame(r));
         const h = document.querySelector(sel);
-        const avatar = h.querySelector("[data-profile-image-toggle] > *").getBoundingClientRect();
-        const column = h.querySelector(".user-nav-col .flex-1").getBoundingClientRect();
-        const username = h.querySelector(".nav-username");
+        // The engine user nav (/tasks/turf-readopts-engine-navbar): the avatar
+        // in the account button, the icon column, and the name beside the avatar.
+        const avatar = h.querySelector("[data-nav-account] > [aria-hidden] > *").getBoundingClientRect();
+        const column = h.querySelector("[data-nav-tools]").getBoundingClientRect();
+        const username = h.querySelector("[data-nav-account] [data-nav-name]");
         const name = username.getBoundingClientRect();
         const ink = document.createRange();
         ink.selectNodeContents(username);

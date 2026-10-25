@@ -1,15 +1,16 @@
 const { test, expect } = require("@playwright/test");
 const { loginAdmin, reseed } = require("./helpers");
 
-// The navbar's content comes from studio-engine's slots (0.113.0;
-// /tasks/turf-readopts-engine-navbar): Studio.navbar_links and
-// Studio.navbar_items render in BOTH rows of the forked layouts/_navbar, and
-// Studio.navbar_avatar_badge seats the ✨ badge over the avatar in the forked
+// The navbar is studio-engine's (0.114.0; /tasks/turf-readopts-engine-navbar),
+// and its content comes from the engine's slots: Studio.navbar_links and
+// Studio.navbar_items render in BOTH rows of layouts/_navbar, and
+// Studio.navbar_avatar_badge seats the ✨ badge over the avatar in
 // components/_user_nav. test/integration/navbar_engine_slots_test.rb proves the
-// fork reads each setting; this proves, in a browser at a phone and a desktop
-// width, that the row a reader can SEE carries them and that the controls the
-// forks kept still act: the avatar opens the gear sidebar, and Sign in opens the
-// auth modal in place.
+// engine reads each setting; this proves, in a browser at a phone and a desktop
+// width, that the row a reader can SEE carries them and that Turf's controls
+// still act through the engine's: the account button (Studio.navbar_account_sidebar)
+// opens the gear sidebar, and Sign in (Studio.navbar_signed_out_cta modal:)
+// opens the auth modal in place.
 
 const WIDTHS = [390, 1280];
 const HEADER = "header[data-navbar-root]";
@@ -56,7 +57,8 @@ test("signed in, the ✨ badge rides the avatar's upper-left corner, at 390 and 
     await page.evaluate(() => window.updateNavTokens(1));
     await expect(badge).toBeVisible();
     const b = await badge.boundingBox();
-    const a = await page.locator(`${HEADER} [data-profile-image-toggle]`).boundingBox();
+    // The avatar itself, not the account button, which holds the name too from md.
+    const a = await page.locator(`${HEADER} [data-nav-account] > [aria-hidden]`).boundingBox();
     // Up and to the left of the avatar's corner, and still overlapping it.
     expect(b.x).toBeLessThan(a.x);
     expect(b.y).toBeLessThan(a.y);

@@ -52,8 +52,9 @@ async function navbarMetrics(page) {
       // filters it right back out, so the amount pass measures exactly as before.
       ["freeEntry", "[data-free-entry-label]"],
       ["entry", "[data-free-entry-badge]"],
-      ["username", "[data-username-display]"],
-      ["profile", "[data-profile-image-toggle]"],
+      // The engine's account control: the name and the avatar, one button.
+      ["username", "[data-nav-account]"],
+      ["profile", "[data-nav-account] > [aria-hidden]"],
     ];
 
     const controls = selectors.flatMap(([name, selector]) =>
@@ -110,7 +111,7 @@ test("logged-in navbar controls stay contained with balance and entry badge", as
   for (const viewport of VIEWPORTS) {
     await page.setViewportSize(viewport);
     await page.goto("/contests");
-    await expect(page.locator("[data-username-display]").first()).toBeVisible();
+    await expect(page.locator("[data-nav-account]").first()).toBeVisible();
     // The page's balance hydrate repaints the slot; let it land first (see the
     // Free Entry pass below).
     await page.waitForLoadState("networkidle");
@@ -140,13 +141,13 @@ async function exposeFreeEntryFace(page) {
   });
 }
 
-// HOW MUCH OF THE NAME CAN ACTUALLY BE READ. The username button is
-// overflow-hidden with a fade mask, so its width alone does not say whether a
+// HOW MUCH OF THE NAME CAN ACTUALLY BE READ. The username (the engine's
+// [data-nav-name]) truncates in its own box, so its width alone does not say whether a
 // reader gets a name or a sliver -- measure the characters whose glyphs fit
 // inside the clipped box, which is the thing a person experiences.
 async function usernameLegibility(page) {
   return await page.evaluate(() => {
-    const u = document.querySelector("[data-username-display]");
+    const u = document.querySelector("[data-nav-account] [data-nav-name]");
     const width = u.getBoundingClientRect().width;
     const full = u.textContent.trim();
     const probe = document.createElement("span");
@@ -184,7 +185,7 @@ test("logged-in navbar keeps the Free Entry face contained and the username read
   for (const viewport of FREE_ENTRY_VIEWPORTS) {
     await page.setViewportSize(viewport);
     await page.goto("/contests");
-    await expect(page.locator("[data-username-display]").first()).toBeVisible();
+    await expect(page.locator("[data-nav-account]").first()).toBeVisible();
     // Let the page's own balance hydrate land first. refreshBalance() repaints
     // the slot through updateNavTokens(), so a face forced before it lands is
     // reverted 10-20ms later and the pass measures the amount face instead
@@ -394,7 +395,7 @@ test("a zero-token user's ✨ badge paints nothing at all", async ({ page }) => 
   await page.setViewportSize({ width: 1366, height: 800 });
   await login(page, "alex@mcritchie.studio", "password");
   await page.goto("/contests");
-  await expect(page.locator("[data-username-display]").first()).toBeVisible();
+  await expect(page.locator("[data-nav-account]").first()).toBeVisible();
 
   // QUIESCE — refreshBalance/refreshSession land on their own schedule and
   // reflow the row the badge sits in. Settle before sampling anything.
@@ -466,7 +467,7 @@ test("a zero-token ✨ badge holds no box and reports display:none", async ({ pa
   await page.setViewportSize({ width: 1366, height: 800 });
   await login(page, "alex@mcritchie.studio", "password");
   await page.goto("/contests");
-  await expect(page.locator("[data-username-display]").first()).toBeVisible();
+  await expect(page.locator("[data-nav-account]").first()).toBeVisible();
 
   // QUIESCE, for the SAME reason as the paint spec above and the glow spec
   // before it — and here it is the updateNavTokens(2) half that needs it.
@@ -507,165 +508,28 @@ test("a zero-token ✨ badge holds no box and reports display:none", async ({ pa
 });
 
 // ===========================================================================
-// THE USERNAME'S OVERFLOW FADE MASK — ASSERTED ON THE PAINTED PIXELS.
+// THE USERNAME ELLIPSIZES IN ITS OWN BOX — and a name that fits is left whole.
 //
-// The username button is `overflow-hidden whitespace-nowrap`, so a name wider
-// than its box is CUT — mid-glyph, with a hard vertical edge. The fade mask is
-// what turns that cut into a taper, and _user_nav.html.erb decides whether to
-// apply it from `scrollWidth > clientWidth`.
-//
-// WHY PIXELS AND NOT `getComputedStyle(...).maskImage`. Computed style reports
-// what the cascade RESOLVED, not what the compositor PAINTED, and the two are
-// different claims — a mask can resolve to a gradient and still fade nothing
-// (wrong geometry, wrong box, a stacking context that drops it). The thing a
-// person experiences is ink at the right edge, so that is what these specs
-// measure: three screenshots of the SAME strip, decoded to pixels in-page.
-//
-//   ref       mask forced fully TRANSPARENT -> the strip with zero ink in it.
-//             This is the background reference; every other sample is diffed
-//             against it, so no assertion has to guess a background color.
-//   unmasked  mask forced OFF               -> the hard clip, full ink.
-//   live      whatever the app itself decides.
-//
-// ink[x] = max channel deviation from `ref` down column x. A faded edge decays
-// to nothing; a hard clip does not.
-//
-// MEASURED on the broken build, at 768/900/1024/1100/1280/1366, after
-// applyBalanceSlotRule(1) swapped the slot to the Free Entry face: the FINAL
-// column's ink was 234 at every width, byte-identical to the mask-forced-off
-// sample — the app painted exactly as though no mask existed. With the mask
-// forced ON over the same box the final three columns measured 3-17. The
-// thresholds below sit in that gap with room on both sides.
-const FADE_TAIL_COLS = 3;      // the last 3 columns — the cut edge itself
-const FADE_MAX_INK = 60;       // measured 3-17 faded, 234 hard-clipped
-const CLIP_VISIBLE_INK = 40;   // the strip must SEE the hard clip, or it is blind
-const FADE_BODY_INK = 100;     // the name must still be painted, not masked away
-
-const MASK_OFF = "-webkit-mask-image:none;mask-image:none;";
-const MASK_BLANK =
-  "-webkit-mask-image:linear-gradient(to right,transparent,transparent);" +
-  "mask-image:linear-gradient(to right,transparent,transparent);";
-
-// The username button's box, snapped to whole pixels for page.screenshot().
-async function usernameClip(page) {
-  const box = await page.evaluate(() => {
-    const u = document.querySelector("[data-username-display]");
-    const r = u.getBoundingClientRect();
-    return { x: r.x, y: r.y, w: r.width, h: r.height, sw: u.scrollWidth, cw: u.clientWidth };
+// The name is studio-engine's since /tasks/turf-readopts-engine-navbar: the
+// account control's [data-nav-name], beside the avatar, capped md:max-w-40 and
+// `truncate`. It replaced this app's measured fade (navUsernameFade), whose
+// pixel specs lived here: the engine ends a long name in an ellipsis inside
+// its box, so what a reader must get is that ellipsis, and a box that never
+// runs under the avatar. Measured after the Free Entry face swap, the widest
+// the balance slot gets, at both ends of the squeeze band.
+async function nameBox(page) {
+  return await page.evaluate(() => {
+    const name = document.querySelector("[data-nav-account] [data-nav-name]");
+    const avatar = document.querySelector("[data-nav-account] > [aria-hidden]");
+    const r = name.getBoundingClientRect();
+    return {
+      sw: name.scrollWidth, cw: name.clientWidth,
+      overflow: getComputedStyle(name).textOverflow,
+      right: r.right, avatarLeft: avatar.getBoundingClientRect().left,
+    };
   });
-  return {
-    clip: {
-      x: Math.round(box.x), y: Math.round(box.y),
-      width: Math.max(1, Math.round(box.w)), height: Math.max(1, Math.round(box.h)),
-    },
-    box,
-  };
 }
 
-// Screenshot the strip with `css` appended to the element's own style attribute,
-// then put the attribute back exactly as Alpine left it. Nothing here changes
-// LAYOUT — a mask is paint only — so the box under measurement never moves.
-async function shotWithMask(page, clip, css) {
-  if (css !== null) {
-    await page.evaluate((c) => {
-      const u = document.querySelector("[data-username-display]");
-      u.dataset.pwSavedStyle = u.getAttribute("style") || "";
-      u.setAttribute("style", (u.getAttribute("style") || "") + ";" + c);
-    }, css);
-  }
-  const shot = (await page.screenshot({ clip })).toString("base64");
-  if (css !== null) {
-    await page.evaluate(() => {
-      const u = document.querySelector("[data-username-display]");
-      u.setAttribute("style", u.dataset.pwSavedStyle || "");
-      delete u.dataset.pwSavedStyle;
-    });
-  }
-  return shot;
-}
-
-// Decode two PNGs INSIDE the page (canvas.getImageData) and return the
-// per-column max channel deviation between them.
-async function inkProfile(page, aB64, bB64) {
-  return await page.evaluate(async ([a, b]) => {
-    const load = (d) => new Promise((res, rej) => {
-      const img = new Image();
-      img.onload = () => res(img);
-      img.onerror = rej;
-      img.src = "data:image/png;base64," + d;
-    });
-    const [ia, ib] = await Promise.all([load(a), load(b)]);
-    const c = document.createElement("canvas");
-    c.width = ia.naturalWidth;
-    c.height = ia.naturalHeight;
-    const ctx = c.getContext("2d", { willReadFrequently: true });
-    ctx.drawImage(ia, 0, 0);
-    const da = ctx.getImageData(0, 0, c.width, c.height).data;
-    ctx.clearRect(0, 0, c.width, c.height);
-    ctx.drawImage(ib, 0, 0);
-    const db = ctx.getImageData(0, 0, c.width, c.height).data;
-    const cols = [];
-    for (let x = 0; x < c.width; x++) {
-      let m = 0;
-      for (let y = 0; y < c.height; y++) {
-        const i = (y * c.width + x) * 4;
-        m = Math.max(m,
-          Math.abs(da[i] - db[i]),
-          Math.abs(da[i + 1] - db[i + 1]),
-          Math.abs(da[i + 2] - db[i + 2]));
-      }
-      cols.push(m);
-    }
-    return cols;
-  }, [aB64, bB64]);
-}
-
-// The whole measurement for the username as it stands RIGHT NOW.
-async function fadeMeasurement(page) {
-  const { clip, box } = await usernameClip(page);
-  const live = await shotWithMask(page, clip, null);
-  const ref = await shotWithMask(page, clip, MASK_BLANK);
-  const unmasked = await shotWithMask(page, clip, MASK_OFF);
-
-  const liveInk = await inkProfile(page, live, ref);
-  const clipInk = await inkProfile(page, unmasked, ref);
-  const tail = (cols) => Math.max(...cols.slice(-FADE_TAIL_COLS));
-  const body = (cols) => Math.max(...cols.slice(0, Math.floor(cols.length / 2)));
-
-  return {
-    box,
-    clip,
-    liveTailInk: tail(liveInk),
-    clipTailInk: tail(clipInk),
-    liveBodyInk: body(liveInk),
-    // Is the app's paint indistinguishable from having no mask at all?
-    liveEqualsUnmasked: live === unmasked,
-    liveInkTail8: liveInk.slice(-8),
-    clipInkTail8: clipInk.slice(-8),
-  };
-}
-
-// The name IS cut, and the cut IS tapered.
-function expectFaded(m, where) {
-  const msg = `${where}: ${JSON.stringify(m)}`;
-  // PROBE SELF-CHECK. If the strip cannot see the hard clip it is about to
-  // claim was faded, every assertion under it is unfalsifiable.
-  expect(m.clipTailInk, `${msg}\n  the strip must SEE hard-clipped ink at the edge`)
-    .toBeGreaterThanOrEqual(CLIP_VISIBLE_INK);
-  expect(m.box.sw, `${msg}\n  this width must actually be overflowing`)
-    .toBeGreaterThan(m.box.cw);
-  // THE FADE, in paint.
-  expect(m.liveTailInk, `${msg}\n  the clipped edge must be FADED, not cut`)
-    .toBeLessThanOrEqual(FADE_MAX_INK);
-  // ...and a fade, not an erasure: masking the whole name away would also
-  // empty the tail.
-  expect(m.liveBodyInk, `${msg}\n  the name itself must still be PAINTED`)
-    .toBeGreaterThanOrEqual(FADE_BODY_INK);
-}
-
-// Put the balance slot into its Free Entry face through the APP'S OWN RULE —
-// the same call updateNavTokens() makes when a first mint lands. This is the
-// live path: the slot widens, the username is squeezed, and nothing reloads.
 async function swapToFreeEntryFace(page) {
   await page.evaluate(() => {
     const badge = document.querySelector("[data-free-entry-badge]");
@@ -683,79 +547,29 @@ async function swapToFreeEntryFace(page) {
   await page.waitForTimeout(400);
 }
 
-// The navbar's balance hydrate lands ~2s after load and RESIZES the username
-// (measured at 900px: clientWidth 89 -> 84 the moment "$40" paints). Settle
-// before measuring, or the strip is sampled mid-reflow.
-async function settleNavbar(page) {
-  await expect(page.locator("[data-username-display]").first()).toBeVisible();
-  await page.waitForTimeout(2500);
-}
-
-test("a live balance-slot face swap re-fades the clipped username", async ({ page }) => {
+test("a long username ends in an ellipsis inside its box, and a fitting one stays whole", async ({ page }) => {
   test.setTimeout(90_000);
   await page.setViewportSize({ width: 1366, height: 800 });
-  // The account is chosen for the WIDTH of its username, not for who it is —
-  // there is no fade to measure on a name that fits. See OVERFLOWING_NAME_EMAIL.
   await login(page, OVERFLOWING_NAME_EMAIL, "password");
 
-  for (const width of [768, 900, 1024, 1280]) {
+  for (const width of [768, 1280]) {
     await page.setViewportSize({ width, height: 800 });
     await page.goto("/contests");
-    await settleNavbar(page);
+    await expect(page.locator("[data-nav-account]").first()).toBeVisible();
+    await page.waitForLoadState("networkidle");
     await swapToFreeEntryFace(page);
-
-    const m = await fadeMeasurement(page);
-    // The bug, stated as the reader sees it: the app painted the username
-    // EXACTLY as if the mask did not exist.
-    expect(m.liveEqualsUnmasked,
-      `${width}px: the app's paint is byte-identical to having NO mask — ${JSON.stringify(m)}`)
-      .toBe(false);
-    expectFaded(m, `${width}px after a live face swap`);
+    const m = await nameBox(page);
+    const msg = `${width}px: ${JSON.stringify(m)}`;
+    expect(m.overflow, msg).toBe("ellipsis");
+    expect(m.right, `${msg}\n  the name must end before the avatar`).toBeLessThanOrEqual(m.avatarLeft + 0.5);
   }
+
+  await login(page, FITTING_NAME_EMAIL, "password");
+  await page.setViewportSize({ width: 900, height: 800 });
+  await page.goto("/contests");
+  await expect(page.locator("[data-nav-account]").first()).toBeVisible();
+  await page.waitForLoadState("networkidle");
+  await swapToFreeEntryFace(page);
+  const fits = await nameBox(page);
+  expect(fits.sw, `a name that fits: ${JSON.stringify(fits)}`).toBeLessThanOrEqual(fits.cw);
 });
-
-test("the fade follows a resize across the squeeze band, and leaves a fitting name alone",
-  async ({ page }) => {
-    test.setTimeout(90_000);
-
-    // NO NAVIGATION between the two widths. That is the point: the old code
-    // measured once in init(), at 1366 with the balance still loading, and the
-    // answer it cached there ("fits") outlived every later change to the box.
-    await page.setViewportSize({ width: 1366, height: 800 });
-    await login(page, OVERFLOWING_NAME_EMAIL, "password");
-    await page.goto("/contests");
-    await settleNavbar(page);
-    await swapToFreeEntryFace(page);
-
-    await page.setViewportSize({ width: 900, height: 800 });
-    await page.waitForTimeout(600);
-    expectFaded(await fadeMeasurement(page), "900px reached by RESIZE from 1366px");
-
-    // 1280 is the band's other edge — crossed downward from 1366, upward from
-    // 900. Both directions have to land, so the mask is not a one-way latch.
-    await page.setViewportSize({ width: 1280, height: 800 });
-    await page.waitForTimeout(600);
-    expectFaded(await fadeMeasurement(page), "1280px reached by RESIZE from 900px");
-
-    // THE NEGATIVE CONTROL, and the reason this cannot be passed by masking
-    // unconditionally. `turf` is 34px wide in this navbar — it fits with room
-    // to spare at every width and on BOTH faces of the balance slot (measured:
-    // scrollWidth 34 == clientWidth 34 at 900 and 1366, amount and Free Entry
-    // alike). A name that fits must never be faded.
-    await login(page, FITTING_NAME_EMAIL, "password");
-    await page.setViewportSize({ width: 900, height: 800 });
-    await page.goto("/contests");
-    await settleNavbar(page);
-    await swapToFreeEntryFace(page);
-
-    const fits = await fadeMeasurement(page);
-    const msg = `a name that fits: ${JSON.stringify(fits)}`;
-    expect(fits.box.sw, `${msg}\n  precondition: this name must NOT overflow`)
-      .toBeLessThanOrEqual(fits.box.cw);
-    expect(fits.liveEqualsUnmasked, `${msg}\n  a name that fits must be painted UNMASKED`)
-      .toBe(true);
-    // ...and the strip was pointed at the name, not at an empty box, so the
-    // equality above means something.
-    expect(fits.liveBodyInk, `${msg}\n  the strip must have the NAME in it`)
-      .toBeGreaterThanOrEqual(FADE_BODY_INK);
-  });

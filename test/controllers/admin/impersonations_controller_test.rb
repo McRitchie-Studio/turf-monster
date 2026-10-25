@@ -306,12 +306,15 @@ class Admin::ImpersonationsControllerTest < ActionDispatch::IntegrationTest
 
     get account_path
     assert_response :success
-    assert_no_match(/Acting as/, response.body)
+    # studio-engine's studio/banners/_impersonation since
+    # /tasks/turf-readopts-engine-navbar (Studio.navbar_header_bars), which says
+    # "Logged in as" where Turf's own bar said "Acting as".
+    assert_no_match(/Logged in as/, response.body)
 
     post admin_impersonate_path(@target.slug)
     get account_path
     assert_response :success
-    assert_match(/Acting as/, response.body)
+    assert_match(/Logged in as <strong>#{Regexp.escape(@target.display_name)}<\/strong>/, response.body)
     # The SSR return button is present and points at the real admin.
     assert_match("Return to #{@admin.display_name}", response.body)
   end

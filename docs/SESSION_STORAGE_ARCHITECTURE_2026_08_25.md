@@ -232,7 +232,7 @@ absent from a wallet audit. It is defined as
 `SESSION_KEY = :wallet_brand` (`app/services/solana/current_wallet.rb:36`), so a
 `session[:literal]` grep cannot see it — and it is **one of two** such keys. The
 second matters more: `Studio.session_key`, configured to `:turf_user_id`
-(`config/initializers/studio.rb:159`), is the **primary authentication key**, written
+(`config/initializers/studio.rb:44`), is the **primary authentication key**, written
 by the engine and never a literal in `app/`/`lib/` — revision 2 missed it exactly as
 revision 1 missed `wallet_brand`. A third constant,
 `Studio::FIRST_NAME_SKIP_SESSION_KEY` (`studio-engine/lib/studio.rb:343`), resolves
@@ -876,4 +876,4 @@ Named so the next reader does not mistake silence for a clean bill.
   PR must not carry a security fix, and a security fix must not wait on a docs
   review.
 
-<!-- citation-guard: snapshot 2026-08-25 (175 citations) — Phase-1 audit; it states on its face that no refactor has been performed, so its citations are true as of that date and are meant to stay frozen -->
+<!-- citation-guard: snapshot 2026-08-25 (174 citations) — Phase-1 audit; it states on its face that no refactor has been performed, so its citations are true as of that date and are meant to stay frozen -->
