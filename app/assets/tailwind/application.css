@@ -1,15 +1,64 @@
 @import 'tailwindcss';
 
+/* studio-engine's whole Tailwind layer, CSS-first (studio-engine >= 0.114.2,
+   README "Tailwind"). tailwindcss-rails writes this gitignored entry on every
+   build and watch; Studio::TailwindEntry points it at the gem's host.css, which
+   brings the theme tokens (theme.css: surfaces, inks, the primary ladder, the
+   brand palettes, text-2xs/3xs, Montserrat, the class-based `dark:` variant),
+   an @source scan of every engine directory that emits a class (so no content
+   glob over the gem and no safelist), and the motion / effect / leveling layer
+   (engine-motion.css: .spinner, .hold-btn, .level-badge-*, ...), imported once.
+   There is no @config and no config/tailwind.config.js: Turf's own theme
+   extensions are the @theme block below.
+   Guard: test/lib/tailwind_css_first_test.rb. */
 @import '../builds/tailwind/studio_engine';
 
-/* studio-engine's opt-in motion/effect primitives (.spinner, .progress-meter,
-   .studio-border-glow, .sheen, .ping, ...). This layer does NOT auto-bundle via
-   the engines contract, so lib/tasks/tailwindcss_engine_motion.rake generates
-   this gitignored entry (gem-resolved absolute path) on every tailwindcss build.
-   Imported AFTER studio_engine so the theme role vars are in scope. */
-@import '../builds/tailwind/studio_engine_motion';
+/* Turf's own theme extensions (they were config/tailwind.config.js).
+   `inline reference`, like the engine's theme.css: each utility carries its
+   value, and nothing is declared on :root, so no Tailwind copy of a token can
+   race the runtime custom properties studio_theme_css_tag writes. */
+@theme inline reference {
+  /* pill-narrow (530px): a SEMANTIC layout boundary, not a device class. The
+     smallest viewport that gives a Your Entries pill cell room for emoji +
+     3-letter team code; below it the labels are suppressed (emoji only).
+     Paired with `md:hidden lg:inline` to also hide labels in the md
+     half-width-card range. */
+  --breakpoint-pill-narrow: 530px;
 
-@config '../../../config/tailwind.config.js';
+  /* `text-primary` paints the primary INK, not the primary FILL. The brand
+     primary #2E7D32 is dark enough for white button labels, but as text on the
+     dark theme it measures 2.18:1 on a card. The ink is the engine's derived
+     --color-primary-ink (#97BE99 dark, #246227 light); the engine emits no -rgb
+     twin, so this reads the twin declared below beside its :where() fallback,
+     pinned to the same values. Only the bare `text-primary` is rerouted (the
+     same name overrides the engine's --color-primary for the text family
+     only); the shades stay the fill scale, so text-primary-300 and
+     text-primary-600 still compile, and bg-/border-/ring-primary keep the fill.
+     Guard: test/views/primary_text_contrast_test.rb. */
+  --text-color-primary: rgb(var(--color-primary-ink-rgb));
+
+  /* `text-violet-ink` is violet as SMALL text; `violet` stays the FILL and keeps
+     large display type. Text-only on purpose: there is no bg-violet-ink or
+     border-violet-ink, because a fill has no contrast duty and must not drift
+     off the brand. Per-theme values and the measurements behind them: "The
+     violet INK", below. Guard: test/views/violet_text_contrast_test.rb. */
+  --text-color-violet-ink: var(--color-violet-ink);
+
+  /* The warning palette, Turf's own. The bare bg-warning / border-warning stay
+     the engine's runtime role fill (--background-color-warning and
+     --border-color-warning outrank this namespace for those utilities). */
+  --color-warning: #FF7C47;
+  --color-warning-50: #fff3ed;
+  --color-warning-100: #ffe2d1;
+  --color-warning-200: #ffc9a8;
+  --color-warning-300: #ffaa74;
+  --color-warning-400: #FF7C47;
+  --color-warning-500: #FF7C47;
+  --color-warning-600: #e5603a;
+  --color-warning-700: #cc4a2d;
+  --color-warning-800: #a33a24;
+  --color-warning-900: #7a2c1c;
+}
 
 /*
   The default border color has changed to `currentcolor` in Tailwind CSS v4,
