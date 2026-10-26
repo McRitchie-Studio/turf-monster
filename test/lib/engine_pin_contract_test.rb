@@ -756,8 +756,8 @@ class EnginePinContractTest < ActiveSupport::TestCase
   # its OUTPUT rather than trusted because the guard above went green.
   test "the CSS comment stripper keeps the code it is meant to scan" do
     # 1. ON THE REAL FILES: what survives is a plausible fraction of the source,
-    #    not near-empty. The size floor is deliberate — the sprockets manifest at
-    #    app/assets/stylesheets/application.css is ~90% banner comment and would
+    #    not near-empty. The size floor is deliberate — the plain stylesheet at
+    #    app/assets/stylesheets/application.css is mostly banner comment and would
     #    false-RED any percentage rule, and a false red trains people to delete
     #    the guard. This is what goes red if anyone swaps the balance check back
     #    out for a bare span-strip and a stray opener appears.

@@ -110,7 +110,7 @@ class WalletSignalSurfacesTest < ActionDispatch::IntegrationTest
 
     assert_match %r{solana_studio/wallet_identity[^"]*\.js}, response.body,
                  "solana-studio's wallet identity source is not on the page; the signal has nothing to read. " \
-                 "A gem asset missing from config.assets.precompile 404s in production with no local warning."
+                 "Propshaft serves every file on solana-studio's app/assets/javascripts, so check the gem still ships it."
 
     assert_match %r{studio/session[^"]*\.js}, response.body,
                  "studio-engine's session store is not on the page; there is nothing to register a source with"

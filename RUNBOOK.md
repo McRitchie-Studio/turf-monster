@@ -92,9 +92,40 @@ Troubleshooting guide for autonomous agents. Format: problem, diagnosis, fix.
 - Diagnosis: `heroku run bin/rails db:migrate --app turf-monster-mainnet` errors. Check exact SQL error in logs.
 - Fix: Connect via `heroku pg:psql --app turf-monster-mainnet` to inspect state. If partially applied, check `schema_migrations` table.
 
+## Asset pipeline (Propshaft)
+
+Turf serves assets through **Propshaft** with **importmap-rails** and
+**tailwindcss-rails**; Sprockets was removed on 2026-10-25 (task
+`turf-moves-to-propshaft`; the recipe is rolio's `docs/RUNBOOK.md`). Every file
+under `app/assets/*` (except the Tailwind source in `app/assets/tailwind`, which
+tailwindcss-rails excludes), `app/javascript`, `vendor/javascript`, and every
+engine's `app/assets/*` is an asset, served at `/assets/<name>-<8 hex>.<ext>`.
+There is no `manifest.js`, no precompile list and no `*= require` directive.
+
+- **`app/assets/stylesheets/application.css` must stay.** studio-engine's shared
+  head (`layouts/studio/_head.html.erb`) links `"tailwind"` and `"application"`
+  by name. It is plain CSS, served raw.
+- **Precompile locally:** `RAILS_ENV=production SECRET_KEY_BASE_DUMMY=1 bin/rails
+  assets:precompile` needs the production boot vars too; the `Dockerfile`'s
+  precompile line carries the build-time dummies (`MANAGED_WALLET_ENCRYPTION_KEY`,
+  the four `R2_*`, `SOLANA_*`). Nothing is called. It writes `public/assets/.manifest.json`, the digested files, and a
+  `.gz` beside each digested css/js (`assets:precompress`,
+  `lib/tasks/precompressed_assets.rake`). `assets:clean` also prunes a `.gz`
+  whose source is gone.
+- **Clean up** with `bin/rails assets:clobber` (nothing under `public/assets` is
+  tracked), then `bin/rails tailwindcss:build`: tailwindcss-rails hooks clobber
+  and deletes `app/assets/builds/tailwind.css` too. While a `.manifest.json` sits
+  in `public/assets`, dev and test serve the precompiled copies, not your edits.
+- **Cache:** `DigestedAssetCache` (`lib/digested_asset_cache.rb`) gives a
+  digested path (8 hex) a year, immutable; everything else under `public/` a week.
+- **Silent failures:** importmap-rails drops a pin whose file is missing, and a
+  missing stylesheet raises only at render. Guards: `test/lib/asset_pipeline_test.rb`,
+  `test/integration/asset_urls_test.rb`, `test/lib/precompressed_assets_test.rb`,
+  `test/integration/precompressed_asset_serving_test.rb`.
+
 ## Responses Not Compressed (or Compression Misbehaving)
 
-- Diagnosis: `curl -s -o /dev/null -D - -H 'Accept-Encoding: gzip' https://turfmonster.media/turf-monster-v2` should show `content-encoding: gzip` and `vary: ...Accept-Encoding`. Cloudflare is DNS-only for this domain, so the app (Rack::Deflater, `lib/response_compression.rb`) is the only thing that compresses HTML/JSON; assets come pre-gzipped from Sprockets via ActionDispatch::Static. Bodies under 1 KB, streams, files, images, video, archives, PDFs and fonts are skipped on purpose.
+- Diagnosis: `curl -s -o /dev/null -D - -H 'Accept-Encoding: gzip' https://turfmonster.media/turf-monster-v2` should show `content-encoding: gzip` and `vary: ...Accept-Encoding`. Cloudflare is DNS-only for this domain, so the app (Rack::Deflater, `lib/response_compression.rb`) is the only thing that compresses HTML/JSON; assets come pre-gzipped via ActionDispatch::Static, from the `.gz` that `assets:precompress` writes beside each digested `.css`/`.js` at build time (Propshaft writes none itself; `lib/precompressed_assets.rb`). Check one: `curl -s -o /dev/null -D - -H 'Accept-Encoding: gzip' https://turfmonster.media/assets/<tailwind-xxxxxxxx.css>` (the name from the page source) shows `content-encoding: gzip` and `cache-control: ... immutable`. An asset with no `.gz` goes out uncompressed: Static answers before Deflater, so Deflater never sees it. Bodies under 1 KB, streams, files, images, video, archives, PDFs and fonts are skipped on purpose.
 - Fix: If compression breaks a client, turn it off without a deploy: `heroku config:set COMPRESS_RESPONSES=0 --app <app>` (restarts the dynos), then fix the policy in `lib/response_compression.rb`. Unset the var to restore the default.
 
 ## Solana RPC Errors

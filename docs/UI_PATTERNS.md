@@ -675,7 +675,7 @@ refresh it then — and name the value.
 
 | Piece | Where |
 |---|---|
-| `solana_studio/wallet_identity.js` | `layouts/application.html.erb`, sprockets tag beside the other solana-studio assets. A blocking classic script in `<head>` always precedes a deferred importmap module, which is why the registration below can assume it. |
+| `solana_studio/wallet_identity.js` | `layouts/application.html.erb`, a classic `javascript_include_tag` beside the other solana-studio assets (served by Propshaft). A blocking classic script in `<head>` always precedes a deferred importmap module, which is why the registration below can assume it. |
 | `wallet_signal` | `config/importmap.rb` + `app/javascript/application.js`, **after** `solana_stores` (it reads `$store.wallet`) and after `solana_utils` (it calls `window.refreshSession`). |
 | Server binding | `ApplicationController#studio_session_identities` returns `{ wallet: current_user&.solana_address }` for a live-signature session and `{}` otherwise. The key must be `wallet` — the engine matches an identity source by NAME. |
 | Session stamp | The engine's `studio/_session_stamp`, already rendered by `layouts/studio/head`. Its `identities` carries the binding; the fingerprint includes it, so re-binding reaches other tabs. |
