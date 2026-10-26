@@ -217,7 +217,9 @@ test.describe("Navbar scroll timeline", () => {
       expect(mid.avatar, `mid-collapse is between the two sizes ${both}`).toBeGreaterThan(32.5);
       for (const at of [top, mid, compact]) {
         expect(Math.abs(at.nameGap - HUB_NAME_GAP), `the name sits the hub's ${HUB_NAME_GAP}px from the avatar ${both}`).toBeLessThanOrEqual(1);
-        if (at.clipped) expect(at.ellipsis, `a clipped name ends in an ellipsis ${both}`).toBe(true);
+        // Past 1066px the seeded name fits whole; below, it may truncate.
+        if (width > 1066) expect(at.clipped, `the name is not clipped ${both}`).toBe(false);
+        else if (at.clipped) expect(at.ellipsis, `a clipped name ends in an ellipsis ${both}`).toBe(true);
       }
 
       expect(Math.abs(top.avatar - 40), `the avatar is 40px at rest ${both}`).toBeLessThanOrEqual(0.5);
