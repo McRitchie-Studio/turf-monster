@@ -80,10 +80,9 @@ Studio.configure do |config|
   config.navbar_avatar_badge = "components/entry_token_badge"
 
   # The logo is the 192px app icon drawn at 48, and the wordmark is two words:
-  # "Turf" and the tm-wordmark "Monster". Tailwind 4's automatic source
-  # detection does scan this file, but keep a class named here one that
-  # application.css defines outright, as .tm-wordmark is, never a utility only
-  # this file names: the word classes are the host's to style (README: "The word
+  # "Turf" and the tm-wordmark "Monster". Tailwind's root scan reads this file,
+  # but a class named here must still be one application.css defines outright,
+  # as .tm-wordmark is, never a utility only this file names (README: "The word
   # classes live in the host's initializer").
   config.navbar_brand = {
     logo: "/icon-192.png", logo_size: 48, alt: "Turf Monster",

@@ -109,7 +109,7 @@ class TailwindCssFirstTest < ActiveSupport::TestCase
       "--breakpoint-pill-narrow" => "530px",
       "--text-color-primary" => "rgb(var(--color-primary-ink-rgb))",
       "--text-color-violet-ink" => "var(--color-violet-ink)",
-      "--color-warning-500" => "#FF7C47",
+      "--color-warning-500" => "#FF7C47"
     }.each do |token, value|
       assert_match(/#{Regexp.escape(token)}:\s*#{Regexp.escape(value)};/, theme, "#{token} is not #{value}")
     end
@@ -138,7 +138,7 @@ class TailwindCssFirstTest < ActiveSupport::TestCase
       "Turf's violet ink" => ".text-violet-ink{color:var(--color-violet-ink)}",
       "Turf's warning palette" => ".bg-warning-500{background-color:#ff7c47}",
       "Turf's pill-narrow screen" => "@media (min-width:530px){.pill-narrow\\:inline{display:inline}}",
-      "engine-motion .spinner" => ".spinner{",
+      "engine-motion .spinner" => ".spinner{"
     }.each do |what, rule|
       assert_includes css, rule, "the compiled CSS lost the #{what}"
     end
