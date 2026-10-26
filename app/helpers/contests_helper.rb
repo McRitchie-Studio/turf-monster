@@ -436,7 +436,7 @@ module ContestsHelper
   # state changes under a viewer keeps the label it was drawn with until a
   # reload. Out of scope here; do not read these labels as self-correcting.
   # Every utility below is written as a FULL LITERAL. Tailwind scans this file
-  # (config/tailwind.config.js content includes ./app/helpers/**/*.rb) but it
+  # (its automatic source detection covers app/helpers) but it
   # only ever matches whole class names — a class assembled by interpolation
   # compiles to no rule at all and the dot renders transparent.
   LIVE_STATES = {

@@ -13,8 +13,8 @@ require "test_helper"
 # The primary ink is the engine's: a studio-engine that derives it emits it in
 # the theme tag, and app/assets/tailwind/application.css declares the same
 # values only as a zero-specificity :where() fallback for an engine that emits
-# none. `text-primary` reads the -rgb twin through config/tailwind.config.js
-# (textColor.primary); the engine emits no twin, so the twin is always this
+# none. `text-primary` reads the -rgb twin through application.css's @theme
+# block (`--text-color-primary`); the engine emits no twin, so the twin is always this
 # app's.
 #
 # WHAT IS MEASURED. Nothing here trusts a hex. Each ratio resolves what ships:

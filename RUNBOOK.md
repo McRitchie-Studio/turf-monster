@@ -183,8 +183,8 @@ There is no `manifest.js`, no precompile list and no `*= require` directive.
 ## Tailwind Classes Not Compiling
 
 **New utility class doesn't render**
-- Diagnosis: `tailwindcss-rails` only compiles classes found in app views at build time. A class like `bg-red-500` won't work if no other view uses it.
-- Fix: Three options: (1) Use a class already present in other views. (2) Add the class to the safelist in `config/tailwind.config.js`. (3) Use inline `style="..."` for one-offs.
+- Diagnosis: Tailwind 4 compiles only the classes it finds, as whole literals, in the project's sources at build time (the engine's classes come from its own `@source` scan in `host.css`). A class assembled by interpolation (`bg-<%= tone %>-500`) is never found.
+- Fix: Spell the class whole in source (a literal map, not interpolation). As a last resort for a genuinely data-driven class, add an `@source inline("...")` line to `app/assets/tailwind/application.css`. There is no `config/tailwind.config.js` and no safelist (studio-engine README, "Tailwind"). Inline `style="..."` still works for one-offs.
 
 **`backdrop-blur`, `border-r-transparent` etc. missing**
 - Diagnosis: Some Tailwind utilities aren't compiled by `tailwindcss-rails` if not referenced elsewhere.

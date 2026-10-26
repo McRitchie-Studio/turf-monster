@@ -16,9 +16,10 @@ require "test_helper"
 # colour only as far as AA demands and clears 4.5:1 on every THEME SURFACE.
 #
 # NOTE FOR THE NEXT PERSON: the engine registers `danger-ink` under `textColor`
-# ONLY (studio-engine tailwind/studio.tailwind.config.js) — deliberately, since
-# a fill may be vivid but text may not. `borderColor` offers only `subtle` and
-# `strong`. So `border-danger` and `border-danger-ink` are PHANTOM classes here:
+# ONLY (studio-engine app/assets/tailwind/studio_engine/theme.css,
+# `--text-color-danger-ink`) — deliberately, since a fill may be vivid but text
+# may not. The border family (`--border-color-*`) offers only `subtle`, `strong`
+# and the role fills. So `border-danger` and `border-danger-ink` are PHANTOM classes here:
 # they compile to nothing and paint nothing. An error panel gets its affordance
 # from the ink plus the copy, on a theme surface — not from a danger border.
 # `test "a colour class that compiles to nothing is a defect"` enforces that.

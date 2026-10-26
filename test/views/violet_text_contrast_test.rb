@@ -13,7 +13,7 @@ require "tmpdir"
 #                        light #5B50CE (violet-600 darkened 10 percent)
 #
 # Declared at the end of app/assets/tailwind/application.css and wired to
-# `text-violet-ink` by config/tailwind.config.js (textColor). The brand token is
+# `text-violet-ink` by the same file's @theme block (`--text-color-violet-ink`). The brand token is
 # untouched, which is the whole point: `bg-violet`, `border-violet` and large
 # display type still paint #8E82FE.
 #
