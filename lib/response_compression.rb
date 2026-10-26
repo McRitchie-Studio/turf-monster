@@ -11,10 +11,18 @@
 #   Rack::Sendfile → ActionDispatch::Static → Rack::Deflater → Rack::ContentLength
 #     → ActionDispatch::Executor → … → Rack::ConditionalGet → Rack::ETag → … → app
 #
-#   * Static answers precompiled assets before reaching Deflater. Sprockets
-#     writes a .gz beside each asset and Static serves it with
-#     Content-Encoding: gzip already, so assets are never compressed twice
-#     (Deflater also skips any response that already carries a Content-Encoding).
+#   * Static answers precompiled assets before reaching Deflater. Propshaft
+#     writes no .gz of its own, so assets:precompile runs assets:precompress
+#     (lib/precompressed_assets.rb) and writes one beside each digested .css
+#     and .js. Static serves that .gz with Content-Encoding: gzip already, so a
+#     stylesheet or script is compressed once, at build time, and never per
+#     request (Deflater also skips any response that already carries a
+#     Content-Encoding). Static answers without calling inward, so an asset
+#     NEVER reaches Deflater: one with no .gz (an image, a font, or a css/js if
+#     the precompress step were lost) goes out identity, uncompressed.
+#   * Development and test also run Propshaft::Server right after Static, to
+#     serve assets live from the load path; production does not
+#     (config.assets.server is off there).
 #   * ETag and ConditionalGet run inside, on the identity body. The weak ETag is
 #     the same for both encodings, which a weak validator allows, and a 304
 #     carries no body, so Deflater leaves it alone.

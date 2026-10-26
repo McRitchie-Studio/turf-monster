@@ -4,7 +4,7 @@
 #
 # config.public_file_server.headers is one header for everything
 # ActionDispatch::Static serves out of public/, and public/ holds two kinds of
-# file. Fingerprinted /assets/* (the Sprockets digest is in the name, so an edit
+# file. Fingerprinted /assets/* (the Propshaft digest is in the name, so an edit
 # is a new URL) can be cached for a year and marked immutable. The files beside
 # them (logo.png, og.png, the icons, robots.txt, site.webmanifest) keep their
 # names when they are replaced, so a year there would pin a stale logo or
@@ -18,8 +18,16 @@
 class DigestedAssetCache
   ONE_YEAR = "public, max-age=#{365 * 24 * 60 * 60}, immutable".freeze
 
-  # /assets/<logical name>-<64-hex Sprockets 4 digest>.<ext>[.gz|.br]
-  DIGESTED = %r{\A/assets/.+-[0-9a-f]{64}\.[A-Za-z0-9.]+\z}
+  # /assets/<logical name>-<digest>.<ext>[.gz|.br]. The digest is Propshaft's
+  # 8 hex (Propshaft::Asset#digest, a SHA1 cut to 8), Sprockets 4's 64 hex (the
+  # hub's copy of this rule still serves Sprockets), or a bundler's own digest on
+  # a pre-digested name-<digest>.digested.<ext>. An undigested name
+  # (/assets/application.css, /assets/studio/montserrat-latin.woff2) never
+  # matches: the segment between the last hyphen and the extension must be one
+  # of those digests exactly. It once read the 64 hex only, so a Propshaft URL
+  # fell back to the week-long header without a word (task
+  # turf-moves-to-propshaft).
+  DIGESTED = %r{\A/assets/.+-(?:[0-9a-f]{8}|[0-9a-f]{64}|[0-9a-zA-Z_-]{7,128}\.digested)\.[A-Za-z0-9.]+\z}
 
   def initialize(app)
     @app = app

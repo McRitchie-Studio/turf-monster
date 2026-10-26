@@ -91,12 +91,25 @@ class ResponseCompressionTest < ActiveSupport::TestCase
     assert ResponseCompression.enabled?("production", { "COMPRESS_RESPONSES" => "" })
   end
 
+  # Propshaft::Server (the live asset server, config.assets.server) sits right
+  # after Static in development and test only; production serves the
+  # precompiled files through Static and runs no Propshaft::Server. So the one
+  # middleware allowed between Static and Deflater is that one.
   test "sits inside ActionDispatch::Static and outside the Executor, with ContentLength between" do
-    stack = Rails.application.middleware.map(&:klass)
+    stack = Rails.application.middleware.map(&:klass).reject { |klass| klass == Propshaft::Server }
     static, deflater, length, executor = [ActionDispatch::Static, Rack::Deflater, Rack::ContentLength,
                                           ActionDispatch::Executor].map { |klass| stack.index(klass) }
 
     assert deflater, "Rack::Deflater must be in the test stack"
     assert_equal [static + 1, deflater + 1, length + 1], [deflater, length, executor]
+  end
+
+  test "Propshaft's live server, when present, answers before Deflater" do
+    stack = Rails.application.middleware.map(&:klass)
+    server = stack.index(Propshaft::Server)
+    skip "config.assets.server is off in this environment" unless server
+
+    assert_equal stack.index(ActionDispatch::Static) + 1, server
+    assert_operator server, :<, stack.index(Rack::Deflater)
   end
 end

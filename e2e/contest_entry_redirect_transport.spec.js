@@ -3,7 +3,7 @@
 // WHAT THIS TIER ANSWERS THAT NO OTHER CAN. The node tiers drive the handlers,
 // the registration and the whole round trip — but every one of them CONSTRUCTS
 // the redirect provider by hand. None can show that a real page, loading the
-// real gem assets through sprockets, actually HANDS the entry flow a redirect
+// real gem assets through the asset pipeline, actually HANDS the entry flow a redirect
 // provider when a phone asks for one.
 //
 // That gap was not hypothetical: until this commit `detect()` could not return a

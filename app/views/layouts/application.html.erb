@@ -60,11 +60,11 @@
         the deep link reads it on a user tap (safe either way) but the callback
         view's IIFE reads it AT PARSE TIME and hard-fails with no retry.
 
-        Served through sprockets from solana-studio, which declares every one of
-        them in config.assets.precompile (lib/solana_studio/engine.rb) — a
-        gem-shipped asset not named there 404s in production with no local
-        warning. (This block used to say "all four". wallet_identity below makes
-        five; count it here rather than leaving the sentence to rot.) %>
+        Served through Propshaft from solana-studio's app/assets/javascripts,
+        which joins the load path on its own, so every file there is digested
+        with no list to keep; test/integration/asset_urls_test.rb asserts each
+        resolves. (This block used to say "all four". wallet_identity below
+        makes five; count it here rather than leaving the sentence to rot.) %>
     <%= javascript_include_tag "solana_studio/wallet_transport" %>
     <%= javascript_include_tag "solana_studio/redirect_provider" %>
     <%= javascript_include_tag "solana_studio/wallet_journal" %>

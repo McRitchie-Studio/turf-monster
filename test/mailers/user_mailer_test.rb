@@ -86,7 +86,7 @@ class UserMailerTest < ActionMailer::TestCase
       begin
         ActionController::Base.helpers.asset_path(entry.background)
       rescue StandardError
-        nil # Sprockets raises AssetNotFound here; the message below says the cost
+        nil # Propshaft raises MissingAssetError here; the message below says the cost
       end
     assert resolved.present?,
       "#{entry.background} is registered but does not resolve in this app's asset " \
