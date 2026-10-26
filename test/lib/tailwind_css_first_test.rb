@@ -28,7 +28,11 @@ class TailwindCssFirstTest < ActiveSupport::TestCase
 
   # Comments go first: application.css explains, in prose, that there is no
   # @config, and a guard that matched the explanation would be red forever.
-  def directives(path) = File.read(path).gsub(%r{/\*.*?\*/}m, "")
+  # String-aware: a quoted glob such as "vendor/bundle/**/*.md" holds a `/*`
+  # that is not a comment.
+  def directives(path)
+    File.read(path).gsub(%r{("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|/\*.*?\*/}m) { Regexp.last_match(1) || "" }
+  end
 
   def imports(path)
     directives(path).scan(/@import\s+["']([^"']+)["']/).flatten
@@ -84,6 +88,19 @@ class TailwindCssFirstTest < ActiveSupport::TestCase
     assert_equal %w[tailwindcss ../builds/tailwind/studio_engine], imports(APP_CSS).first(2)
   end
 
+  # CI and Heroku install gems into vendor/bundle inside the app, so the root
+  # scan reads every gem's docs. Only the prose may be excluded: an `@source not`
+  # on the whole directory outranks host.css's @source lines and drops every
+  # engine class (the gem lives under vendor/bundle there).
+  test "the root scan skips gem documentation but never the gems" do
+    sources_not = directives(APP_CSS).scan(/@source\s+not\s+["']([^"']+)["']/).flatten
+    assert_includes sources_not, "../../../vendor/bundle/**/*.{md,rdoc}"
+    sources_not.each do |glob|
+      refute_match(%r{\Avendor/bundle/?\z|vendor/bundle/?(\*\*)?/?\z}, glob.delete_prefix("../../../"),
+                   "`@source not \"#{glob}\"` excludes the gems themselves, the engine with them")
+    end
+  end
+
   test "Turf's theme extensions live in a reference-only @theme block" do
     css = directives(APP_CSS)
     theme = css[/@theme\s+inline\s+reference\s*\{(.*?)\}/m, 1]
@@ -125,5 +142,7 @@ class TailwindCssFirstTest < ActiveSupport::TestCase
     }.each do |what, rule|
       assert_includes css, rule, "the compiled CSS lost the #{what}"
     end
+    # One motion layer: the old per-app import doubled it.
+    assert_equal 1, css.scan(".spinner{").size, "the compiled CSS carries .spinner more than once"
   end
 end
