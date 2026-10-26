@@ -17,12 +17,10 @@ require "zlib"
 # gzip only, as Sprockets did: the bundle carries no brotli encoder, and Static
 # looks for .br first only when one exists.
 module PrecompressedAssets
-  # Only what is worth it: text that is linked on every page. Images are already
-  # compressed; fonts are woff2.
-  EXTENSIONS = %w[.css .js].freeze
-
-  # A Propshaft digest (8 hex, Propshaft::Asset#digest) or a pre-digested
-  # bundler output (name-<digest>.digested.js) just before the extension.
+  # A digested stylesheet or script: a Propshaft digest (8 hex,
+  # Propshaft::Asset#digest) or a pre-digested bundler output
+  # (name-<digest>.digested.js) just before a .css or .js extension. Only those
+  # are worth it: images are already compressed, and fonts are woff2.
   DIGESTED = /-(?:[0-9a-f]{8}|[0-9a-zA-Z_-]{7,128}\.digested)\.(?:css|js)\z/
 
   module_function
@@ -54,7 +52,7 @@ module PrecompressedAssets
 
   def candidates(root)
     Dir.glob(File.join(root.to_s, "**", "*")).select do |path|
-      File.file?(path) && EXTENSIONS.include?(File.extname(path)) && DIGESTED.match?(File.basename(path))
+      File.file?(path) && DIGESTED.match?(File.basename(path))
     end
   end
 end
