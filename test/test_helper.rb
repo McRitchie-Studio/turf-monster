@@ -126,6 +126,29 @@ end
 TEST_WORKERS = TestParallelism.worker_count
 ENV["PARALLEL_WORKERS"] = TEST_WORKERS.to_s if TEST_WORKERS.is_a?(Integer)
 
+# --- DRAW THE ROUTES NOW, before any worker forks or any test stubs Rails.env ---------
+#
+# Rails 8.1 draws routes lazily when eager_load is off, so config/routes.rb runs on the
+# first request or URL helper that needs it, in whatever state the process is in then.
+# Its `unless Rails.env.production?` block (toast_test, seeds_lab, the score injectors)
+# is evaluated at that moment. A test faking production with
+# `Rails.env.stub(:production?, true)` that happened to be a CI worker's first draw left
+# that worker without those routes for good, and every later admin page errored
+# `undefined ... toast_test_path` (seed-dependent: the funding test's `in_production`
+# plus test/views/admin_hub_benchmarks_link_test.rb, --seed 2). Drawing here, in the
+# parent, means every forked worker inherits the test-env route set.
+#
+# The same trap holds for a constant whose BODY reads the environment. Solana::Config
+# (app/services/solana/config.rb) evaluates `Rails.env.production?` while it loads
+# (NETWORK raises without SOLANA_NETWORK in production) and is autoloaded, so a
+# production stub that is its first reference either raises mid-template ("SOLANA_NETWORK
+# required in production", the same --seed 2 run) or, with SOLANA_NETWORK set, freezes
+# its production values for every later test in that worker. It is the only app
+# constant that does this (grep `= if Rails.env.production?`), so load it here too.
+# Regression: test/integration/routes_drawn_before_env_stub_test.rb.
+Rails.application.reload_routes_unless_loaded
+Solana::Config
+
 module ActiveSupport
   class TestCase
     # Single-process locally (the fork segfaults), parallel in CI — see TestParallelism.
