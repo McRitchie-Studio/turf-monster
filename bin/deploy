@@ -25,6 +25,8 @@
 # Flags / env:
 #   --skip-checks   bypass pre-flight (last-resort)
 #   --yes / -y      non-interactive consent (required in CI/agent shells)
+#   --ci-verified=<sha>  the release conductor read GitHub CI GREEN for <sha>; when
+#                   it is HEAD the local test run is skipped (any other SHA refuses)
 #   SKIP_TESTS=1    skip the local test run
 #
 # One-time mainnet FIRST deploy: follow MAINNET_LAUNCH.md (program deploy, vault
@@ -36,11 +38,13 @@ set -euo pipefail
 SKIP_CHECKS=0
 ASSUME_YES=0
 SHOW_HELP=0
+CI_VERIFIED_SHA=""
 for arg in "$@"; do
   case "$arg" in
     -h|--help)     SHOW_HELP=1 ;;
     --skip-checks) SKIP_CHECKS=1 ;;
     --yes|-y)      ASSUME_YES=1 ;;
+    --ci-verified=*) CI_VERIFIED_SHA="${arg#--ci-verified=}" ;;
     -*)            echo "unknown flag: $arg" >&2; exit 1 ;;
     *)             echo "unexpected argument '$arg' — bin/deploy takes no positional args (single mainnet target). See --help." >&2; exit 1 ;;
   esac
@@ -61,6 +65,11 @@ Usage:
 Flags:
   --skip-checks   bypass pre-flight (last-resort)
   --yes, -y       non-interactive consent (required in CI/agent shells)
+  --ci-verified=<sha>
+                  passed by the release conductor (bin/release ship) only after it
+                  read GitHub CI GREEN for <sha>. When <sha> is HEAD the local test
+                  run is skipped; any other value refuses before anything changes.
+                  Every other pre-flight check, the smoke and the rollback still run.
 
 Env:
   SKIP_TESTS=1    skip the local test run
@@ -284,7 +293,22 @@ if [ "$SKIP_CHECKS" != "1" ]; then
     SIGNER_CONFIG=""
   fi
 
-  if [ "${SKIP_TESTS:-0}" != "1" ]; then
+  # CI already ran this suite on this exact tree? lib/deploy/ci_verified.rb owns the
+  # rule: no flag runs the suite, a flag naming HEAD skips it, anything else refuses.
+  RUN_LOCAL_TESTS=1
+  if [ -n "$CI_VERIFIED_SHA" ]; then
+    set +e
+    CI_VERDICT=$(ruby lib/deploy/ci_verified.rb --head "$(git rev-parse HEAD)" --verified "$CI_VERIFIED_SHA")
+    CI_STATUS=$?
+    set -e
+    case "$CI_STATUS" in
+      0)  ok "$CI_VERDICT"; RUN_LOCAL_TESTS=0 ;;
+      10) ;;
+      *)  fail "$CI_VERDICT" ;;
+    esac
+  fi
+
+  if [ "$RUN_LOCAL_TESTS" = "1" ] && [ "${SKIP_TESTS:-0}" != "1" ]; then
     bold "Running tests"
     TESTLOG=$(mktemp)
     if bin/rails test >"$TESTLOG" 2>&1; then
