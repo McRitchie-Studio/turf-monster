@@ -24,8 +24,8 @@ class DigestedAssetCache
   # a pre-digested name-<digest>.digested.<ext>. An undigested name
   # (/assets/application.css, /assets/studio/montserrat-latin.woff2) never
   # matches: the segment between the last hyphen and the extension must be one
-  # of those digests exactly. Before 2026-10-25 this read the 64 hex only, so a
-  # Propshaft URL fell back to the week-long header without a word (task
+  # of those digests exactly. It once read the 64 hex only, so a Propshaft URL
+  # fell back to the week-long header without a word (task
   # turf-moves-to-propshaft).
   DIGESTED = %r{\A/assets/.+-(?:[0-9a-f]{8}|[0-9a-f]{64}|[0-9a-zA-Z_-]{7,128}\.digested)\.[A-Za-z0-9.]+\z}
 

@@ -61,12 +61,10 @@
         view's IIFE reads it AT PARSE TIME and hard-fails with no retry.
 
         Served through Propshaft from solana-studio's app/assets/javascripts,
-        which joins the asset load path on its own: every file there is
-        precompiled and digested, with no list to keep (the engine's
-        config.assets.precompile entries are inert under Propshaft).
-        test/integration/asset_urls_test.rb asserts each one resolves. (This
-        block used to say "all four". wallet_identity below makes five; count
-        it here rather than leaving the sentence to rot.) %>
+        which joins the load path on its own, so every file there is digested
+        with no list to keep; test/integration/asset_urls_test.rb asserts each
+        resolves. (This block used to say "all four". wallet_identity below
+        makes five; count it here rather than leaving the sentence to rot.) %>
     <%= javascript_include_tag "solana_studio/wallet_transport" %>
     <%= javascript_include_tag "solana_studio/redirect_provider" %>
     <%= javascript_include_tag "solana_studio/wallet_journal" %>

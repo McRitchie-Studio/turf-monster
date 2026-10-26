@@ -52,10 +52,11 @@ class FrozenAccountWriteInventoryTest < ActiveSupport::TestCase
     "csp_reports"             => "a browser's CSP violation report: no session, writes only an ErrorLog row"
   }.freeze
 
-  # Mounted Rack apps: no controller, no callback chain.
+  # Mounted Rack apps: no controller, no callback chain. Assets are not one:
+  # Propshaft serves them from middleware (Propshaft::Server, development and
+  # test only) and Sprockets' /assets mount is gone.
   EXEMPT_MOUNTS = {
     "/admin/jobs" => "Sidekiq::Web, behind the admin constraint; an operator tool, not a player write",
-    "/assets"     => "Propshaft's static asset server; reads only",
     "/cable"      => "ActionCable: Turbo Stream broadcasts out; app/channels defines no client action in"
   }.freeze
 

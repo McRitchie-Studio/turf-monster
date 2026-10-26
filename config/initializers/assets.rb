@@ -1,6 +1,6 @@
 # Be sure to restart your server when you modify this file.
 #
-# Turf serves its assets through Propshaft (moved off Sprockets 2026-10-25, task
+# Turf serves its assets through Propshaft (moved off Sprockets by task
 # turf-moves-to-propshaft). Every file under app/assets/*, app/javascript and
 # vendor/javascript, and every engine's app/assets/*, is an asset on the load
 # path: there is no precompile list and no manifest.js. tailwindcss-rails keeps
