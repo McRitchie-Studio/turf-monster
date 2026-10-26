@@ -176,8 +176,9 @@
     aria_label arguments below and the panel is announced as an unnamed
     navigation region. %>
 <%= render "components/sidebar_panel",
-      id: "gear-sidebar",
+      id: GearSidebarPanels::DESKTOP,
       title_html: status_html,
+      close_hook: true,
       open: "$store.sidebars.gearOpen",
       body_html: body_html,
       close_action: close_action,
@@ -189,8 +190,9 @@
       aria_label: current_user.admin? ? "Admin menu" : "Settings menu" %>
 
 <%= render "components/sidebar_panel",
-      id: "gear-sidebar-mobile",
+      id: GearSidebarPanels::MOBILE,
       title_html: status_html,
+      close_hook: true,
       open: "$store.sidebars.gearOpen",
       body_html: body_html,
       close_action: close_action,

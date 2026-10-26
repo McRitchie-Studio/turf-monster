@@ -1193,4 +1193,16 @@ class ApplicationController < ActionController::Base
 
     request.headers["Accept"].to_s.include?("text/html")
   end
+
+  # NO ENGINE LINK SIDEBAR. This app's menu is the gear sidebar
+  # (components/_gear_sidebar, opened by Studio.navbar_menu_trigger and
+  # Studio.navbar_account_sidebar in config/initializers/studio.rb). The engine
+  # turns its own link sidebar on for any app that draws /profile, as this one
+  # does, and then the navbar adds its cog beside the gear: two cogs, two menus.
+  # A helper_method is defined on the view's helper module itself, so it wins
+  # over StudioSidebarHelper#studio_sidebar?, which that module only includes.
+  helper_method :studio_sidebar?
+  def studio_sidebar?
+    false
+  end
 end

@@ -1,0 +1,13 @@
+<%# The navbar's second row: the engine user nav's div2_slot, passed where
+    layouts/application renders layouts/navbar (/tasks/turf-readopts-engine-navbar).
+    It replaces the engine's wallet-and-level row with the five-section seeds bar,
+    which carries the wallet label and the level itself, so the engine's own
+    level row never renders beside it (the slot replaces that row whole). %>
+<% solana_label = current_user.respond_to?(:truncated_solana) && current_user.try(:solana_connected?) ? current_user.truncated_solana : nil %>
+<div class="mt-0.5 min-w-[8rem]" data-nav-seeds-row>
+  <%= render "components/seeds_bar",
+        seeds_data: display_seeds_data,
+        compact: true,
+        label: solana_label,
+        shimmer_interval: 9 %>
+</div>

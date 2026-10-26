@@ -61,7 +61,7 @@ test("turf monster rules page loads @smoke", async ({ page }) => {
   await page.goto("/turf-monster-v1");
   await expect(page.locator("body")).toBeVisible();
   // Title, not getByRole("heading", { level: 1 }) — the navbar wordmark is an
-  // h1 too (_navbar.html.erb), so a level-1 heading locator matches TWO nodes
+  // h1 too (studio-engine's layouts/_navbar), so a level-1 heading locator matches TWO nodes
   // and dies on strict mode. The title is the page's own, and unambiguous.
   await expect(page).toHaveTitle(/Turf Monster v1/);
 });
@@ -78,10 +78,11 @@ const signedInSidebarRoutes = [
   { route: "/contests/my", destination: "/account" },
 ];
 
+// The gear, and the engine's account button (the name and the avatar, one
+// control since /tasks/turf-readopts-engine-navbar).
 const gearSidebarTriggers = [
   "button[data-gear-sidebar-trigger]",
-  "button[data-username-display]",
-  "button[data-profile-image-toggle]",
+  "button[data-nav-account][data-profile-image-toggle]",
 ];
 
 for (const { route, destination } of signedInSidebarRoutes) {

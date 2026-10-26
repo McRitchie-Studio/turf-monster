@@ -24,7 +24,7 @@
       without them every chip in the strip glows. %>
   <%= render "live/score_animations" %>
   <%= render "contests/live_page_styles" %>
-  <%= render "layouts/navbar", show_logged_in: false, preview: true %>
+  <%= render "layouts/navbar", show_logged_in: false, preview: true, **turf_navbar_slots %>
   <div class="max-w-7xl mx-auto px-4 py-6">
     <%= render "contests/live_header", contest: contest %>
     <%# The live page's own wrapper ids (contests/live), so the copy of its

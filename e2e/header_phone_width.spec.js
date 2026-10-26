@@ -51,9 +51,10 @@ const { loginAdmin } = require("./helpers");
 //
 // ============ WHY THIS APP NEEDED ITS OWN SPEC ============
 //
-// studio-engine shipped the same repair in 0.77.1 and turf-monster gets none of
-// it: this app renders its own fork of layouts/_navbar and declares its own
-// `.user-nav-col` steps in app/assets/tailwind/application.css. The two headers
+// studio-engine shipped the same repair in 0.77.1, and this app declares its
+// own `.user-nav-col` steps in app/assets/tailwind/application.css, which win
+// over the engine navbar's (it renders that navbar since
+// /tasks/turf-readopts-engine-navbar). The two headers
 // are not the same shape either — turf's right column carries a 5-section seeds
 // bar with a hard `min-w-[8rem]` plus a flex-shrink-0 avatar, so it has a
 // content floor the engine's column does not, and a cap tuned for the engine
@@ -130,11 +131,12 @@ async function readHeaderGeometry(page) {
     const leftColumn = row && row.firstElementChild;
     const title = root.querySelector(".nav-title");
     const userColumn = root.querySelector(".user-nav-col");
-    // Div 2 of components/_user_nav — the seeds bar's wrapper, which carries the
-    // min-width that sets this column's floor.
+    // The user nav's div2_slot (components/_nav_seeds_row) — the seeds bar's
+    // wrapper, which carries the min-width that sets this column's floor.
     const seeds = userColumn && userColumn.querySelector('[class*="min-w-[8rem]"]');
-    const avatarButton = userColumn && userColumn.querySelector("[data-profile-image-toggle]");
-    const avatar = avatarButton && avatarButton.parentElement;
+    // The avatar inside the engine's account button (the name beside it is
+    // screen-reader text below md).
+    const avatar = userColumn && userColumn.querySelector("[data-nav-account] > [aria-hidden]");
     const leftBox = box(leftColumn);
     const userBox = box(userColumn);
 
@@ -166,7 +168,7 @@ async function readHeaderGeometry(page) {
 async function openHeaderAt(page, width) {
   await page.setViewportSize({ width, height: 844 });
   await page.goto("/contests");
-  await expect(page.locator("[data-username-display]").first()).toBeVisible();
+  await expect(page.locator("[data-nav-account]").first()).toBeVisible();
   await exposeBalance(page);
 }
 
@@ -369,8 +371,12 @@ test("no phone loses navigation to make the header fit", async ({ page }) => {
         links: [...new Set(links)].sort(),
         logo: painted(root.querySelector(".nav-logo")),
         title: painted(root.querySelector(".nav-title")),
-        username: painted(root.querySelector("[data-username-display]")),
-        avatar: painted(root.querySelector("[data-profile-image-toggle]")),
+        // The name and avatar are ONE engine account button; below md the name
+        // is screen-reader text inside it, by design (Studio.navbar_phone_name
+        // off: beside the avatar it would take the seeds bar's width).
+        account: painted(root.querySelector("[data-nav-account]")),
+        accountName: (root.querySelector("[data-nav-account]") || {}).textContent,
+        avatar: painted(root.querySelector("[data-nav-account] > [aria-hidden]")),
         seeds: painted(userColumn && userColumn.querySelector('[class*="min-w-[8rem]"]')),
         // Two gear triggers render: one in the user column (`hidden md:flex`,
         // so display:none here) and one in the mobile sub-navbar. Picking the
@@ -388,7 +394,8 @@ test("no phone loses navigation to make the header fit", async ({ page }) => {
         "and Rules links must survive; hiding navigation is not a fit"
     ).toEqual(["Contests", "Rules"]);
 
-    for (const part of ["logo", "title", "username", "avatar", "seeds", "gear"]) {
+    expect(nav.accountName || "", `at ${width}px the account button lost its accessible name`).toMatch(/\S/);
+    for (const part of ["logo", "title", "account", "avatar", "seeds", "gear"]) {
       expect(nav[part], `at ${width}px the header's ${part} is not rendered at all`).not.toBeNull();
       expect(
         nav[part].width,

@@ -20,14 +20,30 @@ require "test_helper"
 # machinery cannot come back without going red here.
 class NavbarCollapseComponentTest < ActionDispatch::IntegrationTest
   CSS = File.read(Rails.root.join("app/assets/tailwind/application.css"))
-  NAVBAR = File.read(Rails.root.join("app/views/layouts/_navbar.html.erb"))
-  USER_NAV = File.read(Rails.root.join("app/views/components/_user_nav.html.erb"))
+  # The balance seat this app fills in the engine user nav (balance_slot).
+  BALANCE = File.read(Rails.root.join("app/views/components/_nav_balance.html.erb"))
   FACTORIES = File.read(Rails.root.join("app/views/shared/_alpine_factories.html.erb"))
 
   # Every dimension the collapse moves, with the calc() the stylesheet must
   # interpolate it through. If one of these regresses to a static value or a
   # class swap, the collapse stops tracking the finger for that dimension.
   DRIVEN_HOOKS = %w[--nav-pad --nav-logo-size --nav-title-size --nav-title-lead-size --nav-balance-size --nav-username-size].freeze
+
+  # The header as a signed-in page renders it: studio-engine's layouts/_navbar
+  # and components/_user_nav (/tasks/turf-readopts-engine-navbar), with its
+  # <style> blocks dropped, whose CSS comments name the retired shapes in prose.
+  def navbar
+    log_in_as(users(:alex))
+    get contests_path
+    assert_response :success
+    header = Nokogiri::HTML5.parse(response.body).at_css("header[data-navbar-root]")
+    assert header, "navbar must render"
+    header.css("style").each(&:remove)
+    # The theme toggle's icon morph (the engine's components/_theme_toggle_morph)
+    # eases scale and rotate on a 16px fixed box: a swap, not the collapse.
+    header.css(".nav-toggle-icon, .nav-spinner-icon").each(&:remove)
+    header.to_html
+  end
 
   test "the collapse is a continuous function of scroll, not a 60px step" do
     assert_match(/@property\s+--nav-p\b/, CSS,
@@ -38,17 +54,18 @@ class NavbarCollapseComponentTest < ActionDispatch::IntegrationTest
     # carried an inline copy of the collapse until the engine's grew the hold
     # (the header keeps its footprint so the page never moves); a copy is how a
     # fix lands in one navbar and not the other.
-    assert_includes NAVBAR, 'data-studio-controller="nav-collapse"',
+    navbar = self.navbar
+    assert_includes navbar, 'data-studio-controller="nav-collapse"',
       "the header must run studio-engine's nav-collapse controller"
-    assert_includes NAVBAR, 'data-nav-collapse-scrolled-class="shadow-lg border-b border-subtle is-scrolled"',
+    assert_includes navbar, 'data-nav-collapse-scrolled-class="shadow-lg border-b border-subtle is-scrolled"',
       "the controller toggles the scrolled shadow the header used to bind through Alpine"
-    refute_includes NAVBAR, 'x-data="navCollapse()"', "the inline Alpine factory is retired"
+    refute_includes navbar, 'x-data="navCollapse()"', "the inline Alpine factory is retired"
     refute_match(/window\.navCollapse\s*=\s*function/, FACTORIES,
       "no inline copy of the collapse: it would shadow the engine's")
 
-    refute_match(/@scroll\.window/, NAVBAR,
+    refute_match(/@scroll\.window/, navbar,
       "the raw per-event @scroll.window handler is what ran unthrottled; navCollapse binds a passive rAF-coalesced listener instead")
-    refute_match(/scrollY > 60/, NAVBAR,
+    refute_match(/scrollY > 60/, navbar,
       "the 60px collapse step is replaced by a --nav-ramp interpolation")
   end
 
@@ -56,9 +73,10 @@ class NavbarCollapseComponentTest < ActionDispatch::IntegrationTest
     # transition-all catches padding, width/height and font-size — every one of
     # them a layout property on a sticky header that sits above the whole
     # document. The header keeps transition-shadow (paint only, moves nothing).
-    refute_includes NAVBAR, "transition-all duration-300",
+    navbar = self.navbar
+    refute_includes navbar, "transition-all duration-300",
       "the navbar's collapsing elements must not carry a time-based transition"
-    assert_includes NAVBAR, "transition-shadow",
+    assert_includes navbar, "transition-shadow",
       "the shadow may still fade on a clock — it paints and never reflows"
 
     %w[--nav-pad --nav-logo-size --nav-title-size].each do |hook|
@@ -102,11 +120,13 @@ class NavbarCollapseComponentTest < ActionDispatch::IntegrationTest
   end
 
   test "the size bindings left Alpine's per-scroll reactive path" do
-    refute_match(/x-bind:class="scrolled \?/, NAVBAR,
-      "the balance size must come from --nav-p, not a reactive class swap")
-    refute_match(/x-bind:class="scrolled \?/, USER_NAV,
-      "the username size must come from --nav-p, not a reactive class swap")
-    assert_includes USER_NAV, "nav-username", "username needs the --nav-p sized hook"
-    assert_includes NAVBAR, "nav-balance", "balance needs the --nav-p sized hook"
+    navbar = self.navbar
+    refute_match(/x-bind:class="scrolled \?/, navbar,
+      "the balance and username sizes must come from --nav-p, not a reactive class swap")
+    assert_includes BALANCE, "nav-balance", "balance needs the --nav-p sized hook"
+    assert_match(/\.nav-shell \.nav-balance \{\s*font-size: var\(--nav-balance-size\);/, CSS)
+    assert_includes navbar, "data-nav-name", "the engine's name carries the hook the size rule keys on"
+    assert_match(/\.nav-shell \[data-nav-account\] \[data-nav-name\] \{ font-size: var\(--nav-username-size\); \}/, CSS,
+      "username sizes off --nav-p through the engine's [data-nav-name]")
   end
 end

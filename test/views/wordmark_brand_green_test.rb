@@ -22,10 +22,11 @@ class WordmarkBrandGreenTest < ActiveSupport::TestCase
   BRAND_GREEN = "#4BAF50".freeze
   COMPILED_CSS = Rails.root.join("app/assets/builds/tailwind.css").freeze
   VIEWS = Rails.root.join("app/views").freeze
-  # Every place this app sets its own name as a logotype. The engine footer is
-  # the sixth, and it is engine markup, so it is reached by selector instead.
+  # Every view where this app sets its own name as a logotype. Two more are
+  # engine markup: the footer, reached by selector, and the navbar, whose words
+  # are Studio.navbar_brand in config/initializers/studio.rb
+  # (/tasks/turf-readopts-engine-navbar), checked by the test after this list's.
   LOGOTYPE_SITES = %w[
-    layouts/_navbar.html.erb
     shared/_auth_card.html.erb
     landing_pages/show.html.erb
     landing_pages/claimed.html.erb
@@ -79,6 +80,18 @@ class WordmarkBrandGreenTest < ActiveSupport::TestCase
       refute_includes classes.first.split, "text-primary",
                       "#{site}: text-primary on the logotype repaints it with the per-theme ink (#97BE99 in dark)"
     end
+  end
+
+  test "the navbar's wordmark is declared with the brand green" do
+    monster = Studio.navbar_brand.fetch(:words).find { |word| word[:text] == "Monster" }
+    assert monster, "Studio.navbar_brand no longer sets the word Monster"
+    classes = monster[:class].to_s.split
+    assert_includes classes, "tm-wordmark", "the navbar logotype lost the brand green"
+    refute_includes classes, "text-primary",
+                    "text-primary on the logotype repaints it with the per-theme ink (#97BE99 in dark)"
+
+    html = ApplicationController.render(partial: "layouts/navbar", locals: { show_logged_in: false, preview: true })
+    assert_equal 1, html.scan(LOGOTYPE_WORD).size, "the engine navbar draws the declared word once"
   end
 
   test "no other view sets the word Monster as a coloured logotype" do

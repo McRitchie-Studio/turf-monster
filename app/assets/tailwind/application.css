@@ -683,7 +683,7 @@
 }
 
 @layer utilities {
-  /* Navbar responsive sizing. Promoted from layouts/_navbar.html.erb's
+  /* Navbar responsive sizing. Promoted from the old layouts/_navbar fork's
    inline style block 2026-05-24 — these rules fight Tailwind text,
    gap, and sizing utilities applied to the same elements. This block
    compiles into the utilities layer AFTER Tailwind's own utilities, so
@@ -719,7 +719,10 @@
      THE FLOOR IS DERIVED, NOT CHOSEN, and it is why this app cannot simply copy
      studio-engine's `min(14rem, 46vw)`. The engine's column holds icons and a
      name; THIS one carries a 5-section seeds bar with a hard `min-w-[8rem]`
-     (components/_user_nav Div 2) and a `flex-shrink-0` avatar. Its minimum is:
+     (components/_nav_seeds_row, the user nav's div2_slot) and a `flex-shrink-0`
+     avatar. Its minimum, measured on Turf's own user nav before
+     /tasks/turf-readopts-engine-navbar (the engine's needs 184px: no pull, no
+     inset; the floor was kept), was:
 
          8rem seeds bar                    128px
          less the row's -6px pull           -6px
@@ -789,13 +792,7 @@
      before at 320/344/360/390/412/430, 5/5/5/6/8/9 after. The remaining lever
      at the narrow end is the seeds bar's own 8rem floor, which is a decision
      about that component rather than about this cap. */
-  .user-nav-col {
-    --user-nav-floor: 11.875rem;
-    --nav-left-need: 11.125rem;
-    width: clamp(var(--user-nav-floor), calc(100vw - var(--nav-left-need)), 14rem);
-    max-width: min(20rem, calc(100vw - 1rem));
-    box-sizing: border-box;
-  }
+  /* .user-nav-col: the rule is below this layer, unlayered (THE COLUMN WIDTHS). */
   .nav-title {
     display: flex;
     gap: 0.25em;
@@ -864,9 +861,6 @@
   .nav-shell .nav-balance {
     font-size: var(--nav-balance-size);
   }
-  .nav-shell .nav-username {
-    font-size: var(--nav-username-size);
-  }
 
   /* THE SAME CAP IN THE NEXT BAND UP, and leaving it out is measurably worse
      than not capping the first one. With only the base band capped, a 412px
@@ -881,12 +875,6 @@
      (1.5rem lead word, 0.5rem logo gap), so the left column needs 190px rather
      than 172px. The cap reaches the plain 15rem at exactly 430px, which is why
      iPhone Pro Max width is unchanged by this fix. */
-  @media (min-width: 400px) {
-    .user-nav-col {
-      --nav-left-need: 12.25rem;
-      width: clamp(var(--user-nav-floor), calc(100vw - var(--nav-left-need)), 15rem);
-    }
-  }
   /* A BARE CLAMP AT 768px AND UP — deliberately not measured against what the
      left column needs. This band already reads the viewport through its own 24vw
      and has 448px of slack at its breakpoint; there is nothing a tighter cap
@@ -895,11 +883,6 @@
      The 0.5rem on every term is the avatar's: it is 40px from 768px, not 32
      (THE ACCOUNT ROW, SIZED AND ALIGNED AS ON THE HUB, below), and the column
      grows by the same 8px so the username keeps the width it had. */
-  @media (min-width: 768px) {
-    .user-nav-col {
-      width: clamp(16.5rem, calc(24vw + 0.5rem), 20.5rem);
-    }
-  }
   @media (max-width: 767px) {
     .nav-title {
       flex-direction: column;
@@ -945,120 +928,63 @@
   /* Theme CSS custom properties are now engine-generated via studio_theme_css_tag */
 }
 
-/* THE IN-HEADER BARS ON THE SCROLL TIMELINE (layouts/_navbar, data-nav-header-bars;
-   /tasks/turf-engine-navbar-timeline).
-
-   The impersonation bar (OPSEC-046, the JS-free "Return to <admin>" escape) and
-   the frozen-account bar render INSIDE the pinned header, so they never scroll
-   away. On the engine's scroll timeline (engine.css, THE SCROLL-DRIVEN
-   COLLAPSE) the header keeps one height and sticks at minus its band, so the
-   band at its TOP leaves the window, and these bars sit at its top. Left alone
-   they scroll off with it.
-
-   So they move down by the band over the same range the band scrolls away in,
-   on the same linear timeline: the header rises by exactly as much as they
-   fall, and they hold still at the top of the window. The band itself needs no
-   correction. The controller measures it as the header's height expanded less
-   collapsed, and these bars are in both readings, so they cancel out of it.
-   The row needs none either. The engine slides it down half the band, which
-   centres it on the bar below these (the arithmetic: the visible strip is the
-   band down to the header's bottom, the bars take its top, and the row's centre
-   lands in the middle of what is left). Their content never meets the row's:
-   the bars end at their height plus the band, the row's ink starts at their
-   height plus half the band plus its rest padding.
-
-   Same conditions as the engine's own rules (768px up, a browser with scroll
-   timelines), which are the controller's, so this moves only while the
-   timeline drives the header. */
-@layer utilities {
-  @supports (animation-timeline: scroll()) {
-    @media (min-width: 768px) {
-      .nav-shell[data-nav-timeline] > [data-nav-header-bars] {
-        position: relative;
-        z-index: 1;
-        animation: turf-nav-header-bars linear both;
-        animation-timeline: scroll(root block);
-        animation-range: var(--nav-start, 0px) calc(var(--nav-start, 0px) + var(--nav-band));
-      }
-    }
+/* THE COLUMN WIDTHS (.user-nav-col), the phone caps measured above. UNLAYERED:
+   the engine navbar's inline <style> sets its own widths unlayered, which beats
+   any layered rule, and .nav-shell outranks it on specificity. */
+.nav-shell .user-nav-col {
+  --user-nav-floor: 11.875rem;
+  --nav-left-need: 11.125rem;
+  width: clamp(var(--user-nav-floor), calc(100vw - var(--nav-left-need)), 14rem);
+  max-width: min(20rem, calc(100vw - 1rem));
+  box-sizing: border-box;
+}
+@media (min-width: 400px) {
+  .nav-shell .user-nav-col {
+    --nav-left-need: 12.25rem;
+    width: clamp(var(--user-nav-floor), calc(100vw - var(--nav-left-need)), 15rem);
   }
 }
-@keyframes turf-nav-header-bars { to { transform: translateY(var(--nav-band)); } }
+@media (min-width: 768px) {
+  .nav-shell .user-nav-col {
+    width: clamp(16.5rem, calc(24vw + 0.5rem), 20.5rem);
+  }
+}
 
-/* THE ACCOUNT ROW, SIZED AND ALIGNED AS ON THE HUB (/tasks/turf-navbar-avatar-table-header).
+/* THE NAME GIVES WAY, NOT THE ICONS: the engine's account never shrinks, so a
+   long name covered the gear and toggle. The icons keep their width; the name
+   truncates in the old 7rem cap (e2e/navbar_long_name.spec.js). */
+@media (min-width: 768px) {
+  .nav-shell .user-nav-col [data-nav-tools] { min-width: min-content; }
+  /* Its inline 6px padding goes, for the name (Free Entry face, 1024px). */
+  .nav-shell .user-nav-col [data-nav-tools] > div:first-child { padding-inline: 0 !important; }
+  .nav-shell .user-nav-col [data-nav-account] { flex-shrink: 1; min-width: 0; }
+  .nav-shell .user-nav-col [data-nav-account] > span:first-child { min-width: 0; max-width: 7rem; }
+}
 
-   ALIGNMENT. The row stops at the page container: 80rem wide and centred, the
-   width of the max-w-7xl the pages lay out in, so its px-4 columns put the logo
-   on the content's left edge and the avatar on its right edge. Full width, the
-   avatar sat at the window edge, 80px right of the content at 1440. The hub
-   (mcritchie-studio application.css) carries the same rule.
 
-   SIZE, from 768px. The avatar is 40px at rest and 32px collapsed, as the hub's
-   is (the engine draws its "nav" size at 32px; this app's forked user nav
-   keeps that class and is sized here). On the --nav-p path (phones are below
-   this, so: a browser without scroll timelines) the size is a calc() off
-   --nav-p, as the logo's is, and the column's type already shrinks through
-   --nav-balance-size and --nav-username-size. --nav-p 1 is also how the engine's
-   nav-collapse controller reads the COLLAPSED header when it measures the band,
-   so the compact bar is measured with the 32px avatar in it.
-
-   ON THE SCROLL TIMELINE nothing writes --nav-p, so the sizes above hold their
-   rest values and, before this rule, the avatar, name and level kept full size
-   in the compact bar. The engine scales its own account through
-   [data-nav-account] and [data-nav-tools]; this app's two-row account carries
-   neither, because those hooks also restyle the icon rail and its gaps. So the
-   account gets its own keyframes on the engine's timeline and range:
-
-     the avatar (with the free-entry badge riding on it) scales 40 -> 32 from
-     its right edge, which stays on the container's edge;
-     the column (balance, icons, name, seeds bar and level) scales by 7/8 from
-     its right edge, and slides right by the 8px the avatar gave up, so the
-     gap between them holds.
-
-   THE GAP is the hub's: 12px from the name's ink to the avatar (the engine's
-   --nav-gap), at rest, mid-collapse and compact. From 768px the partial drops
-   the name row's right padding (md:pr-0) and sets the avatar's margin to
-   md:ml-1, so the row's gap-2 plus that margin is 12px from the column's edge,
-   where the name ends (/tasks/turf-avatar-name-gap; it was 6 + 8 + 12 = 26px).
-   The column's right edge is the scale origin, so the name stays on it as it
-   shrinks and the gap does not drift.
-
-   7/8 rather than the avatar's 4/5: the column is two rows of small type, and
-   4/5 takes the level label under 8px. At 7/8 the name lands at 15.75px, a
-   quarter pixel off the 16px the --nav-p path collapses it to. */
+/* THE ACCOUNT ROW, SIZED AND ALIGNED AS ON THE HUB (/tasks/turf-navbar-avatar-table-header;
+   on the engine user nav since /tasks/turf-readopts-engine-navbar).
+   The row stops at the page container (80rem, the pages' max-w-7xl), so the
+   logo and avatar sit on the content's edges, as on the hub. From 768px the
+   avatar is the hub's 40px at rest and 32px collapsed: engine.css does that
+   only for a ONE-row nav, and this one has two (the seeds bar), so it is
+   applied here on the engine's own --nav-avatar, with the badge seat tracking
+   it. The engine's timeline scales avatar, badge, name and icon column by what
+   nav-collapse measures. The name keeps this app's --nav-username-size. */
 @layer utilities {
   .nav-shell > .nav-row { max-width: 80rem; margin-inline: auto; }
+  .nav-shell [data-nav-account] [data-nav-name] { font-size: var(--nav-username-size); }
   @media (min-width: 768px) {
-    .nav-shell {
-      --turf-nav-avatar: calc(2.5rem - 0.5rem * var(--nav-p, 0));   /* 40px -> 32px */
-      --turf-nav-avatar-scale: 0.8;                                  /* 32 / 40 */
-      --turf-nav-avatar-shrink: 0.5rem;                              /* 40 - 32 */
-      --turf-nav-column-scale: 0.875;
-    }
-    .nav-shell [data-turf-nav-avatar] [data-profile-image-toggle] > * {
-      width: var(--turf-nav-avatar);
-      height: var(--turf-nav-avatar);
+    .nav-shell [data-nav-account] > [aria-hidden] > * {
+      width: var(--nav-avatar);
+      height: var(--nav-avatar);
       font-size: 0.875rem;
     }
-  }
-  @supports (animation-timeline: scroll()) {
-    @media (min-width: 768px) {
-      .nav-shell[data-nav-timeline] [data-turf-nav-avatar],
-      .nav-shell[data-nav-timeline] [data-turf-nav-column] {
-        animation-timing-function: ease-in-out;
-        animation-fill-mode: both;
-        animation-timeline: scroll(root block);
-        animation-range: var(--nav-start, 0px) calc(var(--nav-start, 0px) + var(--nav-ramp));
-        transform-origin: right center;
-      }
-      .nav-shell[data-nav-timeline] [data-turf-nav-avatar] { animation-name: turf-nav-avatar; }
-      .nav-shell[data-nav-timeline] [data-turf-nav-column] { animation-name: turf-nav-column; }
+    .nav-shell [data-nav-account] + [data-nav-avatar-badge] {
+      width: var(--nav-avatar);
+      height: var(--nav-avatar);
     }
   }
-}
-@keyframes turf-nav-avatar { to { transform: scale(var(--turf-nav-avatar-scale, 1)); } }
-@keyframes turf-nav-column {
-  to { transform: translateX(var(--turf-nav-avatar-shrink, 0px)) scale(var(--turf-nav-column-scale, 1)); }
 }
 
 /* Environment-banner tooltip containment — the 4px horizontal document scroll
@@ -1595,7 +1521,7 @@ body.modal-open { overflow: hidden; }
   .free-entry-glow { animation: none; box-shadow: 0 0 14px 5px rgb(var(--color-primary-500-rgb) / 0.45); }
 }
 
-/* === "✨ Free Entry" label (layouts/_navbar.html.erb balance slot) ======
+/* === "✨ Free Entry" label (components/_nav_balance, the balance slot) ======
    The second face of the navbar balance slot. Two ways it shows:
      .fe-peek (on the slot) — the ✨ badge on the avatar is hovered, so the
                              label PEEKS over the amount as a pill. Out of
@@ -1686,9 +1612,9 @@ body.modal-open { overflow: hidden; }
    measurement anyone took: MEASURED at 768/900/1024/1100/1280/1366 after
    applyBalanceSlotRule() swapped the face, the painted right edge was
    byte-identical to having no mask at all — a hard cut through the middle of a
-   glyph. Fixed by navUsernameFade (task: fade-mask-follows-face-swap), which
-   re-measures on every box change; e2e/navbar_layout.spec.js asserts the taper
-   in painted pixels rather than in computed style.
+   glyph. Fixed by navUsernameFade (task: fade-mask-follows-face-swap). Since
+   /tasks/turf-readopts-engine-navbar the name is studio-engine's, beside the
+   avatar rather than in this row, and it ellipsizes in its own capped box.
 
    So trim the FACE, not the name. The decorative sparkle steps out (it is
    aria-hidden, and the real one is the ✨ badge on the avatar two controls

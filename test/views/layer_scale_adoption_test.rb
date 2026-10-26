@@ -34,7 +34,9 @@ class LayerScaleAdoptionTest < ActionDispatch::IntegrationTest
   # the resolved gem or the compiled output. The file is still SCANNED — the
   # drift scan globs app/assets/tailwind/**/*.css — just never again as a source
   # of tier VALUES, which is the distinction the shim blurred.
-  NAVBAR = Rails.root.join("app/views/layouts/_navbar.html.erb")
+  # NO NAVBAR CONSTANT. The navbar and the side panel are studio-engine's since
+  # /tasks/turf-readopts-engine-navbar; the assertions that read Turf's forks
+  # read the rendered page or the resolved gem instead.
   BOARD  = Rails.root.join("app/views/contests/_turf_totals_board.html.erb")
   # NO HOST CONSTANT. This app shadowed studio-engine's modal host with a fork of
   # its own at app/views/studio/modals/_host.html.erb; defork-turf-modal-host
@@ -223,8 +225,10 @@ class LayerScaleAdoptionTest < ActionDispatch::IntegrationTest
   test "the modal-open lift still finds the class the navbar emits" do
     assert_match(/body\.modal-open\s+\.studio-bar-stack/, ENGINE_CSS.read,
                  "the resolved engine lost the lift rule that raises the bars over a modal")
-    assert_match(/class="[^"]*\bstudio-bar-stack\b[^"]*"/, markup_of(NAVBAR),
-                 "the navbar no longer EMITS studio-bar-stack, the class the lift selects")
+    stack = visit_home.at_css("[data-studio-bar-stack]")
+    refute_nil stack, "the layout renders the engine's bar stack"
+    assert_includes stack["class"].to_s.split, "studio-bar-stack",
+                    "the page no longer EMITS studio-bar-stack, the class the lift selects"
   end
 
   # A LEVEL ALONE IS NOT THE FIX, and this is the assertion that says so. The
@@ -309,7 +313,9 @@ class LayerScaleAdoptionTest < ActionDispatch::IntegrationTest
   # header's on-screen bottom did not move. A panel positioned at --nav-h then
   # lands 47px too high and paints over the navbar's lower strip.
   test "a side panel starts below the header, not at its height" do
-    panel = markup_of(Rails.root.join("app/views/components/_sidebar_panel.html.erb"))
+    panel = markup_of(Studio::Engine.root.join("app/views/components/_sidebar_panel.html.erb"))
+    refute Rails.root.join("app/views/components/_sidebar_panel.html.erb").exist?,
+           "Turf renders the engine's panel; a host copy would shadow it"
     style = panel[/style="top:[^"]*"/]
 
     refute_nil style, "the panel's top offset moved or was renamed"
@@ -324,17 +330,20 @@ class LayerScaleAdoptionTest < ActionDispatch::IntegrationTest
   # The environment bar is an ambient label and can scroll away; an escape hatch
   # cannot. So exactly one of the two moved out of the pinned header.
   test "the impersonation escape hatch stays pinned inside the header" do
-    layout = markup_of(NAVBAR)
-    header = layout.index("<header")
-    stack  = layout.index("studio-bar-stack")
-    imp    = layout.index(%(render "shared/impersonation_banner"))
+    admin = users(:alex)
+    player = users(:jordan)
+    [admin, player].each { |u| u.update_column(:slug, u.send(:name_slug)) }
+    log_in_as(admin)
+    post admin_impersonate_path(player.slug)
+    page = visit_home
 
-    refute_nil imp, "the impersonation bar must still render"
-    assert_operator stack, :<, header,
-                    "the environment bar is the one that moves out, for the modal lift"
-    assert_operator imp, :>, header,
-                    "the impersonation bar must stay INSIDE the pinned header — an " \
-                    "admin who scrolls must not lose the way out"
+    escape = page.at_css("form[action='#{admin_stop_impersonating_path}']")
+    refute_nil escape, "the impersonation bar must still render"
+    refute_nil escape.at_xpath("ancestor::header[@data-navbar-root]"),
+               "the impersonation bar must stay INSIDE the pinned header (Studio.navbar_header_bars): " \
+               "an admin who scrolls must not lose the way out"
+    assert_nil page.at_css("[data-studio-bar-stack] form[action='#{admin_stop_impersonating_path}']"),
+               "the environment bar is the one that moves out, for the modal lift"
   end
 
   test "docked, nav and drawer all stay below the modal" do

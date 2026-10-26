@@ -230,7 +230,8 @@ class PrimaryTextContrastTest < ActiveSupport::TestCase
   # peek pill). On #2E7D32 the 600 shade is 2.65:1 on the dark page, where the old
   # primary's was 4.66:1, so the dark theme hovers to the 300 shade instead.
   test "the navbar balance links hover to an AA ink on the page and card in both themes" do
-    links = Rails.root.join("app/views/layouts/_navbar.html.erb").read.scan(/class: "(?:nav-balance|free-entry-label) ([^"#]*)/).flatten
+    # The balance seat (components/_nav_balance, the engine user nav's balance_slot).
+    links = Rails.root.join("app/views/components/_nav_balance.html.erb").read.scan(/class: "(?:nav-balance|free-entry-label) ([^"#]*)/).flatten
     assert_equal 2, links.size, "expected the nav-balance and free-entry-label links"
     { light: "hover:text-primary-600", dark: "dark:hover:text-primary-300" }.each do |mode, klass|
       links.each { |classes| assert_includes classes.split, klass, "a navbar balance link lost its #{mode} hover" }

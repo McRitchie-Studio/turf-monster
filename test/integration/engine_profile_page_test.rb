@@ -5,9 +5,11 @@ require "test_helper"
 # WHY THIS EXISTS SEPARATELY from the engine's own suite. The engine tests that
 # the page renders against a stub user in its dummy app. What it cannot test is
 # whether it renders against THIS app's User, THIS app's layout, and THIS app's
-# initializer — and every one of those has bitten before. This app forks
+# initializer — and every one of those has bitten before. This app forked
 # layouts/_navbar, components/_user_nav and studio/modals/_host, any of which
-# shadows the engine's copy, and it declares its own profile_sections.
+# shadows the engine's copy (all three are the engine's now; the navbar pair
+# since /tasks/turf-readopts-engine-navbar), and it declares its own
+# profile_sections.
 #
 # The bump from 0.47.1 to 0.52 crossed five minors. "The gem resolved" is not the
 # same claim as "the page works here".

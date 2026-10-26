@@ -346,8 +346,11 @@ real page gives `false`, so the preview renders a branch the live app never take
 
 Readers number **six**, not the five revision 1 listed: studio-engine's
 `app/views/components/_user_nav.html.erb:123` also reads `seedsNavbar`, and
-reaches this app through `app/views/layouts/_navbar.html.erb:103`. Found by the
-engine axis, not named in review.
+reached this app through the navbar. Found by the engine axis, not named in
+review. (Since /tasks/turf-readopts-engine-navbar this app renders the engine's
+user nav itself, and always fills its `div2_slot` with the seeds bar
+(`components/_nav_seeds_row`), so the engine's level row, where that reader
+lives, never renders here.)
 
 **The disagreement:** writer 4 exists specifically to stop a stale server value
 from lowering the cache. Writers 3 and 5 have no such guard, and writer 3 can
@@ -873,4 +876,4 @@ Named so the next reader does not mistake silence for a clean bill.
   PR must not carry a security fix, and a security fix must not wait on a docs
   review.
 
-<!-- citation-guard: snapshot 2026-08-25 (175 citations) — Phase-1 audit; it states on its face that no refactor has been performed, so its citations are true as of that date and are meant to stay frozen -->
+<!-- citation-guard: snapshot 2026-08-25 (174 citations) — Phase-1 audit; it states on its face that no refactor has been performed, so its citations are true as of that date and are meant to stay frozen -->

@@ -217,7 +217,7 @@ test("the logged-in header stays contained when the page paints in a fallback fa
   for (const viewport of VIEWPORTS) {
     await page.setViewportSize(viewport);
     await page.goto("/contests");
-    await expect(page.locator("[data-username-display]").first()).toBeVisible();
+    await expect(page.locator("[data-nav-account]").first()).toBeVisible();
     await exposeStressControls(page);
 
     // BOTH faces get measured, and the pair is the point. "as rendered" is

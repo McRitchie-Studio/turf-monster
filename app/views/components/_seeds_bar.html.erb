@@ -245,7 +245,7 @@
      @navbar-seeds-update.window="handleSeedsUpdate($event.detail)">
 
   <% if compact %>
-    <%# ── Navbar variant: 14px bar with text overlay (matches existing _user_nav Div 2 sizing) ── %>
+    <%# ── Navbar variant: 14px bar with text overlay (the navbar's second row, components/_nav_seeds_row) ── %>
     <div class="dm-orange relative overflow-hidden rounded" style="height: 14px;">
       <%# 5-segment bar (continuous fill via --bar-progress) %>
       <div class="absolute inset-0 seeds-bar-continuous flex gap-1" :style="{ '--bar-progress': displaySeeds }">
