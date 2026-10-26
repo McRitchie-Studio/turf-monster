@@ -28,12 +28,6 @@ Rails.application.configure do
   # DigestedAssetCache (lib/digested_asset_cache.rb) raises /assets/* to a year.
   config.public_file_server.headers = { "cache-control" => "public, max-age=#{1.week.to_i}" }
 
-  # Compress CSS using a preprocessor.
-  # config.assets.css_compressor = :sass
-
-  # Do not fall back to assets pipeline if a precompiled asset is missed.
-  config.assets.compile = false
-
   # Enable serving of images, stylesheets, and JavaScripts from an asset server.
   # config.asset_host = "http://assets.example.com"
 

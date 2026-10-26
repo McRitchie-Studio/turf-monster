@@ -26,6 +26,9 @@ require Rails.root.join("lib/digested_asset_cache")
 class DigestedAssetCacheTest < ActiveSupport::TestCase
   WEEK   = "public, max-age=604800"
   DIGEST = "a" * 64
+  # Propshaft::Asset#digest: SHA1 cut to 8 hex. What Turf serves since
+  # 2026-10-25 (task turf-moves-to-propshaft).
+  PROPSHAFT = "3f9c0a1e"
 
   def call(path, status: 200, headers: { "cache-control" => WEEK })
     app = ->(_env) { [status, headers.dup, ["body"]] }
@@ -33,8 +36,10 @@ class DigestedAssetCacheTest < ActiveSupport::TestCase
   end
 
   test "[unit] a digested asset gets a year, immutable" do
-    %W[/assets/application-#{DIGEST}.css /assets/solana_studio/wallet_transport-#{DIGEST}.js
-       /assets/application-#{DIGEST}.css.gz].each do |path|
+    %W[/assets/application-#{PROPSHAFT}.css /assets/solana_studio/wallet_transport-#{PROPSHAFT}.js
+       /assets/application-#{PROPSHAFT}.css.gz /assets/controllers/card_filter_controller-#{PROPSHAFT}.js
+       /assets/studio/montserrat-latin-#{PROPSHAFT}.woff2 /assets/bundle-abc123XYZ_-9.digested.js
+       /assets/application-#{DIGEST}.css /assets/application-#{DIGEST}.css.gz].each do |path|
       _status, headers, _body = call(path)
       assert_equal "public, max-age=31536000, immutable", headers["cache-control"], path
     end
@@ -48,7 +53,10 @@ class DigestedAssetCacheTest < ActiveSupport::TestCase
 
   test "[unit] an unfingerprinted file keeps the header it was given" do
     ["/logo.png", "/og.png", "/icon-512.png", "/robots.txt", "/site.webmanifest", "/assets/application.css",
-     "/assets/application-#{'a' * 8}.css", "/brand/logo-#{DIGEST}.png"].each do |path|
+     "/assets/studio/montserrat-latin.woff2", "/assets/solana_studio/wallet_transport.js",
+     "/assets/application-#{'a' * 7}.css", "/assets/application-#{'a' * 9}.css",
+     "/assets/application-#{'a' * 63}.css", "/assets/application-ABCDEF12.css",
+     "/assets/-#{PROPSHAFT}", "/brand/logo-#{PROPSHAFT}.png", "/brand/logo-#{DIGEST}.png"].each do |path|
       _status, headers, _body = call(path)
       assert_equal WEEK, headers["cache-control"], path
     end
@@ -75,10 +83,11 @@ class DigestedAssetCacheTest < ActiveSupport::TestCase
   end
 
   # Through the real stack: ActionDispatch::Static serves the file from
-  # public/assets, and the header that reaches the client is the year.
+  # public/assets, and the header that reaches the client is the year. The probe
+  # is named the way Propshaft names a file: an 8-hex digest.
   class ThroughStaticTest < ActionDispatch::IntegrationTest
     setup do
-      @file = Rails.root.join("public/assets/digested-asset-cache-probe-#{SecureRandom.hex(32)}.txt")
+      @file = Rails.root.join("public/assets/digested-asset-cache-probe-#{SecureRandom.hex(4)}.txt")
       @made_dir = !@file.dirname.exist?
       FileUtils.mkdir_p(@file.dirname)
       File.write(@file, "probe")
