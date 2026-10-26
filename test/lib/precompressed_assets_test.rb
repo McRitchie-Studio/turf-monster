@@ -17,15 +17,16 @@ class PrecompressedAssetsTest < ActiveSupport::TestCase
     path
   end
 
-  test "writes a .gz that inflates to the source for each digested css and js" do
+  test "writes a .gz that inflates to the source for each digested css, js and svg" do
     css = put("application-3f9c0a1e.css")
+    svg = put("state-flags/co-4d5e6f70.svg", "<svg><path d=\"M0 0\"/></svg>\n" * 100)
     js = put("controllers/tabs_controller-0a1b2c3d.js", "export default 1;\n" * 100)
     bundled = put("bundle-abc123XYZ_-9.digested.js")
 
     written = PrecompressedAssets.write(@root)
 
-    assert_equal [css, js, bundled].map { |p| "#{p}.gz" }.sort, written.sort
-    [css, js, bundled].each do |source|
+    assert_equal [css, js, bundled, svg].map { |p| "#{p}.gz" }.sort, written.sort
+    [css, js, bundled, svg].each do |source|
       assert_equal source.binread, ActiveSupport::Gzip.decompress(File.binread("#{source}.gz")), source.basename.to_s
     end
   end
@@ -33,6 +34,7 @@ class PrecompressedAssetsTest < ActiveSupport::TestCase
   test "skips an undigested file, an image, a font and an existing .gz" do
     put("application.css")
     put("logo-3f9c0a1e.png")
+    put("state-flags/co.svg") # undigested
     put("studio/montserrat-latin-3f9c0a1e.woff2")
     put("application-3f9c0a1.css") # 7 hex: not a Propshaft digest
     put(".manifest.json", "{}")

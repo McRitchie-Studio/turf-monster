@@ -17,11 +17,13 @@ require "zlib"
 # gzip only, as Sprockets did: the bundle carries no brotli encoder, and Static
 # looks for .br first only when one exists.
 module PrecompressedAssets
-  # A digested stylesheet or script: a Propshaft digest (8 hex,
+  # A digested stylesheet, script or SVG: a Propshaft digest (8 hex,
   # Propshaft::Asset#digest) or a pre-digested bundler output
-  # (name-<digest>.digested.js) just before a .css or .js extension. Only those
-  # are worth it: images are already compressed, and fonts are woff2.
-  DIGESTED = /-(?:[0-9a-f]{8}|[0-9a-zA-Z_-]{7,128}\.digested)\.(?:css|js)\z/
+  # (name-<digest>.digested.js) just before a .css, .js or .svg extension. SVG
+  # is text that Sprockets gzipped and Static treats as compressible (the
+  # engine's state flags run to 1.5 MB identity); raster images are already
+  # compressed, and fonts are woff2.
+  DIGESTED = /-(?:[0-9a-f]{8}|[0-9a-zA-Z_-]{7,128}\.digested)\.(?:css|js|svg)\z/
 
   module_function
 
