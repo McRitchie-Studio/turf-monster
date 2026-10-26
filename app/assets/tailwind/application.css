@@ -950,26 +950,12 @@
   }
 }
 
-/* THE NAME GIVES WAY, NOT THE ICONS (/tasks/turf-readopts-engine-navbar).
-   studio-engine's account button is flex-shrink-0 and its name may grow to
-   md:max-w-40, while the icon column beside it is min-w-0. In this app's fixed
-   column a long name therefore drew OVER the theme toggle, the gear and the
-   seeds bar's "Level", and a click on the gear opened the account sidebar
-   (9+ characters at 768-1066px, 13+ at 1280-1440px). Turf's own user nav capped
-   the name at 7rem and let it shrink; this restores that on the engine's markup:
-   the icon column keeps its content width, and the account button shrinks, its
-   name truncating with an ellipsis inside a 7rem cap. Unlayered, to beat the
-   engine's flex-shrink-0 and md:max-w-40 utilities. The engine could take this
-   as a setting (a name cap and a shrinking account); that is a follow-up. */
+/* THE NAME GIVES WAY, NOT THE ICONS: the engine's account never shrinks, so a
+   long name covered the gear and toggle. The icons keep their width; the name
+   truncates in the old 7rem cap (e2e/navbar_long_name.spec.js). */
 @media (min-width: 768px) {
   .nav-shell .user-nav-col [data-nav-tools] { min-width: min-content; }
-  /* The engine pads a two-row nav's icon row 6px each side, inline; Turf's own
-     rows pulled 6px left instead, so the balance started where the seeds bar
-     does. Zeroed, the row is 12px narrower, which is the name's to have: on the
-     Free Entry face that row, not the seeds bar, sets the column's width, and
-     without the 12px "alex" showed 3 characters at 1024px
-     (e2e/navbar_layout.spec.js, the Free Entry pass). !important to beat the
-     inline style, as engine.css does for a one-row nav. */
+  /* Its inline 6px padding goes, for the name (Free Entry face, 1024px). */
   .nav-shell .user-nav-col [data-nav-tools] > div:first-child { padding-inline: 0 !important; }
   .nav-shell .user-nav-col [data-nav-account] { flex-shrink: 1; min-width: 0; }
   .nav-shell .user-nav-col [data-nav-account] > span:first-child { min-width: 0; max-width: 7rem; }
