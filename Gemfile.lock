@@ -508,7 +508,7 @@ DEPENDENCIES
   simplecov
   solana-studio (~> 0.12)
   stripe
-  studio-engine (~> 0.114, >= 0.114.0)
+  studio-engine (~> 0.114, >= 0.114.2)
   tailwindcss-rails (~> 4.5)
   turbo-rails
   tzinfo-data

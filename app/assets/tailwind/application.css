@@ -2286,8 +2286,8 @@ html.dark { --rx-fill: 0 0 0; }
    TEXT it fails: 2.18:1 on the dark card, and in the light theme 4.28:1 on its
    own painted 10 percent tint over the page. So text reads a separate ink per
    theme, in the spirit of the engine's --color-danger-ink (text colour is not
-   fill colour). `text-primary` reads it through config/tailwind.config.js
-   (textColor.primary, via the -rgb twin); the engine's `text-primary-ink`,
+   fill colour). `text-primary` reads it through the @theme block at the
+   top of this file (--text-color-primary, via the -rgb twin); the engine's `text-primary-ink`,
    hand-written CSS and inline styles read var(--color-primary-ink).
 
    THE ENGINE OWNS THIS TOKEN. A studio-engine whose ThemeResolver derives
