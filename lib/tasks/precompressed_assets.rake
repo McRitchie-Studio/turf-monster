@@ -1,6 +1,7 @@
 # Propshaft writes no .gz beside an asset (Sprockets did). These hooks restore
-# that, so ActionDispatch::Static keeps serving CSS and JS pre-encoded instead of
-# Rack::Deflater compressing them on every request. lib/precompressed_assets.rb.
+# that, so ActionDispatch::Static keeps serving CSS and JS pre-encoded; without
+# them Static would serve them uncompressed, since it answers before
+# Rack::Deflater is reached. lib/precompressed_assets.rb.
 require Rails.root.join("lib/precompressed_assets").to_s
 
 namespace :assets do

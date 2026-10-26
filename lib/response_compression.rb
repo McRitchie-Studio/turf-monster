@@ -17,8 +17,9 @@
 #     and .js. Static serves that .gz with Content-Encoding: gzip already, so a
 #     stylesheet or script is compressed once, at build time, and never per
 #     request (Deflater also skips any response that already carries a
-#     Content-Encoding). An asset with no .gz (an image, a font) is served
-#     identity by Static and never reaches Deflater either.
+#     Content-Encoding). Static answers without calling inward, so an asset
+#     NEVER reaches Deflater: one with no .gz (an image, a font, or a css/js if
+#     the precompress step were lost) goes out identity, uncompressed.
 #   * Development and test also run Propshaft::Server right after Static, to
 #     serve assets live from the load path; production does not
 #     (config.assets.server is off there).

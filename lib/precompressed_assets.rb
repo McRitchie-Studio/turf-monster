@@ -6,12 +6,13 @@ require "zlib"
 # ActionDispatch::Static keeps serving them pre-encoded.
 #
 # Sprockets wrote a .gz beside each asset itself. Propshaft writes none, and
-# without one Static serves the identity file and Rack::Deflater
-# (lib/response_compression.rb) gzips every CSS and JS response on every request.
+# without one Static serves the identity file. Static sits OUTSIDE Rack::Deflater
+# (lib/response_compression.rb) and answers without calling inward, so Deflater
+# never sees an asset: with no .gz, every stylesheet and script would go out
+# uncompressed (tailwind.css is 180 KB identity, 31 KB gzipped).
 # lib/tasks/precompressed_assets.rake runs #write after assets:precompile and
 # #prune after assets:clean. Static then finds <file>.gz for a client that sends
-# Accept-Encoding: gzip, answers with Content-Encoding: gzip, and Deflater skips
-# a response that already carries a Content-Encoding.
+# Accept-Encoding: gzip and answers with Content-Encoding: gzip.
 #
 # gzip only, as Sprockets did: the bundle carries no brotli encoder, and Static
 # looks for .br first only when one exists.
