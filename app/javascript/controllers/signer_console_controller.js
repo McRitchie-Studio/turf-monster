@@ -484,7 +484,7 @@ export default class extends Controller {
   lock(on) {
     this.intentGroupTarget.disabled = on
     this.keysTarget.querySelectorAll("input, button").forEach((el) => { el.disabled = on })
-    this.element.querySelectorAll("[data-action*='changePlan']").forEach((el) => { el.disabled = on })
+    this.element.querySelectorAll("[data-studio-action*='changePlan']").forEach((el) => { el.disabled = on })
     this.element.dataset.signing = String(on)
   }
 

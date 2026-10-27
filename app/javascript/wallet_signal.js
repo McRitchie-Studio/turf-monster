@@ -12,8 +12,9 @@
 //      observes now, and fires session:changed / session:mismatch. It is web2 by
 //      rule and knows nothing about wallets. docs/SESSION_DRIFT.md in that gem.
 //   2. solana-studio (0.12.0+) owns the WALLET AS AN IDENTITY.
-//      SolanaStudio.walletIdentity.register() plugs the connected address into
-//      the engine as an identity source, reading the wallet LIVE on every probe
+//      SolanaStudio.walletIdentity.create() builds the connected address as an
+//      identity source, which this file registers with the engine once its
+//      store exists (whenStudioSession, below), reading the wallet LIVE on every probe
 //      and re-reading on focus / visibilitychange / pageshow. Four statuses, and
 //      the reason there are four rather than two is below.
 //   3. THIS FILE owns the PRODUCT decision: what those facts mean to a reader of
@@ -521,6 +522,40 @@ function trackDeclaration(observed, declared) {
   return heldDeclaration;
 }
 
+// THE SESSION STORE MAY ARRIVE AFTER THIS MODULE. window.StudioSession is the
+// engine's studio/session.js. Today it is a synchronous classic script above
+// the import map, so it exists before any module runs; the engine means to make
+// it a module, and a module the head loads after Turf's entry point would
+// evaluate AFTER this one. Reading the global once, at evaluation, would then
+// find nothing, and solana-studio's register() would quietly run the wallet
+// source with no session behind it (registration null, no session:mismatch).
+//
+// So this waits for it: `fn` runs NOW when the store exists, and otherwise once
+// the document has parsed. Every module script, a module studio/session among
+// them, has run by DOMContentLoaded (module scripts are deferred), so the store
+// that will ever exist on this page exists then. `fn` gets null when it does not.
+export function whenStudioSession(win, doc, fn) {
+  const ready = function () { return (win && win.StudioSession) || null; };
+  if (ready()) return fn(ready());
+  if (doc && doc.readyState === "loading" && typeof doc.addEventListener === "function") {
+    doc.addEventListener("DOMContentLoaded", function () { fn(ready()); }, { once: true });
+    return undefined;
+  }
+  return fn(null);
+}
+
+// solana-studio's register() split in two, so the source exists (and the
+// store can seed from it) before the session store does. With a store the
+// store starts the source; without one the source still runs, as register()
+// does, so a page can paint wallet state without the session primitive.
+export function attachIdentitySource(session, source) {
+  if (session && typeof session.registerIdentitySource === "function") {
+    return session.registerIdentitySource(source);
+  }
+  source.start();
+  return null;
+}
+
 function install() {
   if (window.tmWalletSignal) return window.tmWalletSignal;
 
@@ -544,7 +579,7 @@ function install() {
   // passively and never prompts.
   const web3 = sessionMode() === "web3" && !!sessionAddress();
 
-  const registered = identity.register({
+  const source = identity.create({
     name: "wallet",
     getProvider: hostProvider,
     trustedConnect: web3,
@@ -552,9 +587,8 @@ function install() {
     // re-resolves the provider when it fires.
     rescanOn: ["wallet-provider:registered"]
   });
-
-  const source = registered.source;
   const listeners = [];
+  let registration = null;
 
   function facts() {
     const snap = source.current();
@@ -610,6 +644,13 @@ function install() {
   // follow the browser, refresh it THEN, and say which value.
   source.subscribe(function () {
     publish();
+  });
+
+  // Registered (and so started) once the engine's session store exists: at
+  // once on today's pages, where it is a classic script; after the document
+  // parses if it ever loads as a module behind this one. See whenStudioSession.
+  whenStudioSession(window, document, function (session) {
+    registration = attachIdentitySource(session, source);
   });
 
   // A Turbo visit re-renders the body (new data-wallet-address, new
@@ -687,7 +728,8 @@ function install() {
     current: current,
     refresh: publish,
     source: source,
-    registration: registered.registration,
+    // A getter: the registration lands when the session store does.
+    get registration() { return registration; },
     subscribe: function (fn) {
       listeners.push(fn);
       return function () {

@@ -1,9 +1,19 @@
-// Turf's own Stimulus application, on Stimulus' own attributes (data-controller,
-// data-action, data-<name>-target). The engine's controllers run on a separate
-// application, on data-studio-controller.
+// Turf's Stimulus controllers, registered on the ENGINE'S Stimulus application
+// (studio/stimulus). There is one application per page, not two: Turf starts
+// none of its own, so every controller connects once, and Turf's markup uses
+// the engine's attributes:
 //
-// "@hotwired/stimulus" is the engine's vendored copy (the engine pins it), so
-// the two applications share one Stimulus.
+//   data-studio-controller="tabs"   data-studio-action="tabs#select"
+//
+// Targets, values, params, classes and outlets keep Stimulus' own per-controller
+// names (data-tabs-target, data-tabs-initial-value): the engine's schema
+// overrides only the controller and action attributes (and the deprecated
+// data-target form, which Turf never uses). An identifier must not collide with
+// an engine controller's; test/integration/turf_stimulus_test.rb holds that.
+//
+// "@hotwired/stimulus" is the engine's vendored copy (the engine pins it), and
+// studio/stimulus is in the engine's preloaded boot graph, so importing its
+// application here starts nothing a second time.
 //
 // Three ways a controller registers:
 //
@@ -13,7 +23,8 @@
 //     nothing and its markup carries the initial state (hidden, disabled). The
 //     root element lists the registered ones in data-lazy-controllers, which a
 //     test waits on before it presses. A controller whose module fails to load
-//     marks its elements data-controller-failed="<identifier>".
+//     marks its elements data-studio-controller-failed="<identifier>",
+//     the engine's own marker.
 //   - STATIC, for a controller on a public page, or one a player presses the
 //     moment a page loads: import it here and application.register it below.
 //     Add its module, and the modules it imports, to every_page in
@@ -27,7 +38,7 @@
 //     registers it (dev_tools, from live/_dev_score_tools), with
 //     javascript_import_module_tag. It is connected before the page has
 //     loaded, and only that page fetches it.
-import { Application } from "@hotwired/stimulus"
+import { application } from "studio/stimulus"
 import { watchLazyControllers } from "studio/lazy_controllers"
 import AccordionController from "controllers/accordion_controller"
 import ArrivalScrollController from "controllers/arrival_scroll_controller"
@@ -74,7 +85,7 @@ export const LAZY = {
   "toast-demo": () => import("controllers/toast_demo_controller")
 }
 
-export const application = Application.start()
+export { application }
 
 application.register("accordion", AccordionController)
 application.register("arrival-scroll", ArrivalScrollController)
@@ -111,8 +122,7 @@ const registered = []
 
 export const lazy = watchLazyControllers({
   root: document.documentElement,
-  attribute: "data-controller",
-  failedAttribute: "data-controller-failed",
+  attribute: "data-studio-controller",
   loaders: LAZY,
   register: (name, controller) => {
     application.register(name, controller)

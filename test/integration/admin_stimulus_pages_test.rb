@@ -10,7 +10,7 @@ class AdminStimulusPagesTest < ActionDispatch::IntegrationTest
 
   def root_for(identifier)
     assert_response :success
-    css_select(%([data-controller~="#{identifier}"])).first.tap { |root| assert root, "no #{identifier} controller on the page" }
+    css_select(%([data-studio-controller~="#{identifier}"])).first.tap { |root| assert root, "no #{identifier} controller on the page" }
   end
 
   def assert_no_alpine(root)
@@ -42,8 +42,8 @@ class AdminStimulusPagesTest < ActionDispatch::IntegrationTest
     rows = root.css("ul > li")
     assert_operator rows.size, :>, 5
     assert_equal rows.drop(5), rows.select { |row| row.key?("hidden") && row["data-show-more-target"] == "extra" }
-    assert root.at_css('button[data-action="show-more#toggle"] [data-show-more-target="more"]:not([hidden])')
-    assert root.at_css('button[data-action="show-more#toggle"] [data-show-more-target="less"][hidden]')
+    assert root.at_css('button[data-studio-action="show-more#toggle"] [data-show-more-target="more"]:not([hidden])')
+    assert root.at_css('button[data-studio-action="show-more#toggle"] [data-show-more-target="less"][hidden]')
   end
 
   test "the hub's two actions are buttons on the hub-actions controller" do
@@ -51,14 +51,14 @@ class AdminStimulusPagesTest < ActionDispatch::IntegrationTest
     root = root_for("hub-actions")
 
     assert_no_alpine root
-    assert_equal "Refresh Balance", root.at_css('button[data-action="hub-actions#refreshBalance"]').text.strip
-    assert_equal "Replay Level", root.at_css('button[data-action="hub-actions#replayLevel"]').text.strip
+    assert_equal "Refresh Balance", root.at_css('button[data-studio-action="hub-actions#refreshBalance"]').text.strip
+    assert_equal "Replay Level", root.at_css('button[data-studio-action="hub-actions#replayLevel"]').text.strip
   end
 
   test "each navbar preview starts at its device width, unscrolled, on the navbar-preview controller" do
     get admin_navbar_path
     assert_response :success
-    cards = css_select('[data-controller="navbar-preview"]')
+    cards = css_select('[data-studio-controller="navbar-preview"]')
 
     assert_equal 6, cards.size
     cards.each do |card|
@@ -69,7 +69,7 @@ class AdminStimulusPagesTest < ActionDispatch::IntegrationTest
       assert_equal width, card.at_css('input[type="range"][data-navbar-preview-target="slider"]')["value"]
       assert_equal "width: #{width}px; --nav-p: 0", card.at_css('[data-navbar-preview-target="frame"]')["style"]
       refute_includes card.at_css('[data-navbar-preview-target="frame"]')["class"], "is-scrolled-preview"
-      toggle = card.at_css('button[data-action="navbar-preview#toggleScrolled"]')
+      toggle = card.at_css('button[data-studio-action="navbar-preview#toggleScrolled"]')
       assert_includes toggle["class"].split, "bg-surface-alt"
       assert_equal "Scrolled", toggle.text.strip
     end
@@ -85,10 +85,10 @@ class AdminStimulusPagesTest < ActionDispatch::IntegrationTest
       assert_equal "1", root["data-send-gate-count-value"]
       assert_equal "true", root["data-send-gate-needs-early-value"]
       assert_equal "Send the drop announcement to 1 address? This cannot be undone.", root["data-send-gate-confirm-value"]
-      assert_includes root.at_css("form")["data-action"], "submit->send-gate#confirm"
+      assert_includes root.at_css("form")["data-studio-action"], "submit->send-gate#confirm"
       assert root.at_css('input[type="submit"][disabled][data-send-gate-target="submit"]')
-      assert root.at_css('input[data-send-gate-target="typed"][data-action="input->send-gate#update"]')
-      assert root.at_css('input[type="checkbox"][data-send-gate-target="early"][data-action="change->send-gate#update"]')
+      assert root.at_css('input[data-send-gate-target="typed"][data-studio-action="input->send-gate#update"]')
+      assert root.at_css('input[type="checkbox"][data-send-gate-target="early"][data-studio-action="change->send-gate#update"]')
     end
 
     travel_to(NextSlateDrop.drops_at + 1.hour) do
@@ -121,12 +121,12 @@ class AdminStimulusPagesTest < ActionDispatch::IntegrationTest
     root = root_for("toast-demo")
 
     assert_no_alpine root
-    details = root.css('button[data-action="toast-demo#fire"]').map { |button| JSON.parse(button["data-toast-demo-detail-param"]) }
+    details = root.css('button[data-studio-action="toast-demo#fire"]').map { |button| JSON.parse(button["data-toast-demo-detail-param"]) }
     assert_equal 10, details.size
     assert_includes details, { "type" => "notice", "title" => "Custom Title", "message" => "With explicit title text.", "duration" => 10000 }
     assert_includes details, { "type" => "alert", "message" => "Connection lost. Retrying...", "dismissible" => false }
     assert_equal %w[invite delete undo blurButtons stack stackSlow],
-                 root.css('button[data-action="toast-demo#demo"]').map { |button| button["data-toast-demo-name-param"] }
+                 root.css('button[data-studio-action="toast-demo#demo"]').map { |button| button["data-toast-demo-name-param"] }
   end
 
   test "the goal console draws each fixture from a template, with no goal markup of its own" do
@@ -136,14 +136,14 @@ class AdminStimulusPagesTest < ActionDispatch::IntegrationTest
     root = root_for("scoring-filter")
 
     assert_no_alpine root
-    assert_includes root["data-action"], "game-scorer:changed->scoring-filter#update"
-    card = root.at_css('[data-controller="game-scorer"][data-scoring-filter-target="card"]')
+    assert_includes root["data-studio-action"], "game-scorer:changed->scoring-filter#update"
+    card = root.at_css('[data-studio-controller="game-scorer"][data-scoring-filter-target="card"]')
     assert_equal (game.status == "completed").to_s, card["data-done"]
     assert card.at_css('[data-game-scorer-target="goals"][hidden]')
     template = card.at_css('template[data-game-scorer-target="goalTemplate"]')
     pill = Nokogiri::HTML.fragment(template.inner_html)
     assert pill.at_css("[data-goal-emoji]") && pill.at_css("[data-goal-minute]") && pill.at_css("[data-goal-tick]")
-    assert pill.at_css('button[data-goal-remove][data-action="game-scorer#removeGoal"][data-game-scorer-target="control"]')
+    assert pill.at_css('button[data-goal-remove][data-studio-action="game-scorer#removeGoal"][data-game-scorer-target="control"]')
     assert_equal "bg-emerald-500/15 text-emerald-400", card["data-game-scorer-final-class"]
   end
 end

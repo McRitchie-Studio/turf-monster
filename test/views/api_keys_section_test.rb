@@ -93,9 +93,9 @@ class ApiKeysSectionTest < ActionView::TestCase
     revoke = render_section.at_css("[data-api-key-row] form")
     button = revoke.at_css("button")
 
-    assert_equal "submit-busy", revoke["data-controller"]
-    assert_equal "turbo:submit-start->submit-busy#start turbo:submit-end->submit-busy#end turbo:before-cache@document->submit-busy#reset", revoke["data-action"]
-    assert_nil button["data-action"], "a click handler would spin even when the confirm is declined"
+    assert_equal "submit-busy", revoke["data-studio-controller"]
+    assert_equal "turbo:submit-start->submit-busy#start turbo:submit-end->submit-busy#end turbo:before-cache@document->submit-busy#reset", revoke["data-studio-action"]
+    assert_nil button["data-studio-action"], "a click handler would spin even when the confirm is declined"
 
     idle, working = button.css("> span")
     assert_equal "idle", idle["data-submit-busy-target"]
@@ -127,8 +127,8 @@ class ApiKeysSectionTest < ActionView::TestCase
     create = form(render_section)
     idle, working = create.at_css('button[type="submit"]').css("> span")
 
-    assert_equal "submit-busy", create["data-controller"]
-    assert_equal "turbo:submit-start->submit-busy#start turbo:submit-end->submit-busy#end turbo:before-cache@document->submit-busy#reset", create["data-action"]
+    assert_equal "submit-busy", create["data-studio-controller"]
+    assert_equal "turbo:submit-start->submit-busy#start turbo:submit-end->submit-busy#end turbo:before-cache@document->submit-busy#reset", create["data-studio-action"]
     assert_equal "button", create.at_css('button[type="submit"]')["data-submit-busy-target"]
     assert_nil create.at_css('button[type="submit"]')["disabled"]
     assert_equal "Create key", idle.text.strip
@@ -145,15 +145,15 @@ class ApiKeysSectionTest < ActionView::TestCase
     assert_equal "Add another API key", link.text.strip
     assert_nil link["hidden"]
     assert_equal "trigger", link["data-reveal-target"]
-    assert_equal "reveal#open", link["data-action"]
+    assert_equal "reveal#open", link["data-studio-action"]
     assert_equal "false", form(doc).parent["data-reveal-open-value"]
     assert_equal "region", form(doc)["data-reveal-target"]
     assert form(doc).key?("hidden"), "the form starts hidden behind the link"
     assert_equal "field", form(doc).at_css('input[name="name"]')["data-reveal-target"]
     # The link and the form share one reveal controller, or the link cannot reach it.
     assert_equal link.parent, form(doc).parent
-    assert_equal "reveal", link.parent["data-controller"]
-    assert_includes link.parent["data-action"], "turbo:before-cache@document->reveal#reset"
+    assert_equal "reveal", link.parent["data-studio-controller"]
+    assert_includes link.parent["data-studio-action"], "turbo:before-cache@document->reveal#reset"
   end
 
   test "a refused submit comes back open, with the error, the typed name, and no key on screen" do
@@ -197,8 +197,8 @@ class ApiKeysSectionTest < ActionView::TestCase
     blocked = render_section(blocked_reason: :age).at_css('[data-api-key-blocked="age"]')
 
     assert_includes blocked.at_css("button")["@click"], "open('birthday'"
-    assert_equal "frame-reload", blocked["data-controller"]
-    assert_equal "age-verified@window->frame-reload#reload", blocked["data-action"]
+    assert_equal "frame-reload", blocked["data-studio-controller"]
+    assert_equal "age-verified@window->frame-reload#reload", blocked["data-studio-action"]
     assert_equal account_api_keys_path, blocked["data-frame-reload-src-value"]
   end
 
@@ -250,11 +250,11 @@ class ApiKeysSectionTest < ActionView::TestCase
     after = doc.at_css("[data-api-key-add-after-reveal]")
     assert_nil after.ancestors.find { |node| node.key?("data-turbo-temporary") }
     assert after.key?("hidden")
-    assert_equal "reveal-follow-up", after["data-controller"]
+    assert_equal "reveal-follow-up", after["data-studio-controller"]
     assert_equal "[data-api-key-created]", after["data-reveal-follow-up-selector-value"]
     # pageshow: a back/forward-cache restore of /account (a signing page) re-asks.
     assert_equal "turbo:before-cache@document->reveal-follow-up#reset pageshow@window->reveal-follow-up#connect",
-                 after["data-action"]
+                 after["data-studio-action"]
     link = after.at_css("a")
     assert_equal "Add another API key", link.text
     assert_equal account_api_keys_path(adding: 1), link["href"]
@@ -307,8 +307,8 @@ class ApiKeysSectionTest < ActionView::TestCase
     assert message.parent.key?("hidden"), "hidden until the submit-busy controller reads a 429"
     assert_equal "alert", message["role"]
     assert_match(/too many keys/i, message.text)
-    assert_equal "submit-busy", form(doc)["data-controller"]
-    assert_includes form(doc)["data-action"], "turbo:submit-end->submit-busy#end"
+    assert_equal "submit-busy", form(doc)["data-studio-controller"]
+    assert_includes form(doc)["data-studio-action"], "turbo:submit-end->submit-busy#end"
   end
 
   test "outside the reveal there is no after-reveal link" do

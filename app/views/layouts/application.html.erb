@@ -79,7 +79,7 @@
 
         NOT IN THE DEPENDENCY CHAIN ABOVE. It reads no SolanaStudio helper, so
         its position among these five is free. What is NOT free is that it must
-        execute before app/javascript/wallet_signal.js registers the source, and
+        execute before app/javascript/wallet_signal.js builds the source, and
         a blocking classic script in the head always precedes a deferred
         importmap module — which is exactly the arrangement here.
 
@@ -247,8 +247,8 @@
       <script type="application/json" id="session-context"><%= client_session_payload.to_json.html_safe %></script>
       <script nonce="<%= content_security_policy_nonce %>">
         // --- Inline Solana stores + components ---
-        // Alpine's defer script fires alpine:init BEFORE importmap modules execute.
-        // These must be inline so they're available when Alpine processes the DOM.
+        // Runs as the body parses, before every deferred script; those run in document order, importmap modules first,
+        // Alpine last (the engine head tags it after its modules), so this exists before the modules and alpine:init.
         // The full wallet_provider.js module overwrites this stub after modules load.
 
         // Mark a freshly-created user so the profile modal auto-opens after

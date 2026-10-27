@@ -32,7 +32,7 @@
   @media (prefers-reduced-motion: reduce) { .chat-panel-pop { animation: none; } }
 </style>
 <div class="flex flex-col <%= 'chat-admin' if current_user&.admin? %> <%= 'chat-can-react' if can_post %>"
-     style="height: 32rem;" data-controller="chat-reactions"
+     style="height: 32rem;" data-studio-controller="chat-reactions"
      x-data="contestChat(<%= messages.empty? %>)"
      @quest-chat-active.window="questChatActive()"
      data-post-url="<%= contest_messages_path(contest) %>"
@@ -105,7 +105,7 @@
       data-react-url at the hovered message before showing it. %>
   <div id="chat-reaction-picker" class="chat-reaction-picker bg-surface border border-strong rounded-xl shadow-2xl" data-react-url="" role="menu" aria-label="Pick a reaction">
     <% Reaction::PICKER.each do |e| %>
-      <button type="button" data-action="chat-reactions#pick" data-chat-reactions-emoji-param="<%= e %>"><%= e %></button>
+      <button type="button" data-studio-action="chat-reactions#pick" data-chat-reactions-emoji-param="<%= e %>"><%= e %></button>
     <% end %>
   </div>
 </div>

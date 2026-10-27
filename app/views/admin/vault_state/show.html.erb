@@ -79,7 +79,7 @@
           bot signs server-side; Phantom cosigns.
         </p>
 
-        <form id="vault-unpause-form" class="space-y-4" data-controller="vault-console" data-action="submit->vault-console#hold">
+        <form id="vault-unpause-form" class="space-y-4" data-studio-controller="vault-console" data-studio-action="submit->vault-console#hold">
           <div>
             <label class="label-upper text-xs">Cosigner (Phantom wallet)</label>
             <select name="cosigner_pubkey" class="input-field w-full font-mono text-xs">
@@ -134,7 +134,7 @@
           <% end %>
 
           <div class="flex items-center gap-3 pt-2">
-            <button id="vault-unpause-btn" type="button" data-action="vault-console#act" data-vault-console-instruction-param="unpause"
+            <button id="vault-unpause-btn" type="button" data-studio-action="vault-console#act" data-vault-console-instruction-param="unpause"
                     data-desktop-only-action
                     <%= "disabled" if @unpause_plan.extra_cosigners_needed.positive? && @eligible_extras.empty? %>
                     class="btn btn-primary">
@@ -153,7 +153,7 @@
           incident triage. 2-of-3 cosign required.
         </p>
 
-        <form id="vault-pause-form" class="space-y-4" data-controller="vault-console" data-action="submit->vault-console#hold">
+        <form id="vault-pause-form" class="space-y-4" data-studio-controller="vault-console" data-studio-action="submit->vault-console#hold">
           <div>
             <label class="label-upper text-xs">Reason (logged on-chain, ≤ 64 bytes)</label>
             <input type="text" name="reason" maxlength="64" placeholder="e.g. settle bug, suspicious withdrawals, scheduled maintenance"
@@ -170,7 +170,7 @@
           </div>
 
           <div class="flex items-center gap-3 pt-2">
-            <button id="vault-pause-btn" type="button" data-action="vault-console#act" data-vault-console-instruction-param="pause"
+            <button id="vault-pause-btn" type="button" data-studio-action="vault-console#act" data-vault-console-instruction-param="pause"
                     data-desktop-only-action
                     class="btn bg-red-600 hover:bg-red-700 text-white">
               🚨 Connect Phantom + PAUSE

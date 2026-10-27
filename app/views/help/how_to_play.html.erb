@@ -20,9 +20,9 @@
       in Tailwind's base layer: its [hidden] rule is !important there, and an
       unlayered !important rule loses to a layered one. %>
   <noscript><style>@layer base { [data-accordion-target="panel"][hidden] { display: block !important; } }</style></noscript>
-  <div class="space-y-3" data-controller="accordion" data-action="turbo:before-cache@document->accordion#collapse">
+  <div class="space-y-3" data-studio-controller="accordion" data-studio-action="turbo:before-cache@document->accordion#collapse">
     <div class="card overflow-hidden">
-      <button type="button" data-action="accordion#toggle" data-accordion-key-param="picks" class="w-full flex items-center justify-between p-4 text-left">
+      <button type="button" data-studio-action="accordion#toggle" data-accordion-key-param="picks" class="w-full flex items-center justify-between p-4 text-left">
         <span class="text-heading font-bold">Picks</span>
         <svg class="w-5 h-5 text-secondary transition-transform" data-accordion-target="icon" data-key="picks" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
       </button>
@@ -33,7 +33,7 @@
     </div>
 
     <div class="card overflow-hidden">
-      <button type="button" data-action="accordion#toggle" data-accordion-key-param="turfScores" class="w-full flex items-center justify-between p-4 text-left">
+      <button type="button" data-studio-action="accordion#toggle" data-accordion-key-param="turfScores" class="w-full flex items-center justify-between p-4 text-left">
         <span class="text-heading font-bold">Turf Scores</span>
         <svg class="w-5 h-5 text-secondary transition-transform" data-accordion-target="icon" data-key="turfScores" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
       </button>
@@ -49,7 +49,7 @@
     </div>
 
     <div class="card overflow-hidden">
-      <button type="button" data-action="accordion#toggle" data-accordion-key-param="scoring" class="w-full flex items-center justify-between p-4 text-left">
+      <button type="button" data-studio-action="accordion#toggle" data-accordion-key-param="scoring" class="w-full flex items-center justify-between p-4 text-left">
         <span class="text-heading font-bold">Scoring</span>
         <svg class="w-5 h-5 text-secondary transition-transform" data-accordion-target="icon" data-key="scoring" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
       </button>
@@ -61,7 +61,7 @@
     </div>
 
     <div class="card overflow-hidden">
-      <button type="button" data-action="accordion#toggle" data-accordion-key-param="payouts" class="w-full flex items-center justify-between p-4 text-left">
+      <button type="button" data-studio-action="accordion#toggle" data-accordion-key-param="payouts" class="w-full flex items-center justify-between p-4 text-left">
         <span class="text-heading font-bold">Payouts</span>
         <svg class="w-5 h-5 text-secondary transition-transform" data-accordion-target="icon" data-key="payouts" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
       </button>

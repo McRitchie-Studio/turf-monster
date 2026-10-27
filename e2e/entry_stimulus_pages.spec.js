@@ -86,7 +86,7 @@ test.describe("referral card", () => {
     await popover(page).getByRole("button", { name: "Close" }).click();
     await expect(popover(page)).toBeHidden();
 
-    const url = await page.locator('[data-controller="referral-share"]').getAttribute("data-referral-share-url-value");
+    const url = await page.locator('[data-studio-controller="referral-share"]').getAttribute("data-referral-share-url-value");
     await copy(page).click();
     await expect(copy(page).locator('[data-referral-share-target="copiedLabel"]')).toBeVisible();
     await expect(copy(page).locator('[data-referral-share-target="copyLabel"]')).toBeHidden();
@@ -109,7 +109,7 @@ test.describe("referral card", () => {
   test("pressed straight after a Turbo visit, and Back starts closed", async ({ page }) => {
     await signIn(page, "referral-turbo");
     await page.goto("/help");
-    await turboVisit(page, "/account", '[data-controller="referral-share"]');
+    await turboVisit(page, "/account", '[data-studio-controller="referral-share"]');
     await info(page).click();
     await expect(popover(page)).toBeVisible();
 
@@ -141,7 +141,7 @@ test.describe("newsletter card", () => {
     await expect(unsubscribed(page)).toBeVisible();
 
     await page.goto("/help");
-    await turboVisit(page, "/account", '[data-controller="newsletter-state"]');
+    await turboVisit(page, "/account", '[data-studio-controller="newsletter-state"]');
     await announce(page, true);
     await expect(subscribed(page)).toBeVisible();
   });
@@ -173,7 +173,7 @@ test.describe("email change notice", () => {
   test("typing straight after a Turbo visit, and Back starts hidden", async ({ page }) => {
     await signIn(page, "email-turbo");
     await page.goto("/help");
-    await turboVisit(page, "/account", '[data-controller="email-change-notice"]');
+    await turboVisit(page, "/account", '[data-studio-controller="email-change-notice"]');
     await field(page).fill("someone-new@example.test");
     await expect(notice(page)).toBeVisible();
 
@@ -236,7 +236,7 @@ test.describe("API keys add-another link", () => {
   test("pressed straight after a Turbo visit, and Back starts closed", async ({ page }) => {
     await withOneKey(page, "keys-turbo");
     await page.goto("/help");
-    await turboVisit(page, "/account", `${CARD} [data-controller="reveal"]`);
+    await turboVisit(page, "/account", `${CARD} [data-studio-controller="reveal"]`);
     const card = page.locator(CARD);
     await card.getByRole("button", { name: "Add another API key" }).click();
     await expect(card.getByLabel("Name")).toBeVisible();
@@ -293,7 +293,7 @@ test.describe("cash-out card", () => {
   test("Withdraw pressed straight after a Turbo visit, and Back starts closed", async ({ page }) => {
     await managedPlayer(page, "cashout-turbo");
     await page.goto("/help");
-    await turboVisit(page, "/wallet", '[data-controller="withdraw-card"]');
+    await turboVisit(page, "/wallet", '[data-studio-controller="withdraw-card"]');
     await toggle(page).click();
     await expect(panel(page)).toBeVisible();
     await card(page).getByLabel("Amount (USD)").fill("12");

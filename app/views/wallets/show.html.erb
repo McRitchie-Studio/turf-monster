@@ -20,7 +20,7 @@
     <h2 class="text-lg font-bold text-heading mb-4">USDC Balance</h2>
     <div class="bg-inset rounded-lg p-6 text-center mb-4">
       <div class="text-sm text-secondary mb-2">Available to Play</div>
-      <div class="text-3xl font-bold text-primary font-mono" data-controller="usdc-balance" data-usdc-balance-url-value="<%= admin_usdc_balance_path %>">
+      <div class="text-3xl font-bold text-primary font-mono" data-studio-controller="usdc-balance" data-usdc-balance-url-value="<%= admin_usdc_balance_path %>">
         $<span data-usdc-balance-target="amount"><%= sprintf('%.2f', display_balance || 0) %></span>
       </div>
       <div class="text-xs text-muted mt-2">On-chain USDC in your wallet</div>

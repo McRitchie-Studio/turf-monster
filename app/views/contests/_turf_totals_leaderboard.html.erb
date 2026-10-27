@@ -114,10 +114,10 @@
           <%= button_to "Fill Contest", fill_contest_path(contest), method: :post,
             class: "btn btn-secondary btn-lg" %>
         <% end %>
-        <span class="contents" data-controller="contest-chain" data-contest-chain-slug-value="<%= contest.slug %>">
-          <button type="button" data-action="contest-chain#lock" data-contest-chain-delay-param="0"
+        <span class="contents" data-studio-controller="contest-chain" data-contest-chain-slug-value="<%= contest.slug %>">
+          <button type="button" data-studio-action="contest-chain#lock" data-contest-chain-delay-param="0"
             class="btn btn-lg bg-yellow-600 hover:bg-yellow-500 text-white">Lock Contest</button>
-          <button type="button" data-action="contest-chain#lock" data-contest-chain-delay-param="60"
+          <button type="button" data-studio-action="contest-chain#lock" data-contest-chain-delay-param="60"
             class="btn btn-lg bg-yellow-700 hover:bg-yellow-600 text-white">Lock in 60s</button>
         </span>
       <% end %>
@@ -187,8 +187,8 @@
 
         The ladder: >=600px one full row of six · >=450px a 3x2 grid, names and
         multipliers all visible · below that the compressed fan, tap to expand. %>
-    <div class="space-y-2" data-controller="leaderboard"
-         data-action="resize@window->leaderboard#resized turbo:before-cache@document->leaderboard#reset">
+    <div class="space-y-2" data-studio-controller="leaderboard"
+         data-studio-action="resize@window->leaderboard#resized turbo:before-cache@document->leaderboard#reset">
       <% lb_row = 0 %>
       <% entries.each_with_index do |entry, i| %>
         <%
@@ -326,7 +326,7 @@
                   one (450px+), the compressed fan below that, tap to expand. %>
               <%# Both layouts are hidden until the controller has measured the
                   column (turf/leaderboard draws each pill's classes and width). %>
-              <div hidden data-leaderboard-target="narrow" data-action="click->leaderboard#togglePicks">
+              <div hidden data-leaderboard-target="narrow" data-studio-action="click->leaderboard#togglePicks">
                 <div class="cursor-pointer flex">
                   <% pills.each_with_index do |p, si| %>
                     <span class="inline-flex items-center py-1 rounded-lg text-xs font-semibold border border-white/10"
@@ -410,12 +410,12 @@
       <% end %>
       <%# --- Gradient fade overlay + expand trigger (covers rows 7-8) --- %>
       <% if collapse %>
-        <div data-leaderboard-target="more" data-action="click->leaderboard#expand"
+        <div data-leaderboard-target="more" data-studio-action="click->leaderboard#expand"
              class="relative cursor-pointer flex items-center justify-center"
              style="margin-top: -8.5rem; height: 8.5rem; background: linear-gradient(to bottom, transparent 0%, rgba(255,255,255,0.15) 50%); z-index: 1;">
           <span class="text-sm font-semibold text-heading tracking-wide" style="text-shadow: 0 1px 4px rgba(0,0,0,0.5);">Show all <%= total_seats %> seats &#9662;</span>
         </div>
-        <button type="button" hidden data-leaderboard-target="less" data-action="leaderboard#collapse" class="w-full text-center py-2 text-sm text-primary hover:text-primary-300 transition cursor-pointer">
+        <button type="button" hidden data-leaderboard-target="less" data-studio-action="leaderboard#collapse" class="w-full text-center py-2 text-sm text-primary hover:text-primary-300 transition cursor-pointer">
           Show less &#9652;
         </button>
       <% end %>

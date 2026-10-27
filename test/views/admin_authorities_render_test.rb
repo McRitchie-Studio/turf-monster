@@ -476,7 +476,7 @@ class AdminAuthoritiesRenderTest < ActionDispatch::IntegrationTest
   # CTA, the desktop gate, the roster hooks, and the absence of Alpine and
   # inline script (the page is a strict-CSP signing page).
 
-  def console_html = response.body[/<section[^>]*data-controller="signer-console".*?<\/section>/m]
+  def console_html = response.body[/<section[^>]*data-studio-controller="signer-console".*?<\/section>/m]
 
   test "the console ships its endpoints and a disabled CTA, with no Alpine and no inline script" do
     render_page
@@ -487,7 +487,7 @@ class AdminAuthoritiesRenderTest < ActionDispatch::IntegrationTest
     assert_select "[data-signer-console-plan-url-value=?]", admin_plan_authority_rotation_path
     assert_select "[data-signer-console-rotations-url-value=?]", admin_authority_rotations_path
     assert_select "button[data-signer-console-target='cta'][disabled][data-desktop-only-action]"
-    assert_select "[data-controller='signer-console'] [data-cosign-controls]"
+    assert_select "[data-studio-controller='signer-console'] [data-cosign-controls]"
     assert_no_match(/<script/, html)
     assert_no_match(/\sx-[a-z]+=|\s@click|\s:class=/, html)
   end
@@ -524,7 +524,7 @@ class AdminAuthoritiesRenderTest < ActionDispatch::IntegrationTest
 
   test "the proposals panel ships its endpoints and links the vault's transactions page" do
     render_page
-    assert_select "[data-controller='squads-proposals'][data-squads-proposals-url-value=?]", admin_authority_proposals_path
+    assert_select "[data-studio-controller='squads-proposals'][data-squads-proposals-url-value=?]", admin_authority_proposals_path
     assert_select "[data-squads-proposals-approve-url-value=?]", admin_approve_authority_proposal_path(index: "INDEX")
     assert_select "a[data-squads-proposals-target='squadsLink'][href=?]",
                   "https://app.squads.so/squads/#{Solana::Config.squads_vault_pda}/transactions"
@@ -532,7 +532,7 @@ class AdminAuthoritiesRenderTest < ActionDispatch::IntegrationTest
 
   test "the console and proposals name no class the stylesheet leaves undefined" do
     render_page
-    html = console_html + response.body[/<section[^>]*data-controller="squads-proposals".*?<\/section>/m]
+    html = console_html + response.body[/<section[^>]*data-studio-controller="squads-proposals".*?<\/section>/m]
     names = html.scan(/class="([^"]*)"/).flatten.join(" ").split.uniq
     assert_operator names.length, :>, 20
     # Variant-prefixed utilities (dark:, data-[…]:, group-data-[…]/state:, sm:,

@@ -490,11 +490,11 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
         get admin_authorities_path(intent: "add", add: "#{ALEX2},#{ALEX3}")
       end
     end
-    assert_select "[data-controller='signer-console'][data-signer-console-intent-value='add']"
+    assert_select "[data-studio-controller='signer-console'][data-signer-console-intent-value='add']"
     assert_select "[data-signer-console-add-value='#{ALEX2},#{ALEX3}']"
     assert_select "button[data-signer-console-target='cta'][disabled]"
-    assert_select "[data-controller='signer-console'] script", false, "no inline script in the console"
-    assert_select "[data-controller='signer-console'] [x-data], [data-controller='signer-console'] [x-show]", false
+    assert_select "[data-studio-controller='signer-console'] script", false, "no inline script in the console"
+    assert_select "[data-studio-controller='signer-console'] [x-data], [data-studio-controller='signer-console'] [x-show]", false
   end
 
   # ── THE CEREMONY CHECKLIST ────────────────────────────────────────────────

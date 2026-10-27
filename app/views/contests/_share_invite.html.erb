@@ -15,13 +15,13 @@
   whatsapp_url = "https://wa.me/?text=#{ERB::Util.url_encode(whatsapp_text)}"
 %>
 
-<div data-controller="disclosure copy-link" data-copy-link-text-value="<%= invite_url %>"
-     data-action="click@window->disclosure#outside keydown.esc@window->disclosure#close turbo:before-cache@document->disclosure#reset turbo:before-cache@document->copy-link#reset"
+<div data-studio-controller="disclosure copy-link" data-copy-link-text-value="<%= invite_url %>"
+     data-studio-action="click@window->disclosure#outside keydown.esc@window->disclosure#close turbo:before-cache@document->disclosure#reset turbo:before-cache@document->copy-link#reset"
      class="card shadow p-5 relative h-full">
   <div class="flex items-center justify-between mb-3">
     <div class="flex items-center gap-2 min-w-0">
       <h3 class="text-heading font-semibold text-sm">Bring ✌️ Friends, Get a Free Entry</h3>
-      <button type="button" data-disclosure-target="trigger" data-action="disclosure#toggle" aria-expanded="false"
+      <button type="button" data-disclosure-target="trigger" data-studio-action="disclosure#toggle" aria-expanded="false"
               class="w-4 h-4 rounded-full bg-surface-alt text-muted hover:text-heading hover:bg-inset flex items-center justify-center text-[10px] font-bold leading-none transition flex-shrink-0"
               aria-label="How invites work">i</button>
     </div>
@@ -50,7 +50,7 @@
        class="absolute left-5 top-12 z-20 w-72 max-w-[calc(100%-2.5rem)] bg-surface border border-subtle rounded-lg shadow-2xl p-4">
     <div class="flex items-start justify-between mb-2">
       <h4 class="text-heading font-semibold text-sm">How it works</h4>
-      <button type="button" data-action="disclosure#close" class="text-muted hover:text-heading text-lg leading-none" aria-label="Close">&times;</button>
+      <button type="button" data-studio-action="disclosure#close" class="text-muted hover:text-heading text-lg leading-none" aria-label="Close">&times;</button>
     </div>
     <p class="text-secondary text-xs leading-relaxed mb-3">
       You get a free contest entry once <strong class="text-heading">two friends</strong> sign up <em>and</em> submit a contest entry of their own. The referral is locked in the moment they click your link &mdash; even before they sign up.
@@ -59,8 +59,8 @@
   </div>
 
   <div class="flex items-center gap-2">
-    <div data-action="click->copy-link#copy" class="flex-1 min-w-0 bg-inset border border-subtle rounded-lg px-3 py-2 text-xs font-mono text-muted truncate cursor-pointer hover:border-primary/40 transition"><%= invite_url %></div>
-    <button data-copy-link-target="button" data-action="copy-link#copy" class="btn btn-sm whitespace-nowrap transition-colors btn-primary" style="min-width:5.5rem">
+    <div data-studio-action="click->copy-link#copy" class="flex-1 min-w-0 bg-inset border border-subtle rounded-lg px-3 py-2 text-xs font-mono text-muted truncate cursor-pointer hover:border-primary/40 transition"><%= invite_url %></div>
+    <button data-copy-link-target="button" data-studio-action="copy-link#copy" class="btn btn-sm whitespace-nowrap transition-colors btn-primary" style="min-width:5.5rem">
       <span data-copy-link-target="idle">Copy Link</span>
       <span hidden data-copy-link-target="done">Copied!</span>
     </button>

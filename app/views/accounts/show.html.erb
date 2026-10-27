@@ -149,8 +149,8 @@
         changing an existing email is confirmed out-of-band via a link sent to
         the CURRENT address (AccountsController#update), so there's no in-app
         re-auth field. Setting a first email applies directly + verifies. %>
-    <div data-controller="email-change-notice" data-email-change-notice-initial-value="<%= @user.email %>"
-         data-action="turbo:before-cache@document->email-change-notice#reset pageshow@window->email-change-notice#check">
+    <div data-studio-controller="email-change-notice" data-email-change-notice-initial-value="<%= @user.email %>"
+         data-studio-action="turbo:before-cache@document->email-change-notice#reset pageshow@window->email-change-notice#check">
       <h3 class="text-sm font-bold text-heading mb-2">Email</h3>
       <%# Not a Turbo form: a failed save re-renders this page
           (accounts#update), and only a native post makes that render its own
@@ -160,7 +160,7 @@
           <%= f.email_field :email,
                             class: "input-field flex-1",
                             placeholder: "you@example.com",
-                            data: { email_change_notice_target: "field", action: "email-change-notice#check" } %>
+                            data: { email_change_notice_target: "field", studio_action: "email-change-notice#check" } %>
           <button type="submit" class="btn btn-primary">Save</button>
         </div>
         <% if @user.email.present? %>
@@ -206,7 +206,7 @@
 
   <%# -- Log out + Buy Entry Tokens (side by side) -- %>
   <div class="grid grid-cols-2 gap-4 mb-6">
-    <%= link_to "Log out", logout_path, class: "btn btn-outline w-full", data: { turbo: false, controller: "session-wipe", action: "session-wipe#wipe" } %>
+    <%= link_to "Log out", logout_path, class: "btn btn-outline w-full", data: { turbo: false, studio_controller: "session-wipe", studio_action: "session-wipe#wipe" } %>
     <%= link_to "Buy Entry Tokens", tokens_buy_path, class: "btn btn-primary w-full" %>
   </div>
 

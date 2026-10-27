@@ -17,7 +17,7 @@
   disabled.
 %>
 <section class="card p-4 mb-6 border-danger/30"
-         data-controller="signer-console"
+         data-studio-controller="signer-console"
          data-signer-console-console-url-value="<%= admin_authority_console_path %>"
          data-signer-console-plan-url-value="<%= admin_plan_authority_rotation_path %>"
          data-signer-console-rotations-url-value="<%= admin_authority_rotations_path %>"
@@ -35,7 +35,7 @@
     <p class="text-3xs text-muted" data-signer-console-target="nonce"></p>
     <button type="button" class="btn btn-outline btn-sm" hidden disabled
             data-signer-console-target="noncePrepare"
-            data-action="signer-console#prepareNonce">Prepare console nonce</button>
+            data-studio-action="signer-console#prepareNonce">Prepare console nonce</button>
   </div>
 
   <%= render "shared/wallet_desktop_only_notice" %>
@@ -50,7 +50,7 @@
       <p class="label-upper text-3xs text-muted">Seated now</p>
       <button type="button" class="btn btn-outline btn-sm"
               data-signer-console-target="connect"
-              data-action="signer-console#connectPhantom">Connect Phantom</button>
+              data-studio-action="signer-console#connectPhantom">Connect Phantom</button>
     </div>
     <ol class="space-y-1.5" data-signer-console-target="current"></ol>
     <p class="mt-1 text-3xs text-warning-ink hidden" data-signer-console-target="heldError"></p>
@@ -68,7 +68,7 @@
                 aria-pressed="false"
                 data-signer-console-target="intent"
                 data-intent="<%= intent %>"
-                data-action="signer-console#chooseIntent"><%= intent.capitalize %></button>
+                data-studio-action="signer-console#chooseIntent"><%= intent.capitalize %></button>
       <% end %>
     </div>
     <ul class="mt-1 space-y-0.5 text-3xs text-muted" data-signer-console-target="intentReasons"></ul>
@@ -82,7 +82,7 @@
   <% if platform.configured? %>
     <label class="mb-4 flex items-start gap-2 text-xs text-secondary">
       <input type="checkbox" data-signer-console-target="platformCosign"
-             data-action="change->signer-console#requestPlan" class="mt-0.5">
+             data-studio-action="change->signer-console#requestPlan" class="mt-0.5">
       <span>
         Platform cosigner signs too (<%= platform.address[0, 4] %>), so the server supplies two
         signatures and you supply the rest.
@@ -103,7 +103,7 @@
       <input id="signer-console-paste" type="text" autocomplete="off" spellcheck="false"
              class="input-field w-full rounded-md px-2 py-1.5 font-mono text-2xs"
              data-signer-console-target="paste"
-             data-action="input->signer-console#pasted">
+             data-studio-action="input->signer-console#pasted">
       <div class="hidden mt-1" data-signer-console-target="confirmBox">
         <label class="block text-3xs text-warning-ink" for="signer-console-confirm">
           Unknown key. Enter it again to confirm you mean it.
@@ -111,7 +111,7 @@
         <input id="signer-console-confirm" type="text" autocomplete="off" spellcheck="false"
                class="input-field w-full rounded-md px-2 py-1.5 font-mono text-2xs"
                data-signer-console-target="confirm"
-               data-action="input->signer-console#pasted">
+               data-studio-action="input->signer-console#pasted">
       </div>
       <p class="mt-1 text-3xs text-danger-ink" hidden data-signer-console-target="pasteError"
          role="alert" aria-live="assertive" aria-atomic="true"></p>
@@ -144,9 +144,9 @@
       <button type="button" class="btn btn-primary btn-sm" disabled
               data-signer-console-target="cta"
               data-desktop-only-action
-              data-action="signer-console#sign">Sign in Phantom</button>
+              data-studio-action="signer-console#sign">Sign in Phantom</button>
       <button type="button" class="btn btn-outline btn-sm"
-              data-action="signer-console#changePlan">Change plan</button>
+              data-studio-action="signer-console#changePlan">Change plan</button>
     </div>
   </div>
 
@@ -193,7 +193,7 @@
   <template data-signer-console-target="pickTemplate">
     <li>
       <label class="flex items-start gap-2 rounded-md border border-subtle bg-surface px-2 py-1.5 cursor-pointer">
-        <input type="checkbox" class="mt-0.5" data-pick data-action="change->signer-console#picked">
+        <input type="checkbox" class="mt-0.5" data-pick data-studio-action="change->signer-console#picked">
         <span class="min-w-0">
           <span class="block text-xs font-bold text-heading" data-name></span>
           <span class="block font-mono text-3xs text-muted break-all" data-address></span>

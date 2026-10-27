@@ -21,7 +21,7 @@
     falls through to the site identity's image, as a bannerless contest does. %>
 <% content_for :og_image, contest_og_image_url(Contest.featured) %>
 <%= render "shared/pending_cart_handoff" %>
-<div data-controller="settled-filter" data-action="turbo:before-cache@document->settled-filter#reset">
+<div data-studio-controller="settled-filter" data-studio-action="turbo:before-cache@document->settled-filter#reset">
   <h1 class="text-3xl font-extrabold text-heading mb-6">Contests</h1>
 
   <%# ===== The featured rail — open contests first, then coming soon, each
@@ -29,7 +29,7 @@
       the top of the page and it is the page's headline, so a label above it
       would only push the contests themselves down. ===== %>
   <% if @featured_contests.any? %>
-    <section class="mb-10" data-controller="contest-rail" data-contest-band="featured">
+    <section class="mb-10" data-studio-controller="contest-rail" data-contest-band="featured">
       <%# The mask is the house's overflow idiom (turf/contest_rail, and
           navUsernameFade before it): taper the content itself
           rather than paint a gradient that would have to know the page's
@@ -44,7 +44,7 @@
                INTO. Take it away and the carbonation ends at the card's edge,
                which is the one place it must not. %>
            class="tt-contest-rail overflow-x-auto overflow-y-hidden py-5"
-           data-action="scroll->contest-rail#measure:passive">
+           data-studio-action="scroll->contest-rail#measure:passive">
         <div class="flex gap-4 items-stretch">
           <%# 320 / 384px, a step up from 288 / 320. THE BANNER IS WHY. It is a
               5:1 crop shown in a fixed-height `object-cover` box, so the box's
@@ -123,7 +123,7 @@
           <%# Style flips on state: muted outline when OFF, filled accent when
               ON, so it reads as secondary to the green New Contest CTA. %>
           <button type="button" class="btn btn-outline" aria-pressed="false"
-                  data-settled-filter-target="toggle" data-action="settled-filter#toggle">Show Settled</button>
+                  data-settled-filter-target="toggle" data-studio-action="settled-filter#toggle">Show Settled</button>
           <%= link_to "New Contest", new_contest_path, class: "btn btn-primary" %>
         </div>
       <% end %>

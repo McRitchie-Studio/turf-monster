@@ -22,7 +22,7 @@
 </style>
 
 <div class="max-w-6xl mx-auto py-8 px-4 space-y-8"
-     data-controller="seeds-lab">
+     data-studio-controller="seeds-lab">
 
   <%# ── Header ── %>
   <div>
@@ -54,19 +54,19 @@
       <div class="flex flex-wrap gap-2">
         <button class="btn btn-success btn-sm"
                 data-seeds-lab-target="simButton"
-                data-action="seeds-lab#add" data-seeds-lab-amount-param="25">+25 <span class="opacity-60 text-[10px] ml-1">new contest</span></button>
+                data-studio-action="seeds-lab#add" data-seeds-lab-amount-param="25">+25 <span class="opacity-60 text-[10px] ml-1">new contest</span></button>
         <button class="btn btn-primary btn-sm"
                 data-seeds-lab-target="simButton"
-                data-action="seeds-lab#add" data-seeds-lab-amount-param="19">+19 <span class="opacity-60 text-[10px] ml-1">2nd entry</span></button>
+                data-studio-action="seeds-lab#add" data-seeds-lab-amount-param="19">+19 <span class="opacity-60 text-[10px] ml-1">2nd entry</span></button>
         <button class="btn btn-outline btn-sm"
                 data-seeds-lab-target="simButton"
-                data-action="seeds-lab#add" data-seeds-lab-amount-param="14">+14 <span class="opacity-60 text-[10px] ml-1">3rd entry</span></button>
+                data-studio-action="seeds-lab#add" data-seeds-lab-amount-param="14">+14 <span class="opacity-60 text-[10px] ml-1">3rd entry</span></button>
         <button class="btn btn-outline btn-sm"
                 data-seeds-lab-target="simButton"
-                data-action="seeds-lab#jump" data-seeds-lab-to-param="95">Jump → 95</button>
+                data-studio-action="seeds-lab#jump" data-seeds-lab-to-param="95">Jump → 95</button>
         <button class="btn btn-outline btn-sm"
                 data-seeds-lab-target="simButton"
-                data-action="seeds-lab#reset">Reset</button>
+                data-studio-action="seeds-lab#reset">Reset</button>
       </div>
     </div>
     <p class="text-muted text-xs">
@@ -82,12 +82,12 @@
         <h3 class="text-heading font-semibold text-sm">Shine Controls</h3>
         <p class="text-muted text-xs">Applies to Variant 1 only. Other variants keep the hardcoded continuous shine.</p>
       </div>
-      <button class="btn btn-success btn-sm" data-action="seeds-lab#triggerShine">Trigger now</button>
+      <button class="btn btn-success btn-sm" data-studio-action="seeds-lab#triggerShine">Trigger now</button>
     </div>
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
       <div>
         <label class="text-muted text-[10px] uppercase tracking-wide block mb-1">Mode</label>
-        <select data-seeds-lab-target="mode" data-action="change->seeds-lab#shineChanged"
+        <select data-seeds-lab-target="mode" data-studio-action="change->seeds-lab#shineChanged"
                 class="w-full text-sm rounded-md border border-subtle px-2 py-1.5"
                 style="background: var(--color-surface-alt); color: var(--color-text);">
           <option value="continuous">Continuous (every 2.5s)</option>
@@ -102,14 +102,14 @@
           <span class="text-muted ml-1" data-seeds-lab-target="label" data-label="shineIntervalHint"></span>
         </label>
         <input type="range" min="3" max="20" step="0.5" value="5" class="w-full"
-               data-seeds-lab-target="interval" data-action="input->seeds-lab#shineChanged">
+               data-seeds-lab-target="interval" data-studio-action="input->seeds-lab#shineChanged">
       </div>
       <div>
         <label class="text-muted text-[10px] uppercase tracking-wide block mb-1">
           Initial delay: <span class="text-secondary font-mono" data-seeds-lab-target="label" data-label="shineDelay">0s</span>
         </label>
         <input type="range" min="0" max="10" step="0.5" value="0" class="w-full"
-               data-seeds-lab-target="delay" data-action="input->seeds-lab#shineChanged">
+               data-seeds-lab-target="delay" data-studio-action="input->seeds-lab#shineChanged">
       </div>
       <div>
         <label class="text-muted text-[10px] uppercase tracking-wide block mb-1">Active CSS</label>

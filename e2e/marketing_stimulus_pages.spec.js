@@ -64,7 +64,7 @@ test.describe("how to play accordion", () => {
 
   test("a press straight after a Turbo visit opens, and Back starts all closed", async ({ page }) => {
     await page.goto("/help");
-    await turboVisit(page, "/help/how-to-play", '[data-controller="accordion"]');
+    await turboVisit(page, "/help/how-to-play", '[data-studio-controller="accordion"]');
     await button(page, "Turf Scores").click();
     await expect(panel(page, "turfScores")).toBeVisible();
 
@@ -94,7 +94,7 @@ test.describe("card filters", () => {
 
   test("teams: a pill pressed straight after a Turbo visit filters, and Back starts unfiltered", async ({ page }) => {
     await page.goto("/help");
-    await turboVisit(page, "/teams", '[data-controller="card-filter"]');
+    await turboVisit(page, "/teams", '[data-studio-controller="card-filter"]');
     await page.getByRole("button", { name: "NFL", exact: true }).click();
     await expect(visibleTeams(page, "fifa")).toHaveCount(0);
 
@@ -118,7 +118,7 @@ test.describe("card filters", () => {
       expect(position).toBe("Goalkeeper");
     }
 
-    await turboVisit(page, "/players?from=turbo", '[data-controller="card-filter"]');
+    await turboVisit(page, "/players?from=turbo", '[data-studio-controller="card-filter"]');
     await page.getByRole("button", { name: "Forward", exact: true }).click();
     const forwards = page.locator('[data-player-card]:visible');
     await expect(forwards).not.toHaveCount(0);
@@ -133,7 +133,7 @@ test.describe("card filters", () => {
     await expect(page.locator("[data-athlete-card]:visible")).toHaveCount(1);
     await expect(page.locator('[data-card-filter-target="count"]')).toHaveText("1 players");
 
-    await turboVisit(page, "/nfl-players?team=buffalo-bills&from=turbo", '[data-controller="card-filter"]');
+    await turboVisit(page, "/nfl-players?team=buffalo-bills&from=turbo", '[data-studio-controller="card-filter"]');
     await page.getByPlaceholder("Search players...").fill("cook");
     await expect(page.locator("[data-athlete-card]:visible")).toHaveCount(1);
     await expect(page.locator("[data-athlete-card]:visible")).toContainText("James Cook");
@@ -162,7 +162,7 @@ test.describe("team swatches", () => {
 
   test("a press straight after a Turbo visit copies", async ({ page }) => {
     await page.goto("/help");
-    await turboVisit(page, "/teams", '[data-controller="swatch-copy"]');
+    await turboVisit(page, "/teams", '[data-studio-controller="swatch-copy"]');
     const swatch = page.locator('[data-team-card]', { hasText: "Buffalo Bills" }).locator('button[aria-label="Copy #C60C30"]');
     await swatch.click();
     await expect(swatch.locator('[data-swatch-copy-target="tip"]')).toHaveText("Copied!");
@@ -173,7 +173,7 @@ test.describe("contract cost calculator", () => {
   // The dollars the calculator should show for `price`, from the lamports the
   // page hands its controller.
   async function expected(page, price) {
-    return page.locator('[data-controller="cost-calculator"]').evaluate((root, p) => {
+    return page.locator('[data-studio-controller="cost-calculator"]').evaluate((root, p) => {
       const perm = Number(root.dataset.costCalculatorPermLamportsValue) / 1e9;
       const float = Number(root.dataset.costCalculatorFloatLamportsValue) / 1e9;
       return {
@@ -198,7 +198,7 @@ test.describe("contract cost calculator", () => {
 
   test("a price typed straight after a Turbo visit reprices, and Back starts at the default", async ({ page }) => {
     await page.goto("/help");
-    await turboVisit(page, "/contract", '[data-controller="cost-calculator"]');
+    await turboVisit(page, "/contract", '[data-studio-controller="cost-calculator"]');
     await page.locator('[data-cost-calculator-target="price"]').fill("300");
     await expect(figure(page, "floatUsd")).toHaveText((await expected(page, 300)).floatUsd);
 
@@ -311,7 +311,7 @@ test.describe("proof of reserves", () => {
     const chain = await fakeChain(page);
     chain.release();
     await page.goto("/help");
-    await turboVisit(page, "/proof-of-reserves", '[data-controller="proof-of-reserves"]');
+    await turboVisit(page, "/proof-of-reserves", '[data-studio-controller="proof-of-reserves"]');
     await refresh(page).click();
     await expect.poll(() => chain.reads).toBeGreaterThanOrEqual(2 * (await page.locator('[data-proof-of-reserves-target="row"]').count()));
     await expect(row(page).locator('[data-field="status"]')).toHaveText("Open");

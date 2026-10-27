@@ -1,8 +1,9 @@
 require "test_helper"
 
-# [integration] Turf's Stimulus application (app/javascript/turf_stimulus.js):
-# what a page loads, what it preloads, and that the hooks the views carry exist
-# on the controllers they name.
+# [integration] Turf's Stimulus controllers (app/javascript/turf_stimulus.js),
+# registered on the engine's application: what a page loads, what it preloads,
+# that the hooks the views carry exist on the controllers they name, and that
+# there is one application per page, not two.
 class TurfStimulusTest < ActionDispatch::IntegrationTest
   include PageModuleGraph
 
@@ -60,6 +61,55 @@ class TurfStimulusTest < ActionDispatch::IntegrationTest
       queue.concat(send(:static_imports, response.body))
     end
     seen
+  end
+
+  # The engine's application (studio/stimulus) and the identifiers it registers:
+  # studio/application's every-page chrome, studio/stimulus' own, and its LAZY list.
+  ENGINE_JS = Pathname(Gem.loaded_specs.fetch("studio-engine").full_gem_path).join("app/javascript/studio")
+
+  def engine_identifiers
+    sources = [ ENGINE_JS.join("stimulus.js").read, ENGINE_JS.join("application.js").read ]
+    sources.flat_map { |source| source.scan(/application\.register\("([a-z-]+)"/).flatten + source.scan(/^  "([a-z-]+)": \(\) => import\(/).flatten }.uniq
+  end
+
+  # Every Turf JavaScript module, and every Ruby and ERB file that renders markup.
+  def turf_js = Dir[Rails.root.join("app/javascript/**/*.js")].sort
+  def markup_sources = Dir[Rails.root.join("app/{views,helpers,components,services}/**/*.{erb,rb}")].sort
+
+  test "Turf starts no Stimulus application of its own: it registers on the engine's" do
+    turf_js.each do |file|
+      assert_no_match(/\bApplication\.start\b|new Application\b|import \{[^}]*\bApplication\b[^}]*\} from "@hotwired\/stimulus"/,
+        File.read(file), "#{file} starts a second Stimulus application: register on studio/stimulus' instead")
+    end
+    entry = ENTRY.read
+    assert_includes entry, %(import { application } from "studio/stimulus")
+    assert_match(/^export \{ application \}$/, entry)
+    assert_includes entry, %(attribute: "data-studio-controller"), "the lazy registry watches the engine's controller attribute"
+    assert_match(/\bApplication\.start\(document\.documentElement, schema\)/, ENGINE_JS.join("stimulus.js").read,
+      "the engine's studio/stimulus no longer starts the one application this file registers on")
+  end
+
+  test "no Turf identifier collides with an engine controller's" do
+    engine = engine_identifiers
+    assert_includes engine, "hold-button"
+    assert_includes engine, "board"
+    assert_empty registered.keys & engine, "one application now holds both: a shared identifier would replace the engine's controller"
+  end
+
+  # On the engine's schema, Stimulus reads data-studio-controller and
+  # data-studio-action; a data-controller or data-action is inert markup, a
+  # control that renders and never connects.
+  test "no markup names a controller or action on Stimulus' default attributes" do
+    markup_sources.each do |file|
+      source = File.read(file)
+      next if file.end_with?("app/services/laptop_live_snapshot.rb") # strips both vocabularies
+
+      assert_no_match(/(?<![\w-])data-(?:controller|action)(?![\w-])/, source, "#{file}: use data-studio-controller / data-studio-action")
+      assert_no_match(/data: \{[^}]*(?<![\w])(?:controller|action): /m, source, "#{file}: a data hash names controller:/action:, use studio_controller:/studio_action:")
+    end
+    turf_js.each do |file|
+      assert_no_match(/(?<![\w-])data-(?:controller|action)(?![\w-])/, File.read(file), "#{file} selects on an attribute nothing carries")
+    end
   end
 
   test "the registry is read, and every controller file is in it once" do
@@ -132,12 +182,12 @@ class TurfStimulusTest < ActionDispatch::IntegrationTest
       source = File.read(file)
       view = Pathname(file).relative_path_from(Rails.root).to_s
 
-      source.scan(/data-controller="([^"<]+)"/).flatten.flat_map(&:split).each do |identifier|
-        assert_includes registered.keys, identifier, "#{view} names an unregistered controller"
+      source.scan(/(?:data-studio-controller=|\bstudio_controller: )"([^"<]+)"/).flatten.flat_map(&:split).each do |identifier|
+        assert_includes registered.keys + engine_identifiers, identifier, "#{view} names an unregistered controller"
         named += 1
       end
 
-      source.scan(/(?:data-action=|\baction: )"([^"<]+)"/).flatten.flat_map(&:split).each do |action|
+      source.scan(/(?:data-studio-action=|\bstudio_action: )"([^"<]+)"/).flatten.flat_map(&:split).each do |action|
         identifier, method = action.split("->").last.split("#")
         method = method&.split(":")&.first
         next unless method && registered.key?(identifier)
@@ -171,7 +221,7 @@ class TurfStimulusTest < ActionDispatch::IntegrationTest
       # hold the rest of the opening tag. The root may name more than one
       # controller.
       roots = Dir[VIEWS].sort.flat_map do |file|
-        File.read(file).scan(/(?:data-controller="[^"]*(?<![\w-])|\bcontroller: ")#{identifier}(?![\w-])[^"]*".{0,300}/m)
+        File.read(file).scan(/(?:data-studio-controller="[^"]*(?<![\w-])|\bstudio_controller: ")#{identifier}(?![\w-])[^"]*".{0,300}/m)
       end
       assert_not_empty roots, "no view names #{identifier}"
       roots.each { |tag| assert_includes tag, "turbo:before-cache@document->#{identifier}##{method}" }

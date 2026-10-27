@@ -163,7 +163,7 @@ test.describe("enforced", () => {
     await page.locator(`a[href="${CONTEST}"]`).first().click();
     await page.waitForURL(`**${CONTEST}`);
     await page.waitForLoadState("load");
-    await expect(page.locator("[data-controller~='chat-reactions']")).toHaveCount(1);
+    await expect(page.locator("[data-studio-controller~='chat-reactions']")).toHaveCount(1);
     await neverRan(page);
   });
 
@@ -199,7 +199,7 @@ test.describe("live board", () => {
     await injectInto(page, LIVE);
     await page.goto(LIVE);
     await page.waitForLoadState("load");
-    await expect(page.locator("[data-controller~='chat-reactions']")).toHaveCount(1);
+    await expect(page.locator("[data-studio-controller~='chat-reactions']")).toHaveCount(1);
     expect(await page.evaluate(() => typeof window.handleSolanaVerifySuccess)).toBe("function");
     await neverRan(page);
   });
@@ -362,7 +362,7 @@ test.describe("early presses", () => {
     });
     await loginAdmin(page);
     await page.goto("/admin/pending_transactions");
-    const button = page.locator("button[data-controller='cosign-button']").first();
+    const button = page.locator("button[data-studio-controller='cosign-button']").first();
     const slug = await button.getAttribute("data-tx-slug");
     await button.click();
     await expect.poll(() => page.evaluate(() => window.__cosignCalls.length)).toBe(1);

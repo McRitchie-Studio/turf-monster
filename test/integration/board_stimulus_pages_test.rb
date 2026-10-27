@@ -15,7 +15,7 @@ class BoardStimulusPagesTest < ActionDispatch::IntegrationTest
 
   def roots_for(identifier)
     assert_response :success
-    css_select(%([data-controller~="#{identifier}"])).tap { |roots| assert_not_empty roots, "no #{identifier} controller on the page" }
+    css_select(%([data-studio-controller~="#{identifier}"])).tap { |roots| assert_not_empty roots, "no #{identifier} controller on the page" }
   end
 
   # `except` names descendants that are still Alpine on purpose (an engine
@@ -34,8 +34,8 @@ class BoardStimulusPagesTest < ActionDispatch::IntegrationTest
     root = roots_for("leaderboard").first
 
     assert_no_alpine root
-    assert_includes root["data-action"], "resize@window->leaderboard#resized"
-    assert_includes root["data-action"], "turbo:before-cache@document->leaderboard#reset"
+    assert_includes root["data-studio-action"], "resize@window->leaderboard#resized"
+    assert_includes root["data-studio-action"], "turbo:before-cache@document->leaderboard#reset"
     root.css('[data-leaderboard-target="picks"]').each do |picks|
       assert_equal "false", picks["data-open"]
       assert picks.at_css('[data-leaderboard-target="narrow"][hidden]'), "the narrow layout shows before it is measured"
@@ -57,8 +57,8 @@ class BoardStimulusPagesTest < ActionDispatch::IntegrationTest
     root = roots_for("leaderboard").first
 
     assert_equal 4, root.css('[data-leaderboard-target="tail"]').size
-    assert_equal "leaderboard#expand", root.at_css('[data-leaderboard-target="more"]')["data-action"].split("->").last
-    assert_equal "leaderboard#collapse", root.at_css('button[data-leaderboard-target="less"][hidden]')["data-action"]
+    assert_equal "leaderboard#expand", root.at_css('[data-leaderboard-target="more"]')["data-studio-action"].split("->").last
+    assert_equal "leaderboard#collapse", root.at_css('button[data-leaderboard-target="less"][hidden]')["data-studio-action"]
   end
 
   test "the leaderboard and chat tabs start on the leaderboard" do
@@ -67,7 +67,7 @@ class BoardStimulusPagesTest < ActionDispatch::IntegrationTest
 
     assert_no_alpine root, except: [ '[data-key="chat"]', "#leaderboard-container" ]
     assert_equal "leaderboard", root["data-tabs-initial-value"]
-    assert_includes root["data-action"], "turbo:before-cache@document->tabs#reset"
+    assert_includes root["data-studio-action"], "turbo:before-cache@document->tabs#reset"
     leaderboard_tab, chat_tab = root.css('[data-tabs-target="tab"]')
     assert_includes leaderboard_tab["class"].split, "bg-primary"
     assert_includes chat_tab["class"].split, "text-secondary"
@@ -80,18 +80,18 @@ class BoardStimulusPagesTest < ActionDispatch::IntegrationTest
     get contest_path(@contest)
     menu, tip = roots_for("disclosure").first(2)
 
-    assert_includes menu["data-controller"].split, "contest-chain"
+    assert_includes menu["data-studio-controller"].split, "contest-chain"
     assert_equal @contest.slug, menu["data-contest-chain-slug-value"]
     [ menu, tip ].each do |root|
       assert_no_alpine root, except: [ '[x-data^="{"]' ]
-      assert_includes root["data-action"], "click@window->disclosure#outside"
-      assert_includes root["data-action"], "turbo:before-cache@document->disclosure#reset"
+      assert_includes root["data-studio-action"], "click@window->disclosure#outside"
+      assert_includes root["data-studio-action"], "turbo:before-cache@document->disclosure#reset"
       assert root.at_css('[data-disclosure-target="panel"][hidden]')
       assert_equal "false", root.at_css('[data-disclosure-target="trigger"]')["aria-expanded"]
     end
     assert_equal "opacity-0 scale-95", menu.at_css('[data-disclosure-target="panel"]')["data-enter-start"]
     assert_equal "click->disclosure#toggle keydown.enter->disclosure#toggle:prevent keydown.space->disclosure#toggle:prevent",
-                 tip.at_css('[role="button"]')["data-action"]
+                 tip.at_css('[role="button"]')["data-studio-action"]
     assert_not_includes response.body, "lockContestViaPhantom("
     assert_not_includes response.body, "concludeContestViaPhantom("
   end
@@ -99,13 +99,13 @@ class BoardStimulusPagesTest < ActionDispatch::IntegrationTest
   test "the share invite starts idle and closed, and copies the invite link" do
     log_in_as(@alex)
     get contest_path(@contest)
-    root = css_select('[data-controller~="copy-link"]').first
+    root = css_select('[data-studio-controller~="copy-link"]').first
     assert root, "the entered viewer's quest card carries the share invite"
 
     assert_no_alpine root
-    assert_equal "disclosure copy-link", root["data-controller"]
-    assert_equal root.at_css('[data-action="click->copy-link#copy"]').text, root["data-copy-link-text-value"]
-    assert_includes root["data-action"], "keydown.esc@window->disclosure#close"
+    assert_equal "disclosure copy-link", root["data-studio-controller"]
+    assert_equal root.at_css('[data-studio-action="click->copy-link#copy"]').text, root["data-copy-link-text-value"]
+    assert_includes root["data-studio-action"], "keydown.esc@window->disclosure#close"
     assert root.at_css('[data-disclosure-target="panel"][hidden]')
     button = root.at_css('[data-copy-link-target="button"]')
     assert_includes button["class"].split, "btn-primary"
@@ -138,7 +138,7 @@ class BoardStimulusPagesTest < ActionDispatch::IntegrationTest
     row = root.at_css(%([data-contest-band="all"] [data-contest-row="#{@contest.slug}"]))
     assert row.key?("hidden")
     assert_equal "row", row["data-settled-filter-target"]
-    assert_equal "click->row-link#visit", row["data-action"]
+    assert_equal "click->row-link#visit", row["data-studio-action"]
     assert_equal contest_path(@contest), row["data-row-link-url-param"]
     assert_empty root.css("a[onclick], tr[onclick]")
   end
@@ -149,7 +149,7 @@ class BoardStimulusPagesTest < ActionDispatch::IntegrationTest
 
     assert_no_alpine root, except: [ "[data-contest-card]", ".hold-stack" ]
     viewport = root.at_css('[data-contest-rail-target="viewport"]')
-    assert_equal "scroll->contest-rail#measure:passive", viewport["data-action"]
+    assert_equal "scroll->contest-rail#measure:passive", viewport["data-studio-action"]
     assert_nil viewport["style"]
   end
 end

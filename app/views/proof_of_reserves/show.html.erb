@@ -16,7 +16,7 @@
     element whose colour follows a state carries each state's classes as
     data-<state>-class, and the controller puts exactly one set on. %>
 <div class="max-w-4xl mx-auto py-8 px-2" data-test="proof-of-reserves"
-     data-controller="proof-of-reserves"
+     data-studio-controller="proof-of-reserves"
      data-proof-of-reserves-rpc-url-value="<%= cfg[:rpc_url] %>">
 
   <!-- ========== HERO ========== -->
@@ -46,7 +46,7 @@
              data-ok-class="text-mint" data-warn-class="text-danger-ink" data-muted-class="text-heading">Checking…</p>
         </div>
         <button type="button" class="btn btn-secondary text-sm" disabled
-                data-proof-of-reserves-target="refresh" data-action="proof-of-reserves#refresh">
+                data-proof-of-reserves-target="refresh" data-studio-action="proof-of-reserves#refresh">
           <span data-proof-of-reserves-target="idle" hidden>Refresh</span>
           <span data-proof-of-reserves-target="busy">Refreshing…</span>
         </button>
