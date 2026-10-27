@@ -1,5 +1,7 @@
 const { test, expect } = require("@playwright/test");
-const { login, loginAdmin, reseed, seedRailContests, clearRailContests } = require("./helpers");
+const {
+  login, loginAdmin, reseed, seedRailContests, clearRailContests, createActiveEntry, setQuestState, grantManagedWallet
+} = require("./helpers");
 
 // [e2e] One Stimulus application per page, the engine's, and every controller
 // on it connects once.
@@ -28,12 +30,15 @@ const seen = new Set();
 // controller count for each pair. Lazy controllers named on the page are
 // waited for (they register on first sight).
 async function census(page) {
-  await page.waitForFunction(async () => {
+  // A poll inside the page: waitForFunction would take the async predicate's
+  // promise itself as a truthy answer.
+  await page.evaluate(async () => {
     const { LAZY } = await import("turf_stimulus");
     const { application } = await import("studio/stimulus");
-    const named = [...document.querySelectorAll("[data-studio-controller]")]
-      .flatMap((el) => el.getAttribute("data-studio-controller").split(/\s+/).filter(Boolean));
-    return named.filter((id) => id in LAZY).every((id) => application.router.modulesByIdentifier.has(id));
+    const pending = () => [...document.querySelectorAll("[data-studio-controller]")]
+      .flatMap((el) => el.getAttribute("data-studio-controller").split(/\s+/).filter(Boolean))
+      .filter((id) => id in LAZY && !application.router.modulesByIdentifier.has(id));
+    for (let tries = 0; pending().length && tries < 100; tries++) await new Promise((r) => setTimeout(r, 50));
   });
 
   return page.evaluate(async () => {
@@ -71,10 +76,14 @@ async function connectsAcrossTurboVisit(page, path) {
       return original(identifier, name, detail);
     };
     window.__sameDocument = true;
+    window.__turboLoaded = false;
+    document.addEventListener("turbo:load", () => (window.__turboLoaded = true), { once: true });
   });
   await page.evaluate((p) => window.Turbo.visit(p), path);
-  await page.waitForFunction((p) => window.location.pathname === new URL(p, window.location.href).pathname &&
-    !(window.Turbo.session.navigator.currentVisit && window.Turbo.session.navigator.currentVisit.state === "started"), path);
+  // turbo:load in this document, or a full load (a signing page), which drops
+  // the flag along with the document.
+  await page.waitForFunction(() => window.__turboLoaded === true || window.__sameDocument !== true);
+  await page.waitForLoadState("load");
   return page.evaluate(async () => {
     const { application } = await import("studio/stimulus");
     const registered = application.router.modulesByIdentifier;
@@ -94,7 +103,11 @@ async function connectsAcrossTurboVisit(page, path) {
 
 const onSigningPage = (page) => page.evaluate(() => !!document.querySelector('meta[name="signing-csp"]'));
 
-async function check(page, path, { from = "/help" } = {}) {
+async function check(page, path, options = {}) {
+  return test.step(path, () => checkPage(page, path, options));
+}
+
+async function checkPage(page, path, { from = "/help" } = {}) {
   await page.goto(path);
   await page.waitForLoadState("load");
   const first = await census(page);
@@ -115,7 +128,8 @@ async function check(page, path, { from = "/help" } = {}) {
   return first;
 }
 
-test.describe.configure({ mode: "serial" });
+// Each spec walks several pages, a full load and a Turbo visit apiece.
+test.describe.configure({ mode: "serial", timeout: 180_000 });
 
 test.beforeAll(async ({ request }) => await reseed(request));
 
@@ -125,6 +139,7 @@ test("visitor pages: one application, each controller connected once", async ({ 
     for (const path of ["/help/how-to-play", "/teams", "/players", "/contract", "/proof-of-reserves", "/contests", "/contests/e2e-rail-1"]) {
       await check(page, path);
     }
+
   } finally {
     await clearRailContests(page);
   }
@@ -134,19 +149,66 @@ test("player pages: one application, each controller connected once", async ({ p
   await seedRailContests(page, 1, { upcoming: true });
   try {
     await login(page, `one-application-${Date.now()}@example.test`);
+    // Not yet age verified: the API keys card waits on the age gate (frame-reload).
+    await check(page, "/account");
+
+    // Age verified (the API keys form), a managed wallet (the withdraw card),
+    // and an entry on the quest's invite step (the share invite and the poll).
+    expect((await page.request.post("/test/set_age_verified", { data: { verified: true } })).ok()).toBe(true);
+    await grantManagedWallet(page);
+    await createActiveEntry(page, "e2e-rail-1", 0);
+    await setQuestState(page, { username_changed: true, chat_sent: true, subscribed: true });
     for (const path of ["/account", "/wallet", "/contests/e2e-rail-1"]) await check(page, path);
+
+    // A created key: the frame comes back with reveal-follow-up, connected in
+    // place, still once.
+    await page.goto("/account");
+    const card = page.locator("turbo-frame#api_keys_card");
+    await card.getByLabel("Name").fill("One application");
+    await card.getByRole("button", { name: "Create key" }).click();
+    await expect(card.locator("[data-api-key-secret]")).toBeVisible();
+    const created = await census(page);
+    expect(created.pairs.filter((p) => p.live !== 1), "a controller in the returned frame connected other than once").toEqual([]);
+    created.pairs.forEach((p) => seen.add(p.id));
   } finally {
     await clearRailContests(page);
   }
 });
 
 test("admin pages: one application, each controller connected once", async ({ page }) => {
-  await loginAdmin(page);
-  for (const path of ["/admin/schema", "/admin/dashboard", "/admin/hub", "/admin/navbar", "/admin/scoring",
-                      "/admin/drop_signups/announcement", "/seeds_lab", "/toast_test", "/admin/authorities",
-                      "/admin/vault_state", "/admin/pending_transactions", "/wallet"]) {
-    await check(page, path, { from: "/admin/hub" });
+  await seedRailContests(page, 1, { upcoming: true });
+  try {
+    await loginAdmin(page);
+    for (const path of ["/admin/schema", "/admin/dashboard", "/admin/hub", "/admin/navbar", "/admin/scoring",
+                        "/admin/drop_signups/announcement", "/seeds_lab", "/toast_test", "/admin/authorities",
+                        "/admin/vault_state", "/admin/pending_transactions", "/wallet", "/contests/e2e-rail-1"]) {
+      await check(page, path, { from: "/admin/hub" });
+    }
+  } finally {
+    await clearRailContests(page);
   }
+});
+
+// auto-submit posts its form the moment it connects, which would take the page
+// away before it could be read. requestSubmit is replaced, in this page only,
+// by a counter, so the page stays and the count is one more proof: one submit
+// per arrival, on the full load and on the Turbo visit.
+test("the unsubscribe page: auto-submit connects, and submits, once", async ({ page }) => {
+  const res = await page.request.post("/test/seed_drop_signups", { data: { emails: [ `one-app-${Date.now()}@example.com` ] } });
+  expect(res.ok()).toBe(true);
+  const [ token ] = (await res.json()).unsubscribe_tokens;
+  await page.addInitScript(() => {
+    window.__submits = 0;
+    HTMLFormElement.prototype.requestSubmit = function () { window.__submits += 1; };
+  });
+
+  const path = `/drop-signups/unsubscribe/${token}`;
+  await check(page, path);
+  expect(await page.evaluate(() => window.__submits), "a Turbo visit into the page submitted other than once").toBe(1);
+
+  await page.goto(path);
+  await page.waitForLoadState("load");
+  expect(await page.evaluate(() => window.__submits), "a full load submitted other than once").toBe(1);
 });
 
 test("between them the pages connected every controller turf_stimulus registers", async ({ page }) => {
