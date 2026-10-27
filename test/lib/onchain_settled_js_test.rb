@@ -69,8 +69,10 @@ class OnchainSettledJsTest < ActiveSupport::TestCase
       #{body}
     JS
 
+    # solana_utils.js imports "studio/studio_confetti" by its importmap name, so
+    # node runs with the importmap hook (test/support/node_importmap.rb).
     stdout, stderr, status = Open3.capture3(
-      "node", "--input-type=module", "--eval", script, source.to_s
+      NodeImportmap.env, "node", *NodeImportmap.args, "--input-type=module", "--eval", script, source.to_s
     )
     assert status.success?, stderr
     JSON.parse(stdout)

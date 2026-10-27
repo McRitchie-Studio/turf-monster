@@ -198,6 +198,12 @@ jobs:
           rubygems: 3.5.11
           bundler-cache: true
 
+      # THE SUITE SPAWNS NODE: test/lib/javascript_unit_test.rb runs test/javascript
+      # under `node --test`. Without this step it ran on whatever Node the runner
+      # image happens to ship, not the pinned major.
+      - uses: actions/setup-node@v4
+        with: { node-version-file: .tool-versions }
+
       # THE SUITE READS THE COMPILED STYLESHEET, so it must exist before the suite runs.
       # test/views/layer_scale_adoption_test.rb asserts that every --z-* layer tier a
       # browser resolves comes from studio-engine and is defined exactly once — the only
@@ -393,8 +399,10 @@ jobs:
 
       - uses: ruby/setup-ruby@v1
         with: { ruby-version: .ruby-version, rubygems: 3.5.11, bundler-cache: true }
+      # Node's major is pinned once, in .tool-versions (studio-engine's Node tooling
+      # pin, versions.json); mise reads the same file on a laptop.
       - uses: actions/setup-node@v4
-        with: { node-version: 22 }
+        with: { node-version-file: .tool-versions }
       # CACHE THE BROWSER, keyed on the resolved Playwright version. Measured on run
       # 32329065176, this step cost ~21s per shard — three shards, every run, re-downloading
       # a Chromium that has not changed. The key comes from package-lock.json so a Playwright
@@ -416,6 +424,11 @@ jobs:
         run: |
           npm ci
           npx playwright install --with-deps chromium
+      # playwright.config.js builds on studio-engine's shared base, linked into
+      # node_modules after `npm ci` (which deletes node_modules) and before any
+      # `playwright` command loads the config.
+      - name: Link studio-engine's Node tooling
+        run: bin/rails studio:node:link
       # The shards boot the app (Playwright's webServer runs `bin/rails server
       # -e test`), so any spec that renders an Active Storage variant needs the
       # same processor the `test` job installs — e2e/og_image.spec.js fetches a
@@ -521,19 +534,26 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
+      # bundler-cache ON since the Node tooling adoption: `playwright test --list`
+      # loads playwright.config.js, which requires studio-engine's shared base, and
+      # only the bundle can say where the locked engine gem lives (studio:node:link).
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: .ruby-version
           rubygems: 3.5.11
-          bundler-cache: false
+          bundler-cache: true
 
+      # Node's major is pinned once, in .tool-versions (studio-engine's Node tooling
+      # pin, versions.json); mise reads the same file on a laptop.
       - uses: actions/setup-node@v4
-        with: { node-version: 22 }
+        with: { node-version-file: .tool-versions }
 
       # No `playwright install` — `--list` collects specs and never launches a
       # browser, so the browser download (and its cache) is pure cost here.
       - name: Install the Playwright package
-        run: npm ci
+        run: |
+          npm ci
+          bin/rails studio:node:link
 
       - name: Assert the declared spec counter matches the tree
         run: bin/e2e-lane-derive
