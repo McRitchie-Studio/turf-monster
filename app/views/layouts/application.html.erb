@@ -79,7 +79,7 @@
 
         NOT IN THE DEPENDENCY CHAIN ABOVE. It reads no SolanaStudio helper, so
         its position among these five is free. What is NOT free is that it must
-        execute before app/javascript/wallet_signal.js registers the source, and
+        execute before app/javascript/wallet_signal.js builds the source, and
         a blocking classic script in the head always precedes a deferred
         importmap module — which is exactly the arrangement here.
 

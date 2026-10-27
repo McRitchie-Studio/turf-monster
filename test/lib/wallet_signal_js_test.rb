@@ -148,7 +148,12 @@ class WalletSignalJsTest < ActiveSupport::TestCase
 
   # Runs `body` as ESM with the module imported as `mod`. With `browser: true`
   # the harness above and the real gem asset are installed first.
-  def run_module(body, browser: false)
+  #
+  # With `late_session: true` the engine's store is held back and the document
+  # is still parsing when the module loads, as on a page where studio/session
+  # is a module evaluated after Turf's entry point: the body hands the store
+  # over with `arriveSession()`, which also fires DOMContentLoaded.
+  def run_module(body, browser: false, late_session: false)
     preamble =
       if browser
         <<~JS
@@ -157,6 +162,7 @@ class WalletSignalJsTest < ActiveSupport::TestCase
           // A plain IIFE taking `window`, evaluated rather than imported —
           // exactly how a sprockets script tag delivers it.
           new Function('window', readFileSync(process.argv[2], 'utf8')).call(globalThis, globalThis);
+          #{late_session_preamble if late_session}
         JS
       else
         ""
@@ -176,6 +182,19 @@ class WalletSignalJsTest < ActiveSupport::TestCase
     stdout, stderr, status = Open3.capture3(*args)
     assert status.success?, "node failed: #{stderr}"
     JSON.parse(stdout.lines.last)
+  end
+
+  def late_session_preamble
+    <<~JS
+      const heldSession = globalThis.StudioSession;
+      delete globalThis.StudioSession;
+      document.readyState = 'loading';
+      const arriveSession = () => {
+        globalThis.StudioSession = heldSession;
+        document.readyState = 'interactive';
+        (listeners.document.DOMContentLoaded || []).splice(0).forEach((cb) => cb());
+      };
+    JS
   end
 
   # ── [unit] the derivation ───────────────────────────────────────────────
@@ -425,6 +444,32 @@ class WalletSignalJsTest < ActiveSupport::TestCase
     # down and the mid-ceremony one renders.
     assert_equal "expected", out["midCeremony"]["state"]
     assert_equal false, out["midCeremony"]["declarationEnded"]
+  end
+
+  # ── [integration] the session store arrives after the module ────────────
+
+  test "a session store that loads after the module still gets the wallet source, once" do
+    out = run_module(<<~JS, browser: true, late_session: true)
+      const OTHER = #{OTHER_WALLET.to_json};
+      await settle();
+      out.before = { registeredName, registration: window.tmWalletSignal.registration };
+
+      arriveSession();
+      await settle();
+      out.after = { registeredName, registered: !!window.tmWalletSignal.registration };
+      out.installIsIdempotent = mod.install() === window.tmWalletSignal;
+      out.live = signal().state;
+      out.switched = await emit(OTHER);
+    JS
+
+    assert_nil out["before"]["registeredName"], "nothing may register before the store exists"
+    assert_nil out["before"]["registration"]
+    assert_equal "wallet", out["after"]["registeredName"],
+                 "the late store must receive the wallet source, not be skipped as absent"
+    assert out["after"]["registered"], "window.tmWalletSignal.registration is the late registration"
+    assert out["installIsIdempotent"]
+    assert_equal "live", out["live"], "the source runs under the late store and reads the session wallet"
+    assert_equal "changed", out["switched"], "a switch after the late registration still moves the indicator"
   end
 
   # ── [component] the indicator, driven through a real identity source ────
