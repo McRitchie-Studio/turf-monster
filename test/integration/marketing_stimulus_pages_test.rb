@@ -10,7 +10,7 @@ class MarketingStimulusPagesTest < ActionDispatch::IntegrationTest
 
   def root_for(identifier)
     assert_response :success
-    css_select(%([data-controller~="#{identifier}"])).first.tap { |root| assert root, "no #{identifier} controller on the page" }
+    css_select(%([data-studio-controller~="#{identifier}"])).first.tap { |root| assert root, "no #{identifier} controller on the page" }
   end
 
   def assert_no_alpine(root)
@@ -25,8 +25,8 @@ class MarketingStimulusPagesTest < ActionDispatch::IntegrationTest
     root = root_for("accordion")
 
     assert_no_alpine root
-    assert_includes root["data-action"], "turbo:before-cache@document->accordion#collapse"
-    keys = root.css('button[data-action="accordion#toggle"]').map { |button| button["data-accordion-key-param"] }
+    assert_includes root["data-studio-action"], "turbo:before-cache@document->accordion#collapse"
+    keys = root.css('button[data-studio-action="accordion#toggle"]').map { |button| button["data-accordion-key-param"] }
     assert_equal %w[picks turfScores scoring payouts], keys
     assert_equal keys, root.css('[data-accordion-target="panel"][hidden]').map { |panel| panel["data-key"] }
     assert_empty root.css('[data-accordion-target="icon"].rotate-180')
@@ -83,7 +83,7 @@ class MarketingStimulusPagesTest < ActionDispatch::IntegrationTest
     cards = root.css("[data-athlete-card]")
     assert_operator cards.size, :>, 0
     assert_equal "#{cards.size} players", root.at_css('[data-card-filter-target="count"]').text.strip
-    assert root.at_css('input[data-card-filter-target="search"][data-action="input->card-filter#search"]')
+    assert root.at_css('input[data-card-filter-target="search"][data-studio-action="input->card-filter#search"]')
   end
 
   test "teams filter by league and copy swatches, every tip hidden" do
@@ -92,13 +92,13 @@ class MarketingStimulusPagesTest < ActionDispatch::IntegrationTest
 
     assert_no_alpine root
     assert_equal "#{root.css('[data-team-card]').size} teams", root.at_css('[data-card-filter-target="count"]').text.strip
-    strips = root.css('[data-controller="swatch-copy"]')
+    strips = root.css('[data-studio-controller="swatch-copy"]')
     assert_not_empty strips
-    strips.each { |strip| assert_includes strip["data-action"], "turbo:before-cache@document->swatch-copy#reset" }
+    strips.each { |strip| assert_includes strip["data-studio-action"], "turbo:before-cache@document->swatch-copy#reset" }
     swatches = root.css("button[data-hex]")
     assert_not_empty swatches
     swatches.each do |swatch|
-      assert_equal "mouseenter->swatch-copy#hover mouseleave->swatch-copy#unhover swatch-copy#copy", swatch["data-action"]
+      assert_equal "mouseenter->swatch-copy#hover mouseleave->swatch-copy#unhover swatch-copy#copy", swatch["data-studio-action"]
       assert_equal swatch["data-hex"], swatch.at_css('[data-swatch-copy-target="tip"][hidden]').text
     end
   end

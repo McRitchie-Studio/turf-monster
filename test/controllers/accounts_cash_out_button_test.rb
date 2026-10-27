@@ -66,7 +66,7 @@ class AccountsCashOutButtonTest < ActionDispatch::IntegrationTest
     assert_response :success
     # The withdraw-card controller reads window.location.hash when it connects;
     # the form starts hidden and its submit disabled.
-    card = Nokogiri::HTML(response.body).at_css('#cash-out[data-controller="withdraw-card"]')
+    card = Nokogiri::HTML(response.body).at_css('#cash-out[data-studio-controller="withdraw-card"]')
     assert card, "the cash-out card lost its controller"
     assert card.at_css('[data-withdraw-card-target="panel"][hidden]')
     assert card.at_css('[data-withdraw-card-target="submit"][disabled]')

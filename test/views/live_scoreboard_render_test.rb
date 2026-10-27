@@ -218,11 +218,11 @@ class LiveScoreboardRenderTest < ActionDispatch::IntegrationTest
     get live_path
     html = response.body
 
-    assert_select '[data-controller="dev-score-tools"][data-action*="turbo:before-cache@document->dev-score-tools#reset"]', 1
+    assert_select '[data-studio-controller="dev-score-tools"][data-studio-action*="turbo:before-cache@document->dev-score-tools#reset"]', 1
     assert_select '[data-dev-score-tools-target="team"]', 1
     assert_select 'button[data-dev-score-tools-target="button"]', 12
-    assert_select 'button[data-action="dev-score-tools#record"][data-dev-score-tools-type-param="touchdown"]', 1
-    assert_select 'button[data-action="dev-score-tools#recordPlay"][data-dev-score-tools-kind-param="timeout"]', 1
+    assert_select 'button[data-studio-action="dev-score-tools#record"][data-dev-score-tools-type-param="touchdown"]', 1
+    assert_select 'button[data-studio-action="dev-score-tools#recordPlay"][data-dev-score-tools-kind-param="timeout"]', 1
     assert_select "[data-test=?] script", "dev-score-tools", 0
 
     graph = page_modules(html, from: "dev_tools")

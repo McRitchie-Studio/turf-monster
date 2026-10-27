@@ -15,7 +15,7 @@ test.beforeEach(async ({ request }) => await reseed(request));
 async function leaveAndComeBack(page, path, via = "/admin/hub") {
   await page.evaluate((to) => window.Turbo.visit(to), via);
   await page.waitForURL(`**${via}`);
-  await expect(page.locator(`[data-controller="${via === "/admin/hub" ? "hub-actions" : "filter"}"]`)).toBeVisible();
+  await expect(page.locator(`[data-studio-controller="${via === "/admin/hub" ? "hub-actions" : "filter"}"]`)).toBeVisible();
   await page.goBack();
   await page.waitForURL(`**${path}`);
 }
@@ -78,7 +78,7 @@ test("the dashboard shows five users and reveals the rest on Show more", async (
   await page.goto("/admin/dashboard");
   await lazyController(page, "show-more");
 
-  const card = page.locator('[data-controller="show-more"]');
+  const card = page.locator('[data-studio-controller="show-more"]');
   const rows = card.locator("ul > li:visible");
   const button = card.getByRole("button");
   const more = button.locator('[data-show-more-target="more"]');
@@ -396,7 +396,7 @@ test("each navbar preview resizes, fits its device and toggles Scrolled on its o
   await page.goto("/admin/navbar");
   await lazyController(page, "navbar-preview");
 
-  const cards = page.locator('[data-controller="navbar-preview"]');
+  const cards = page.locator('[data-studio-controller="navbar-preview"]');
   await expect(cards).toHaveCount(6);
   const card = cards.first();
   const other = cards.nth(1);

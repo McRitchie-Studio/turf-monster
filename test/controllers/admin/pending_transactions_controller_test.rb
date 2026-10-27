@@ -785,7 +785,7 @@ class Admin::PendingTransactionsControllerTest < ActionDispatch::IntegrationTest
 
     assert_match(/data-tx-slug="#{tx.slug}"/, response.body)
     assert_match(/data-tx-label="Settle Contest"/, response.body)
-    assert_match(/data-controller="cosign-button" data-action="cosign-button#cosign"/, response.body)
+    assert_match(/data-studio-controller="cosign-button" data-studio-action="cosign-button#cosign"/, response.body)
     controller = Rails.root.join("app/javascript/controllers/cosign_button_controller.js").read
     assert_includes controller,
       "window.cosignTransaction(data.txSlug, data.txLabel, window.collectExtraCosigners(button), button)"

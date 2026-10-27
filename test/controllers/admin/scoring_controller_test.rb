@@ -25,9 +25,9 @@ class Admin::ScoringControllerTest < ActionDispatch::IntegrationTest
     assert_select "h2", /Goal Console/
     # The game renders as a game-scorer card carrying its state, with a
     # goal-entry button per side.
-    card = css_select('[data-controller="game-scorer"]').sole
+    card = css_select('[data-studio-controller="game-scorer"]').sole
     assert_equal game.slug, JSON.parse(card["data-game-scorer-game-value"])["slug"]
-    assert_equal %w[home away], card.css('[data-action="game-scorer#addGoal"]').map { |button| button["data-game-scorer-side-param"] }
+    assert_equal %w[home away], card.css('[data-studio-action="game-scorer#addGoal"]').map { |button| button["data-game-scorer-side-param"] }
   end
 
   test "goal pills resolve team emoji without a per-goal Team query (no N+1)" do
@@ -45,7 +45,7 @@ class Admin::ScoringControllerTest < ActionDispatch::IntegrationTest
     # Team query each (the old goal.team&.emoji path was an N+1).
     assert teams_queries <= 2, "#{teams_queries} teams-table queries with 3 goals — looks like an N+1 on goal.team"
     # And the emoji still renders in the card's game value.
-    goals = JSON.parse(css_select('[data-controller="game-scorer"]').sole["data-game-scorer-game-value"])["goals"]
+    goals = JSON.parse(css_select('[data-studio-controller="game-scorer"]').sole["data-game-scorer-game-value"])["goals"]
     assert_equal [ game.home_team.emoji ] * 3, goals.map { |goal| goal["teamEmoji"] }
   end
 

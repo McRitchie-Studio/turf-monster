@@ -51,7 +51,7 @@ class FrozenAccountFollowupsViewTest < ActionView::TestCase
 
     assert_nil doc.at_css("[data-frozen-reason]")
     # The withdraw-card controller opens the form at #cash-out unless frozen.
-    assert_equal "withdraw-card", doc.at_css("#cash-out")["data-controller"]
+    assert_equal "withdraw-card", doc.at_css("#cash-out")["data-studio-controller"]
     assert_equal "false", doc.at_css("#cash-out")["data-withdraw-card-frozen-value"]
   end
 end

@@ -24,7 +24,7 @@ class TeamsIndexLeagueFilterTest < ActionDispatch::IntegrationTest
 
   test "the filter is wired into the card-filter controller, with All pressed" do
     get teams_path
-    assert_select '[data-controller="card-filter"][data-card-filter-selector-value="[data-team-card]"]' do
+    assert_select '[data-studio-controller="card-filter"][data-card-filter-selector-value="[data-team-card]"]' do
       assert_select 'button[data-card-filter-key-param="league"][data-card-filter-value-param="all"][aria-pressed="true"].btn-primary', text: "All"
       assert_select 'button[data-card-filter-key-param="league"][data-card-filter-value-param="nfl"][aria-pressed="false"].btn-outline'
     end

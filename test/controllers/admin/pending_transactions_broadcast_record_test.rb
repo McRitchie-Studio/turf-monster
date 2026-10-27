@@ -231,7 +231,7 @@ class Admin::PendingTransactionsBroadcastRecordTest < ActionDispatch::Integratio
     Solana::Vault.stub :new, FakeVault.new do
       get admin_pending_transactions_path
     end
-    assert_match(/data-action="cosign-button#cosign"/, response.body,
+    assert_match(/data-studio-action="cosign-button#cosign"/, response.body,
                  "a pending row DOES offer the button, so its absence below means something")
 
     flake = ->(**) { raise Solana::TxVerifier::VerificationError, "RPC lagged" }
@@ -251,7 +251,7 @@ class Admin::PendingTransactionsBroadcastRecordTest < ActionDispatch::Integratio
     # exists only on the control itself, which is what this row must offer.
     assert_match(/data-cosign-reconcile="#{tx.slug}"/, response.body,
                  "and it must offer the READ that settles the row, not just a warning")
-    assert_no_match(/data-action="cosign-button#cosign"/, response.body,
+    assert_no_match(/data-studio-action="cosign-button#cosign"/, response.body,
                     "a row that has broadcast must not offer a Co-sign button")
   end
 

@@ -462,7 +462,7 @@ test.describe("Signer console", () => {
 
   test("the page is reachable only by an admin", async ({ page }) => {
     await page.goto("/admin/authorities");
-    await expect(page.locator("[data-controller='signer-console']")).toHaveCount(0);
+    await expect(page.locator("[data-studio-controller='signer-console']")).toHaveCount(0);
   });
 });
 
@@ -553,11 +553,11 @@ test.describe("Squads proposals", () => {
 test.describe("Signer console platform opt-in", () => {
   test("plans carry platform_cosign only while the box is ticked", async ({ page }) => {
     const routes = await openConsole(page);
-    await page.locator("[data-controller='signer-console']").evaluate((root) => {
+    await page.locator("[data-studio-controller='signer-console']").evaluate((root) => {
       const box = document.createElement("input");
       box.type = "checkbox";
       box.setAttribute("data-signer-console-target", "platformCosign");
-      box.setAttribute("data-action", "change->signer-console#requestPlan");
+      box.setAttribute("data-studio-action", "change->signer-console#requestPlan");
       box.id = "platform-cosign-fixture";
       root.prepend(box);
     });

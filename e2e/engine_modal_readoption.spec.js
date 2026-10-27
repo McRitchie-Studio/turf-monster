@@ -110,7 +110,7 @@ test("joining from the account card posts JSON through authedFetch and lands on 
     };
   });
   const posted = page.waitForRequest((r) => r.url().endsWith("/account/newsletter/subscribe") && r.method() === "POST");
-  await page.locator("[data-controller~=newsletter-state]").getByRole("button", { name: /^subscribe$/i }).click();
+  await page.locator("[data-studio-controller~=newsletter-state]").getByRole("button", { name: /^subscribe$/i }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByText("Join the Newsletter")).toBeVisible();
   await dialog.getByRole("button", { name: /^subscribe$/i }).click();
@@ -135,7 +135,7 @@ test("leaving from the account card swaps to the goodbye beat and flips the card
   });
   await page.goto("/account");
 
-  const card = page.locator("[data-controller~=newsletter-state]");
+  const card = page.locator("[data-studio-controller~=newsletter-state]");
   await card.getByRole("button", { name: /^unsubscribe$/i }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByText("Unsubscribe?")).toBeVisible();

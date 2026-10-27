@@ -63,7 +63,7 @@ class AdminDesktopOnlyNoticeTest < ActionDispatch::IntegrationTest
       "signs from this page normally and must see nothing new"
     assert_select "#{NOTICE} [data-desktop-only-message]", 1,
       "#{page}: the notice lost the slot the shared sentence is painted into"
-    assert_select %(#{NOTICE}[data-controller="desktop-only-notice"]), 1,
+    assert_select %(#{NOTICE}[data-studio-controller="desktop-only-notice"]), 1,
       "#{page}: the notice lost the controller that paints it on a phone"
   end
 
@@ -132,7 +132,7 @@ class AdminDesktopOnlyNoticeTest < ActionDispatch::IntegrationTest
     assert_message_not_baked_in("admin/pending_transactions")
     # EVERY row, not the first: the buttons are rendered in a loop, and a marker
     # applied outside it would gate one and leave the rest live.
-    assert_select "button[data-desktop-only-action][data-action=?]", "cosign-button#cosign", two.length,
+    assert_select "button[data-desktop-only-action][data-studio-action=?]", "cosign-button#cosign", two.length,
       "admin/pending_transactions: every pending row's Co-sign button must carry the marker"
   end
 

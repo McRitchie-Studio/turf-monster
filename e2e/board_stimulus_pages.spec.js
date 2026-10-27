@@ -61,7 +61,7 @@ async function signInWithEntry(page, picks = 0) {
 
 const tab = (page, key) => page.locator(`[data-tabs-target="tab"][data-tabs-key-param="${key}"]`);
 const panel = (page, key) => page.locator(`[data-tabs-target="panel"][data-key="${key}"]`);
-const leaderboard = (page) => page.locator('[data-controller="leaderboard"]');
+const leaderboard = (page) => page.locator('[data-studio-controller="leaderboard"]');
 
 test.describe("leaderboard and chat tabs", () => {
   test.use({ viewport: { width: 390, height: 844 } });
@@ -80,11 +80,11 @@ test.describe("leaderboard and chat tabs", () => {
 
   test("Chat pressed straight after a Turbo visit, and Back starts on the leaderboard", async ({ page }) => {
     await page.goto("/contests");
-    await turboVisit(page, CONTEST, '[data-controller~="tabs"]');
+    await turboVisit(page, CONTEST, '[data-studio-controller~="tabs"]');
     await tab(page, "chat").click();
     await expect(panel(page, "chat")).toBeVisible();
 
-    await turboVisit(page, "/contests", '[data-controller~="settled-filter"]');
+    await turboVisit(page, "/contests", '[data-studio-controller~="settled-filter"]');
     await page.goBack();
     await expect(page).toHaveURL(new RegExp(`${CONTEST}$`));
     await expect(panel(page, "leaderboard")).toBeVisible();
@@ -108,11 +108,11 @@ test.describe("leaderboard fold", () => {
 
   test("Show all pressed straight after a Turbo visit, and Back starts folded", async ({ page }) => {
     await page.goto("/contests");
-    await turboVisit(page, CONTEST, '[data-controller="leaderboard"]');
+    await turboVisit(page, CONTEST, '[data-studio-controller="leaderboard"]');
     await page.getByText("Show all 29 seats").click();
     await expect(tail(page).first()).toBeVisible();
 
-    await turboVisit(page, "/contests", '[data-controller~="settled-filter"]');
+    await turboVisit(page, "/contests", '[data-studio-controller~="settled-filter"]');
     await page.goBack();
     await expect(page).toHaveURL(new RegExp(`${CONTEST}$`));
     await expect(tail(page).first()).toBeHidden();
@@ -169,7 +169,7 @@ test.describe("contest header", () => {
   test("the actions menu opens on a press straight after a Turbo visit", async ({ page }) => {
     await signInWithEntry(page);
     await page.goto("/contests");
-    await turboVisit(page, CONTEST, '[data-controller~="disclosure"]');
+    await turboVisit(page, CONTEST, '[data-studio-controller~="disclosure"]');
     await page.getByRole("button", { name: "Contest actions" }).click();
     await expect(page.getByRole("link", { name: "Edit Entry" })).toBeVisible();
   });
@@ -195,7 +195,7 @@ test.describe("contest header", () => {
 
       const opacities = await page.evaluate(async () => {
         const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
-        const panel = document.querySelector('[data-controller~="contest-chain"] [data-disclosure-target="panel"]');
+        const panel = document.querySelector('[data-studio-controller~="contest-chain"] [data-disclosure-target="panel"]');
         document.querySelector('[aria-label="Contest actions"]').click();
         await frame();
         const seen = [];
@@ -264,7 +264,7 @@ test.describe("share invite", () => {
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     await onInviteStep(page);
     await page.goto("/contests");
-    await turboVisit(page, CONTEST, '[data-controller~="copy-link"]');
+    await turboVisit(page, CONTEST, '[data-studio-controller~="copy-link"]');
     const button = page.locator('[data-copy-link-target="button"]');
     const copied = button.locator('[data-copy-link-target="done"]');
     const idle = button.locator('[data-copy-link-target="idle"]');
@@ -272,7 +272,7 @@ test.describe("share invite", () => {
     await expect(copied).toBeVisible();
     await expect(idle).toBeHidden();
     await expect(button).toHaveClass(/btn-secondary/);
-    const link = await page.locator('[data-controller~="copy-link"]').getAttribute("data-copy-link-text-value");
+    const link = await page.locator('[data-studio-controller~="copy-link"]').getAttribute("data-copy-link-text-value");
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(link);
     await expect(idle).toBeVisible({ timeout: 3000 });
     await expect(copied).toBeHidden();
@@ -290,14 +290,14 @@ test.describe("lobby", () => {
   test("an admin's Show Settled pressed straight after a Turbo visit flips, and Back starts off", async ({ page }) => {
     await loginAdmin(page);
     await page.goto(CONTEST);
-    await turboVisit(page, "/contests", '[data-controller~="settled-filter"]');
+    await turboVisit(page, "/contests", '[data-studio-controller~="settled-filter"]');
     const toggle = page.locator('[data-settled-filter-target="toggle"]');
     await toggle.click();
     await expect(toggle).toHaveText("Hide Settled");
     await expect(toggle).toHaveAttribute("aria-pressed", "true");
     await expect(toggle).toHaveClass("btn btn-secondary");
 
-    await turboVisit(page, CONTEST, '[data-controller="leaderboard"]');
+    await turboVisit(page, CONTEST, '[data-studio-controller="leaderboard"]');
     await page.goBack();
     await expect(page).toHaveURL(/\/contests$/);
     await expect(toggle).toHaveText("Show Settled");
@@ -326,6 +326,6 @@ test.describe("arrival and polling", () => {
     await page.clock.fastForward(90_000);
     await expect(page.locator('#leaderboard-container [data-test="polled"]')).toHaveText("fresh list");
     expect(Number(asked)).toBeGreaterThan(0);
-    await expect(page.locator('[data-controller="leaderboard-poll"]')).toHaveAttribute("data-leaderboard-poll-version-value", "42");
+    await expect(page.locator('[data-studio-controller="leaderboard-poll"]')).toHaveAttribute("data-leaderboard-poll-version-value", "42");
   });
 });
