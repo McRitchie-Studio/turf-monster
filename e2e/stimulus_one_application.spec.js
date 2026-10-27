@@ -107,9 +107,26 @@ async function check(page, path, options = {}) {
   return test.step(path, () => checkPage(page, path, options));
 }
 
+// The vault pages read the vault account over Solana RPC as they render. CI
+// points SOLANA_RPC_URL at a dead port, so there they answer an error page with
+// no import map; locally (devnet) they render. A page listed here may be
+// unrendered, and its controllers are then excused from the coverage check
+// below; any other page that fails to render fails the spec.
+const RPC_PAGES = { "/admin/vault_state": ["vault-console"], "/admin/vault_init": ["vault-console"] };
+const unrendered = new Set();
+
 async function checkPage(page, path, { from = "/help" } = {}) {
-  await page.goto(path);
+  const response = await page.goto(path);
   await page.waitForLoadState("load");
+  const rendered = response.ok() && await page.evaluate(() => {
+    const map = document.querySelector('script[type="importmap"]');
+    return !!map && "turf_stimulus" in JSON.parse(map.textContent).imports;
+  });
+  if (!rendered) {
+    expect(Object.keys(RPC_PAGES), `${path} did not render the app (HTTP ${response.status()})`).toContain(path);
+    RPC_PAGES[path].forEach((id) => unrendered.add(id));
+    return null;
+  }
   const first = await census(page);
   expect(first.same, "turf_stimulus registers on studio/stimulus' application").toBe(true);
   expect(first.stray, `${path}: an element still names a controller on data-controller/data-action`).toBe(0);
@@ -181,7 +198,7 @@ test("admin pages: one application, each controller connected once", async ({ pa
     await loginAdmin(page);
     for (const path of ["/admin/schema", "/admin/dashboard", "/admin/hub", "/admin/navbar", "/admin/scoring",
                         "/admin/drop_signups/announcement", "/seeds_lab", "/toast_test", "/admin/authorities",
-                        "/admin/vault_state", "/admin/pending_transactions", "/wallet", "/contests/e2e-rail-1"]) {
+                        "/admin/vault_state", "/admin/vault_init", "/admin/pending_transactions", "/wallet", "/contests/e2e-rail-1"]) {
       await check(page, path, { from: "/admin/hub" });
     }
   } finally {
@@ -225,5 +242,7 @@ test("between them the pages connected every controller turf_stimulus registers"
   // e2e/signing_csp.spec.js and the live scoreboard specs press those.
   const unseeded = ["cosign-button", "dev-score-tools"];
   expect(registry.length).toBeGreaterThan(30);
-  expect(registry.filter((id) => !seen.has(id) && !unseeded.includes(id))).toEqual([]);
+  const excused = [...unrendered].filter((id) => !seen.has(id));
+  if (excused.length) console.log(`[one-application] not rendered without Solana RPC: ${excused.join(", ")}`);
+  expect(registry.filter((id) => !seen.has(id) && !unseeded.includes(id) && !excused.includes(id))).toEqual([]);
 });
