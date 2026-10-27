@@ -28,7 +28,8 @@ pin "nav_band_watch"
 # press that needs it, so it is not preloaded. app/javascript/host_fetchers.js.
 pin "studio/host_fetchers", to: "host_fetchers.js", preload: false
 
-# Turf's Stimulus application (turf_stimulus) runs on every page. Every file
+# Turf's Stimulus controllers (turf_stimulus, registered on the engine's
+# studio/stimulus application) run on every page. Every file
 # under controllers/ and turf/ (their logic modules) is pinned. Only a module
 # turf_stimulus imports statically is preloaded, and it is listed in
 # every_page; a lazy controller and its modules are fetched by the page that

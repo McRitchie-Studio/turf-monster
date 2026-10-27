@@ -247,8 +247,12 @@
       <script type="application/json" id="session-context"><%= client_session_payload.to_json.html_safe %></script>
       <script nonce="<%= content_security_policy_nonce %>">
         // --- Inline Solana stores + components ---
-        // Alpine's defer script fires alpine:init BEFORE importmap modules execute.
-        // These must be inline so they're available when Alpine processes the DOM.
+        // This classic inline script runs as the body parses, before every
+        // deferred script. Those run in document order: the importmap modules
+        // first, then Alpine, whose tag studio-engine's head places after its
+        // module tags (a defer script through 0.115.0, a module tag after the
+        // engine's ES-module change; last either way). So everything here exists
+        // before the modules evaluate and before alpine:init fires.
         // The full wallet_provider.js module overwrites this stub after modules load.
 
         // Mark a freshly-created user so the profile modal auto-opens after
