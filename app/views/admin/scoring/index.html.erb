@@ -7,8 +7,8 @@
   re-scores + the /live page refreshes over ActionCable.
 %>
 
-<section data-controller="scoring-filter"
-         data-action="turbo:before-cache@document->scoring-filter#reset game-scorer:changed->scoring-filter#update">
+<section data-studio-controller="scoring-filter"
+         data-studio-action="turbo:before-cache@document->scoring-filter#reset game-scorer:changed->scoring-filter#update">
   <div class="flex items-center justify-between gap-3 mb-2">
     <h2 class="text-2xl font-bold text-heading">Goal Console</h2>
     <%= link_to "Admin hub →", admin_hub_path, class: "text-sm text-muted hover:text-heading" %>
@@ -21,11 +21,11 @@
   <!-- Toolbar -->
   <div class="flex flex-col sm:flex-row sm:items-center gap-3 mb-5">
     <input type="search" placeholder="Filter by team…"
-           data-scoring-filter-target="query" data-action="input->scoring-filter#update"
+           data-scoring-filter-target="query" data-studio-action="input->scoring-filter#update"
            class="input flex-1" autocomplete="off" />
     <label class="flex items-center gap-2 text-sm text-muted select-none cursor-pointer">
       <input type="checkbox" class="accent-violet-500"
-             data-scoring-filter-target="hideDone" data-action="change->scoring-filter#update" />
+             data-scoring-filter-target="hideDone" data-studio-action="change->scoring-filter#update" />
       Hide finished
     </label>
   </div>
@@ -57,8 +57,8 @@
              data-search="<%= search %>"
              data-done="<%= game.status == "completed" %>"
              data-scoring-filter-target="card"
-             data-controller="game-scorer"
-             data-action="turbo:before-cache@document->game-scorer#reset"
+             data-studio-controller="game-scorer"
+             data-studio-action="turbo:before-cache@document->game-scorer#reset"
              data-game-scorer-game-value="<%= config.to_json %>"
              data-game-scorer-final-class="bg-emerald-500/15 text-emerald-400"
              data-game-scorer-open-class="bg-violet-500/15 text-violet-300">
@@ -87,13 +87,13 @@
             <input type="number" min="1" max="130" placeholder="min'"
                    class="input w-20 text-center" data-game-scorer-target="minute control" />
             <button type="button" data-game-scorer-target="control"
-                    data-action="game-scorer#addGoal" data-game-scorer-side-param="home"
+                    data-studio-action="game-scorer#addGoal" data-game-scorer-side-param="home"
                     class="btn-secondary flex-1 flex items-center justify-center gap-1.5 disabled:opacity-50">
               <span><%= game.home_team.emoji %></span>
               <span class="truncate">Goal · <%= game.home_team.short_name || game.home_team.name %></span>
             </button>
             <button type="button" data-game-scorer-target="control"
-                    data-action="game-scorer#addGoal" data-game-scorer-side-param="away"
+                    data-studio-action="game-scorer#addGoal" data-game-scorer-side-param="away"
                     class="btn-secondary flex-1 flex items-center justify-center gap-1.5 disabled:opacity-50">
               <span><%= game.away_team.emoji %></span>
               <span class="truncate">Goal · <%= game.away_team.short_name || game.away_team.name %></span>
@@ -107,7 +107,7 @@
             <span class="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full bg-violet-500/10 text-xs">
               <span data-goal-emoji></span>
               <span class="text-muted tabular-nums"><span data-goal-minute></span><span data-goal-tick>&rsquo;</span></span>
-              <button type="button" data-goal-remove data-game-scorer-target="control" data-action="game-scorer#removeGoal"
+              <button type="button" data-goal-remove data-game-scorer-target="control" data-studio-action="game-scorer#removeGoal"
                       class="ml-0.5 w-4 h-4 rounded-full hover:bg-rose-500/30 text-rose-400 leading-none">&times;</button>
             </span>
           </template>
@@ -115,7 +115,7 @@
           <!-- Footer -->
           <div class="flex items-center justify-between gap-2 mt-3 pt-2.5 border-t border-subtle">
             <span class="text-xs text-rose-400" data-game-scorer-target="error"></span>
-            <button type="button" data-game-scorer-target="complete" data-action="game-scorer#complete"
+            <button type="button" data-game-scorer-target="complete" data-studio-action="game-scorer#complete"
                     class="text-xs font-semibold text-muted hover:text-heading disabled:opacity-40"></button>
           </div>
         </div>

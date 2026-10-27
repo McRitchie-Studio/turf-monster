@@ -19,8 +19,8 @@
     transaction-log page once fiat lands.
 %>
 <div id="cash-out" class="card shadow p-6 mb-6"
-     data-controller="withdraw-card" data-withdraw-card-frozen-value="<%= account_frozen? %>"
-     data-action="turbo:before-cache@document->withdraw-card#reset pageshow@window->withdraw-card#validate">
+     data-studio-controller="withdraw-card" data-withdraw-card-frozen-value="<%= account_frozen? %>"
+     data-studio-action="turbo:before-cache@document->withdraw-card#reset pageshow@window->withdraw-card#validate">
   <div class="flex items-center justify-between">
     <div>
       <h2 class="text-lg font-bold text-heading mb-1">Cash out</h2>
@@ -32,7 +32,7 @@
       <button type="button" disabled data-frozen-cta title="<%= FrozenAccount::CTA_REASON %>" aria-describedby="cash-out-frozen-reason"
               class="btn btn-outline btn-sm opacity-60 cursor-not-allowed">Withdraw</button>
     <% else %>
-      <button type="button" data-withdraw-card-target="toggle" data-action="withdraw-card#toggle"
+      <button type="button" data-withdraw-card-target="toggle" data-studio-action="withdraw-card#toggle"
               class="btn btn-outline btn-sm">Withdraw</button>
     <% end %>
   </div>
@@ -54,7 +54,7 @@
                 placeholder: "0.00",
                 required: true,
                 class: "input-field w-full pl-7",
-                data: { withdraw_card_target: "amount", action: "withdraw-card#validate" } %>
+                data: { withdraw_card_target: "amount", studio_action: "withdraw-card#validate" } %>
         </div>
         <% if @onchain_balance %>
           <p class="text-xs text-muted mt-1">
@@ -71,7 +71,7 @@
               placeholder: "e.g. Stripe-linked email alex@example.com  /  Chase routing 021000021 acct 1234  /  PayPal @yourhandle",
               class: "input-field w-full",
               maxlength: 500,
-              data: { withdraw_card_target: "destination", action: "withdraw-card#validate" } %>
+              data: { withdraw_card_target: "destination", studio_action: "withdraw-card#validate" } %>
         <p class="text-xs text-muted mt-1">
           We'll match against an off-ramp provider (Stripe / Bridge / Kraken) and email you when funds land. Settlement is typically 1–3 business days.
         </p>

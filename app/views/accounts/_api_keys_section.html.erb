@@ -116,8 +116,8 @@
               leaves a spinner behind. %>
           <%= button_to account_api_key_path(key), method: :delete,
                 class: "btn btn-danger btn-sm flex-shrink-0",
-                form: { data: { controller: "submit-busy",
-                                action: "turbo:submit-start->submit-busy#start turbo:submit-end->submit-busy#end turbo:before-cache@document->submit-busy#reset",
+                form: { data: { studio_controller: "submit-busy",
+                                studio_action: "turbo:submit-start->submit-busy#start turbo:submit-end->submit-busy#end turbo:before-cache@document->submit-busy#reset",
                                 turbo_confirm: "Revoke this key? Any agent using it stops working immediately." } } do %>
             <span data-submit-busy-target="idle">Revoke</span>
             <span data-submit-busy-target="busy" hidden class="inline-flex items-center justify-center gap-2">
@@ -134,8 +134,8 @@
         only once the reveal above is gone from the frame, which is the card
         Back restores from the back/forward cache (signing_document drops the
         reveal on pagehide). pageshow re-asks the question of the DOM really there. %>
-    <div hidden data-controller="reveal-follow-up" data-reveal-follow-up-selector-value="[data-api-key-created]"
-         data-action="turbo:before-cache@document->reveal-follow-up#reset pageshow@window->reveal-follow-up#connect"
+    <div hidden data-studio-controller="reveal-follow-up" data-reveal-follow-up-selector-value="[data-api-key-created]"
+         data-studio-action="turbo:before-cache@document->reveal-follow-up#reset pageshow@window->reveal-follow-up#connect"
          data-api-key-add-after-reveal>
       <%= link_to "Add another API key", account_api_keys_path(adding: 1),
             class: "text-sm font-semibold text-primary hover:underline underline-offset-2" %>
@@ -156,8 +156,8 @@
     <%# The birthday card dispatches age-verified on success. Re-fetch the frame
         so the server, which decides the blocker, renders the form. %>
     <div class="flex items-center justify-between gap-3 flex-wrap" data-api-key-blocked="age"
-         data-controller="frame-reload" data-frame-reload-src-value="<%= account_api_keys_path %>"
-         data-action="age-verified@window->frame-reload#reload">
+         data-studio-controller="frame-reload" data-frame-reload-src-value="<%= account_api_keys_path %>"
+         data-studio-action="age-verified@window->frame-reload#reload">
       <p class="text-sm text-secondary min-w-0">Verify your age to create an API key.</p>
       <button type="button" @click="$store.modals.open('birthday', {})" class="btn btn-primary btn-sm flex-shrink-0">
         Verify age
@@ -171,18 +171,18 @@
     <%# With no keys the form is the card. With keys it waits behind a link, and
         a refused submit comes back with it open. %>
     <% adding = keys.empty? || form_error.present? || form_open.present? %>
-    <div data-controller="reveal" data-reveal-open-value="<%= adding %>"
-         data-action="turbo:before-cache@document->reveal#reset">
+    <div data-studio-controller="reveal" data-reveal-open-value="<%= adding %>"
+         data-studio-action="turbo:before-cache@document->reveal#reset">
       <% if keys.any? %>
-        <button type="button" data-reveal-target="trigger" data-action="reveal#open" <%= "hidden" if adding %>
+        <button type="button" data-reveal-target="trigger" data-studio-action="reveal#open" <%= "hidden" if adding %>
                 class="text-sm font-semibold text-primary hover:underline underline-offset-2" data-api-key-add>
           Add another API key
         </button>
       <% end %>
 
       <%= form_with url: account_api_keys_path, method: :post,
-            data: { api_key_form: true, reveal_target: "region", controller: "submit-busy",
-                    action: "turbo:submit-start->submit-busy#start turbo:submit-end->submit-busy#end turbo:before-cache@document->submit-busy#reset" },
+            data: { api_key_form: true, reveal_target: "region", studio_controller: "submit-busy",
+                    studio_action: "turbo:submit-start->submit-busy#start turbo:submit-end->submit-busy#end turbo:before-cache@document->submit-busy#reset" },
             html: { hidden: !adding } do %>
         <label for="api_key_name" class="block text-sm font-bold text-heading mb-2">Name</label>
         <div class="flex gap-2">

@@ -343,12 +343,15 @@ class LaptopLiveSnapshot
     end
   end
 
-  # No Stimulus controller runs in the snapshot: the page's own application
-  # would otherwise connect every one it names, inside a static picture.
+  # No Stimulus controller runs in the snapshot: the page's application (the
+  # engine's, which Turf's controllers register on, on data-studio-controller)
+  # would otherwise connect every one it names, inside a static picture. The
+  # Stimulus defaults are stripped too, so a stray one cannot connect either.
+  CONTROLLER_ATTRIBUTES = %w[data-studio-controller data-studio-action data-controller data-action].freeze
+
   def strip_controllers(doc)
-    doc.css("[data-controller], [data-action]").each do |node|
-      node.remove_attribute("data-controller")
-      node.remove_attribute("data-action")
+    doc.css(CONTROLLER_ATTRIBUTES.map { |attribute| "[#{attribute}]" }.join(", ")).each do |node|
+      CONTROLLER_ATTRIBUTES.each { |attribute| node.remove_attribute(attribute) }
     end
   end
 

@@ -36,8 +36,8 @@
     /profile row gets both from the engine's section wrapper and its `title:`.
     Carrying a card in here would nest one inside the other on /profile. %>
 <% subscribed = user.subscribed_to_newsletter? %>
-<div data-controller="newsletter-state" data-newsletter-state-subscribed-value="<%= subscribed %>"
-     data-action="newsletter-state-changed@window->newsletter-state#update turbo:before-cache@document->newsletter-state#reset">
+<div data-studio-controller="newsletter-state" data-newsletter-state-subscribed-value="<%= subscribed %>"
+     data-studio-action="newsletter-state-changed@window->newsletter-state#update turbo:before-cache@document->newsletter-state#reset">
 
   <%# Subscribed state %>
   <div data-newsletter-state-target="subscribed" <%= "hidden" unless subscribed %> class="flex items-center justify-between gap-3 flex-wrap" style="min-height: 3rem;">

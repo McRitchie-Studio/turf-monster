@@ -164,7 +164,7 @@
     <% end %>
 
     <div class="border-t border-subtle my-2"></div>
-    <%= link_to logout_path, class: muted_class, data: { turbo: false, controller: "session-wipe", action: "session-wipe#wipe" } do %><%= emoji_swap.("👋🏻", "⏏️") %><span>Log out</span><% end %>
+    <%= link_to logout_path, class: muted_class, data: { turbo: false, studio_controller: "session-wipe", studio_action: "session-wipe#wipe" } do %><%= emoji_swap.("👋🏻", "⏏️") %><span>Log out</span><% end %>
   </nav>
 <% end %>
 

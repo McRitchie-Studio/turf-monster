@@ -16,7 +16,7 @@
             data-emoji="<%= emoji %>"
             data-reactor-ids="<%= rs.map(&:user_id).join(',') %>"
             title="<%= rs.map { |r| r.user.display_name }.join(', ') %>"
-            data-action="chat-reactions#react" data-chat-reactions-emoji-param="<%= emoji %>">
+            data-studio-action="chat-reactions#react" data-chat-reactions-emoji-param="<%= emoji %>">
       <span class="leading-none text-base"><%= emoji %></span>
       <span class="chat-reaction-count text-muted"><%= rs.size %></span>
     </button>

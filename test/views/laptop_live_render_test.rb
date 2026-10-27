@@ -71,7 +71,7 @@ class LaptopLiveRenderTest < ActionDispatch::IntegrationTest
   test "the laptop's leaderboard is static: no controller, the full pill row shown" do
     board = laptop.at_css('[data-test="laptop-live"] [data-test="laptop-live-leaderboard"]')
 
-    assert_empty laptop.css("[data-controller], [data-action]"), "a Stimulus controller would connect inside the laptop"
+    assert_empty laptop.css("[data-studio-controller], [data-studio-action], [data-controller], [data-action]"), "a Stimulus controller would connect inside the laptop"
     assert_not_empty board.css('[data-leaderboard-target="full"]')
     board.css('[data-leaderboard-target="full"], [data-leaderboard-target="more"]').each { |node| assert_not node.key?("hidden") }
     board.css('[data-leaderboard-target="narrow"], [data-leaderboard-target="tail"], [data-leaderboard-target="less"]').each do |node|

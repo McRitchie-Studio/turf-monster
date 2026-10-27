@@ -81,7 +81,7 @@
           emits .input-field BEFORE the width utilities, so equal specificity
           resolves by order. Guarded now by
           test/views/admin_vault_phantom_classes_test.rb. %>
-      <form id="vault-init-form" class="space-y-4" data-controller="vault-console" data-action="submit->vault-console#hold">
+      <form id="vault-init-form" class="space-y-4" data-studio-controller="vault-console" data-studio-action="submit->vault-console#hold">
         <div>
           <label class="label-upper text-xs">Creator (INIT_AUTHORITY)</label>
           <input type="text" name="creator_pubkey" value="<%= @init_authority %>"
@@ -115,7 +115,7 @@
         </div>
 
         <div class="flex items-center gap-3 pt-2">
-          <button id="vault-init-btn" type="button" data-action="vault-console#init"
+          <button id="vault-init-btn" type="button" data-studio-action="vault-console#init"
                   data-desktop-only-action class="btn btn-primary">
             Connect Phantom + Sign
           </button>

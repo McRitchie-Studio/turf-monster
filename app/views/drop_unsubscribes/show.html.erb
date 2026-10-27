@@ -8,5 +8,5 @@
   <h1 class="text-heading text-2xl font-bold mb-3">Unsubscribing…</h1>
   <p class="text-secondary mb-6">Taking <span class="font-mono"><%= @signup.email %></span> off the <%= NextSlateDrop.display_label %> list.</p>
   <%= button_to "Unsubscribe", drop_unsubscribe_confirm_path(token: @token), method: :post,
-        class: "btn btn-primary", form: { id: "drop-unsubscribe-form", data: { turbo: "false", controller: "auto-submit" } } %>
+        class: "btn btn-primary", form: { id: "drop-unsubscribe-form", data: { turbo: "false", studio_controller: "auto-submit" } } %>
 </div>

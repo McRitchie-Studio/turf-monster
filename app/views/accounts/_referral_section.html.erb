@@ -44,13 +44,13 @@
     progress_filled = [invitees_in_contest, target_count].min
     token_earned = invitees_in_contest >= target_count
   %>
-<div data-controller="referral-share" data-referral-share-url-value="<%= referral_url %>"
-     data-action="click@window->referral-share#outside keydown.esc@window->referral-share#closeInfo turbo:before-cache@document->referral-share#reset"
+<div data-studio-controller="referral-share" data-referral-share-url-value="<%= referral_url %>"
+     data-studio-action="click@window->referral-share#outside keydown.esc@window->referral-share#closeInfo turbo:before-cache@document->referral-share#reset"
      class="relative">
     <div class="flex items-center justify-between mb-4">
       <div class="flex items-center gap-2 min-w-0">
         <h2 class="text-lg font-bold text-heading">Bring ✌️ Friends, Get a Free Entry</h2>
-        <button type="button" data-referral-share-target="toggle" data-action="referral-share#toggleInfo"
+        <button type="button" data-referral-share-target="toggle" data-studio-action="referral-share#toggleInfo"
                 class="w-4 h-4 rounded-full bg-surface-alt text-muted hover:text-heading hover:bg-inset flex items-center justify-center text-[10px] font-bold leading-none transition flex-shrink-0"
                 aria-label="How invites work">i</button>
       </div>
@@ -78,7 +78,7 @@
          class="absolute left-6 top-14 z-20 w-72 max-w-[calc(100%-3rem)] bg-surface border border-subtle rounded-lg shadow-2xl p-4">
       <div class="flex items-start justify-between mb-2">
         <h4 class="text-heading font-semibold text-sm">How it works</h4>
-        <button type="button" data-action="referral-share#closeInfo" class="text-muted hover:text-heading text-lg leading-none" aria-label="Close">&times;</button>
+        <button type="button" data-studio-action="referral-share#closeInfo" class="text-muted hover:text-heading text-lg leading-none" aria-label="Close">&times;</button>
       </div>
       <p class="text-secondary text-xs leading-relaxed mb-3">
         You get a free contest entry once <strong class="text-heading">two friends</strong> sign up <em>and</em> submit a contest entry of their own. The referral is locked in the moment they click your link &mdash; even before they sign up.
@@ -88,8 +88,8 @@
 
     <%# Copy-link row %>
     <div class="flex items-center gap-2 mb-4">
-      <div data-action="click->referral-share#copy" class="flex-1 min-w-0 bg-inset border border-subtle rounded-lg px-3 py-2 text-xs font-mono text-muted truncate cursor-pointer hover:border-primary/40 transition"><%= referral_url %></div>
-      <button data-referral-share-target="button" data-action="referral-share#copy" class="btn btn-sm btn-primary whitespace-nowrap transition-colors" style="min-width:5.5rem">
+      <div data-studio-action="click->referral-share#copy" class="flex-1 min-w-0 bg-inset border border-subtle rounded-lg px-3 py-2 text-xs font-mono text-muted truncate cursor-pointer hover:border-primary/40 transition"><%= referral_url %></div>
+      <button data-referral-share-target="button" data-studio-action="referral-share#copy" class="btn btn-sm btn-primary whitespace-nowrap transition-colors" style="min-width:5.5rem">
         <span data-referral-share-target="copyLabel">Copy Link</span>
         <span data-referral-share-target="copiedLabel" hidden>Copied!</span>
       </button>
