@@ -530,18 +530,43 @@ function trackDeclaration(observed, declared) {
 // find nothing, and solana-studio's register() would quietly run the wallet
 // source with no session behind it (registration null, no session:mismatch).
 //
-// So this waits for it: `fn` runs NOW when the store exists, and otherwise once
-// the document has parsed. Every module script, a module studio/session among
-// them, has run by DOMContentLoaded (module scripts are deferred), so the store
-// that will ever exist on this page exists then. `fn` gets null when it does not.
+// So this waits for it: `fn` runs NOW when the store exists, and otherwise at
+// DOMContentLoaded. Every module script, a module studio/session among them,
+// has run by then (module scripts are deferred), so the store that will ever
+// exist on this page exists then. `fn` gets null when it does not.
+//
+// THIS MODULE RUNS AFTER PARSING. It is an importmap module, so it evaluates
+// with readyState already "interactive", never "loading". The wait used to be
+// gated on "loading", which made every real page take the no-store path at once
+// (Carl, turf-folds-into-engine-stimulus). It now waits whenever the page has
+// not finished loading. `load` is the fallback for an evaluation after
+// DOMContentLoaded has already fired (an import() between the two events, where
+// readyState still reads "interactive"); whichever event comes first settles it,
+// once. At "complete" nothing more will load, so it answers now.
+//
+// WHY IT DOES NOT WAIT FOR A STORE THAT APPEARS LATER STILL. A null answer
+// starts the wallet source on its own (attachIdentitySource), and the store's
+// registerIdentitySource starts a source again, so registering after that would
+// run it twice. No shape the engine ships evaluates the store after
+// DOMContentLoaded: it is a classic script in the head today and a deferred
+// module in the plan, and both have run by then.
 export function whenStudioSession(win, doc, fn) {
   const ready = function () { return (win && win.StudioSession) || null; };
   if (ready()) return fn(ready());
-  if (doc && doc.readyState === "loading" && typeof doc.addEventListener === "function") {
-    doc.addEventListener("DOMContentLoaded", function () { fn(ready()); }, { once: true });
-    return undefined;
+  const listens = doc && typeof doc.addEventListener === "function";
+  if (!listens || doc.readyState === "complete") return fn(null);
+
+  let settled = false;
+  const settle = function () {
+    if (settled) return;
+    settled = true;
+    fn(ready());
+  };
+  doc.addEventListener("DOMContentLoaded", settle, { once: true });
+  if (win && typeof win.addEventListener === "function") {
+    win.addEventListener("load", settle, { once: true });
   }
-  return fn(null);
+  return undefined;
 }
 
 // solana-studio's register() split in two, so the source exists (and the
@@ -647,8 +672,8 @@ function install() {
   });
 
   // Registered (and so started) once the engine's session store exists: at
-  // once on today's pages, where it is a classic script; after the document
-  // parses if it ever loads as a module behind this one. See whenStudioSession.
+  // once on today's pages, where it is a classic script; at DOMContentLoaded if
+  // it ever loads as a module behind this one. See whenStudioSession.
   whenStudioSession(window, document, function (session) {
     registration = attachIdentitySource(session, source);
   });

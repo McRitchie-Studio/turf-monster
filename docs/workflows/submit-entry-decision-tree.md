@@ -167,7 +167,7 @@ Hold to Confirm
 | Branch | Where |
 |---|---|
 | guest → auth modal — `confirmEntry()` | `app/views/contests/_turf_totals_board.html.erb:1768-1773` |
-| client preflight — the `eligibilityBlocker` export | `app/javascript/solana_utils.js:874`, mirrored onto `window` at `:962` |
+| client preflight — the `eligibilityBlocker` export | `app/javascript/solana_utils.js:880`, mirrored onto `window` at `:968` |
 | the blocker, re-checked inside `confirmEntry()` at submit time | `app/views/contests/_turf_totals_board.html.erb:1778-1782` |
 | route by session — `useOnchainFlow = sess.isWeb3 && this.contestOnchain` in `confirmEntry()` | `:1824`, branch taken at `:1838` |
 

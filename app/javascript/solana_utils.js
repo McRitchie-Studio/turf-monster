@@ -1,6 +1,13 @@
 // Shared Solana/crypto utilities — fetch helpers, balance refresh, confetti colors
 // Base58 encode/decode lives in base58.js (canonical source, loaded before this module)
 
+// canvas-confetti through studio-engine's module (0.115.1), by its importmap
+// name. This file is an importmap module (application.js imports it by name),
+// never a URL-loaded tag, so the bare specifier resolves against the map. The
+// module's confetti() is a no-op when the library failed to load, so the
+// callers below need no `typeof confetti` guard of their own.
+import { confetti } from "studio/studio_confetti";
+
 // Deduplication-safe fetch — prevents concurrent requests for the same key
 const _lockedKeys = {};
 export function lockedFetch(key, url, opts) {
@@ -815,7 +822,6 @@ function zTier(name, fallback) {
 // burst fired from a disc that was about to stop being painted. It now takes
 // the corner branch, which is what the sentence above always claimed.
 export function fireConfettiFromBadge() {
-  if (typeof confetti === 'undefined') return;
   var badge  = document.querySelector('[data-free-entry-badge]');
   var rect   = badge && badge.getBoundingClientRect();
   var hidden = !rect || (rect.width === 0 && rect.height === 0);

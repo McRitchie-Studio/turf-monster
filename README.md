@@ -53,7 +53,7 @@ Seeds create 5 users, 48 World Cup teams plus 31 knockout-slot placeholders, 32 
 - Ruby **3.3.11** (use `brew install ruby@3.3`; matches `.ruby-version` and `Gemfile`)
 - PostgreSQL 14+
 - Redis (Sidekiq queue)
-- Node.js **22.x** (keeps local dev, CI, and Heroku aligned; turf-vault needs at least Node 20.18.0)
+- Node.js **22.x**, pinned once in `.tool-versions` (`nodejs 22`), which mise reads locally and every CI `setup-node` step reads; `package.json` `engines` says the same for Heroku. The pin set is studio-engine's (`bin/rails studio:node:check`). turf-vault needs at least Node 20.18.0
 - Bundler 2.4+
 - **ImageMagick** (`brew install imagemagick`) — Active Storage variants render
   through it, not libvips. `config/application.rb` pins
@@ -70,7 +70,12 @@ Seeds create 5 users, 48 World Cup teams plus 31 knockout-slot placeholders, 32 
 # Rails tests
 bin/rails test
 
-# Playwright E2E (chromium project — skip @devnet which needs a funded wallet)
+# Playwright E2E (chromium project — skip @devnet which needs a funded wallet).
+# playwright.config.js builds on studio-engine's shared Node tooling, linked into
+# node_modules after every `npm ci` (which deletes node_modules). A desk whose
+# node_modules is a symlink to the primary's exports STUDIO_NODE_TOOLING instead;
+# the link task refuses and prints the value.
+npm ci && npx playwright install chromium && bin/rails studio:node:link
 npm test
 npm run test:headed             # with visible browser
 ```

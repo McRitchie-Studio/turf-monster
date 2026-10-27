@@ -18,7 +18,7 @@
     "test:scrape": "node --test scripts/"
   },
   "devDependencies": {
-    "@playwright/test": "^1.52.0",
+    "@playwright/test": "1.62.1",
     "axe-core": "4.11.0",
     "tweetnacl": "^1.0.3"
   },

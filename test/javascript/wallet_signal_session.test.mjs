@@ -1,7 +1,13 @@
 // [unit] wallet_signal.js registers the wallet with the engine's session store
 // whenever that store arrives: at once when it already exists (studio/session.js
-// as a classic script, today), or after the document parses when it loads as a
-// module behind Turf's entry point (the engine's planned change).
+// as a classic script, today), or at DOMContentLoaded when it loads as a module
+// behind Turf's entry point (the engine's planned change).
+//
+// THE AFTER-PARSING CASE IS THE REAL ONE. wallet_signal is itself an importmap
+// module, and a module script runs after the document has parsed, when
+// readyState is already "interactive", never "loading". These tests used to
+// fake "loading", which is the one state the module never sees, so the wait
+// they proved was a wait the page never took (Carl, turf-folds-into-engine-stimulus).
 import { test, beforeEach } from "node:test"
 import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
@@ -76,24 +82,63 @@ test("whenStudioSession calls back at once with a store that already exists", as
 
 test("whenStudioSession waits for DOMContentLoaded when the store is not there yet", async () => {
   const { whenStudioSession } = await load()
+  for (const readyState of ["loading", "interactive"]) {
+    const win = {}
+    const doc = fakeDocument(readyState)
+    const seen = []
+    whenStudioSession(win, doc, (s) => seen.push(s))
+    assert.deepEqual(seen, [], `${readyState}: it must not resolve before the page's modules have run`)
+
+    win.StudioSession = fakeSession()
+    doc.fire("DOMContentLoaded")
+    assert.deepEqual(seen, [ win.StudioSession ], readyState)
+  }
+})
+
+test("whenStudioSession, evaluated after parsing (an importmap module), registers with a store that arrives later", async () => {
+  // The module runs at readyState "interactive", before DOMContentLoaded; a
+  // module studio/session queued behind it evaluates after it and before the
+  // event. The old code answered null here at once, and the wallet ran with no
+  // session behind it.
+  const { whenStudioSession } = await load()
   const win = {}
-  const doc = fakeDocument("loading")
+  const doc = fakeDocument("interactive")
   const seen = []
   whenStudioSession(win, doc, (s) => seen.push(s))
-  assert.deepEqual(seen, [], "it must not resolve before the page's modules have run")
+  assert.deepEqual(seen, [], "an after-parsing evaluation must still wait for the page's modules")
 
   win.StudioSession = fakeSession()
   doc.fire("DOMContentLoaded")
   assert.deepEqual(seen, [ win.StudioSession ])
 })
 
-test("whenStudioSession answers null on a parsed page with no store", async () => {
+test("whenStudioSession falls back to load when DOMContentLoaded has already fired", async () => {
+  // Evaluated between DOMContentLoaded and load (an import() after the page's
+  // modules): readyState still reads "interactive", but the event will not fire
+  // again, so `load` settles it.
+  const { whenStudioSession } = await load()
+  const win = fakeDocument("interactive") // a window that takes listeners
+  const doc = fakeDocument("interactive")
+  const seen = []
+  whenStudioSession(win, doc, (s) => seen.push(s))
+  assert.deepEqual(seen, [])
+
+  win.StudioSession = fakeSession()
+  win.fire("load")
+  assert.deepEqual(seen, [ win.StudioSession ])
+
+  doc.fire("DOMContentLoaded")
+  win.fire("load")
+  assert.deepEqual(seen.length, 1, "it calls back once, whichever event comes first")
+})
+
+test("whenStudioSession answers null on a loaded page with no store, and on a parsed one at DOMContentLoaded", async () => {
   const { whenStudioSession } = await load()
   const seen = []
-  whenStudioSession({}, fakeDocument("interactive"), (s) => seen.push(s))
-  assert.deepEqual(seen, [ null ])
+  whenStudioSession({}, fakeDocument("complete"), (s) => seen.push(s))
+  assert.deepEqual(seen, [ null ], "complete: nothing more will load, answer now")
 
-  const doc = fakeDocument("loading")
+  const doc = fakeDocument("interactive")
   whenStudioSession({}, doc, (s) => seen.push(s))
   doc.fire("DOMContentLoaded")
   assert.deepEqual(seen, [ null, null ])
@@ -126,7 +171,8 @@ test("install registers once with a store that exists before it runs (the classi
 
 test("install registers once with a store that arrives after it (a module session.js)", async () => {
   globalThis.window = fakeWindow()
-  globalThis.document = fakeDocument("loading")
+  // "interactive": install() runs inside an importmap module, after parsing.
+  globalThis.document = fakeDocument("interactive")
   await load()
 
   assert.equal(created.length, 1, "the wallet source exists from the start")

@@ -11,7 +11,9 @@ class JavascriptUnitTest < ActiveSupport::TestCase
     files = Dir[FILES].sort
     assert_not_empty files
 
-    output, status = Open3.capture2e("node", "--test", "--test-reporter=tap", *files)
+    # With the importmap hook (test/support/node_importmap.rb), so a test may
+    # import a module by the name config/importmap.rb pins it under.
+    output, status = Open3.capture2e(NodeImportmap.env, "node", *NodeImportmap.args, "--test", "--test-reporter=tap", *files)
 
     assert status.success?, output
     assert_match(/^# pass [1-9]/, output, "node ran no test")

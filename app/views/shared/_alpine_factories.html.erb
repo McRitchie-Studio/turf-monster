@@ -176,8 +176,18 @@
     return Number.isFinite(v) ? v : fallback;
   }
 
+  // canvas-confetti through studio-engine's module (0.115.1), by its importmap
+  // name, not the deprecated window.confetti global. This is a CLASSIC inline
+  // script (it must define these globals before Alpine starts), so it cannot
+  // `import` statically; import() from it resolves through the same import map
+  // to the module instance the head already evaluated, so nothing is fetched.
+  // The module's confetti() is a no-op when the library failed to load, and a
+  // failed import leaves the celebration out rather than throwing.
+  function withConfetti(fire) {
+    import("studio/studio_confetti").then(function (m) { fire(m.confetti); }, function () {});
+  }
+
   window.fireQuestBadgeConfetti = function () {
-    if (typeof confetti === "undefined") return;
     var steps = Array.prototype.slice.call(document.querySelectorAll("[data-quest-step]"));
     var visible = steps.filter(function (el) { return el.offsetParent !== null; })[0];
     var badge = visible && visible.querySelector("[data-quest-badge]");
@@ -186,10 +196,12 @@
       ? { x: (rect.left + rect.width / 2) / window.innerWidth, y: (rect.top + rect.height / 2) / window.innerHeight }
       : { x: 0.72, y: 0.4 };
     var colors = window.CONFETTI_COLORS || ["#4BAF50", "#8E82FE", "#06D6A0", "#FF7C47", "#FFD700", "#00BFFF", "#FF6B9D", "#C084FC"];
-    confetti({ particleCount: 90, angle: 90, spread: 360, origin: origin, colors: colors, zIndex: zTier('--z-alert', 300), startVelocity: 24, gravity: 0.6, ticks: 180, scalar: 0.9 });
-    setTimeout(function () {
-      confetti({ particleCount: 45, angle: 90, spread: 360, origin: origin, colors: colors, zIndex: zTier('--z-alert', 300), startVelocity: 14, gravity: 0.8, ticks: 140, scalar: 0.7 });
-    }, 160);
+    withConfetti(function (confetti) {
+      confetti({ particleCount: 90, angle: 90, spread: 360, origin: origin, colors: colors, zIndex: zTier('--z-alert', 300), startVelocity: 24, gravity: 0.6, ticks: 180, scalar: 0.9 });
+      setTimeout(function () {
+        confetti({ particleCount: 45, angle: 90, spread: 360, origin: origin, colors: colors, zIndex: zTier('--z-alert', 300), startVelocity: 14, gravity: 0.8, ticks: 140, scalar: 0.7 });
+      }, 160);
+    });
   };
 
   // Center-burst confetti for a celebration MODAL (free-entry level-up). The
@@ -197,13 +209,14 @@
   // center where the modal card sits. --z-alert sits above --z-modal, so it
   // still clears the modal host exactly as the old bare 10000 did.
   window.fireFreeEntryConfetti = function () {
-    if (typeof confetti === "undefined") return;
     var colors = window.CONFETTI_COLORS || ["#4BAF50", "#8E82FE", "#06D6A0", "#FF7C47", "#FFD700", "#00BFFF", "#FF6B9D", "#C084FC"];
     var origin = { x: 0.5, y: 0.38 };
-    confetti({ particleCount: 110, angle: 90, spread: 360, origin: origin, colors: colors, zIndex: zTier('--z-alert', 300), startVelocity: 28, gravity: 0.6, ticks: 200, scalar: 1.0 });
-    setTimeout(function () {
-      confetti({ particleCount: 50, angle: 90, spread: 360, origin: origin, colors: colors, zIndex: zTier('--z-alert', 300), startVelocity: 16, gravity: 0.8, ticks: 150, scalar: 0.8 });
-    }, 160);
+    withConfetti(function (confetti) {
+      confetti({ particleCount: 110, angle: 90, spread: 360, origin: origin, colors: colors, zIndex: zTier('--z-alert', 300), startVelocity: 28, gravity: 0.6, ticks: 200, scalar: 1.0 });
+      setTimeout(function () {
+        confetti({ particleCount: 50, angle: 90, spread: 360, origin: origin, colors: colors, zIndex: zTier('--z-alert', 300), startVelocity: 16, gravity: 0.8, ticks: 150, scalar: 0.8 });
+      }, 160);
+    });
   };
 
   // Newsletter is quest 3 → completing it advances to the invite step. Global so

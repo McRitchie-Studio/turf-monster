@@ -150,7 +150,8 @@ class WalletSignalJsTest < ActiveSupport::TestCase
   # the harness above and the real gem asset are installed first.
   #
   # With `late_session: true` the engine's store is held back and the document
-  # is still parsing when the module loads, as on a page where studio/session
+  # has parsed but not yet fired DOMContentLoaded when the module loads (where an
+  # importmap module always runs), as on a page where studio/session
   # is a module evaluated after Turf's entry point: the body hands the store
   # over with `arriveSession()`, which also fires DOMContentLoaded.
   def run_module(body, browser: false, late_session: false)
@@ -188,7 +189,11 @@ class WalletSignalJsTest < ActiveSupport::TestCase
     <<~JS
       const heldSession = globalThis.StudioSession;
       delete globalThis.StudioSession;
-      document.readyState = 'loading';
+      // "interactive", not "loading": wallet_signal is an importmap module, and
+      // a module runs after the document has parsed. "loading" was the one state
+      // the module never sees, and faking it hid that whenStudioSession took its
+      // no-store path on every real page.
+      document.readyState = 'interactive';
       const arriveSession = () => {
         globalThis.StudioSession = heldSession;
         document.readyState = 'interactive';
