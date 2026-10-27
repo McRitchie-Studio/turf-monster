@@ -1,4 +1,3 @@
-const path = require("node:path");
 const { defineConfig } = require("@playwright/test");
 
 // STUDIO-ENGINE'S SHARED BASE. testDir, the 30s test timeout, one worker, one
@@ -13,18 +12,8 @@ const { defineConfig } = require("@playwright/test");
 // node_modules is borrowed from the primary sets it instead of linking through
 // the primary's tree (lib/tasks/node_tooling.rake says why), and the Ruby suite
 // sets it to Studio::NodeTooling.root, because its job runs no `npm ci`.
-const TOOLING = process.env.STUDIO_NODE_TOOLING || path.join(__dirname, "node_modules", ".studio-engine");
-let studioBase;
-try {
-  studioBase = require(path.join(TOOLING, "playwright_base.js"));
-} catch (error) {
-  throw new Error(
-    `playwright.config.js: studio-engine's Node tooling is not at ${TOOLING}. ` +
-      "Run `bin/rails studio:node:link` after `npm ci`, or export STUDIO_NODE_TOOLING. " +
-      `(${error.message})`
-  );
-}
-const { studioBaseURL, studioPlaywrightConfig } = studioBase;
+const { requireStudioTooling } = require("./e2e/studio_tooling.js");
+const { studioBaseURL, studioPlaywrightConfig } = requireStudioTooling("playwright_base.js");
 const { port } = studioBaseURL({ defaultPort: "3100" });
 
 // THE ONRAMP RAILS ARE ON FOR THE E2E STACK — AND THE FLAG HAS TO BE SET IN TWO PLACES.

@@ -534,6 +534,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
+      - name: Await RubyGems propagation for locked gems
+        run: .github/scripts/await-gem-propagation.sh
+
       # bundler-cache ON since the Node tooling adoption: `playwright test --list`
       # loads playwright.config.js, which requires studio-engine's shared base, and
       # only the bundle can say where the locked engine gem lives (studio:node:link).

@@ -1317,7 +1317,7 @@
 # Escape at 390 and 1280, the rate-limit countdown's auto-close, the email-change Got it,
 # and the newsletter join and leave through the engine's JSON mode. Chromium, no skip, so
 # excluded holds at 17 and allowed_skips at 4.
-total_specs: 550
+total_specs: 551
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need funded devnet wallets: the secrets
 # SOLANA_BOT_KEY and MACK_DEVNET_KEY (never literals; test/lib/committed_secret_key_guard_test.rb).
@@ -1725,7 +1725,7 @@ allowed_skips: 4
 # total_specs above; chromium, no skip.
 # 508 -> 514 (turf-readopts-engine-modals): the six engine-modal readoption specs beside
 # total_specs above; chromium, no skip.
-executed: 529
+executed: 530
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

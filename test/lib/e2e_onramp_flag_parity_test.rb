@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "json"
+require "open3"
 
 # THE TWO E2E LANES MUST TURN THE SAME RAILS ON, IN BOTH OF THE PLACES THAT MATTER.
 #
@@ -84,14 +86,28 @@ class E2eOnrampFlagParityTest < ActiveSupport::TestCase
   end
 
   test "unit the parallel lane really is the branch that manages no webServer" do
-    config = PLAYWRIGHT_CONFIG.read
-
     # If this stops being true, the exports above are belt-and-braces rather than the only
     # thing standing between this lane and a page with no rails on it — and the comments in
     # both files are wrong.
-    assert_match(/webServer:\s*process\.env\.PW_BASE_URL\s*\n?\s*\?\s*undefined/, config,
-                 "playwright.config.js no longer skips its webServer when PW_BASE_URL is set. " \
-                 "Re-read bin/e2e-parallel's ONRAMP FLAGS note before changing this.")
+    #
+    # Asked of the config as Playwright receives it, because the branch is no longer in
+    # this file's text: studio-engine's shared base (playwright_base.js) drops webServer
+    # whenever PW_BASE_URL is set. @playwright/test is stubbed (this job runs no npm ci).
+    script = <<~JS
+      const Module = require("node:module");
+      const load = Module._load;
+      Module._load = function (request, ...rest) {
+        if (request === "@playwright/test") return { defineConfig: (config) => config };
+        return load.call(this, request, ...rest);
+      };
+      process.stdout.write(JSON.stringify("webServer" in require(#{PLAYWRIGHT_CONFIG.to_s.to_json})));
+    JS
+    env = NodeImportmap.env.merge("PW_BASE_URL" => "http://127.0.0.1:3911", "CI" => nil)
+    out, err, status = Open3.capture3(env, "node", "-e", script, chdir: Rails.root.to_s)
+    assert status.success?, "node could not load playwright.config.js: #{err}"
+    refute JSON.parse(out),
+           "playwright.config.js no longer skips its webServer when PW_BASE_URL is set. " \
+           "Re-read bin/e2e-parallel's ONRAMP FLAGS note before changing this."
     assert_match(/^\s*PW_BASE_URL=/, E2E_PARALLEL.read,
                  "bin/e2e-parallel no longer sets PW_BASE_URL; the two lanes may have converged, " \
                  "which would make this whole file stale.")

@@ -26,6 +26,20 @@ const {
 
 const seen = new Set();
 
+// Every page whose Turbo visit was actually counted. checkPage returns early on
+// a signing page, a full-load fallback or an unrendered RPC page, so without a
+// floor the Turbo half could pass having counted nothing (Shannon's note on
+// turf-folds-into-engine-stimulus). The last spec holds the total to it.
+const turboVisited = [];
+// 26 pages are checked. Signing pages are full loads by design (the player
+// pages and the admin wallet and vault pages among them), and the two vault
+// pages do not render in CI (no Solana RPC), so not every page counts: measured
+// on 2026-10-27 the Turbo visit counted on 15 (six visitor pages, eight admin
+// pages, the unsubscribe page). The floor sits a little under, so one page
+// becoming a signing page is a small edit here, and a Turbo half that stopped
+// counting fails loudly.
+const MIN_TURBO_VISITED = 12;
+
 // Reads the page: the two applications, stray default attributes, and the
 // controller count for each pair. Lazy controllers named on the page are
 // waited for (they register on first sight).
@@ -142,6 +156,7 @@ async function checkPage(page, path, { from = "/help" } = {}) {
   if (!visit.sameDocument) return first;
   expect(visit.doubles, `${path}: a Turbo visit connected a controller twice`).toEqual([]);
   expect(visit.missing, `${path}: a Turbo visit left a controller unconnected`).toEqual([]);
+  turboVisited.push({ path, pairs: first.pairs.length });
   return first;
 }
 
@@ -245,4 +260,10 @@ test("between them the pages connected every controller turf_stimulus registers"
   const excused = [...unrendered].filter((id) => !seen.has(id));
   if (excused.length) console.log(`[one-application] not rendered without Solana RPC: ${excused.join(", ")}`);
   expect(registry.filter((id) => !seen.has(id) && !unseeded.includes(id) && !excused.includes(id))).toEqual([]);
+
+  // The Turbo half is not vacuous: enough pages were Turbo-visited and counted,
+  // and between them they held controllers to count.
+  console.log(`[one-application] Turbo-visited and counted: ${turboVisited.length} (${turboVisited.map((v) => v.path).join(", ")})`);
+  expect(turboVisited.length, "too few pages had their Turbo visit counted").toBeGreaterThanOrEqual(MIN_TURBO_VISITED);
+  expect(turboVisited.reduce((n, v) => n + v.pairs, 0), "the Turbo-visited pages held no controller").toBeGreaterThan(0);
 });
