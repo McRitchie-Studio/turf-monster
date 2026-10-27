@@ -1,4 +1,31 @@
+const path = require("node:path");
 const { defineConfig } = require("@playwright/test");
+
+// STUDIO-ENGINE'S SHARED BASE. testDir, the 30s test timeout, one worker, one
+// chromium project, forbidOnly in CI, the PW_BASE_URL/E2E_PORT base URL and the
+// Rails webServer shape all come from the engine's Node tooling package
+// (lib/studio/node_tooling/playwright_base.js in the gem, wave 6 of the UI
+// consistency program). This file keeps only what is Turf's: the CI retries, the
+// trace, reduced motion, the devnet project, the global setup and the seeded boot.
+//
+// WHERE THE PACKAGE IS. `bin/rails studio:node:link` (after `npm ci`) links it at
+// node_modules/.studio-engine. STUDIO_NODE_TOOLING, when set, wins: a desk whose
+// node_modules is borrowed from the primary sets it instead of linking through
+// the primary's tree (lib/tasks/node_tooling.rake says why), and the Ruby suite
+// sets it to Studio::NodeTooling.root, because its job runs no `npm ci`.
+const TOOLING = process.env.STUDIO_NODE_TOOLING || path.join(__dirname, "node_modules", ".studio-engine");
+let studioBase;
+try {
+  studioBase = require(path.join(TOOLING, "playwright_base.js"));
+} catch (error) {
+  throw new Error(
+    `playwright.config.js: studio-engine's Node tooling is not at ${TOOLING}. ` +
+      "Run `bin/rails studio:node:link` after `npm ci`, or export STUDIO_NODE_TOOLING. " +
+      `(${error.message})`
+  );
+}
+const { studioBaseURL, studioPlaywrightConfig } = studioBase;
+const { port } = studioBaseURL({ defaultPort: "3100" });
 
 // THE ONRAMP RAILS ARE ON FOR THE E2E STACK — AND THE FLAG HAS TO BE SET IN TWO PLACES.
 //
@@ -24,7 +51,7 @@ const { defineConfig } = require("@playwright/test");
 // webServer's env as {...DEFAULT, ...process.env, ...options.env}
 // (node_modules/playwright/lib/plugins/webServerPlugin.js:88-92), so the CI lane inherited
 // #1 by accident and could not see the break; bin/e2e-parallel sets PW_BASE_URL, takes the
-// `undefined` webServer branch below, and launches its own servers (:152-156, :180-182),
+// no-webServer branch of the engine base, and launches its own servers (:152-156, :180-182),
 // inheriting nothing. webServer.env now STATES that inheritance instead of relying on it,
 // and test/lib/e2e_onramp_flag_parity_test.rb goes red if the two lanes drift apart again.
 //
@@ -42,9 +69,8 @@ process.env.ENABLE_AEROPAY ||= "true";
 // without it the two rails above stay hidden and their routes answer 404.
 process.env.ENABLE_FIAT_RAILS ||= "true";
 
-module.exports = defineConfig({
-  testDir: "./e2e",
-  timeout: 30_000,
+module.exports = defineConfig(studioPlaywrightConfig({
+  defaultPort: "3100",
   // CI retries: this single-worker e2e suite has documented full-suite
   // flakiness (cross-spec DB/session state pollution + timing under load).
   // The dominant "timing under load" source — the test server blocking on
@@ -55,17 +81,15 @@ module.exports = defineConfig({
   // genuinely broken test still fails all attempts. Local runs stay at 0 to
   // surface flakes during development.
   retries: process.env.CI ? 2 : 0,
-  workers: 1,
   // Swap alex's wallet to MOCK_PUBKEY_B58 before tests (so loginViaPhantom
   // resolves to the admin user) and restore it after. Lets the dev seed
   // default to the operator's REAL Phantom wallet without breaking e2e.
   globalSetup: require.resolve("./e2e/global-setup.js"),
   globalTeardown: require.resolve("./e2e/global-teardown.js"),
+  // The base sets use.baseURL and headless: bin/e2e-parallel sets PW_BASE_URL per
+  // shard to point each playwright process at its own isolated stack's port, and
+  // the default is the canonical :3100 (E2E_PORT moves it).
   use: {
-    // bin/e2e-parallel sets PW_BASE_URL per shard to point each playwright
-    // process at its own isolated stack's port. Defaults to the canonical :3100.
-    baseURL: process.env.PW_BASE_URL || "http://127.0.0.1:3100",
-    headless: true,
     // REDUCED MOTION — SET WHERE IT ACTUALLY TAKES EFFECT.
     //
     // Intended all along: smooth-load (engine 0.24) enables same-origin view
@@ -121,61 +145,57 @@ module.exports = defineConfig({
   ],
   // When PW_BASE_URL is set, the caller (bin/e2e-parallel) has already brought
   // up an isolated server on its own port + DB, so Playwright must NOT manage
-  // one. Otherwise: a single test-env server on :3100 (reused if a dev server
-  // is already up locally; freshly started in CI).
-  webServer: process.env.PW_BASE_URL
-    ? undefined
-    : {
-        command:
-          "bin/rails db:test:prepare && bin/rails runner e2e/seed.rb && bin/rails server -p 3100 -e test",
-        url: "http://127.0.0.1:3100/up",
-        reuseExistingServer: !process.env.CI,
-        // Boot budget covers db:test:prepare + the e2e seed (incl. the full
-        // NFL 2026 totals cache) + server boot on a slow CI runner. 30s was
-        // marginal once the NFL cache joined the seed and red-flaked shard 1
-        // twice; the floor is guarded by test/lib/playwright_config_contract_test.rb.
-        timeout: 120_000,
-        // ENABLE_WEB3_ONLY_ONBOARDING mirrors the NFL-2026 production config:
-        // signup mints no custodial wallet and auth success lands on the
-        // wallet-setup modal (e2e/wallet_setup.spec.js). The e2e lane runs the
-        // configuration we ship, so this gate is exercised rather than assumed.
-        // ENABLE_AGE_GATE joins the flags here because the onboarding chain's
-        // second step IS the age gate (e2e/onboarding_chain.spec.js) — without it
-        // that step silently drops and the spec would assert an order the lane
-        // never runs.
-        //
-        // BOTH ARE NOW REDUNDANT WITH THE DEFAULTS, and kept anyway. On
-        // 2026-08-15 ENABLE_WEB3_ONLY_ONBOARDING became a kill-switch (default
-        // ON), so this lane would run web3-only even unset — but the line states
-        // which side of the switch these specs belong to, and it is the one thing
-        // that would have to change to run the lane the other way.
-        //
-        // HISTORY, because an earlier version of this comment got it backwards
-        // twice: through the build-out the var was UNSET on turf-monster-mainnet
-        // and turf-monster-qa, so the DEPLOYED chain was [welcome, first_name,
-        // age] and this lane's [.., wallet] ending was an edge production never
-        // ran. That gap is what put a new player on the web2 Buy an Entry Token
-        // modal, and closing it is what the default flip is for. Read the
-        // deployed config before restating any of this.
-        //
-        // CAUTION: this env applies to db:test:prepare and e2e/seed.rb in the
-        // same webServer command, so a flag added here can change SEEDED DATA,
-        // not just app behavior. ENABLE_WEB3_ONLY_ONBOARDING already does that
-        // (it skips the managed-wallet mint at signup); verify seeded rows after
-        // touching this list, and run per-shard on a fresh DB.
-        env: {
-          RAILS_ENV: "test",
-          PLAYWRIGHT_SEED: "true",
-          ENABLE_WEB3_ONLY_ONBOARDING: "true",
-          ENABLE_AGE_GATE: "true",
-          // The onramp rails, restated for the SERVER (see the block at the top of this
-          // file). Both already arrived here via the ...process.env spread; naming them
-          // makes this lane and bin/e2e-parallel's servers say the same thing out loud,
-          // which is what test/lib/e2e_onramp_flag_parity_test.rb checks. Verified
-          // seed-inert — e2e/seed.rb reads neither.
-          ENABLE_COINFLOW: "true",
-          ENABLE_AEROPAY: "true",
-          ENABLE_FIAT_RAILS: "true"
-        },
-      },
-});
+  // one: the engine base drops `webServer` whenever PW_BASE_URL (or BASE_URL) is
+  // set. Otherwise: a single test-env server on :3100 (reused if a dev server is
+  // already up locally; freshly started in CI), health-checked on /up.
+  webServer: {
+    command: `bin/rails db:test:prepare && bin/rails runner e2e/seed.rb && bin/rails server -p ${port} -e test`,
+    // Boot budget covers db:test:prepare + the e2e seed (incl. the full
+    // NFL 2026 totals cache) + server boot on a slow CI runner. 30s was
+    // marginal once the NFL cache joined the seed and red-flaked shard 1
+    // twice; the floor is guarded by test/lib/playwright_config_contract_test.rb.
+    timeout: 120_000,
+    // ENABLE_WEB3_ONLY_ONBOARDING mirrors the NFL-2026 production config:
+    // signup mints no custodial wallet and auth success lands on the
+    // wallet-setup modal (e2e/wallet_setup.spec.js). The e2e lane runs the
+    // configuration we ship, so this gate is exercised rather than assumed.
+    // ENABLE_AGE_GATE joins the flags here because the onboarding chain's
+    // second step IS the age gate (e2e/onboarding_chain.spec.js) — without it
+    // that step silently drops and the spec would assert an order the lane
+    // never runs.
+    //
+    // BOTH ARE NOW REDUNDANT WITH THE DEFAULTS, and kept anyway. On
+    // 2026-08-15 ENABLE_WEB3_ONLY_ONBOARDING became a kill-switch (default
+    // ON), so this lane would run web3-only even unset — but the line states
+    // which side of the switch these specs belong to, and it is the one thing
+    // that would have to change to run the lane the other way.
+    //
+    // HISTORY, because an earlier version of this comment got it backwards
+    // twice: through the build-out the var was UNSET on turf-monster-mainnet
+    // and turf-monster-qa, so the DEPLOYED chain was [welcome, first_name,
+    // age] and this lane's [.., wallet] ending was an edge production never
+    // ran. That gap is what put a new player on the web2 Buy an Entry Token
+    // modal, and closing it is what the default flip is for. Read the
+    // deployed config before restating any of this.
+    //
+    // CAUTION: this env applies to db:test:prepare and e2e/seed.rb in the
+    // same webServer command, so a flag added here can change SEEDED DATA,
+    // not just app behavior. ENABLE_WEB3_ONLY_ONBOARDING already does that
+    // (it skips the managed-wallet mint at signup); verify seeded rows after
+    // touching this list, and run per-shard on a fresh DB.
+    env: {
+      RAILS_ENV: "test",
+      PLAYWRIGHT_SEED: "true",
+      ENABLE_WEB3_ONLY_ONBOARDING: "true",
+      ENABLE_AGE_GATE: "true",
+      // The onramp rails, restated for the SERVER (see the block at the top of this
+      // file). Both already arrived here via the ...process.env spread; naming them
+      // makes this lane and bin/e2e-parallel's servers say the same thing out loud,
+      // which is what test/lib/e2e_onramp_flag_parity_test.rb checks. Verified
+      // seed-inert — e2e/seed.rb reads neither.
+      ENABLE_COINFLOW: "true",
+      ENABLE_AEROPAY: "true",
+      ENABLE_FIAT_RAILS: "true"
+    },
+  },
+}));
