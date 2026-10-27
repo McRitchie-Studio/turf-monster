@@ -4,7 +4,7 @@ End-to-end tests that exercise Turf Monster against real Solana devnet. These te
 
 ## Prerequisites
 
-- Node.js + `npx playwright` installed (`npm install` in project root)
+- Node.js 22 + `npx playwright` installed (`npm ci` in project root), then `bin/rails studio:node:link` (playwright.config.js requires studio-engine's shared base from `node_modules/.studio-engine`)
 - Dev server running on port 3100 (`bin/dev` or `bin/rails server -p 3100`)
 - Sidekiq running (`bundle exec sidekiq`) — required for `EnsureAtaJob` after user registration
 - `SOLANA_BOT_KEY` env var set to the base58 private key for the devnet e2e bot
