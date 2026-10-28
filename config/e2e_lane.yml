@@ -1317,7 +1317,19 @@
 # Escape at 390 and 1280, the rate-limit countdown's auto-close, the email-change Got it,
 # and the newsletter join and leave through the engine's JSON mode. Chromium, no skip, so
 # excluded holds at 17 and allowed_skips at 4.
-total_specs: 551
+# 551 -> 553 (turf-navbar-name-stacks-over-level): two specs in e2e/navbar_long_name.spec.js,
+# the name stacked over the seeds bar, both left of the avatar, at 768 and 1280, and a
+# click on the name opening the gear sidebar. They SKIP on a studio-engine that predates
+# Studio.navbar_name_in_rows, which is the released gem this lane resolves until Turf pins
+# the engine release that ships it, so allowed_skips rises to 6 below and executed holds.
+# Derived with `npx playwright test --list` -> 553 tests in 115 files.
+# 553 -> 554 (turf-navbar-name-stacks-over-level, review bounce): one spec in
+# e2e/navbar_long_name.spec.js, 9- and 11-character names keep the avatar on screen with
+# no sideways scroll at 768/900/1024/1100 (Carl and Shannon measured 11px and 27px of
+# scroll). It runs on either engine shape, no skip, so allowed_skips holds at 6.
+# Verified RED with the icon column's old min-content rule (Christopher at 768: 771 > 768).
+# Derived with `npx playwright test --list` -> 554 tests in 115 files.
+total_specs: 554
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need funded devnet wallets: the secrets
 # SOLANA_BOT_KEY and MACK_DEVNET_KEY (never literals; test/lib/committed_secret_key_guard_test.rb).
@@ -1330,7 +1342,7 @@ total_specs: 551
 # exclusion later is a red build rather than a quiet loss of coverage.
 excluded: 17
 
-# THE RUNTIME SKIPS THIS LANE TOLERATES — four, each with a NAMED reason.
+# THE RUNTIME SKIPS THIS LANE TOLERATES — six, each with a NAMED reason.
 #
 # A runtime skip exits 0 and reports green; it is the one axis no source-level guard can
 # close. So the count is DECLARED. One more than this is RED and the gate names the
@@ -1340,13 +1352,20 @@ excluded: 17
 # THIS GATE'S FIRST REAL RUN found them: 122 executed against a claimed 128, on a lane
 # whose three shards ALL reported PASS. Nothing in the repo declared what the skips cost.
 #
-# The four:
+# The six:
 #
 #   MISSING SECRET (2) — the webhook-signature specs, which need a real key to sign with.
 #     · e2e/financial.spec.js:140  COINFLOW_WEBHOOK_VALIDATION_KEY not set on the e2e stack
 #     · e2e/financial.spec.js:237  AEROPAY_WEBHOOK_SIGNING_KEY not set on the e2e stack
 #     Covered authoritatively by the Rails tests (webhooks/aeropay_controller_test.rb +
 #     token_purchase_job_test.rb), which sign with a fixture key.
+#
+#   ENGINE AHEAD (2) — the stacked-name specs (turf-navbar-name-stacks-over-level), which
+#   skip while the resolved studio-engine has no Studio.navbar_name_in_rows. They run, and
+#   pass, against the engine branch; the task that pins the engine release that ships the
+#   setting takes this back to 4 and executed up by 2.
+#     · e2e/navbar_long_name.spec.js  at 768px the name sits over the seeds bar …
+#     · e2e/navbar_long_name.spec.js  at 1280px the name sits over the seeds bar …
 #
 #   QUARANTINED (2) — `test.fixme`, COVERED NOWHERE. Not a considered exclusion, an
 #   admission; re-homing these is backlog, not a config edit.
@@ -1361,7 +1380,7 @@ excluded: 17
 # describing the two specs that had LEFT, which is the same misleading label this lane
 # exists to catch. The key is the honest one now: an allowance for runtime skips,
 # whatever their reason.
-allowed_skips: 4
+allowed_skips: 6
 
 # total_specs - excluded - allowed_skips. What the lane MUST execute, asserted against the
 # runner's own report, so no source-level spelling on any axis can move it without moving
@@ -1725,7 +1744,11 @@ allowed_skips: 4
 # total_specs above; chromium, no skip.
 # 508 -> 514 (turf-readopts-engine-modals): the six engine-modal readoption specs beside
 # total_specs above; chromium, no skip.
-executed: 530
+# 530 holds (turf-navbar-name-stacks-over-level): two specs beside total_specs above, and
+# two more allowed skips, until the engine release that ships navbar_name_in_rows is pinned.
+# 530 -> 531 (turf-navbar-name-stacks-over-level, review bounce): the no-sideways-scroll
+# sweep beside total_specs above; chromium, no skip.
+executed: 531
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

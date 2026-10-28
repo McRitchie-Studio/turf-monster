@@ -145,11 +145,20 @@ Studio.configure do |config|
   config.navbar_account_sidebar = { flag: "gearOpen", controls: GearSidebarPanels::IDS }
   # NO PHONE NAME (navbar_phone_name stays false): below 768px the name is
   # screen-reader text and the avatar stands alone, as on every engine navbar.
-  # On the engine user nav the name sits beside the avatar, not above the seeds
-  # bar, so on a phone it takes the seeds bar's width: measured with it on, the
-  # bar's 8rem floor ran 24px under the name at 390px and 46px at 320px.
+  # Measured beside the avatar (before navbar_name_in_rows), the name took the
+  # seeds bar's width: its 8rem floor ran 24px under the name at 390px and
+  # 46px at 320px. Over the seeds bar it would share row 1 with the balance
+  # instead; turning it on is a separate, measured change.
   # The navbar has always said display_name, never the engine's first name.
   config.navbar_user_name = :display_name
+  # THE NAME STACKS OVER THE SEEDS BAR (/tasks/turf-navbar-name-stacks-over-level),
+  # as it did before this app adopted the engine's user nav: the name ends
+  # row 1 after the moon and gear, directly over the seeds bar's Level, and the
+  # avatar stands alone beside both rows. The name is its own button that opens
+  # the gear sidebar, as the avatar does. Guarded: studio-engine releases before
+  # the one that adds navbar_name_in_rows have no writer, and keep the name
+  # beside the avatar (application.css, THE NAME GIVES WAY, caps it either way).
+  config.navbar_name_in_rows = true if config.respond_to?(:navbar_name_in_rows=)
 
   # nav_spinner_min_ms is a minimum DISPLAY FLOOR, not a timeout: the engine
   # computes remaining = max(0, min_ms - elapsed), so a slow op (Solana RPC

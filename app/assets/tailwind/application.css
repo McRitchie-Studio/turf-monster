@@ -1014,10 +1014,21 @@
    truncates in the old 7rem cap (e2e/navbar_long_name.spec.js). */
 @media (min-width: 768px) {
   .nav-shell .user-nav-col [data-nav-tools] { min-width: min-content; }
+  /* With the name in row 1 (navbar_name_in_rows) min-content counts the name
+     too, and a 9+ character name pushed the avatar off screen from 768px to
+     about 1100px. There the column may shrink, and only the name gives way
+     inside row 1: the balance and the icons keep their width. An engine
+     without the setting keeps the name in the account and the rule above. */
+  .nav-shell .user-nav-col [data-nav-tools]:has([data-nav-name-trigger]) { min-width: 0; }
+  .nav-shell .user-nav-col [data-nav-tools] > div:first-child > :not([data-nav-name-trigger]) { flex-shrink: 0; }
   /* Its inline 6px padding goes, for the name (Free Entry face, 1024px). */
   .nav-shell .user-nav-col [data-nav-tools] > div:first-child { padding-inline: 0 !important; }
   .nav-shell .user-nav-col [data-nav-account] { flex-shrink: 1; min-width: 0; }
   .nav-shell .user-nav-col [data-nav-account] > span:first-child { min-width: 0; max-width: 7rem; }
+  /* The name in row 1 (Studio.navbar_name_in_rows, over the seeds bar) keeps
+     the same cap: the button may shrink, and the name truncates inside 7rem. */
+  .nav-shell .user-nav-col [data-nav-name-trigger] { min-width: 0; max-width: 7rem; }
+  .nav-shell .user-nav-col [data-nav-name-trigger] > span:first-child { display: block; min-width: 0; max-width: 7rem; }
 }
 
 
@@ -1032,7 +1043,7 @@
    nav-collapse measures. The name keeps this app's --nav-username-size. */
 @layer utilities {
   .nav-shell > .nav-row { max-width: 80rem; margin-inline: auto; }
-  .nav-shell [data-nav-account] [data-nav-name] { font-size: var(--nav-username-size); }
+  .nav-shell [data-nav-account] [data-nav-name], .nav-shell [data-nav-name-trigger] [data-nav-name] { font-size: var(--nav-username-size); }
   @media (min-width: 768px) {
     .nav-shell [data-nav-account] > [aria-hidden] > * {
       width: var(--nav-avatar);

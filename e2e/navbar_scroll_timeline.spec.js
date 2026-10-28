@@ -189,8 +189,13 @@ test.describe("Navbar scroll timeline", () => {
         // in the account button, the icon column, and the name beside the avatar.
         const avatar = h.querySelector("[data-nav-account] > [aria-hidden] > *").getBoundingClientRect();
         const column = h.querySelector("[data-nav-tools]").getBoundingClientRect();
-        const username = h.querySelector("[data-nav-account] [data-nav-name]");
+        // The name is in the account (older engines) or ends the icon column's
+        // row 1 over the seeds bar (Studio.navbar_name_in_rows); then the gap
+        // that matters on its left is the gear's.
+        const username = h.querySelector("[data-nav-name]");
         const name = username.getBoundingClientRect();
+        const inRows = !!username.closest("[data-nav-tools]");
+        const gear = h.querySelector("[data-nav-tools] [data-gear-sidebar-trigger]").getBoundingClientRect();
         const content = document.querySelector("body > .max-w-7xl");
         const box = content.getBoundingClientRect();
         const contentRight = box.right - parseFloat(getComputedStyle(content).paddingRight);
@@ -198,7 +203,7 @@ test.describe("Navbar scroll timeline", () => {
           // The name's BOX, not its ink: from 768 to 1066px the name may truncate
           // (application.css, THE NAME GIVES WAY, NOT THE ICONS), and a clipped
           // name's ink runs past its box.
-          gap: name.left - column.right, nameGap: avatar.left - name.right,
+          inRows, gap: inRows ? name.left - gear.right : name.left - column.right, nameGap: avatar.left - name.right,
           clipped: username.scrollWidth > username.clientWidth + 0.5,
           ellipsis: getComputedStyle(username).textOverflow === "ellipsis" };
       }, HEADER);
@@ -231,7 +236,11 @@ test.describe("Navbar scroll timeline", () => {
       // The engine slides the icon column right by what the name and avatar
       // give up (nav-tl-tools, --nav-tools-shift), so the gap from the column
       // to the NAME holds; the name sits between the column and the avatar.
-      expect(Math.abs(compact.gap - top.gap), `the column follows the name in ${both}`).toBeLessThanOrEqual(1);
+      // In rows the name scales from its right edge (the avatar's ratio), so
+      // its left edge moves away from the gear by what it gives up: the gap
+      // may only grow, never close.
+      if (top.inRows) expect(compact.gap, `the gear never runs into the name ${both}`).toBeGreaterThanOrEqual(top.gap - 1);
+      else expect(Math.abs(compact.gap - top.gap), `the column follows the name in ${both}`).toBeLessThanOrEqual(1);
     });
   }
 
