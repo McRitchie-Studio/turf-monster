@@ -340,7 +340,12 @@ class EnginePinContractTest < ActiveSupport::TestCase
   #          initializer wires to that sidebar (config.navbar_account_sidebar).
   #          Below 0.116.0 nothing raises; the three just hover apart. Guard:
   #          the account-group test below.
-  MINIMUM = Gem::Version.new("0.116.0")
+  # 0.116.1 — the node:test importmap hook maps a digit-named top-level pin
+  #          (/tasks/turf-drops-base58-unmapped): its gate widens to
+  #          /^[a-z0-9_]+$/, so base58 maps onto the browser's file. Below
+  #          0.116.1 the hook leaves base58 unmapped. Guard: the hook test in
+  #          test/lib/node_tooling_adoption_test.rb.
+  MINIMUM = Gem::Version.new("0.116.1")
 
   test "the resolved studio-engine is at or above the floor this app depends on" do
     resolved = Gem::Version.new(Studio::VERSION)
