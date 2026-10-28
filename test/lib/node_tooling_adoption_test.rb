@@ -6,7 +6,8 @@ require "rake"
 require Rails.root.join("lib/tasks/support/node_link_guard").to_s
 
 # [unit] Turf on studio-engine's Node tooling package (lib/studio/node_tooling in
-# the gem, engine 0.115.1): wave 6 of the UI consistency program.
+# the gem, engine 0.115.1; the hook maps digit-named pins such as base58 from
+# 0.116.1): wave 6 of the UI consistency program.
 #
 # What adoption means here, each held below:
 #   - the pins: Node 22 in .tool-versions, read by mise and by every CI
