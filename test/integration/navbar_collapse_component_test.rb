@@ -126,7 +126,7 @@ class NavbarCollapseComponentTest < ActionDispatch::IntegrationTest
     assert_includes BALANCE, "nav-balance", "balance needs the --nav-p sized hook"
     assert_match(/\.nav-shell \.nav-balance \{\s*font-size: var\(--nav-balance-size\);/, CSS)
     assert_includes navbar, "data-nav-name", "the engine's name carries the hook the size rule keys on"
-    assert_match(/\.nav-shell \[data-nav-account\] \[data-nav-name\] \{ font-size: var\(--nav-username-size\); \}/, CSS,
+    assert_match(/\.nav-shell \[data-nav-account\] \[data-nav-name\], \.nav-shell \[data-nav-name-trigger\] \[data-nav-name\] \{ font-size: var\(--nav-username-size\); \}/, CSS,
       "username sizes off --nav-p through the engine's [data-nav-name]")
   end
 end

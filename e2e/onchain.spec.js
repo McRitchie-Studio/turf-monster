@@ -67,7 +67,7 @@ test("phantom sign-in with existing user", async ({ page }) => {
   // account traded usernames on 2026-09-04.
   // Filter by hasText on the current nav display hook.
   await expect(
-    page.locator("[data-nav-account] [data-nav-name]").filter({ hasText: OPERATOR_USERNAME }).first()
+    page.locator("header [data-nav-name]").filter({ hasText: OPERATOR_USERNAME }).first()
   ).toBeVisible();
 
   // "Sign in" link should NOT be visible (proves we're authenticated)
@@ -101,7 +101,7 @@ test("phantom sign-in creates new user", async ({ page }) => {
   // — which uniquely separates the chip from the dropdown's same-href
   // "Account" link.
   const usernameChip = page
-    .locator("[data-nav-account] [data-nav-name]")
+    .locator("header [data-nav-name]")
     .filter({ hasText: "-" })
     .first();
   await expect(usernameChip).toBeVisible({ timeout: 3000 });

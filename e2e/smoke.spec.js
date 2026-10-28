@@ -49,7 +49,7 @@ test("login with valid credentials", async ({ page }) => {
   // display name, and the human operator's changed on 2026-09-04 — hence the
   // shared constant rather than a literal here.
   await expect(
-    page.locator("[data-nav-account] [data-nav-name]").filter({ hasText: OPERATOR_USERNAME })
+    page.locator("header [data-nav-name]").filter({ hasText: OPERATOR_USERNAME })
   ).toBeVisible();
 });
 

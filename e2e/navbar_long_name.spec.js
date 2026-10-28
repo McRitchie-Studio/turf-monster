@@ -27,7 +27,9 @@ for (const width of [768, 1024, 1280]) {
 
     const m = await page.evaluate(async ([sel, name]) => {
       const h = document.querySelector(sel);
-      const nameEl = h.querySelector("[data-nav-account] [data-nav-name]");
+      // The name sits in the account (released engines) or ends row 1 over the
+      // seeds bar (Studio.navbar_name_in_rows); either way the cap holds.
+      const nameEl = h.querySelector("[data-nav-name]");
       nameEl.textContent = name;
       for (let i = 0; i < 2; i++) await new Promise((r) => requestAnimationFrame(r));
       const box = (el) => { const r = el.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, bottom: r.bottom }; };
@@ -41,7 +43,7 @@ for (const width of [768, 1024, 1280]) {
         truncated: nameEl.scrollWidth > nameEl.clientWidth,
         overflow: getComputedStyle(nameEl).textOverflow,
         hitGear: !!(hit && hit.closest("[data-gear-sidebar-trigger]")),
-        hitAccount: !!(hit && hit.closest("[data-nav-account]")),
+        hitAccount: !!(hit && hit.closest("[data-nav-account], [data-nav-name-trigger]")),
       };
     }, [HEADER, LONG_NAME]);
     const msg = JSON.stringify(m);
@@ -57,6 +59,51 @@ for (const width of [768, 1024, 1280]) {
 
     const g = m.gear;
     await page.mouse.click((g.left + g.right) / 2, (g.top + g.bottom) / 2);
+    await expect(page.locator("#gear-sidebar")).toBeVisible();
+  });
+}
+
+// [e2e] THE NAME STACKS OVER THE SEEDS BAR (/tasks/turf-navbar-name-stacks-over-level).
+// Alex McRitchie: "the username and exp bar should stack like before" — before
+// this app adopted the engine's user nav (turf e83522d5^1, components/_user_nav),
+// the name ended row 1 after the moon and gear, directly over the seeds bar's
+// Level, and the avatar stood alone to the right of both rows.
+// config.navbar_name_in_rows does that on an engine that has the setting; on
+// an older engine the name stays in the account and this test skips.
+for (const width of [768, 1280]) {
+  test(`at ${width}px the name sits over the seeds bar, both left of the avatar, and opens the gear sidebar`, async ({ page, request }) => {
+    await reseed(request);
+    await loginAdmin(page);
+    await page.setViewportSize({ width, height: 800 });
+    await page.goto("/contests");
+    await expect(page.locator(`${HEADER} [data-nav-account]`)).toBeVisible();
+    await page.waitForLoadState("networkidle");
+
+    const inRows = await page.locator(`${HEADER} [data-nav-tools] [data-nav-name]`).count();
+    test.skip(inRows === 0, "this studio-engine predates Studio.navbar_name_in_rows");
+
+    const m = await page.evaluate((sel) => {
+      const h = document.querySelector(sel);
+      const box = (el) => { const r = el.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, bottom: r.bottom }; };
+      return {
+        name: box(h.querySelector("[data-nav-name]")),
+        seeds: box(h.querySelector("[data-nav-seeds-row]")),
+        avatar: box(h.querySelector("[data-nav-account] > [aria-hidden]")),
+        gear: box(h.querySelector("[data-nav-tools] [data-gear-sidebar-trigger]")),
+        accountHasName: !!h.querySelector("[data-nav-account] [data-nav-name]"),
+      };
+    }, HEADER);
+    const msg = JSON.stringify(m);
+
+    expect(m.accountHasName, `the avatar stands alone: ${msg}`).toBe(false);
+    expect(m.name.bottom, `the name sits above the seeds bar: ${msg}`).toBeLessThanOrEqual(m.seeds.top + 0.5);
+    expect(m.name.right, `the name ends over the seeds bar: ${msg}`).toBeLessThanOrEqual(m.seeds.right + 0.5);
+    expect(m.name.left, `the name starts over the seeds bar: ${msg}`).toBeGreaterThanOrEqual(m.seeds.left - 0.5);
+    expect(m.name.left, `the name follows the gear: ${msg}`).toBeGreaterThanOrEqual(m.gear.right - 0.5);
+    expect(m.name.right, `the name is left of the avatar: ${msg}`).toBeLessThanOrEqual(m.avatar.left + 0.5);
+    expect(m.seeds.right, `the seeds bar is left of the avatar: ${msg}`).toBeLessThanOrEqual(m.avatar.left + 0.5);
+
+    await page.locator(`${HEADER} [data-nav-name-trigger]`).click();
     await expect(page.locator("#gear-sidebar")).toBeVisible();
   });
 }

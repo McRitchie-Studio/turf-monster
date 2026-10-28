@@ -147,7 +147,7 @@ async function exposeFreeEntryFace(page) {
 // inside the clipped box, which is the thing a person experiences.
 async function usernameLegibility(page) {
   return await page.evaluate(() => {
-    const u = document.querySelector("[data-nav-account] [data-nav-name]");
+    const u = document.querySelector("header [data-nav-name]");
     const width = u.getBoundingClientRect().width;
     const full = u.textContent.trim();
     const probe = document.createElement("span");
@@ -519,7 +519,7 @@ test("a zero-token ✨ badge holds no box and reports display:none", async ({ pa
 // the balance slot gets, at both ends of the squeeze band.
 async function nameBox(page) {
   return await page.evaluate(() => {
-    const name = document.querySelector("[data-nav-account] [data-nav-name]");
+    const name = document.querySelector("header [data-nav-name]");
     const avatar = document.querySelector("[data-nav-account] > [aria-hidden]");
     const r = name.getBoundingClientRect();
     return {
