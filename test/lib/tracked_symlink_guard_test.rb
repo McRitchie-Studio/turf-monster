@@ -143,6 +143,28 @@ class TrackedSymlinkGuardTest < Minitest::Test
     end
   end
 
+  # THE DESK SCRIPT GUARD'S FILE. The hub's bin/agent-worktree writes a
+  # desk-local .npmrc (script-shell = the npm script guard) before it links a
+  # desk's node_modules to the primary's, and it links only when git ignores
+  # that file (DeskNodeModules#guard_refusal). Unignored, every turf desk falls
+  # back to a full `npm ci`, and a desk that did take the file could not be
+  # removed clean. Asked of git against a REAL .npmrc in a probe repo seeded with
+  # this repo's .gitignore, so the answer is what git does, not what the file says.
+  def test_git_ignores_the_desk_npmrc
+    in_probe_repo do |dir|
+      File.write(File.join(dir, ".npmrc"), "script-shell=/nonexistent/guard\n")
+
+      _out, _err, status = probe_git(dir, "check-ignore", "-q", ".npmrc")
+      assert status.success?,
+             "this repo's .gitignore does not cover .npmrc, so desks cannot take the " \
+             "npm script guard and bin/agent-worktree installs instead of linking"
+
+      out, = probe_git(dir, "status", "--porcelain", "--untracked-files=all")
+      listed = out.lines.map(&:strip).select { |l| l.include?(".npmrc") }
+      assert_empty listed, "git still offers .npmrc as untracked: #{listed.join(', ')}"
+    end
+  end
+
   private
 
   # A throwaway git repo carrying THIS repo's real .gitignore. Seeding it from
