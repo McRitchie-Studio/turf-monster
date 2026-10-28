@@ -150,41 +150,16 @@ class NodeToolingAdoptionTest < ActiveSupport::TestCase
     "studio/host_fetchers" => "host_fetchers.js"
   }.freeze
 
-  # Path-named pins the released engine hook does not map. Each is named with its
-  # reason; a test that needs one imports it by file path instead. An entry may
-  # also resolve to exactly the file the browser loads (a newer engine mapping
-  # it), and nothing else.
-  UNMAPPED = {
-    # The hook maps a bare top-level name only when it matches /^[a-z_]+$/, so a
-    # digit leaves it out. studio-engine PR #494 (task importmap-hook-maps-digit-
-    # names) widens it to /^[a-z0-9_]+$/; drop base58 from UNMAPPED once Turf
-    # bumps to an engine release carrying that fix.
-    "base58" => "a digit in a top-level name"
-  }.freeze
-
   test "the node:test hook maps every path-named pin onto the file the browser loads" do
     assert_hook_maps_pins(hook_resolutions(Rails.application.importmap.packages.keys))
-  end
-
-  test "an UNMAPPED pin passes unmapped or mapped to the browser's file, and fails mapped elsewhere" do
-    resolved = hook_resolutions(Rails.application.importmap.packages.keys)
-    UNMAPPED.each_key do |name|
-      file = Rails.application.assets.load_path.find(Rails.application.importmap.packages.fetch(name).path).path.to_s
-
-      assert_hook_maps_pins(resolved.merge(name => nil))  # the released engine
-      assert_hook_maps_pins(resolved.merge(name => file)) # an engine that maps it
-
-      wrong = Rails.root.join("vendor/javascript/#{name}-elsewhere.js").to_s
-      error = assert_raises(Minitest::Assertion) { assert_hook_maps_pins(resolved.merge(name => wrong)) }
-      assert_match(/#{Regexp.escape(name)}/, error.message)
-      assert_match(/#{Regexp.escape(wrong)}/, error.message)
-    end
   end
 
   private
 
   # Every path-named pin resolves, under `resolved` (name => absolute path the
   # hook maps it to, nil when unmapped), to the file the browser loads.
+  # A digit-named pin (base58) is held here too: the engine hook's top-level
+  # gate takes /^[a-z0-9_]+$/ since studio-engine 0.116.1.
   def assert_hook_maps_pins(resolved)
     packages = Rails.application.importmap.packages
     checked = 0
@@ -197,14 +172,6 @@ class NodeToolingAdoptionTest < ActiveSupport::TestCase
         next
       end
       next unless pin.path == "#{name}.js" # a `to:` alias ("canvas-confetti"); the prefix hook cannot map it
-
-      if UNMAPPED.key?(name)
-        # nil on the released engine; exactly the browser's file once the engine maps it.
-        assert_includes [nil, file], resolved[name],
-                        "node --test resolves UNMAPPED #{name.inspect} to #{resolved[name].inspect}, " \
-                        "neither unmapped nor the import map's #{file}"
-        next
-      end
 
       assert_equal file, resolved[name], "node --test resolves #{name.inspect} to a different file than the import map"
       checked += 1
