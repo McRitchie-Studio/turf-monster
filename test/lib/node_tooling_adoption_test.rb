@@ -150,17 +150,43 @@ class NodeToolingAdoptionTest < ActiveSupport::TestCase
     "studio/host_fetchers" => "host_fetchers.js"
   }.freeze
 
-  # Path-named pins the engine hook does not map at all. Each is named with its
-  # reason; a test that needs one imports it by file path instead.
+  # Path-named pins the released engine hook does not map. Each is named with its
+  # reason; a test that needs one imports it by file path instead. An entry may
+  # also resolve to exactly the file the browser loads (a newer engine mapping
+  # it), and nothing else.
   UNMAPPED = {
     # The hook maps a bare top-level name only when it matches /^[a-z_]+$/, so a
-    # digit leaves it out. An engine follow-up, not a Turf choice.
+    # digit leaves it out. studio-engine PR #494 (task importmap-hook-maps-digit-
+    # names) widens it to /^[a-z0-9_]+$/; drop base58 from UNMAPPED once Turf
+    # bumps to an engine release carrying that fix.
     "base58" => "a digit in a top-level name"
   }.freeze
 
   test "the node:test hook maps every path-named pin onto the file the browser loads" do
+    assert_hook_maps_pins(hook_resolutions(Rails.application.importmap.packages.keys))
+  end
+
+  test "an UNMAPPED pin passes unmapped or mapped to the browser's file, and fails mapped elsewhere" do
+    resolved = hook_resolutions(Rails.application.importmap.packages.keys)
+    UNMAPPED.each_key do |name|
+      file = Rails.application.assets.load_path.find(Rails.application.importmap.packages.fetch(name).path).path.to_s
+
+      assert_hook_maps_pins(resolved.merge(name => nil))  # the released engine
+      assert_hook_maps_pins(resolved.merge(name => file)) # an engine that maps it
+
+      wrong = Rails.root.join("vendor/javascript/#{name}-elsewhere.js").to_s
+      error = assert_raises(Minitest::Assertion) { assert_hook_maps_pins(resolved.merge(name => wrong)) }
+      assert_match(/#{Regexp.escape(name)}/, error.message)
+      assert_match(/#{Regexp.escape(wrong)}/, error.message)
+    end
+  end
+
+  private
+
+  # Every path-named pin resolves, under `resolved` (name => absolute path the
+  # hook maps it to, nil when unmapped), to the file the browser loads.
+  def assert_hook_maps_pins(resolved)
     packages = Rails.application.importmap.packages
-    resolved = hook_resolutions(packages.keys)
     checked = 0
     packages.each do |name, pin|
       file = Rails.application.assets.load_path.find(pin.path)&.path&.to_s
@@ -173,7 +199,10 @@ class NodeToolingAdoptionTest < ActiveSupport::TestCase
       next unless pin.path == "#{name}.js" # a `to:` alias ("canvas-confetti"); the prefix hook cannot map it
 
       if UNMAPPED.key?(name)
-        assert_nil resolved[name], "the hook maps #{name} now; drop it from UNMAPPED"
+        # nil on the released engine; exactly the browser's file once the engine maps it.
+        assert_includes [nil, file], resolved[name],
+                        "node --test resolves UNMAPPED #{name.inspect} to #{resolved[name].inspect}, " \
+                        "neither unmapped nor the import map's #{file}"
         next
       end
 
@@ -182,8 +211,6 @@ class NodeToolingAdoptionTest < ActiveSupport::TestCase
     end
     assert_operator checked, :>=, 140, "most of the #{packages.size} pins are path-named; the walk went blind"
   end
-
-  private
 
   # A job's text, from its key to the next top-level job.
   def job_body(name)
