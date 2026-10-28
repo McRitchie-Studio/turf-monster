@@ -103,6 +103,39 @@ for (const width of [768, 1280]) {
     expect(m.name.right, `the name is left of the avatar: ${msg}`).toBeLessThanOrEqual(m.avatar.left + 0.5);
     expect(m.seeds.right, `the seeds bar is left of the avatar: ${msg}`).toBeLessThanOrEqual(m.avatar.left + 0.5);
 
+    // ONE ACCOUNT CONTROL TO THE EYE (Alex McRitchie: "there is a different
+    // function on the name hover vs avatar and gear"). Pointing at the name and
+    // pointing at the avatar must light the same things the same way: the
+    // name, the avatar's ring and the gear (engine.css, THE ACCOUNT GROUP).
+    const lit = () => page.evaluate((sel) => {
+      const h = document.querySelector(sel);
+      const cs = (el) => getComputedStyle(el);
+      return {
+        name: cs(h.querySelector("[data-nav-name]")).color,
+        ring: cs(h.querySelector("[data-nav-account] > [aria-hidden] > *")).boxShadow,
+        gear: cs(h.querySelector("[data-nav-menu-trigger] [aria-controls]")).color,
+      };
+    }, HEADER);
+    const settle = () => page.waitForTimeout(350);
+    await page.mouse.move(5, 700); await settle();
+    const rest = await lit();
+    await page.locator(`${HEADER} [data-nav-account]`).hover(); await settle();
+    const viaAvatar = await lit();
+    await page.mouse.move(5, 700); await settle();
+    await page.locator(`${HEADER} [data-nav-name-trigger]`).hover(); await settle();
+    const viaName = await lit();
+    const all = JSON.stringify({ rest, viaAvatar, viaName });
+    expect(rest.ring, `control: the ring is off at rest ${all}`).toBe("none");
+    expect(viaAvatar.ring, `the avatar lights its ring ${all}`).not.toBe("none");
+    expect(viaAvatar.name, `the avatar lights the name ${all}`).not.toBe(rest.name);
+    expect(viaAvatar.gear, `the avatar lights the gear ${all}`).not.toBe(rest.gear);
+    expect(viaName, `the name lights exactly what the avatar lights ${all}`).toEqual(viaAvatar);
+
+    // ...and does exactly what the avatar does.
+    const action = (sel) => page.locator(`${HEADER} ${sel}`).evaluate((el) =>
+      ["aria-controls", "aria-haspopup", "@click.stop", ":aria-expanded", "data-profile-image-toggle"].map((a) => el.getAttribute(a)));
+    expect(await action("[data-nav-name-trigger]")).toEqual(await action("[data-nav-account]"));
+
     await page.locator(`${HEADER} [data-nav-name-trigger]`).click();
     await expect(page.locator("#gear-sidebar")).toBeVisible();
   });
