@@ -44,6 +44,8 @@ for (const width of [768, 1024, 1280]) {
         overflow: getComputedStyle(nameEl).textOverflow,
         hitGear: !!(hit && hit.closest("[data-gear-sidebar-trigger]")),
         hitAccount: !!(hit && hit.closest("[data-nav-account], [data-nav-name-trigger]")),
+        avatarRight: h.querySelector("[data-nav-account] > [aria-hidden]").getBoundingClientRect().right,
+        innerWidth, scrollWidth: document.documentElement.scrollWidth,
       };
     }, [HEADER, LONG_NAME]);
     const msg = JSON.stringify(m);
@@ -54,6 +56,8 @@ for (const width of [768, 1024, 1280]) {
     for (const part of ["gear", "toggle", "seeds"]) {
       expect(clear(m.name, m[part]), `the name's box intersects the ${part}: ${msg}`).toBe(true);
     }
+    expect(m.avatarRight, `the avatar stays on screen: ${msg}`).toBeLessThanOrEqual(m.innerWidth + 0.5);
+    expect(m.scrollWidth, `no sideways scroll: ${msg}`).toBeLessThanOrEqual(m.innerWidth);
     expect(m.hitGear, `the gear's centre hits the gear: ${msg}`).toBe(true);
     expect(m.hitAccount, `the gear's centre must not hit the account button: ${msg}`).toBe(false);
 
@@ -62,6 +66,41 @@ for (const width of [768, 1024, 1280]) {
     await expect(page.locator("#gear-sidebar")).toBeVisible();
   });
 }
+
+// [e2e] A REAL-LENGTH NAME NEVER PUSHES THE AVATAR OFF SCREEN (Carl and Shannon's
+// review of /tasks/turf-navbar-name-stacks-over-level). With the name in row 1,
+// the icon column's min-content counted the up-to-7rem name, and "Alexander"
+// scrolled the page 11px sideways at 768/900/1024 and 3px at 1100; "Christopher"
+// 27px. The column now shrinks and only the name gives way. Runs on either
+// engine shape (the name in row 1 or in the account), so it never skips.
+test("9- and 11-character names keep the avatar on screen with no sideways scroll from 768 to 1100px", async ({ page, request }) => {
+  test.setTimeout(90_000);
+  await reseed(request);
+  await loginAdmin(page);
+  const rows = [];
+  for (const width of [768, 900, 1024, 1100]) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.goto("/contests");
+    await expect(page.locator(`${HEADER} [data-nav-account]`)).toBeVisible();
+    await page.waitForLoadState("networkidle");
+    for (const name of ["Alexander", "Christopher"]) {
+      rows.push(await page.evaluate(async ([sel, name, width]) => {
+        const h = document.querySelector(sel);
+        h.querySelector("[data-nav-name]").textContent = name;
+        for (let i = 0; i < 2; i++) await new Promise((r) => requestAnimationFrame(r));
+        const avatar = h.querySelector("[data-nav-account] > [aria-hidden]").getBoundingClientRect();
+        const de = document.documentElement;
+        return { width, name, avatarLeft: avatar.left, avatarRight: avatar.right, innerWidth, scrollWidth: de.scrollWidth, clientWidth: de.clientWidth };
+      }, [HEADER, name, width]));
+    }
+  }
+  for (const r of rows) {
+    const msg = JSON.stringify(r);
+    expect(r.avatarLeft, `the avatar starts on screen: ${msg}`).toBeGreaterThanOrEqual(0);
+    expect(r.avatarRight, `the avatar ends on screen: ${msg}`).toBeLessThanOrEqual(r.innerWidth + 0.5);
+    expect(r.scrollWidth, `no sideways scroll: ${msg}`).toBe(r.clientWidth);
+  }
+});
 
 // [e2e] THE NAME STACKS OVER THE SEEDS BAR (/tasks/turf-navbar-name-stacks-over-level).
 // Alex McRitchie: "the username and exp bar should stack like before" — before
@@ -91,6 +130,7 @@ for (const width of [768, 1280]) {
         avatar: box(h.querySelector("[data-nav-account] > [aria-hidden]")),
         gear: box(h.querySelector("[data-nav-tools] [data-gear-sidebar-trigger]")),
         accountHasName: !!h.querySelector("[data-nav-account] [data-nav-name]"),
+        innerWidth, scrollWidth: document.documentElement.scrollWidth,
       };
     }, HEADER);
     const msg = JSON.stringify(m);
@@ -102,6 +142,8 @@ for (const width of [768, 1280]) {
     expect(m.name.left, `the name follows the gear: ${msg}`).toBeGreaterThanOrEqual(m.gear.right - 0.5);
     expect(m.name.right, `the name is left of the avatar: ${msg}`).toBeLessThanOrEqual(m.avatar.left + 0.5);
     expect(m.seeds.right, `the seeds bar is left of the avatar: ${msg}`).toBeLessThanOrEqual(m.avatar.left + 0.5);
+    expect(m.avatar.right, `the avatar stays on screen: ${msg}`).toBeLessThanOrEqual(m.innerWidth + 0.5);
+    expect(m.scrollWidth, `no sideways scroll: ${msg}`).toBeLessThanOrEqual(m.innerWidth);
 
     // ONE ACCOUNT CONTROL TO THE EYE (Alex McRitchie: "there is a different
     // function on the name hover vs avatar and gear"). Pointing at the name and

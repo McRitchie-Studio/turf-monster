@@ -1323,7 +1323,13 @@
 # Studio.navbar_name_in_rows, which is the released gem this lane resolves until Turf pins
 # the engine release that ships it, so allowed_skips rises to 6 below and executed holds.
 # Derived with `npx playwright test --list` -> 553 tests in 115 files.
-total_specs: 553
+# 553 -> 554 (turf-navbar-name-stacks-over-level, review bounce): one spec in
+# e2e/navbar_long_name.spec.js, 9- and 11-character names keep the avatar on screen with
+# no sideways scroll at 768/900/1024/1100 (Carl and Shannon measured 11px and 27px of
+# scroll). It runs on either engine shape, no skip, so allowed_skips holds at 6.
+# Verified RED with the icon column's old min-content rule (Christopher at 768: 771 > 768).
+# Derived with `npx playwright test --list` -> 554 tests in 115 files.
+total_specs: 554
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need funded devnet wallets: the secrets
 # SOLANA_BOT_KEY and MACK_DEVNET_KEY (never literals; test/lib/committed_secret_key_guard_test.rb).
@@ -1740,7 +1746,9 @@ allowed_skips: 6
 # total_specs above; chromium, no skip.
 # 530 holds (turf-navbar-name-stacks-over-level): two specs beside total_specs above, and
 # two more allowed skips, until the engine release that ships navbar_name_in_rows is pinned.
-executed: 530
+# 530 -> 531 (turf-navbar-name-stacks-over-level, review bounce): the no-sideways-scroll
+# sweep beside total_specs above; chromium, no skip.
+executed: 531
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a
