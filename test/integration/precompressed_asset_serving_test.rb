@@ -13,31 +13,33 @@ require Rails.root.join("lib/precompressed_assets")
 #
 # Two stacks, because the test stack is not production's: development and test
 # run Propshaft::Server after Static (config.assets.server), production does not.
-#   * The app's own stack: the file is in public/assets, where Static answers.
+#   * The app's own stack: Rails.application.middleware, every middleware in the
+#     app's order, with only Static's root swapped (see below).
 #   * A production-shaped stack: Static, then Deflater with the app's own policy
 #     (ResponseCompression.compress?), then a 404 app, in production's order,
 #     with no Propshaft::Server.
 # Each asserts the response carries Content-Encoding: gzip and its bytes ARE the
 # .gz on disk, which Deflater could not produce (it stamps its own header and
 # mtime), so a second compression or an on-the-fly one is caught too.
+#
+# Both serve from a private public root per test (test/support/private_public_root.rb),
+# never the app's shared public/assets: parallel CI workers raced over that
+# directory (task turf-asset-test-stops-racing).
 class PrecompressedAssetServingTest < ActionDispatch::IntegrationTest
+  include PrivatePublicRoot
+
   GZIP = { "Accept-Encoding" => "gzip, deflate, br" }.freeze
   BODY = (".turf-probe { color: rgb(var(--color-primary) / 1); }\n" * 200).freeze
 
   setup do
-    @dir = Rails.root.join("public/assets/precompressed-probe-#{SecureRandom.hex(4)}")
-    @made_assets = !@dir.dirname.exist?
+    @dir = private_public_root.join("assets/precompressed-probe-#{SecureRandom.hex(4)}")
     FileUtils.mkdir_p(@dir)
     @css = @dir.join("probe-#{SecureRandom.hex(4)}.css")
     File.write(@css, BODY)
-    @url = "/assets/#{@css.relative_path_from(Rails.root.join('public/assets'))}"
+    @url = "/#{@css.relative_path_from(private_public_root)}"
   end
 
-  # Leave public/ as it was: a stray public/assets breaks a release check.
-  teardown do
-    FileUtils.rm_rf(@dir)
-    Dir.rmdir(@dir.dirname) if @made_assets && Dir.exist?(@dir.dirname) && Dir.empty?(@dir.dirname)
-  end
+  teardown { remove_private_public_root }
 
   def gz_bytes = File.binread("#{@css}.gz")
 
@@ -52,28 +54,21 @@ class PrecompressedAssetServingTest < ActionDispatch::IntegrationTest
   test "through the app's stack, Static serves the .gz and Deflater leaves it alone" do
     PrecompressedAssets.write(@dir)
 
-    get @url, headers: GZIP
+    status, headers, body = call_rack_stack(app_stack_serving_private_root, @url, GZIP)
 
-    assert_served_precompressed(response.status, response.headers, response.body.b)
-    assert_equal DigestedAssetCache::ONE_YEAR, response.headers["cache-control"]
+    assert_served_precompressed(status, headers, body)
+    assert_equal DigestedAssetCache::ONE_YEAR, headers["cache-control"]
   end
 
   def production_stack
     not_found = ->(_env) { [404, { "content-type" => "text/plain" }, ["not found"]] }
     deflater = Rack::Deflater.new(not_found, if: ResponseCompression.method(:compress?), sync: false)
-    static = ActionDispatch::Static.new(deflater, Rails.public_path.to_s,
+    static = ActionDispatch::Static.new(deflater, private_public_root.to_s,
                                         headers: { "cache-control" => "public, max-age=604800" })
     DigestedAssetCache.new(static)
   end
 
-  def call_production(headers = GZIP)
-    env = Rack::MockRequest.env_for(@url, headers.transform_keys { |k| "HTTP_#{k.upcase.tr('-', '_')}" })
-    status, response_headers, body = production_stack.call(env)
-    chunks = +"".b
-    body.each { |chunk| chunks << chunk.b }
-    body.close if body.respond_to?(:close)
-    [status, response_headers, chunks]
-  end
+  def call_production(headers = GZIP) = call_rack_stack(production_stack, @url, headers)
 
   test "through a production-shaped stack, the digested asset is served pre-encoded" do
     PrecompressedAssets.write(@dir)
