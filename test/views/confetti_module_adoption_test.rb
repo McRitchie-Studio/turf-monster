@@ -14,7 +14,9 @@ require "test_helper"
 # The behaviour is held elsewhere: test/javascript/solana_utils_confetti.test.mjs
 # runs the badge burst through the module, and e2e/confetti_module.spec.js fires
 # all three celebrations in a page. This file holds the spelling, so a new
-# caller cannot quietly go back to the global.
+# caller cannot quietly go back to the global under any of its names:
+# GLOBAL_READ bans typeof confetti and window / globalThis / self .confetti by
+# dot, optional chain or bracket, with comments stripped first.
 class ConfettiModuleAdoptionTest < ActiveSupport::TestCase
   SOLANA_UTILS = Rails.root.join("app/javascript/solana_utils.js")
   FACTORIES = Rails.root.join("app/views/shared/_alpine_factories.html.erb")
