@@ -82,29 +82,29 @@ class DigestedAssetCacheTest < ActiveSupport::TestCase
     assert_operator stack.index(DigestedAssetCache), :<, stack.index(ActionDispatch::Static)
   end
 
-  # Through the real stack: ActionDispatch::Static serves the file from
-  # public/assets, and the header that reaches the client is the year. The probe
-  # is named the way Propshaft names a file: an 8-hex digest.
+  # Through the app's own stack: ActionDispatch::Static serves the file from
+  # /assets, and the header that reaches the client is the year. The probe is
+  # named the way Propshaft names a file: an 8-hex digest. It lives in a private
+  # public root (test/support/private_public_root.rb), never the shared
+  # public/assets that parallel CI workers raced over (task
+  # turf-asset-test-stops-racing).
   class ThroughStaticTest < ActionDispatch::IntegrationTest
+    include PrivatePublicRoot
+
     setup do
-      @file = Rails.root.join("public/assets/digested-asset-cache-probe-#{SecureRandom.hex(4)}.txt")
-      @made_dir = !@file.dirname.exist?
+      @file = private_public_root.join("assets/digested-asset-cache-probe-#{SecureRandom.hex(4)}.txt")
       FileUtils.mkdir_p(@file.dirname)
       File.write(@file, "probe")
     end
 
-    # Leave public/ as it was: a stray public/assets breaks a release check.
-    teardown do
-      FileUtils.rm_f(@file)
-      Dir.rmdir(@file.dirname) if @made_dir && Dir.empty?(@file.dirname)
-    end
+    teardown { remove_private_public_root }
 
     test "[integration] a digested file served from public/assets carries a year" do
-      get "/assets/#{@file.basename}"
+      status, headers, body = call_rack_stack(app_stack_serving_private_root, "/assets/#{@file.basename}")
 
-      assert_response :success
-      assert_equal "probe", response.body
-      assert_equal DigestedAssetCache::ONE_YEAR, response.headers["cache-control"]
+      assert_equal 200, status
+      assert_equal "probe", body
+      assert_equal DigestedAssetCache::ONE_YEAR, headers["cache-control"]
     end
 
     test "[integration] an undigested public file does not" do
