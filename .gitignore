@@ -53,6 +53,9 @@ test-ledger/
 # them while CI stayed green: CI installs its own. Restoring the slash re-opens
 # exactly that hole.
 node_modules
+# A desk that links its packages writes .npmrc (script-shell = the npm script guard,
+# the hub's bin/lib/desk_node_modules.rb); ignored so the desk stays clean for `git worktree remove`.
+/.npmrc
 test-results/
 playwright-report/
 playwright/.cache/
