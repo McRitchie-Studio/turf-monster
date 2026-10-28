@@ -145,9 +145,10 @@ Studio.configure do |config|
   config.navbar_account_sidebar = { flag: "gearOpen", controls: GearSidebarPanels::IDS }
   # NO PHONE NAME (navbar_phone_name stays false): below 768px the name is
   # screen-reader text and the avatar stands alone, as on every engine navbar.
-  # On the engine user nav the name sits beside the avatar, not above the seeds
-  # bar, so on a phone it takes the seeds bar's width: measured with it on, the
-  # bar's 8rem floor ran 24px under the name at 390px and 46px at 320px.
+  # Measured beside the avatar (before navbar_name_in_rows), the name took the
+  # seeds bar's width: its 8rem floor ran 24px under the name at 390px and
+  # 46px at 320px. Over the seeds bar it would share row 1 with the balance
+  # instead; turning it on is a separate, measured change.
   # The navbar has always said display_name, never the engine's first name.
   config.navbar_user_name = :display_name
   # THE NAME STACKS OVER THE SEEDS BAR (/tasks/turf-navbar-name-stacks-over-level),
