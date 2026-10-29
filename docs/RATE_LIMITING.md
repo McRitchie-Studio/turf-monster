@@ -26,6 +26,14 @@ modal, never a silent no-op), built so the mechanism can be lifted into
 `throttle` blocks, no safelists/blocklists, a custom 429 responder, and a
 `throttle.rack_attack` WARN logger.
 
+**One middleware instance, registered by the gem.** rack-attack's Railtie adds
+`Rack::Attack` to the stack itself, before `OmniAuth::Builder`, so OmniAuth's
+request phase is behind the throttles. The initializer does not add it again:
+until `/tasks/turf-navbar-polish` it did, and the stack held a dead second
+instance after OmniAuth (it skipped every request already marked
+`rack.attack.called`). `test/initializers/rack_attack_middleware_test.rb` pins
+exactly one, ahead of OmniAuth; check with `bin/rails middleware | grep Attack`.
+
 **Re-derived from the file, 2026-09-07.** This table read `17` and listed
 seventeen rows while the initializer already held twenty-six — the three
 non-Stripe webhooks, the CDP and PayPal/Coinflow/Aeropay checkouts,
