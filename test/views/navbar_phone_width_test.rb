@@ -159,9 +159,12 @@ class NavbarPhoneWidthTest < ActiveSupport::TestCase
   test "the desktop band keeps its bare clamp" do
     _, _, desktop = width_declarations
 
-    assert_equal "clamp(16.5rem, calc(24vw + 0.5rem), 20.5rem)", desktop,
-                 "768px and up already measures the viewport through its own 24vw and has " \
-                 "448px of slack at its breakpoint; the phone floor is a phone number"
+    # /tasks/turf-navbar-polish: the old calc(24vw + 0.5rem) sat on the floor up
+    # to about 1000px and starved the name; the ramp reaches 20.5rem at 1024.
+    # Its own floor and ramp, measured by e2e/navbar_polish.spec.js.
+    assert_equal "clamp(16.5rem, calc(16.5rem + (100vw - 48rem) * 0.25), 20.5rem)", desktop,
+                 "768px and up grows the column a quarter of every pixel past its floor; " \
+                 "the phone floor is a phone number"
     refute_includes desktop, "--nav-left-need",
                     "the desktop band must not be tied to the phone bands' arithmetic"
   end
