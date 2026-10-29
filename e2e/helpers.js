@@ -321,6 +321,36 @@ async function routeHeadshots(page) {
 }
 
 /**
+ * Record whether a short-lived card showed, from inside the page, and return
+ * a reader. Call it BEFORE the press that opens the card; the reader is true
+ * once the text was ever painted (in the DOM, rendered, with a box).
+ *
+ * WHY NOT expect(...).toBeVisible(). Playwright's assertions poll: after the
+ * first checks (0, 20, 70, 170, 270ms) they look every 500ms. A card held for
+ * 450ms (studio-engine SAVING_HOLD_MS, studio/image_upload.js) that opens
+ * between two looks is gone by the next one, and the assertion waits out its
+ * timeout on "element(s) not found" (contest_banner.spec.js:31, CI run
+ * 40739020025). A MutationObserver sees every change that paints it.
+ * The flag sits in sessionStorage, so a save that answers with a full load
+ * (a native post) still reads it on the next document.
+ */
+async function recordShown(page, text) {
+  const key = `e2e:shown:${text}`;
+  await page.evaluate(([key, text]) => {
+    sessionStorage.removeItem(key);
+    const shown = () => Array.from(document.querySelectorAll("body *")).some((el) => {
+      if (el.childElementCount !== 0 || !el.textContent.includes(text)) return false;
+      const box = el.getBoundingClientRect();
+      return box.width > 0 && box.height > 0 && el.checkVisibility({ visibilityProperty: true });
+    });
+    new MutationObserver(() => {
+      if (!sessionStorage.getItem(key) && shown()) sessionStorage.setItem(key, "1");
+    }).observe(document.documentElement, { childList: true, subtree: true, attributes: true, characterData: true });
+  }, [key, text]);
+  return async () => (await page.evaluate((key) => sessionStorage.getItem(key), key)) === "1";
+}
+
+/**
  * Wait until Turf's lazy Stimulus registry has registered `name`
  * (app/javascript/turf_stimulus.js lists them on the root element). Until then
  * the controller's actions do nothing, so call this after a goto and before
@@ -352,4 +382,5 @@ module.exports = {
   attestAge,
   allowMotion,
   routeHeadshots,
+  recordShown,
 };

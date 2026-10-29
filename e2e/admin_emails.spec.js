@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { loginAdmin, reseed } = require("./helpers");
+const { loginAdmin, reseed, recordShown } = require("./helpers");
 const path = require("path");
 
 const IMG = path.join(__dirname, "..", "test", "fixtures", "files", "banner_wide.png");
@@ -145,12 +145,13 @@ test.describe("Admin emails manager", () => {
     await page.locator('input[type="file"][x-ref="filePicker"]').setInputFiles(IMG);
     await expect(page.locator(".cropper-container")).toBeVisible();
 
-    await page.getByRole("button", { name: /Crop & Save/i }).click();
-
     // The saving card is the proof the cropped blob reached the page's hidden
     // multipart form and submitted — it is opened by submitFormWithProgress on
-    // the same page-scoped store.
-    await expect(page.getByText("Saving banner")).toBeVisible();
+    // the same page-scoped store. It is held 450ms, so it is recorded from the
+    // page (e2e/helpers.js recordShown): a polling assertion can miss it.
+    const savingShown = await recordShown(page, "Saving banner");
+    await page.getByRole("button", { name: /Crop & Save/i }).click();
+    await expect.poll(savingShown, { message: "the saving card showed" }).toBe(true);
 
     // The banner PATCH redirects back to the manager index (not to the email's
     // own page), whatever the bucket says, and the modal does not stick. A card

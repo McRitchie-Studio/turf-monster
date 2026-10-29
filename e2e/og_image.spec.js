@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { loginAdmin, reseed } = require("./helpers");
+const { loginAdmin, reseed, recordShown } = require("./helpers");
 const path = require("path");
 
 const OG_IMAGE = path.join(__dirname, "..", "test", "fixtures", "files", "banner_wide.png");
@@ -69,10 +69,13 @@ test.describe("Contest link preview (og:image) uses the banner", () => {
     const bannerSave = page.waitForResponse((response) =>
       ["PATCH", "POST"].includes(response.request().method()) && response.url().includes("/banner")
     );
+    // The saving card is held 450ms; record it from the page, since a polling
+    // assertion can look either side of it (e2e/helpers.js recordShown).
+    const savingShown = await recordShown(page, "Saving banner");
     await page.getByRole("button", { name: /Crop.*Save/ }).click();
-    await expect(page.getByText("Saving banner")).toBeVisible();
     expect((await bannerSave).ok()).toBeTruthy();
     await expect(page.getByText("Banner updated")).toBeVisible({ timeout: 15_000 });
+    expect(await savingShown(), "the saving card showed while the banner saved").toBe(true);
     // The preview <img> is the proof the attachment landed; navigating before it
     // appears reads the page back before the banner exists.
     await expect(page.locator("#contest-banner-preview img")).toBeVisible();

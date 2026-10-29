@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { loginAdmin, reseed } = require("./helpers");
+const { loginAdmin, reseed, recordShown } = require("./helpers");
 const path = require("path");
 
 const BANNER_WIDE = path.join(__dirname, "..", "test", "fixtures", "files", "banner_wide.png");
@@ -27,11 +27,14 @@ test.describe("Contest banner editor (edit screen)", () => {
     const bannerSave = page.waitForResponse((response) =>
       ["PATCH", "POST"].includes(response.request().method()) && response.url().includes("/banner")
     );
+    // The saving card is held 450ms; record it from the page, since a polling
+    // assertion can look either side of it (e2e/helpers.js recordShown).
+    const savingShown = await recordShown(page, "Saving banner");
     await page.getByRole("button", { name: /Crop.*Save/ }).click();
-    await expect(page.getByText("Saving banner")).toBeVisible();
     const bannerResponse = await bannerSave;
     expect(bannerResponse.ok()).toBeTruthy();
     await expect(page.getByText("Banner updated")).toBeVisible({ timeout: 15_000 });
+    expect(await savingShown(), "the saving card showed while the banner saved").toBe(true);
     await expect(page.locator("#contest-banner-preview img")).toBeVisible();
   });
 
