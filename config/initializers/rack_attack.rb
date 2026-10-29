@@ -49,7 +49,11 @@
 # test/initializers/rack_attack_cache_outage_test.rb pins this against a store
 # that fails the way production's does.
 
-Rails.application.config.middleware.use Rack::Attack
+# No `config.middleware.use Rack::Attack` here: rack-attack 6.x's Railtie
+# registers the middleware itself, before OmniAuth::Builder, and a second line
+# here added a dead second instance after it (Rack::Attack#call skips a
+# request already marked "rack.attack.called"). Exactly one instance, ahead of
+# OmniAuth: test/initializers/rack_attack_middleware_test.rb.
 
 if Rails.env.test?
   Rack::Attack.enabled = false
