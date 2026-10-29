@@ -1342,7 +1342,7 @@ total_specs: 554
 # exclusion later is a red build rather than a quiet loss of coverage.
 excluded: 17
 
-# THE RUNTIME SKIPS THIS LANE TOLERATES — six, each with a NAMED reason.
+# THE RUNTIME SKIPS THIS LANE TOLERATES — four, each with a NAMED reason.
 #
 # A runtime skip exits 0 and reports green; it is the one axis no source-level guard can
 # close. So the count is DECLARED. One more than this is RED and the gate names the
@@ -1352,7 +1352,7 @@ excluded: 17
 # THIS GATE'S FIRST REAL RUN found them: 122 executed against a claimed 128, on a lane
 # whose three shards ALL reported PASS. Nothing in the repo declared what the skips cost.
 #
-# The six:
+# The four:
 #
 #   MISSING SECRET (2) — the webhook-signature specs, which need a real key to sign with.
 #     · e2e/financial.spec.js:140  COINFLOW_WEBHOOK_VALIDATION_KEY not set on the e2e stack
@@ -1360,12 +1360,10 @@ excluded: 17
 #     Covered authoritatively by the Rails tests (webhooks/aeropay_controller_test.rb +
 #     token_purchase_job_test.rb), which sign with a fixture key.
 #
-#   ENGINE AHEAD (2) — the stacked-name specs (turf-navbar-name-stacks-over-level), which
-#   skip while the resolved studio-engine has no Studio.navbar_name_in_rows. They run, and
-#   pass, against the engine branch; the task that pins the engine release that ships the
-#   setting takes this back to 4 and executed up by 2.
-#     · e2e/navbar_long_name.spec.js  at 768px the name sits over the seeds bar …
-#     · e2e/navbar_long_name.spec.js  at 1280px the name sits over the seeds bar …
+#   ENGINE AHEAD (2) — RETIRED (turf-e2e-knows-two-account-triggers): the stacked-name
+#   specs in e2e/navbar_long_name.spec.js skipped while the resolved studio-engine had no
+#   Studio.navbar_name_in_rows. The lock now resolves 0.116.2.rc1, which ships it, so they
+#   execute and left this allowance for `executed`.
 #
 #   QUARANTINED (2) — `test.fixme`, COVERED NOWHERE. Not a considered exclusion, an
 #   admission; re-homing these is backlog, not a config edit.
@@ -1380,7 +1378,7 @@ excluded: 17
 # describing the two specs that had LEFT, which is the same misleading label this lane
 # exists to catch. The key is the honest one now: an allowance for runtime skips,
 # whatever their reason.
-allowed_skips: 6
+allowed_skips: 4
 
 # total_specs - excluded - allowed_skips. What the lane MUST execute, asserted against the
 # runner's own report, so no source-level spelling on any axis can move it without moving
@@ -1748,7 +1746,10 @@ allowed_skips: 6
 # two more allowed skips, until the engine release that ships navbar_name_in_rows is pinned.
 # 530 -> 531 (turf-navbar-name-stacks-over-level, review bounce): the no-sideways-scroll
 # sweep beside total_specs above; chromium, no skip.
-executed: 531
+# 531 -> 533 (turf-e2e-knows-two-account-triggers): the two stacked-name specs execute now
+# that the lock resolves studio-engine 0.116.2.rc1 (navbar_name_in_rows on); allowed_skips
+# returns to 4.
+executed: 533
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

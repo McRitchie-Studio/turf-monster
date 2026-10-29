@@ -74,7 +74,7 @@ test("signed in, the avatar opens the gear sidebar, at 390 and 1280", async ({ p
     await at(page, width);
     const panel = page.locator(width < 768 ? "#gear-sidebar-mobile" : "#gear-sidebar");
     await expect(panel).toBeHidden();
-    await page.locator(`${HEADER} [data-profile-image-toggle]`).click();
+    await page.locator(`${HEADER} [data-nav-account][data-profile-image-toggle]`).click();
     await expect(panel).toBeVisible();
     // Still open a beat later: the panel closes on @click.outside.
     await page.waitForTimeout(300);
