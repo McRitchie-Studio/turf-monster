@@ -1328,8 +1328,8 @@
 # no sideways scroll at 768/900/1024/1100 (Carl and Shannon measured 11px and 27px of
 # scroll). It runs on either engine shape, no skip, so allowed_skips holds at 6.
 # Verified RED with the icon column's old min-content rule (Christopher at 768: 771 > 768).
-# Derived with `npx playwright test --list` -> 554 tests in 115 files.
-total_specs: 554
+# Derived with `npx playwright test --list` -> 555 tests in 115 files (turf-flaky-tests-steady: +1).
+total_specs: 555
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need funded devnet wallets: the secrets
 # SOLANA_BOT_KEY and MACK_DEVNET_KEY (never literals; test/lib/committed_secret_key_guard_test.rb).
@@ -1749,7 +1749,9 @@ allowed_skips: 4
 # 531 -> 533 (turf-e2e-knows-two-account-triggers): the two stacked-name specs execute now
 # that the lock resolves studio-engine 0.116.2.rc1 (navbar_name_in_rows on); allowed_skips
 # returns to 4.
-executed: 533
+# 533 -> 534 (turf-flaky-tests-steady): the navbar_scroll_timeline spec that grows a
+# row before nav_band_watch's first ResizeObserver report, red on the old watcher.
+executed: 534
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

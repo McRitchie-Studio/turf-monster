@@ -32,7 +32,38 @@
 // with no window resize. A stale --nav-brand-shrink would then open or close the
 // gap as the page scrolls. Its width is layout, not paint: the scroll-driven
 // scale is a transform, so this never fires per scroll frame.
+//
+// THE FIRST DELIVERY IS A READING, NOT A BASELINE (/tasks/turf-flaky-tests-steady).
+// The controller measures when it starts, at connect; this watcher begins at
+// turbo:load, and a ResizeObserver reports each element once, on the first
+// frame after observe(). Seeding the last sizes from that first report
+// swallowed any change that landed before it: a balance or seeds row that
+// hydrated between the controller's measure and that frame (a long task after
+// load is enough) became the baseline, nothing asked for a re-measure, and
+// --nav-band stayed 2px short of the header's collapse for good (CI run
+// 40789678684, 1280px; with Studio.navbar_name_in_rows the name and the
+// balance share row 1, so row 1 is the one that moves). So the sizes are read
+// when observe() is called, and the first report compares against them; and
+// because a change can also land before this watcher starts (between connect
+// and turbo:load), the first report checks the band itself against the
+// header's own collapse and asks for a re-measure when they disagree.
 let observer = null
+
+// The header's own collapse: its height at rest less its height with the
+// collapse forced, the same reading the controller publishes as --nav-band.
+// The two writes cancel inside one task, so no frame ever paints them.
+function bandIsStale(header) {
+  const band = parseFloat(header.style.getPropertyValue("--nav-band"))
+  if (!Number.isFinite(band)) return false
+  const prior = header.style.getPropertyValue("--nav-p")
+  header.style.removeProperty("--nav-p")
+  const rest = header.offsetHeight
+  header.style.setProperty("--nav-p", "1")
+  const collapsed = header.offsetHeight
+  if (prior) header.style.setProperty("--nav-p", prior)
+  else header.style.removeProperty("--nav-p")
+  return Math.abs(band - (rest - collapsed)) > 0.5
+}
 
 function watch() {
   if (observer) observer.disconnect()
@@ -52,15 +83,19 @@ function watch() {
   // --nav-brand-shrink by its width.
   const size = (el) => (el === brand ? el.offsetWidth : el.offsetHeight)
 
-  const last = new Map()
+  const last = new Map(watched.map((el) => [el, size(el)]))
+  let first = true
   observer = new ResizeObserver((entries) => {
     let changed = false
     entries.forEach(({ target }) => {
       const value = size(target)
-      if (last.has(target) && last.get(target) !== value) changed = true
+      if (last.get(target) !== value) changed = true
       last.set(target, value)
     })
-    if (changed && header.hasAttribute("data-nav-timeline-on")) window.dispatchEvent(new Event("resize"))
+    const on = header.hasAttribute("data-nav-timeline-on")
+    if (first && on && !changed) changed = bandIsStale(header)
+    if (on) first = false
+    if (changed && on) window.dispatchEvent(new Event("resize"))
   })
   watched.forEach((el) => observer.observe(el))
 }
