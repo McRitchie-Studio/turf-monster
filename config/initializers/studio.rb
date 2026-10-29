@@ -311,8 +311,12 @@ Studio.configure do |config|
     NewsletterSeedGrant.call(user) if subscribed && first_join
   end
 
+  # Resend sends from team@mcritchie.studio (every app does; a client's own
+  # domain is a tier upgrade). The engine ignores the retired ses_from:, and
+  # with no resend_from: it would default to "<app_name> <team@...>", so the
+  # name is pinned here to match ApplicationMailer::RESEND_FROM.
   config.mailer_from = Studio.mailer_from_for_transport(
-    ses_from: "Turf Monster <team@turfmonster.media>"
+    resend_from: "McRitchie Studio <team@mcritchie.studio>"
   )
 
   config.theme_logos = [
