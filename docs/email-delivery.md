@@ -32,6 +32,10 @@ Turf uses the shared Studio engine mail transport:
   That domain must be verified in the active Resend account; do not swap the
   fallback sender to `team@turfmonster.media` unless `turfmonster.media` is
   also present and verified in Resend.
+- The display name is pinned in `config/initializers/studio.rb` through
+  `resend_from: "McRitchie Studio <team@mcritchie.studio>"` (`RESEND_MAILER_FROM`
+  still wins). studio-engine ignores the retired `ses_from:` and, with no
+  `resend_from:`, would default to `Turf Monster <team@mcritchie.studio>`.
 - SES transactional/auth/security/contest email uses `Turf Monster <team@turfmonster.media>`.
 - SES newsletter/marketing email uses `Alex from Turf Monster <alex@turfmonster.media>`.
 - Tests always use `:test` in memory; the transport no-ops in `Rails.env.test?`.
