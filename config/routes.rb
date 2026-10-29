@@ -725,6 +725,7 @@ Rails.application.routes.draw do
     get  "test/user_info/:slug",          to: "test#user_info"
     post "test/warm_entry_tokens",        to: "test#warm_entry_tokens"
     post "test/set_age_verified",         to: "test#set_age_verified"
+    post "test/set_username",             to: "test#set_username"
     post "test/hold_open_contests",       to: "test#hold_open_contests"
   end
 

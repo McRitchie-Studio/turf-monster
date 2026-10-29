@@ -21,6 +21,7 @@ pin "state_fanout"
 pin "cdp_offramp_send"
 pin "page_experiments"
 pin "nav_band_watch"
+pin "nav_labels"
 
 # The request wrappers studio-engine's cards borrow by name (the newsletter cards
 # name authedFetch). The engine pins "studio/host_fetchers" to an empty module;
