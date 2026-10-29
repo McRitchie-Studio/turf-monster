@@ -162,6 +162,39 @@ test.describe("Navbar scroll timeline", () => {
       { message: "the compact bar is on screen after the resize" }).toBe(measured.collapsed);
   });
 
+  // /tasks/turf-flaky-tests-steady. A row of the account column that changes
+  // height before the watcher's ResizeObserver first reports (CI run
+  // 40789678684: the band stayed 2px short at 1280 for the whole poll) must
+  // still bring a re-measure. Both windows: the row grows in the task that
+  // starts the watcher, before its first report; and it grows BEFORE the
+  // watcher starts, after the controller measured. Re-dispatching turbo:load
+  // starts the watcher again, as a Turbo visit does.
+  test("a row that grows before the watcher's first report still moves the band", async ({ page }) => {
+    await page.setViewportSize(DESKTOP);
+    await login(page, PLAYER);
+    await page.goto("/contests");
+    await settled(page);
+    const stale = () => page.locator(HEADER).evaluate((h) => {
+      const band = parseFloat(h.style.getPropertyValue("--nav-band"));
+      h.style.setProperty("--nav-p", "1");
+      const collapsed = h.offsetHeight;
+      h.style.removeProperty("--nav-p");
+      return Math.abs(band - (h.offsetHeight - collapsed));
+    });
+    const grow = (when) => page.locator(HEADER).evaluate((h, when) => {
+      const row = h.querySelector("[data-nav-tools] > *");
+      const pad = () => { row.style.paddingBottom = `${(parseFloat(row.style.paddingBottom) || 0) + 2}px`; };
+      if (when === "before") pad();
+      document.dispatchEvent(new Event("turbo:load"));
+      if (when === "after") pad();
+    }, when);
+
+    for (const when of ["after", "before"]) {
+      await grow(when);
+      await expect.poll(stale, { message: `the band follows a row grown ${when} the watcher starts` }).toBeLessThanOrEqual(0.5);
+    }
+  });
+
   // /tasks/turf-navbar-avatar-table-header. On the timeline nothing writes
   // --nav-p, so before this the avatar, name and level kept their rest size in
   // the compact bar, and the avatar sat at the window edge, 80px right of the
