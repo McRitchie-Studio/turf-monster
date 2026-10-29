@@ -439,6 +439,20 @@ class TestController < ApplicationController
     render json: { ok: true, slug: current_user.slug, age_verified: current_user.age_attested_at.present? }
   end
 
+  # Gives the signed-in user a username, so a spec can render a real long name
+  # in the navbar (e2e/navbar_polish.spec.js). Validated as a user's own change
+  # is (3..30 characters, letters, digits, hyphen, underscore), so a spec can
+  # only seed a name a real account could hold.
+  def set_username
+    return render json: { error: "not logged in" }, status: :unauthorized unless current_user
+
+    if current_user.update(username: params[:username].to_s)
+      render json: { ok: true, slug: current_user.slug, username: current_user.username }
+    else
+      render json: { ok: false, errors: current_user.errors.full_messages }, status: :unprocessable_entity
+    end
+  end
+
   def grant_managed_wallet
     return render json: { error: "not logged in" }, status: :unauthorized unless current_user
 
