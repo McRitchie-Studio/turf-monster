@@ -1329,7 +1329,13 @@
 # scroll). It runs on either engine shape, no skip, so allowed_skips holds at 6.
 # Verified RED with the icon column's old min-content rule (Christopher at 768: 771 > 768).
 # Derived with `npx playwright test --list` -> 555 tests in 115 files (turf-flaky-tests-steady: +1).
-total_specs: 555
+# 555 -> 559 (turf-navbar-polish): four specs in ONE new file, e2e/navbar_polish.spec.js —
+# a real 29-character username signed in at 360/768/1024/1280 in light and in dark (two
+# specs), the layout with every :has() rule deleted (red on the old min-content default:
+# 810 > 768), and the account group's shared hover with the theme toggle outside it.
+# Chromium, no skip, so excluded holds at 17 and allowed_skips at 4. Derived with
+# bin/e2e-lane-derive --write.
+total_specs: 559
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need funded devnet wallets: the secrets
 # SOLANA_BOT_KEY and MACK_DEVNET_KEY (never literals; test/lib/committed_secret_key_guard_test.rb).
@@ -1751,7 +1757,9 @@ allowed_skips: 4
 # returns to 4.
 # 533 -> 534 (turf-flaky-tests-steady): the navbar_scroll_timeline spec that grows a
 # row before nav_band_watch's first ResizeObserver report, red on the old watcher.
-executed: 534
+# 534 -> 538 (turf-navbar-polish): the four navbar_polish specs beside total_specs above;
+# chromium, no skip.
+executed: 538
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a
