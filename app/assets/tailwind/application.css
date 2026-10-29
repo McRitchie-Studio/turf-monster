@@ -1003,15 +1003,20 @@
     width: clamp(var(--user-nav-floor), calc(100vw - var(--nav-left-need)), 15rem);
   }
 }
-/* From 768 to about 1000px the old 24vw width sat on its 16.5rem floor, and
-   the name got about 67px of its 7rem cap (/tasks/turf-navbar-polish). The
-   second term grows the column a quarter of every pixel past 768, to 19.5rem
-   (the name's full 7rem) by 960px, while the row's left side keeps the slack
-   it had at 768 (the links end about 90px short there). The 24vw term takes
-   over at 1280, so 1280 and wider measure exactly as before. */
+/* From 768 to 1024px the old width (24vw + 0.5rem) sat on its 16.5rem floor,
+   and the name got about 67px of its 7rem cap beside a four-digit balance
+   (/tasks/turf-navbar-polish). The column now grows a quarter of every pixel
+   past 768 and reaches 20.5rem at 1024, where the name has its
+   full 7rem beside a five-digit balance. 768 keeps the floor: the geo badge
+   ends about 20px short of the column there, so the row has nothing to give,
+   and the name truncates with its full text as a title (nav_labels.js). The
+   row's left side keeps its slack at every width (e2e/navbar_polish.spec.js). */
 @media (min-width: 768px) {
   .nav-shell .user-nav-col {
-    width: clamp(16.5rem, max(calc(24vw + 0.5rem), min(calc(16.5rem + (100vw - 48rem) * 0.25), 19.5rem)), 20.5rem);
+    width: clamp(16.5rem, calc(16.5rem + (100vw - 48rem) * 0.25), 20.5rem);
+    /* The phone cap above (20rem) held the old width to 20rem too, below
+       its own 20.5rem clamp. */
+    max-width: 20.5rem;
   }
 }
 

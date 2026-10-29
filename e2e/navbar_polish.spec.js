@@ -12,12 +12,14 @@ const { login, reseed } = require("./helpers");
 //     screen, every tab stop in the header named by its text or aria-label (a
 //     title alone does not count), the theme toggles' pressed state matching
 //     the theme, and from 768 the name truncating with its full text as a title.
-//   · 768 to 1024: the name gets more than the ~67px it had (the 7rem cap from
-//     960px).
+//   · 1024: the name gets its full 7rem cap (it had about 67px); at 768 the
+//     row has no slack to give, so there it truncates with its title.
 //   · without :has(): every :has() rule is deleted from the page's stylesheets,
 //     as a browser without the selector drops them, and the layout still holds.
-//   · the name's hover is its own: hovering the name colours it, hovering the
-//     avatar or the gear does not.
+//   · the hovers stay as they were: the gear, the name and the avatar open one
+//     sidebar and light as one group (engine.css, THE ACCOUNT GROUP), each in
+//     its own way (the name and the gear take the primary colour, the avatar
+//     glows), and the theme toggle this card labels stays outside the group.
 const EMAIL = "navbar-polish@e2e.test";
 const LONG_NAME = "Christopher_Montgomery_Wellin";
 const HEADER = "header[data-navbar-root]";
@@ -30,6 +32,17 @@ async function signInWithLongName(page, request, theme) {
   await login(page, EMAIL);
   const res = await page.request.post("/test/set_username", { data: { username: LONG_NAME } });
   expect(res.ok(), await res.text()).toBe(true);
+}
+
+// A new account's balance reads "$0", the narrowest the seat gets; most real
+// rows read wider, and the row's slack is what this card is about. So the seat
+// is given a five-digit balance in the page, as e2e/navbar_long_name.spec.js
+// gives the name its text: the layout is the same whatever wrote the digits.
+async function widenBalance(page) {
+  await page.evaluate(async (sel) => {
+    document.querySelectorAll(`${sel} [data-balance-display]`).forEach((el) => { el.textContent = "$10240"; });
+    for (let i = 0; i < 2; i++) await new Promise((r) => requestAnimationFrame(r));
+  }, HEADER);
 }
 
 async function measure(page) {
@@ -60,7 +73,14 @@ async function measure(page) {
     const nameEl = trigger && trigger.querySelector("[data-nav-name]");
     const avatar = h.querySelector("[data-nav-account]");
     const gear = [...h.querySelectorAll("[data-gear-sidebar-trigger]")].find(visible);
+    // The row's left side: the links and the items after them (geo badge,
+    // wallet signal) must end before the account column starts.
+    const col = h.querySelector(".user-nav-col");
+    const leftItems = [...h.querySelectorAll("[data-nav-links] a, .geo-badge, [data-wallet-signal]")]
+      .filter((el) => visible(el) && !col.contains(el));
     return {
+      leftEnd: Math.max(0, ...leftItems.map((el) => el.getBoundingClientRect().right)),
+      colLeft: col.getBoundingClientRect().left,
       dark: document.documentElement.classList.contains("dark"),
       innerWidth, scrollWidth: document.documentElement.scrollWidth,
       avatar: box(avatar.querySelector("[aria-hidden]") || avatar), avatarLabel: avatar.getAttribute("aria-label"),
@@ -86,6 +106,7 @@ for (const theme of ["light", "dark"]) {
       await page.waitForLoadState("networkidle");
       // nav_labels.js runs on turbo:load; wait for it rather than racing it.
       await expect(page.locator(`${HEADER} .nav-toggle-icon > button[aria-label]`).first()).toBeAttached();
+      await widenBalance(page);
 
       const m = await measure(page);
       const msg = `${theme} ${width}px: ${JSON.stringify(m)}`;
@@ -94,6 +115,7 @@ for (const theme of ["light", "dark"]) {
       expect(m.scrollWidth, `no sideways scroll: ${msg}`).toBeLessThanOrEqual(m.innerWidth);
       expect(m.avatar.right, `the avatar stays on screen: ${msg}`).toBeLessThanOrEqual(m.innerWidth + 0.5);
       expect(m.avatarLabel, msg).toBe(LONG_NAME);
+      expect(m.leftEnd, `the links and items end before the account column: ${msg}`).toBeLessThanOrEqual(m.colLeft + 0.5);
       expect(m.unnamed, `every tab stop has a name: ${msg}`).toEqual([]);
       // Two toggles per page, the desktop rail and the phone row.
       expect(m.toggles.length, msg).toBe(2);
@@ -112,8 +134,12 @@ for (const theme of ["light", "dark"]) {
         expect(m.name.truncated, msg).toBe(true);
         expect(m.name.overflow, msg).toBe("ellipsis");
         expect(m.name.right, `the name ends before the avatar: ${msg}`).toBeLessThanOrEqual(m.avatar.left + 0.5);
-        // ~67px at 768 (the column's floor); the full 7rem cap from 960px.
-        expect(m.name.width, msg).toBeGreaterThanOrEqual(width >= 1024 ? 111 : 60);
+        // At 768 the column stays on its 16.5rem floor: the geo badge ends
+        // about 20px short of it, so there is no room to take, and the name
+        // truncates with its title (about 55px beside a five-digit balance).
+        // The column grows from there and the name has its full 7rem at 1024
+        // (it had about 67px beside a four-digit balance).
+        expect(m.name.width, msg).toBeGreaterThanOrEqual(width >= 1024 ? 111 : 48);
       }
 
       await testInfo.attach(`navbar-${theme}-${width}.png`, {
@@ -151,6 +177,7 @@ test("without :has() (every :has() rule deleted) a long name still keeps the ava
       return navRules;
     });
     expect(stripped, "the navbar's :has() rule was found and removed").toBeGreaterThan(0);
+    await widenBalance(page);
     for (let i = 0; i < 2; i++) await page.evaluate(() => new Promise((r) => requestAnimationFrame(r)));
 
     const m = await measure(page);
@@ -163,22 +190,42 @@ test("without :has() (every :has() rule deleted) a long name still keeps the ava
   }
 });
 
-test("the name's hover stays its own: the name colours on hover, the avatar and the gear leave it alone", async ({ page, request }) => {
+test("the hovers stay as they were: name, avatar and gear light as one group, each its own way; the theme toggle stays out", async ({ page, request }) => {
   await signInWithLongName(page, request, "dark");
   await page.setViewportSize({ width: 1024, height: 800 });
   await page.goto("/contests");
   await page.waitForLoadState("networkidle");
   const name = page.locator(`${HEADER} [data-nav-name-trigger] [data-nav-name]`);
-  const color = () => name.evaluate((el) => getComputedStyle(el).color);
+  const avatar = page.locator(`${HEADER} [data-nav-account] > [aria-hidden] > *`).first();
+  const gear = page.locator(`${HEADER} [data-nav-tools] [data-gear-sidebar-trigger]`);
+  const look = async () => ({
+    name: await name.evaluate((el) => getComputedStyle(el).color),
+    avatar: await avatar.evaluate((el) => getComputedStyle(el).boxShadow),
+    gear: await gear.evaluate((el) => getComputedStyle(el).color),
+  });
 
   await page.mouse.move(5, 400);
-  const rest = await color();
-  await page.locator(`${HEADER} [data-nav-name-trigger]`).hover();
-  await expect.poll(color, { message: "the name colours on its own hover" }).not.toBe(rest);
+  const rest = await look();
+  expect(rest.avatar, "the avatar has no glow at rest").toBe("none");
 
-  await page.locator(`${HEADER} [data-nav-account]`).hover();
-  await expect.poll(color, { message: "the avatar's hover leaves the name alone" }).toBe(rest);
+  for (const [label, target] of [
+    ["name", page.locator(`${HEADER} [data-nav-name-trigger]`)],
+    ["avatar", page.locator(`${HEADER} [data-nav-account]`)],
+    ["gear", gear],
+  ]) {
+    await page.mouse.move(5, 400);
+    await expect.poll(look, { message: `back to rest before the ${label}` }).toEqual(rest);
+    await target.hover();
+    await expect.poll(async () => {
+      const lit = await look();
+      return { name: lit.name !== rest.name, avatar: lit.avatar !== "none", gear: lit.gear !== rest.gear };
+    }, { message: `pointing at the ${label} lights the name, the avatar's glow and the gear` }).toEqual({ name: true, avatar: true, gear: true });
+  }
 
-  await page.locator(`${HEADER} [data-nav-tools] [data-gear-sidebar-trigger]`).hover();
-  await expect.poll(color, { message: "the gear's hover leaves the name alone" }).toBe(rest);
+  await page.mouse.move(5, 400);
+  await expect.poll(look).toEqual(rest);
+  await page.locator(`${HEADER} [data-nav-tools] .nav-toggle-icon > button`).hover();
+  // Give a wrong rule time to apply, then hold the line.
+  await page.waitForTimeout(300);
+  expect(await look(), "the theme toggle is not part of the account group").toEqual(rest);
 });
