@@ -81,7 +81,9 @@ function watch() {
     document.fonts.addEventListener("loadingdone", () => { const h = liveHeader(); if (h) settle(h) })
   }
   if (typeof ResizeObserver !== "function") return
-  const watched = [found.row, ...(found.nav ? Array.from(found.nav.children) : [])]
+  // The row (a resize), the nav itself (a child added or grown) and each of
+  // its children (a hydrate inside a child the nav's own box may not show yet).
+  const watched = [found.row, ...(found.nav ? [found.nav, ...found.nav.children] : [])]
   observer = new ResizeObserver(() => settle(header))
   watched.forEach((el) => observer.observe(el))
 }

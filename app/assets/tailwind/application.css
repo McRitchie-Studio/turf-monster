@@ -948,8 +948,16 @@
      and Alex McRitchie did not want either the stack or the ellipsis: where
      "Turf Monster" cannot fit on one line the navbar shows the mascot alone
      (THE BRAND FITS OR IT IS THE MASCOT, below). So no column here, and both
-     words take the one lead size, as they do from 768px. */
+     words take the one lead size, as they do from 768px. The engine's own
+     band table (engine.css) still stacks below 768, so this undoes it. */
   @media (max-width: 767px) {
+    .nav-shell .nav-title {
+      flex-direction: row;
+      gap: 0.25em;
+    }
+    .nav-shell .nav-title span:first-child {
+      margin-bottom: 0;
+    }
     .nav-logo-link {
       gap: 0.5rem;
     }
