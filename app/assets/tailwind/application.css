@@ -837,7 +837,10 @@
      column has no use for is not free, it is just spent somewhere the header's
      own guard does not look.
 
-     WHAT THE READER GETS, swept one pixel at a time rather than reasoned. The
+     WHAT THE READER GOT, while the wordmark still stacked (since
+     /tasks/turf-navbar-logo-when-tight it is one line, and a phone too narrow
+     for it shows the mascot alone: THE BRAND FITS OR IT IS THE MASCOT, below).
+     Swept one pixel at a time rather than reasoned, the
      whole wordmark fits from 363px up; below that its longer word ELLIPSES —
      86px of it at 360px, 70px at 344px, 46px at 320px — instead of painting
      over the seeds bar. The floor stops binding at 369px, so 363..368 is the
@@ -943,27 +946,20 @@
      avatar's: it is 40px from 768px, not 32 (THE ACCOUNT ROW, SIZED AND ALIGNED
      AS ON THE HUB, below), and the column grows by the same 8px so the username
      keeps the width it had. */
+  /* THE PHONE BANDS KEEP THE WORDMARK ON ONE LINE (/tasks/turf-navbar-logo-when-tight).
+     They used to stack it ("Turf" over "Monster") with each word truncating,
+     and Alex McRitchie did not want either the stack or the ellipsis: where
+     "Turf Monster" cannot fit on one line the navbar shows the mascot alone
+     (THE BRAND FITS OR IT IS THE MASCOT, below). So no column here, and both
+     words take the one lead size, as they do from 768px. The engine's own
+     band table (engine.css) still stacks below 768, so this undoes it. */
   @media (max-width: 767px) {
-    .nav-title {
-      flex-direction: column;
-      gap: 0;
-      line-height: 1.15;
-      /* STRETCH, AND IT IS THE HALF OF THE TRUNCATION THAT ACTUALLY BITES.
-         Below 768px this element turns into a COLUMN, which puts its cross axis
-         horizontal — so `align-items` is now what decides each word's WIDTH.
-         The base rule says `baseline`, which in a column container falls back to
-         flex-start, so every span sized to its own max-content and `truncate`
-         had no narrower box to clip against. MEASURED with the width caps and
-         the whole min-w-0 chain in place and this one line missing: the <h1>
-         shrank to 46px at 320px and reported itself contained, while the span
-         reading "Monster" stayed 88px wide and painted to x=156 — 26px past the
-         left column's edge at 130 and straight over the seeds bar. Both numbers
-         are true at once, which is why the spec asserts the SPAN's right edge
-         and not only the h1's. */
-      align-items: stretch;
+    .nav-shell .nav-title {
+      flex-direction: row;
+      gap: 0.25em;
     }
-    .nav-title span:first-child {
-      margin-bottom: -4px;
+    .nav-shell .nav-title span:first-child {
+      margin-bottom: 0;
     }
     .nav-logo-link {
       gap: 0.5rem;
@@ -971,8 +967,8 @@
     .nav-shell {
       --nav-ramp: 120px;
       --nav-logo-size: calc(3rem - 0.5rem * var(--nav-p));            /* 48px -> 40px   */
-      --nav-title-size: calc(1.25rem - 0.25rem * var(--nav-p));       /* 20px -> 16px   */
-      --nav-title-lead-size: calc(1.5rem - 0.35rem * var(--nav-p));   /* 24px -> 18.4px */
+      --nav-title-size: calc(1.5rem - 0.35rem * var(--nav-p));        /* 24px -> 18.4px */
+      --nav-title-lead-size: var(--nav-title-size);                   /* one line here */
     }
   }
   @media (max-width: 399px) {
@@ -980,12 +976,97 @@
       gap: 0.25rem;
     }
     .nav-shell {
-      --nav-title-size: calc(1.1rem - 0.2rem * var(--nav-p));         /* 17.6px -> 14.4px */
-      --nav-title-lead-size: calc(1.3rem - 0.3rem * var(--nav-p));    /* 20.8px -> 16px   */
+      --nav-title-size: calc(1.3rem - 0.3rem * var(--nav-p));         /* 20.8px -> 16px */
     }
   }
 
   /* Theme CSS custom properties are now engine-generated via studio_theme_css_tag */
+}
+
+/* THE BRAND FITS OR IT IS THE MASCOT (/tasks/turf-navbar-logo-when-tight).
+   Alex McRitchie, on the truncated "T… Mo…" at a mid width and the stacked
+   "Turf / Monster" on a phone: "You should use the navbar logo." So the
+   wordmark shows only where "Turf Monster" fits whole on one line beside the
+   mascot and the links; anywhere else the navbar draws the mascot alone. No
+   ellipsis and no second line, at any width.
+
+   WHO DECIDES. app/javascript/nav_brand_fit.js measures it on the live header:
+   with nothing allowed to shrink and the words whole, does the row's last item
+   (the desktop links, or the logo link on a phone, where the links have their
+   own row) still end inside the row? It writes data-nav-brand="fit" or
+   "tight" on the header, again whenever the row, a link or a nav item (the geo
+   badge and the wallet chip hydrate after load, wider or narrower) changes
+   size, and when a font loads. Only geometry knows: the wallet chip alone runs
+   from "Managed wallet" to "No wallet in this browser", so no breakpoint can.
+
+   BEFORE IT HAS RUN (first paint, or no script) a container query on the left
+   column guesses from the room it has: the room the logo and the one-line words
+   need, plus the 6px of face-substitution slack measured above. Below 768px the
+   links are not in this row, so that guess is the whole answer and the script
+   only confirms it; from 768px the guess can only say "certainly not", and the
+   script says the rest. The script's answer wins either way.
+
+   HIDDEN FOR THE EYE, NOT FOR A SCREEN READER. The words are the page's h1
+   (the engine's brand_heading), so they leave the layout (out of flow, a 1px
+   clipped box, the sr-only pattern) rather than the accessibility tree; the
+   logo keeps its alt, "Turf Monster", and the link its name. Out of flow, the
+   h1 takes no part in the logo link's gap, so the link is the mascot's width
+   and the links sit beside it. While the script measures (data-nav-brand-measure,
+   set and cleared inside one task, so no frame paints it) the words are back
+   in flow and nothing in the row may shrink. Guards:
+   test/views/navbar_brand_fit_test.rb, test/javascript/nav_brand_fit.test.mjs,
+   e2e/navbar_brand_fit.spec.js. */
+.nav-shell > .nav-row > div:first-child {
+  container: nav-brand-row / inline-size;
+}
+.nav-shell[data-nav-brand-measure] .nav-logo-link,
+.nav-shell[data-nav-brand-measure] .nav-row nav {
+  flex-shrink: 0;
+}
+/* The mascot never gives way. Hidden words leave the link exactly the logo's
+   width, and a row still short of room (a nav item wider than the whole
+   left column) squeezes the links, not the mascot: MEASURED at 768 with a
+   30-character chip, the min-w-0 link shrank to 31px and cropped the logo. */
+.nav-shell[data-nav-brand="tight"] .nav-logo-link,
+.nav-shell .nav-logo-link > .nav-logo {
+  flex-shrink: 0;
+}
+.nav-shell[data-nav-brand="tight"]:not([data-nav-brand-measure]) .nav-title {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+/* The guess, on the column's content box: the logo (48px), the link's gap
+   and the one-line words at the band's size, each word's width measured in Montserrat (24px 156.5px,
+   20.8px 135.6px, 30px 195.7px), plus 6px. */
+@container nav-brand-row (max-width: 218.4px) {
+  @media (min-width: 400px) and (max-width: 767px) {
+    .nav-shell:not([data-nav-brand]) .nav-title {
+      position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+      overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+    }
+  }
+}
+@container nav-brand-row (max-width: 193.5px) {
+  @media (max-width: 399px) {
+    .nav-shell:not([data-nav-brand]) .nav-title {
+      position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+      overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+    }
+  }
+}
+@container nav-brand-row (max-width: 261.6px) {
+  @media (min-width: 768px) {
+    .nav-shell:not([data-nav-brand]) .nav-title {
+      position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+      overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+    }
+  }
 }
 
 /* THE COLUMN WIDTHS (.user-nav-col), the phone caps measured above. UNLAYERED:
