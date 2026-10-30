@@ -38,6 +38,18 @@ class NavbarBrandFitTest < ActionDispatch::IntegrationTest
     nil
   end
 
+  # Every declaration block whose selector list names `selector` among others:
+  # the minifier merges rules that declare the same thing.
+  def blocks_naming(selector)
+    want = squeeze(selector)
+    css.scan(/([^{}]+)\{([^{}]*)\}/).filter_map { |sel, body| body if squeeze(sel).split(",").include?(want) }
+  end
+
+  def assert_never_shrinks(selector)
+    assert blocks_naming(selector).any? { |body| body.match?(/flex-shrink:\s*0/) },
+           "no rule gives #{selector} flex-shrink: 0"
+  end
+
   def squeeze(selector)
     selector.gsub(/\s+/, " ").gsub(/\s*([>,+~])\s*/, "\\1").strip
   end
@@ -84,9 +96,13 @@ class NavbarBrandFitTest < ActionDispatch::IntegrationTest
   end
 
   test "while measuring, nothing in the row may shrink" do
-    body = block_for(".nav-shell[data-nav-brand-measure] .nav-logo-link, .nav-shell[data-nav-brand-measure] .nav-row nav")
-    assert body, "no measure-state rule"
-    assert_match(/flex-shrink:\s*0/, body)
+    assert_never_shrinks(".nav-shell[data-nav-brand-measure] .nav-logo-link")
+    assert_never_shrinks(".nav-shell[data-nav-brand-measure] .nav-row nav")
+  end
+
+  test "the mascot never gives way to the row" do
+    assert_never_shrinks(".nav-shell[data-nav-brand=tight] .nav-logo-link")
+    assert_never_shrinks(".nav-shell .nav-logo-link > .nav-logo")
   end
 
   test "the deciding script is pinned and imported" do

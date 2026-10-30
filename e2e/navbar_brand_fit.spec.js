@@ -36,6 +36,8 @@ async function brand(page) {
       titleHeight: tr.height,
       fontSize: parseFloat(getComputedStyle(title.lastElementChild).fontSize),
       logoAlt: logo && logo.getAttribute("alt"),
+      // Layout width, untouched by the desktop collapse's transform.
+      logoWidth: logo ? logo.offsetWidth : 0,
       linkRight: link.getBoundingClientRect().right,
       navLeft: nav ? nav.getBoundingClientRect().left : null,
       docOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -46,6 +48,8 @@ async function brand(page) {
 function expectOneLineOrHidden(b, label) {
   expect(b.state, `${label}: the script has not answered`).toMatch(/^(fit|tight)$/);
   expect(b.logoAlt, `${label}: the mascot lost its name`).toBe("Turf Monster");
+  // 48px at rest, 40 at the phone collapse's end; never squeezed by the row.
+  expect(b.logoWidth, `${label}: the mascot was squeezed`).toBeGreaterThanOrEqual(40);
   if (b.state === "tight") {
     expect(b.hidden, `${label}: tight, but the words still paint`).toBe(true);
     return;

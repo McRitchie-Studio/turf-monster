@@ -1023,6 +1023,14 @@
 .nav-shell[data-nav-brand-measure] .nav-row nav {
   flex-shrink: 0;
 }
+/* The mascot never gives way. Hidden words leave the link exactly the logo's
+   width, and a row still short of room (a nav item wider than the whole
+   left column) squeezes the links, not the mascot: MEASURED at 768 with a
+   30-character chip, the min-w-0 link shrank to 31px and cropped the logo. */
+.nav-shell[data-nav-brand="tight"] .nav-logo-link,
+.nav-shell .nav-logo-link > .nav-logo {
+  flex-shrink: 0;
+}
 .nav-shell[data-nav-brand="tight"]:not([data-nav-brand-measure]) .nav-title {
   position: absolute;
   width: 1px;
