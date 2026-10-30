@@ -165,10 +165,10 @@ async function usernameLegibility(page) {
   });
 }
 
-// THE SQUEEZE BAND. 768px is a cliff, not a slope: .user-nav-col stops growing
-// there (its clamp floor holds until 24vw overtakes 16rem near 1067px) at the
-// same moment the gear + theme toggle join the row, and the username is the only
-// item in it that can shrink. 768 and 1024 are the band's ends; 1366 is past it
+// THE SQUEEZE BAND. 768px is a cliff: .user-nav-col sits on its 16.5rem floor
+// there (it grows a quarter of every pixel past 768, /tasks/turf-navbar-polish)
+// at the same moment the gear + theme toggle join the row, and the username is
+// the only item in it that can shrink. 768 and 1024 are the band's ends; 1366 is past it
 // and proves the fix left the roomy widths alone.
 const FREE_ENTRY_VIEWPORTS = [
   { width: 1366, height: 800 },

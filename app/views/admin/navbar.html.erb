@@ -78,13 +78,16 @@
 
      The `+ 2 * var(--preview-frame)` adds the preview's own border back. The
      slider and the label count the border box; a percentage resolves against
-     the content box, so without it every column here is 4px narrow — and the
-     desktop band's `0.48 * var(--preview-frame)` is 24% of the same 4px.
+     the content box, so without it every column here is 4px narrow. The
+     desktop band takes the same correction: its ramp reads the device width
+     exactly where the shipped rule reads 100vw.
 
-     THE DESKTOP STEP NOW SAYS WHAT SHIPS TOO. It read a flat 20rem while the
-     shipped band is clamp(16.5rem, calc(24vw + 0.5rem), 20.5rem) — so the Tablet preview at 1032px
-     drew a 320px column where production draws 264px, a 56px lie in the
-     reviewer's own instrument.
+     THE DESKTOP STEP SAYS WHAT SHIPS TOO. It once read a flat 20rem against a
+     shipped 24vw clamp, and then kept that 24vw after /tasks/turf-navbar-polish
+     replaced it with a ramp, so the 1032px Tablet preview drew 264px where
+     production draws 328px. Every band here is now the shipped expression with 100vw
+     swapped for the device width, and test/views/navbar_phone_width_test.rb
+     derives each one from application.css rather than pinning a second copy.
 
      REMOVED, 2026-09-28: three `.username-cap` rules, at 5/6/7rem. No element in
      this app has ever carried that class — the name was capped by utilities on
@@ -102,7 +105,7 @@
   .navbar-preview.bp-small .user-nav-col { --nav-left-need: 12.25rem; width: clamp(var(--user-nav-floor), calc(100% + 2 * var(--preview-frame) - var(--nav-left-need)), 15rem) !important; }
 
   /* Desktop (768px+) */
-  .navbar-preview.is-desktop .user-nav-col { width: clamp(16.5rem, calc(24% + 0.48 * var(--preview-frame) + 0.5rem), 20.5rem) !important; }
+  .navbar-preview.is-desktop .user-nav-col { width: clamp(16.5rem, calc(16.5rem + (100% + 2 * var(--preview-frame) - 48rem) * 0.25), 20.5rem) !important; }
 
   /* Scrolled state. The size half of this used to be TWELVE !important rules
      restating every collapsed value; the toggle now just sets --nav-p: 1 on

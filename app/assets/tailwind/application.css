@@ -935,13 +935,14 @@
      than 172px. The cap reaches the plain 15rem at exactly 430px, which is why
      iPhone Pro Max width is unchanged by this fix. */
   /* A BARE CLAMP AT 768px AND UP — deliberately not measured against what the
-     left column needs. This band already reads the viewport through its own 24vw
-     and has 448px of slack at its breakpoint; there is nothing a tighter cap
-     could buy, and the floor above is a phone number. Unchanged by the phone
-     fix, and the squeeze-band notes further down this file still describe it.
-     The 0.5rem on every term is the avatar's: it is 40px from 768px, not 32
-     (THE ACCOUNT ROW, SIZED AND ALIGNED AS ON THE HUB, below), and the column
-     grows by the same 8px so the username keeps the width it had. */
+     left column needs. This band reads the viewport through its own ramp (a
+     quarter of every pixel past 768, from 16.5rem to 20.5rem at 1024; the
+     unlayered rule below, /tasks/turf-navbar-polish) and has 448px of slack at
+     its breakpoint; there is nothing a tighter cap could buy, and the floor
+     above is a phone number. The extra 0.5rem on its floor and cap is the
+     avatar's: it is 40px from 768px, not 32 (THE ACCOUNT ROW, SIZED AND ALIGNED
+     AS ON THE HUB, below), and the column grows by the same 8px so the username
+     keeps the width it had. */
   @media (max-width: 767px) {
     .nav-title {
       flex-direction: column;
@@ -1683,8 +1684,9 @@ body.modal-open { overflow: hidden; }
 }
 
 /* THE SQUEEZE BAND — md up to just under xl. Two things happen at exactly
-   768px and they compound: .user-nav-col STOPS GROWING (its clamp floor of
-   16rem holds until 24vw passes it at ~1067px) and the gear + theme toggle
+   768px and they compound: .user-nav-col STOPPED GROWING (its old 24vw clamp
+   sat on its floor up to about 1000px; since /tasks/turf-navbar-polish it grows
+   a quarter of every pixel past 768) and the gear + theme toggle
    JOIN the row (they are `hidden md:flex`, and below md they live in the
    mobile sub-navbar instead). So the column takes on ~44px of new controls
    against 16px of new width, and the username pays the difference — it is the
