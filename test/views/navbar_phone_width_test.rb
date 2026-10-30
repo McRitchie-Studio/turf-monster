@@ -268,6 +268,9 @@ class NavbarPhoneWidthTest < ActiveSupport::TestCase
   # instead of reading them drifts — and it had: its desktop step read a flat
   # 20rem against a shipped clamp(16rem, 24vw, 20rem), so the 1032px Tablet
   # preview drew a 320px column where production draws 256px.
+  # It drifted again: after /tasks/turf-navbar-polish replaced the 24vw clamp
+  # with a ramp, the preview kept the 24% copy, because this test pinned that
+  # copy instead of deriving it from the stylesheet.
   test "the navbar preview re-keys the shipped caps rather than restating them" do
     preview = self.class.strip_css_comments(PREVIEW.read.gsub(/<%#.*?%>/m, " "))
 
@@ -283,11 +286,22 @@ class NavbarPhoneWidthTest < ActiveSupport::TestCase
     # frame term adds the preview's own border back, because the slider and the
     # label count the border box while a percentage resolves against the content
     # box.
-    assert_includes tiny,
-                    "clamp(var(--user-nav-floor), calc(100% + 2 * var(--preview-frame) - var(--nav-left-need)), 14rem)"
-    assert_includes small,
-                    "clamp(var(--user-nav-floor), calc(100% + 2 * var(--preview-frame) - var(--nav-left-need)), 15rem)"
-    assert_includes desktop, "clamp(16.5rem, calc(24% + 0.48 * var(--preview-frame) + 0.5rem), 20.5rem)"
+    #
+    # DERIVED, NOT PINNED. Each preview band must be the shipped expression with
+    # 100vw swapped for the device width, so a change to application.css that
+    # leaves the preview behind goes red here. A second literal could not: the
+    # desktop preview kept the old calc(24% + ...) through
+    # /tasks/turf-navbar-polish, green, and drew 264px at its 1032px default
+    # where production draws 328px (/tasks/turf-navbar-stale-widths).
+    device = "100% + 2 * var(--preview-frame)"
+    [[tiny, "tiny"], [small, "small"], [desktop, "desktop"]].zip(width_declarations)
+      .each do |(rule, name), shipped|
+        assert_includes shipped, "100vw", "the shipped #{name} band no longer reads the viewport"
+        expected = shipped.gsub("100vw", device)
+        assert_includes rule, "width: #{expected} !important",
+                        "the #{name} preview no longer draws the shipped band (#{shipped}) " \
+                        "at the device width: #{rule.strip}"
+      end
 
     # THE BAND-SPECIFIC NUMBER EACH PREVIEW HAS TO RESTATE, derived rather than
     # asserted as a literal — and the reason both are checked is that reading
@@ -338,24 +352,48 @@ class NavbarPhoneWidthTest < ActiveSupport::TestCase
                  "the band table no longer parses out of #{DOC.basename} (found #{rows.length} rows)"
 
     documented = rows.flatten.map { |v| v.gsub(/\s+/, " ").strip }
-    shipped = width_declarations.map { |w| w.gsub("var(--user-nav-floor)", "11.875rem")
-                                            .gsub("var(--nav-left-need)", nil.to_s) }
 
-    # The doc spells the vars out, because a reader of prose cannot resolve them.
-    expected = [
-      "clamp(11.875rem, 100vw - 11.125rem, 14rem)",
-      "clamp(11.875rem, 100vw - 12.25rem, 15rem)",
-      "clamp(16.5rem, 24vw + 0.5rem, 20.5rem)"
-    ]
+    # The doc spells the vars out and drops the calc() wrapper, because a reader
+    # of prose cannot resolve them. Both sides are read from files, so the table
+    # cannot keep a width the stylesheet dropped (it kept 24vw + 0.5rem through
+    # /tasks/turf-navbar-polish while this test pinned that literal).
+    floor = user_nav_col_blocks.first[/--user-nav-floor:\s*([^;]+);/, 1]&.strip
+    assert floor, "the base band no longer declares --user-nav-floor"
+    needs = user_nav_col_blocks.map { |b| b[/--nav-left-need:\s*([^;]+);/, 1]&.strip }
+    assert_equal 2, needs.compact.length,
+                 "expected --nav-left-need on the two phone bands, got #{needs.inspect}"
+    expected = width_declarations.zip(needs).map do |width, need|
+      spelled = width.gsub("var(--user-nav-floor)", floor)
+      spelled = spelled.gsub("var(--nav-left-need)", need) if need
+      self.class.unwrap_calc(spelled)
+    end
     assert_equal expected, documented,
                  "the band table's .user-nav-col column disagrees with the shipped rules"
+  end
 
-    # And the substitutions it spells out are the ones actually declared, so the
-    # expectation above cannot quietly drift away from the stylesheet.
-    needs = user_nav_col_blocks.filter_map { |b| b[/--nav-left-need:\s*([^;]+);/, 1]&.strip }
-    assert_equal %w[11.125rem 12.25rem], needs,
-                 "the two phone bands' --nav-left-need values moved; the doc table's " \
-                 "spelled-out numbers (#{expected.first}, #{expected[1]}) are now wrong"
-    refute_empty shipped
+  # "clamp(a, calc(b - c), d)" -> "clamp(a, b - c, d)": drops each calc( and
+  # the paren that closes it, keeping any inner grouping parens.
+  def self.unwrap_calc(text)
+    out = +""
+    stack = []
+    i = 0
+    while i < text.length
+      if text[i, 5] == "calc("
+        stack << :calc
+        i += 5
+        next
+      end
+      ch = text[i]
+      if ch == "("
+        stack << :paren
+        out << ch
+      elsif ch == ")"
+        out << ch unless stack.pop == :calc
+      else
+        out << ch
+      end
+      i += 1
+    end
+    out
   end
 end
