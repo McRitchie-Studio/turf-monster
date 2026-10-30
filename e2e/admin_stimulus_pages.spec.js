@@ -439,3 +439,52 @@ test("each navbar preview resizes, fits its device and toggles Scrolled on its o
   await toggle.click();
   await expect(frame).toHaveClass(/is-scrolled-preview/);
 });
+
+// /tasks/turf-navbar-stale-widths: the Tablet preview kept the old 24% copy of
+// the desktop column after /tasks/turf-navbar-polish replaced it with a ramp,
+// and drew 264px at its 1032px default where the live navbar draws 328px. So
+// measure the live column at a viewport and the preview's at the same device
+// width, and ask that they agree, across the ramp (768 floor, 900 mid, 1024 cap).
+test("the Tablet navbar preview draws the live account column at each width", async ({ page }) => {
+  await loginAdmin(page);
+  const widths = [768, 900, 1024];
+  const live = {};
+  for (const width of widths) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.goto("/contests");
+    const col = page.locator(".nav-shell .user-nav-col").first();
+    await expect(col).toBeVisible();
+    live[width] = await col.evaluate((el) => el.getBoundingClientRect().width);
+  }
+  // The ramp itself: floor at 768, a quarter of every pixel past it, cap by 1024.
+  expect(live[768]).toBeCloseTo(264, 0);
+  expect(live[900]).toBeCloseTo(297, 0);
+  expect(live[1024]).toBeCloseTo(328, 0);
+
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await page.goto("/admin/navbar");
+  await lazyController(page, "navbar-preview");
+  // Pin the card by position: a hasText filter would stop matching once the
+  // slider moves its label off 1032px.
+  const cards = page.locator('[data-studio-controller="navbar-preview"]');
+  const labels = await cards.locator('[data-navbar-preview-target="label"]').allTextContents();
+  const tablet = labels.indexOf("1032px");
+  expect(tablet, `a Tablet preview among ${labels.join(", ")}`).toBeGreaterThanOrEqual(0);
+  const card = cards.nth(tablet);
+  const slider = card.locator('[data-navbar-preview-target="slider"]');
+  const label = card.locator('[data-navbar-preview-target="label"]');
+  const frame = card.locator('[data-navbar-preview-target="frame"]');
+  const col = frame.locator(".user-nav-col").first();
+  await expect(col).toBeVisible();
+  for (const width of widths) {
+    await slider.fill(String(width));
+    await expect(label).toHaveText(`${width}px`);
+    await expect(frame).toHaveCSS("width", `${width}px`);
+    // The frame eases to its new width; measure once the column has settled.
+    await expect.poll(() => col.evaluate((el) => el.getBoundingClientRect().width), {
+      message: `the ${width}px preview's column settles on the live width`,
+    }).toBeCloseTo(live[width], 0);
+    const drawn = await col.evaluate((el) => el.getBoundingClientRect().width);
+    expect(Math.abs(drawn - live[width]), `preview at ${width}px drew ${drawn}, live ${live[width]}`).toBeLessThanOrEqual(1);
+  }
+});
