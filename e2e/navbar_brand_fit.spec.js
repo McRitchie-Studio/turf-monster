@@ -79,6 +79,10 @@ for (const theme of ["light", "dark"]) {
       expectOneLineOrHidden(b, `${width}px signed out ${theme}`);
       expect(b.docOverflow, `${width}px: the page scrolls sideways`).toBeLessThanOrEqual(0);
       seen[width] = b.state;
+      // The home link keeps its name whether the words show or not: the
+      // mascot's alt, and the h1 still in the accessibility tree.
+      await expect(page.locator(HEADER).getByRole("link", { name: /Turf Monster/ }).first()).toBeVisible();
+      expect(await page.locator(`${HEADER} h1.nav-title`).evaluate((h) => h.textContent.trim()), `${width}px: the page's h1`).toBe("TurfMonster");
     }
     // The ends of the range are not in doubt: a 360px phone has no room for
     // the words beside the account column; a laptop has plenty.

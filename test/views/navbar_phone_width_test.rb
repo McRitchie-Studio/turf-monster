@@ -325,15 +325,13 @@ class NavbarPhoneWidthTest < ActiveSupport::TestCase
                    "MONITOR, not the simulated device: #{rule}")
     end
 
-    # The mobile preview turns the wordmark into a column, so it owes the same
-    # align-items reset the shipped band carries — without it the preview draws
-    # the spill this task removed.
+    # The mobile preview draws the wordmark as one row, as the shipped band does
+    # (/tasks/turf-navbar-logo-when-tight); a stacked preview shows a header no
+    # phone draws.
     mobile_title = preview[/\.navbar-preview\.is-mobile \.nav-title \{([^}]*)\}/, 1]
     assert mobile_title, "the preview's mobile .nav-title rule no longer parses"
-    assert_match(/flex-direction:\s*column/, mobile_title)
-    assert_match(/align-items:\s*stretch/, mobile_title,
-                 "align-items rides along with flex-direction; leaving it out makes the " \
-                 "preview show a header no phone draws")
+    assert_match(/flex-direction:\s*row/, mobile_title)
+    refute_match(/flex-direction:\s*column/, mobile_title)
   end
 
   # ── G. the document states numbers it does not own ──────────────────────

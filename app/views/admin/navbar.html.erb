@@ -24,15 +24,12 @@
   .navbar-preview.is-mobile .hidden.md\:block { display: none !important; }
   .navbar-preview.is-mobile .flex.md\:hidden { display: flex !important; }
   .navbar-preview.is-mobile .user-nav-col { padding-left: 0 !important; padding-right: 1rem !important; }
-  <%# align-items rides along with flex-direction, and leaving it out made this
-      preview draw a header no phone draws. A column container aligns on the
-      horizontal axis, so the shipped mobile band resets the base baseline to
-      stretch to give the wordmark's spans a box narrower than their own text to
-      truncate against. Without it here the preview shows the words at full
-      max-content width, spilling over the user column, which is the defect the
-      shipped rule fixes. %>
-  .navbar-preview.is-mobile .nav-title { flex-direction: column !important; gap: 0 !important; line-height: 1.15 !important; align-items: stretch !important; }
-  .navbar-preview.is-mobile .nav-title span:first-child { margin-bottom: -4px !important; }
+  <%# One line, as the shipped mobile band draws it (/tasks/turf-navbar-logo-when-tight):
+      the engine's band table stacks the title below 768px, which fires for
+      real on a desktop for neither frame, so this only has to keep the row.
+      Where the words do not fit, nav_brand_fit.js hides them in the preview
+      frame exactly as on a phone of that width. %>
+  .navbar-preview.is-mobile .nav-title { flex-direction: row !important; gap: 0.25em !important; line-height: 1.15 !important; }
   .navbar-preview.is-mobile .nav-logo-link { gap: 0.5rem !important; }
 
   /* Breakpoint simulation for the --nav-p sizes. The live navbar picks these
@@ -45,12 +42,12 @@
     --nav-logo-size: calc(3rem - 0.5rem * var(--nav-p));
   }
   .navbar-preview.bp-tiny .nav-shell {
-    --nav-title-size: calc(1.1rem - 0.2rem * var(--nav-p));
-    --nav-title-lead-size: calc(1.3rem - 0.3rem * var(--nav-p));
+    --nav-title-size: calc(1.3rem - 0.3rem * var(--nav-p));
+    --nav-title-lead-size: var(--nav-title-size);
   }
   .navbar-preview.bp-small .nav-shell {
-    --nav-title-size: calc(1.25rem - 0.25rem * var(--nav-p));
-    --nav-title-lead-size: calc(1.5rem - 0.35rem * var(--nav-p));
+    --nav-title-size: calc(1.5rem - 0.35rem * var(--nav-p));
+    --nav-title-lead-size: var(--nav-title-size);
   }
 
   /* THE USER-COLUMN WIDTH STEPS, re-keyed on the wrapper for the same reason the

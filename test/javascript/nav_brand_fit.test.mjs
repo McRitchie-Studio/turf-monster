@@ -62,7 +62,7 @@ async function boot() {
   observers = []
   globalThis.document = {
     addEventListener: (type, fn) => { listeners[type] = fn },
-    querySelector: () => w.header,
+    querySelectorAll: () => [w.header],
     fonts: { addEventListener: (type, fn) => { listeners[`fonts:${type}`] = fn } }
   }
   globalThis.ResizeObserver = class {
@@ -133,6 +133,20 @@ test("turbo:load answers at once, then re-answers when the row or a nav item res
   w.world.nav = 260 // the wallet chip hydrates wider
   ro.report()
   assert.equal(w.attrs.get("data-nav-brand"), "tight")
+})
+
+test("every navbar on the page is answered, a preview frame as well as the live header", () => {
+  const preview = stage({ room: 300, nav: 0 })
+  const live = w
+  globalThis.document.querySelectorAll = () => [live.header, preview.header]
+  listeners["turbo:load"]()
+  assert.equal(live.attrs.get("data-nav-brand"), "fit")
+  assert.equal(preview.attrs.get("data-nav-brand"), "fit")
+  assert.equal(observers.length, 2, "one observer per header")
+  preview.world.room = 200 // its slider narrows the frame
+  observers[1].report()
+  assert.equal(preview.attrs.get("data-nav-brand"), "tight")
+  assert.equal(live.attrs.get("data-nav-brand"), "fit")
 })
 
 test("a font load re-answers", () => {

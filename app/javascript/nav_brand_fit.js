@@ -9,7 +9,8 @@
 // Only geometry can answer it. The row beside the brand holds the desktop links
 // and the nav items, and the wallet chip alone runs from "Managed wallet" to
 // "No wallet in this browser"; the geo badge and the chip hydrate after load.
-// So this measures the live header: with the words back in flow and nothing in
+// So this measures each navbar header (the live one and the /admin/navbar
+// previews): with the words back in flow and nothing in
 // the row allowed to shrink (data-nav-brand-measure), does the row's last item
 // still end inside the row? It writes data-nav-brand="fit" or "tight" on the
 // header. The measure state is set and cleared inside one task, so no frame
@@ -30,7 +31,6 @@ const STATE = "data-nav-brand"
 // word 0.05px over its box, so a fit has to clear the row by this much.
 const SLACK = 1
 
-let observer = null
 let fontsHooked = false
 
 // The header's row: the flex that holds the logo link and, from 768px, the
@@ -65,27 +65,35 @@ export function settle(header) {
   return value
 }
 
-function liveHeader() {
-  return document.querySelector("header.nav-shell[data-navbar-root][data-studio-controller~='nav-collapse']")
+// Every navbar on the page: the live header, and the /admin/navbar previews,
+// which draw the same partial in a fixed-width frame. Geometry is the one
+// answer that holds for a frame no media query can see, so the previews get
+// it too and show what a phone of that width shows.
+function headers() {
+  return Array.from(document.querySelectorAll("header.nav-shell[data-navbar-root]"))
 }
 
+let observers = []
+
 function watch() {
-  if (observer) observer.disconnect()
-  observer = null
-  const header = liveHeader()
-  const found = header && parts(header)
-  if (!found) return
-  settle(header)
+  observers.forEach((o) => o.disconnect())
+  observers = []
+  const found = headers().map((header) => [header, parts(header)]).filter(([, p]) => p)
+  found.forEach(([header]) => settle(header))
   if (!fontsHooked && document.fonts && document.fonts.addEventListener) {
     fontsHooked = true
-    document.fonts.addEventListener("loadingdone", () => { const h = liveHeader(); if (h) settle(h) })
+    document.fonts.addEventListener("loadingdone", () => headers().forEach((h) => settle(h)))
   }
   if (typeof ResizeObserver !== "function") return
-  // The row (a resize), the nav itself (a child added or grown) and each of
-  // its children (a hydrate inside a child the nav's own box may not show yet).
-  const watched = [found.row, ...(found.nav ? [found.nav, ...found.nav.children] : [])]
-  observer = new ResizeObserver(() => settle(header))
-  watched.forEach((el) => observer.observe(el))
+  found.forEach(([header, { row, nav }]) => {
+    // The row (a resize, or a preview's slider), the nav itself (a child
+    // added or grown) and each of its children (a hydrate inside a child the
+    // nav's own box may not show yet).
+    const watched = [row, ...(nav ? [nav, ...nav.children] : [])]
+    const observer = new ResizeObserver(() => settle(header))
+    watched.forEach((el) => observer.observe(el))
+    observers.push(observer)
+  })
 }
 
 document.addEventListener("turbo:load", watch)
