@@ -104,8 +104,8 @@ class NavbarPhoneWidthTest < ActiveSupport::TestCase
   # ── B. the spans truncate, not the h1 ───────────────────────────────────
 
   test "both wordmark spans truncate individually" do
-    # .nav-title is itself display:flex — a column below 768px, a baseline row
-    # above — so the boxes that need clipping are the SPANS. `truncate` on the
+    # .nav-title is itself display:flex (a baseline row; in the engine a column
+    # below 768px) — so the boxes that need clipping are the SPANS. `truncate` on the
     # h1 clips the flex CONTAINER and leaves its items drawing outside it, which
     # is the bug rather than the fix. The engine draws Studio.navbar_brand's
     # words so, each its own span with the word's class plus truncate.
@@ -117,27 +117,23 @@ class NavbarPhoneWidthTest < ActiveSupport::TestCase
                     "truncate belongs on the spans; on the flex container it clips the wrong box"
   end
 
-  # THE OTHER HALF OF TRUNCATION, and the half that actually bit. Below 768px
-  # .nav-title becomes a COLUMN, which puts its cross axis horizontal — so
-  # align-items is what decides each word's WIDTH there. The base rule says
-  # `baseline`, which in a column container falls back to flex-start and lets
-  # each span size to its own max-content, leaving `truncate` nothing narrower
-  # to clip against. Measured with everything else in place and this one
-  # declaration missing: the h1 shrank to 46px at 320px and reported itself
-  # contained while the "Monster" span stayed 88px and painted to x=156, 26px
-  # past a left column ending at 130.
-  test "the mobile stack gives each word a box it can be clipped to" do
+  # THE MOBILE STACK IS RETIRED (/tasks/turf-navbar-logo-when-tight). Below
+  # 768px .nav-title used to be a COLUMN ("Turf" over "Monster"), and this test
+  # pinned the align-items: stretch that let each stacked word clip. Alex
+  # McRitchie asked for the mascot alone wherever the name cannot fit on one
+  # line, so the band is a row again and a tight header hides the words
+  # instead of clipping them (test/views/navbar_brand_fit_test.rb pins that
+  # rule; the truncate above stays as the engine's last resort).
+  test "the mobile band draws the wordmark as one row, not a stack" do
     mobile = css[/@media\s*\(max-width:\s*767px\)\s*\{(.*?)\n  \}\n/m, 1]
     assert mobile, "the max-width: 767px band no longer parses out of #{CSS.basename}"
 
     title_rule = mobile[/\.nav-title\s*\{([^}]*)\}/m, 1]
-    assert title_rule, "the mobile band must still restyle .nav-title"
+    assert title_rule, "the mobile band must still restyle .nav-title (the engine stacks it)"
 
-    assert_match(/flex-direction:\s*column/, title_rule,
-                 "this test's premise is that the mobile wordmark is a column")
-    assert_match(/align-items:\s*stretch/, title_rule,
-                 "a column container aligns on the HORIZONTAL axis, so the inherited " \
-                 "`baseline` sizes every span to its own text and truncate clips nothing")
+    assert_match(/flex-direction:\s*row/, title_rule,
+                 "the engine's band table stacks the title below 768px; this app undoes it")
+    refute_match(/flex-direction:\s*column/, title_rule)
   end
 
   # ── C. the caps: a floor, a need, and three bands ───────────────────────
