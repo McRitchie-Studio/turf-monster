@@ -1335,7 +1335,7 @@
 # 810 > 768), and the account group's shared hover with the theme toggle outside it.
 # Chromium, no skip, so excluded holds at 17 and allowed_skips at 4. Derived with
 # bin/e2e-lane-derive --write.
-total_specs: 559
+total_specs: 560
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need funded devnet wallets: the secrets
 # SOLANA_BOT_KEY and MACK_DEVNET_KEY (never literals; test/lib/committed_secret_key_guard_test.rb).
@@ -1759,7 +1759,7 @@ allowed_skips: 4
 # row before nav_band_watch's first ResizeObserver report, red on the old watcher.
 # 534 -> 538 (turf-navbar-polish): the four navbar_polish specs beside total_specs above;
 # chromium, no skip.
-executed: 538
+executed: 539
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a
