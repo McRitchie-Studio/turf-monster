@@ -7,7 +7,7 @@
       <%= link_to contest_path(c),
         class: "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition border #{active ? 'bg-primary/15 text-primary border-primary/40' : 'bg-surface-alt text-secondary border-transparent hover:text-heading hover:bg-inset'}" do %>
         <span><%= c.name %></span>
-        <span class="badge text-[10px] <%= contest_badge_classes(c.status) %>"><%= c.status.capitalize %></span>
+        <span class="badge text-xs <%= contest_badge_classes(c.status) %>"><%= c.status.capitalize %></span>
       <% end %>
     <% end %>
   </div>

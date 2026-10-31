@@ -25,7 +25,7 @@
       <div class="ml-auto flex items-center gap-1.5">
         <% [["🌒", @team.color_dark], ["🌖", @team.color_dark_alt], ["🔆", @team.color_light], ["🔅", @team.color_light_alt], ["✳️", @team.color_alt], ["🩶", @team.color_grey]].each do |emoji, hex| %>
           <% if hex.present? %>
-            <div class="w-8 h-8 rounded-full border border-white/20 flex items-center justify-center text-[9px] leading-none"
+            <div class="w-8 h-8 rounded-full border border-white/20 flex items-center justify-center text-3xs leading-none"
                  style="background-color: <%= hex %>" title="<%= emoji %> <%= hex %>"><span class="opacity-80"><%= emoji %></span></div>
           <% end %>
         <% end %>

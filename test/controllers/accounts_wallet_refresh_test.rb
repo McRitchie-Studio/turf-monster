@@ -43,4 +43,17 @@ class AccountsWalletRefreshTest < ActionDispatch::IntegrationTest
     usdc_tile = response.body[/data-wallet-tile="usdc"[^>]*>\s*([^<]*)</, 1]
     assert_equal "—", usdc_tile&.strip
   end
+
+  # Five tiles share a 375px row (~52px of value each): at body (16px) a
+  # "$1024.00" runs under the next tile and loses its last digit, so the value
+  # is fine print on phones and body from sm (task turf-adopts-type-scale).
+  test "tile values are fine print on phones so four-digit balances fit" do
+    log_in_as(@user)
+    get account_path
+    %w[usdc usdt sol tokens].each do |key|
+      classes = response.body[/class="([^"]*)" data-wallet-tile="#{key}"/, 1].to_s.split
+      assert_includes classes, "text-xs", "#{key} tile value"
+      assert_includes classes, "sm:text-sm", "#{key} tile value"
+    end
+  end
 end

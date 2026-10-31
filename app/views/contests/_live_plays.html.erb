@@ -109,7 +109,7 @@
             <%# A break in play is a divider, not an event: the quarter ending
                 and the two-minute warning belong to nobody, so they carry no
                 team and sit centred between the plays either side. %>
-            <li class="px-4 py-1.5 text-center text-[11px] font-bold uppercase tracking-wider text-muted border-b border-subtle"
+            <li class="px-4 py-1.5 text-center text-xs font-bold uppercase tracking-wider text-muted border-b border-subtle"
                 data-test="live-play" data-play-kind="break" data-play-id="<%= play.external_id %>">
               <%= play.text.to_s.sub(/\.\z/, "") %>
             </li>
@@ -117,7 +117,7 @@
             <li class="flex items-start gap-3 px-4 border-b border-subtle <%= index.zero? ? "py-3 tt-play-latest" : "py-2" %>"
                 data-test="live-play" data-play-kind="<%= play.kind %>" data-play-id="<%= play.external_id %>"
                 style="<%= "box-shadow: inset 3px 0 0 #{ink};" if ink %>">
-              <span class="w-16 flex-shrink-0 pt-0.5 text-[11px] font-mono font-bold tabular-nums text-muted">
+              <span class="w-16 flex-shrink-0 pt-0.5 text-xs font-mono font-bold tabular-nums text-muted">
                 <%= play.clock_label %>
               </span>
               <span class="flex-shrink-0 w-5 text-center leading-none pt-0.5"><%= team&.emoji %></span>
@@ -125,15 +125,15 @@
                 <% if play.label || play.down_distance.present? %>
                   <span class="flex flex-wrap items-center gap-x-2 gap-y-0.5 mb-0.5">
                     <% if play.label %>
-                      <span class="text-[10px] font-black uppercase tracking-wider"
+                      <span class="text-xs font-black uppercase tracking-wider"
                             style="color: <%= ink %>"><%= play.label %></span>
                     <% end %>
                     <% if play.down_distance.present? %>
-                      <span class="text-[11px] font-semibold text-muted"><%= play.down_distance %></span>
+                      <span class="text-xs font-semibold text-muted"><%= play.down_distance %></span>
                     <% end %>
                   </span>
                 <% end %>
-                <span class="block leading-snug <%= index.zero? ? "text-sm font-semibold text-heading" : "text-[13px] text-secondary" %>">
+                <span class="block leading-snug <%= index.zero? ? "text-sm font-semibold text-heading" : "text-xs text-secondary" %>">
                   <%= play.text %>
                 </span>
               </span>

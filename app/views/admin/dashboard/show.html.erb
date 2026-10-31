@@ -16,7 +16,7 @@
           style: "background-color: #764ABC; border-color: #764ABC;" do %>
       <span class="text-2xl leading-none">🚀</span>
       <span class="text-sm font-semibold text-white">LogRocket <span class="text-white/70 text-xs">&#8599;</span></span>
-      <span class="text-[11px] text-white/70">session replay</span>
+      <span class="text-xs text-white/70">session replay</span>
     <% end %>
 
     <%= render "admin/dashboard/quick_action", url: "/admin/jobs", label: "Jobs", subtitle: "Sidekiq queue",
@@ -78,7 +78,7 @@
               <div class="min-w-0 flex-1">
                 <span class="text-sm font-semibold text-heading">
                   <%= u.display_name %>
-                  <% if u.admin? %><span class="text-[10px] uppercase font-bold ml-1 px-1 py-0.5 rounded bg-primary/15 text-primary align-middle">admin</span><% end %>
+                  <% if u.admin? %><span class="text-xs uppercase font-bold ml-1 px-1 py-0.5 rounded bg-primary/15 text-primary align-middle">admin</span><% end %>
                 </span>
               </div>
               <span class="text-xs text-muted shrink-0">
@@ -141,7 +141,7 @@
           <span class="font-mono text-heading">
             <%= @explicit_main ? @explicit_main.name : "— none —" %>
             <% if @explicit_main && !@explicit_main.open? %>
-              <span class="text-[10px] uppercase font-bold ml-1 px-1.5 py-0.5 rounded bg-warning-500/20 text-warning border border-warning-500/40">
+              <span class="text-xs uppercase font-bold ml-1 px-1.5 py-0.5 rounded bg-warning-500/20 text-warning border border-warning-500/40">
                 <%= @explicit_main.status %>
               </span>
             <% end %>

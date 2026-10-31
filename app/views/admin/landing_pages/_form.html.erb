@@ -14,7 +14,7 @@
           attachment: @landing_page.og_image, alt: "Link-preview image",
           fallback: "No custom image — falls back to the site default, then /og.png",
           label: tag.label(safe_join(["Link Preview Image ", tag.span("(1200×630)", class: "normal-case")]),
-                           class: "text-muted text-[10px] uppercase tracking-wide block mb-1"),
+                           class: "text-muted text-xs uppercase tracking-wide block mb-1"),
           note: tag.p("Shown when this funnel page is shared. Overrides the site default.", class: "text-muted text-xs mt-1") %>
   </div>
 <% end %>
@@ -33,33 +33,33 @@
 
   <div class="card p-6 space-y-4">
     <div>
-      <label class="text-muted text-[10px] uppercase tracking-wide block mb-1">Name <span class="normal-case">(internal label)</span></label>
+      <label class="text-muted text-xs uppercase tracking-wide block mb-1">Name <span class="normal-case">(internal label)</span></label>
       <%= f.text_field :name, required: true, placeholder: "Friends 9-Entry Test",
             class: field_class, style: field_style %>
     </div>
 
     <div>
-      <label class="text-muted text-[10px] uppercase tracking-wide block mb-1">Slug</label>
+      <label class="text-muted text-xs uppercase tracking-wide block mb-1">Slug</label>
       <%= f.text_field :slug, placeholder: "leave blank to generate from the name",
             class: "#{field_class} font-mono", style: field_style %>
       <p class="text-muted text-xs mt-1">Public URL: <span class="font-mono"><%= request.base_url %>/lp/&lt;slug&gt;</span></p>
     </div>
 
     <div>
-      <label class="text-muted text-[10px] uppercase tracking-wide block mb-1">Headline</label>
+      <label class="text-muted text-xs uppercase tracking-wide block mb-1">Headline</label>
       <%= f.text_field :headline, placeholder: "Join the 9-Player Contest",
             class: field_class, style: field_style %>
     </div>
 
     <div>
-      <label class="text-muted text-[10px] uppercase tracking-wide block mb-1">Badge <span class="normal-case">(optional)</span></label>
+      <label class="text-muted text-xs uppercase tracking-wide block mb-1">Badge <span class="normal-case">(optional)</span></label>
       <%= f.text_field :badge, placeholder: "e.g. Alpha Test — leave blank for no badge",
             class: field_class, style: field_style %>
       <p class="text-muted text-xs mt-1">A small pill shown under the headline. Blank = no badge.</p>
     </div>
 
     <div>
-      <label class="text-muted text-[10px] uppercase tracking-wide block mb-1">Subheadline</label>
+      <label class="text-muted text-xs uppercase tracking-wide block mb-1">Subheadline</label>
       <%= f.text_area :subheadline, rows: 2, placeholder: "Pick 6 teams. Highest score wins the pot.",
             class: field_class, style: field_style %>
     </div>
@@ -67,7 +67,7 @@
 
   <div class="card p-6 space-y-4">
     <div>
-      <label class="text-muted text-[10px] uppercase tracking-wide block mb-1">Background Style</label>
+      <label class="text-muted text-xs uppercase tracking-wide block mb-1">Background Style</label>
       <%= f.select :background_style,
             options_for_select([["Animated gradient", "gradient"], ["Rotating blobs", "blobs"], ["Pulsing circles", "circles"]], @landing_page.background_style),
             {},
@@ -76,7 +76,7 @@
     </div>
 
     <div>
-      <label class="text-muted text-[10px] uppercase tracking-wide block mb-1">CTA Contest</label>
+      <label class="text-muted text-xs uppercase tracking-wide block mb-1">CTA Contest</label>
       <%= f.select :contest_id,
             options_for_select(@contests.map { |c| ["#{c.name} · #{c.retired_format? ? "Retired format" : c.game_type.titleize} · #{c.status}", c.id] }, @landing_page.contest_id),
             { include_blank: "— No contest yet —" },
@@ -85,7 +85,7 @@
     </div>
 
     <div>
-      <label class="text-muted text-[10px] uppercase tracking-wide block mb-1">CTA Button Label</label>
+      <label class="text-muted text-xs uppercase tracking-wide block mb-1">CTA Button Label</label>
       <%= f.text_field :cta_label, placeholder: "Enter the Contest",
             class: field_class, style: field_style %>
     </div>

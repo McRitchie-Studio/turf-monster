@@ -17,7 +17,7 @@
 
   <div class="card p-6 space-y-4">
     <div>
-      <%= f.label :token, "Name", class: "text-muted text-[10px] uppercase tracking-wide block mb-1" %>
+      <%= f.label :token, "Name", class: "text-muted text-xs uppercase tracking-wide block mb-1" %>
       <%= f.text_field :token, required: true, placeholder: "tt", autocomplete: "off", spellcheck: false,
             class: "#{field_class} font-mono", style: field_style %>
       <p class="text-muted text-xs mt-1">
@@ -28,14 +28,14 @@
     </div>
 
     <div>
-      <%= f.label :target_path, "Goes to", class: "text-muted text-[10px] uppercase tracking-wide block mb-1" %>
+      <%= f.label :target_path, "Goes to", class: "text-muted text-xs uppercase tracking-wide block mb-1" %>
       <%= f.text_field :target_path, required: true, placeholder: "/turf-monster-v2", spellcheck: false,
             class: "#{field_class} font-mono", style: field_style %>
       <p class="text-muted text-xs mt-1">A page on this site, starting with <span class="font-mono">/</span>. Its own query string is kept.</p>
     </div>
 
     <div>
-      <%= f.label :reference, "Reference", class: "text-muted text-[10px] uppercase tracking-wide block mb-1" %>
+      <%= f.label :reference, "Reference", class: "text-muted text-xs uppercase tracking-wide block mb-1" %>
       <%= f.text_field :reference, required: true, placeholder: "tiktok-bio", spellcheck: false,
             class: "#{field_class} font-mono", style: field_style %>
       <p class="text-muted text-xs mt-1">
@@ -46,7 +46,7 @@
     </div>
 
     <div>
-      <%= f.label :experiment_slug, "A/B experiment", class: "text-muted text-[10px] uppercase tracking-wide block mb-1" %>
+      <%= f.label :experiment_slug, "A/B experiment", class: "text-muted text-xs uppercase tracking-wide block mb-1" %>
       <%= f.select :experiment_slug,
             options_for_select(PageExperiment.order(:name).map { |e| ["#{e.name} (#{e.slug})#{' — paused' unless e.active?}", e.slug] },
                                short_link.experiment_slug),

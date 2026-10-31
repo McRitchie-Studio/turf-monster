@@ -13,6 +13,10 @@
    Guard: test/lib/tailwind_css_first_test.rb. */
 @import '../builds/tailwind/studio_engine';
 
+/* Every text-* size on the type scale's five roles (task turf-adopts-type-scale).
+   After the engine layer, so its map wins over theme.css's text-2xs/3xs. */
+@import './type_scale.css';
+
 /* Tailwind 4 scans the project root for classes, skipping what .gitignore
    names. CI (bundler-cache) and Heroku install gems into vendor/bundle INSIDE
    the app, which .gitignore does not name, so the scan crawls every gem's

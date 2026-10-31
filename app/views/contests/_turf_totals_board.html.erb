@@ -2586,12 +2586,12 @@ window.selectionBoard = function() {
       <p class="text-xs font-bold text-heading">Your Picks</p>
       <% if edit_entry %>
         <button type="button" @click="cancelEdit()"
-                class="shrink-0 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-surface-alt text-secondary hover:text-heading transition">
+                class="shrink-0 px-2.5 py-0.5 rounded-full text-xs font-bold bg-surface-alt text-secondary hover:text-heading transition">
           Cancel
         </button>
       <% else %>
         <button type="button" @click="clearSelections()"
-                class="shrink-0 flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-surface-alt text-secondary hover:text-red-400 transition"
+                class="shrink-0 flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-surface-alt text-secondary hover:text-red-400 transition"
                 aria-label="Clear all picks">
           Clear <span x-text="selectionCount"></span> / <%= @contest.picks_required %>
           <span class="text-sm leading-none">&times;</span>
@@ -2611,18 +2611,18 @@ window.selectionBoard = function() {
                   can lose characters. %>
               <div class="flex items-baseline justify-center gap-1">
                 <p class="font-extrabold text-xs truncate min-w-0" :style="{ color: selectionSlots[i-1].accent, textShadow: selectionSlots[i-1].mascotShadow }" x-text="selectionSlots[i-1].shortName"></p>
-                <p class="font-mono text-[10px] shrink-0" :style="{ color: selectionSlots[i-1].fg }" x-text="'x' + selectionSlots[i-1].turfScore"></p>
+                <p class="font-mono text-xs shrink-0" :style="{ color: selectionSlots[i-1].fg }" x-text="'x' + selectionSlots[i-1].turfScore"></p>
               </div>
-              <p class="text-[10px] leading-tight truncate" :style="{ color: selectionSlots[i-1].fgSoft }">vs <span x-text="selectionSlots[i-1].opName"></span></p>
+              <p class="text-xs leading-tight truncate" :style="{ color: selectionSlots[i-1].fgSoft }">vs <span x-text="selectionSlots[i-1].opName"></span></p>
               <button @click="removeSelection(selectionSlots[i-1].matchupId)"
-                      class="absolute -top-1 -right-1 w-4 h-4 bg-surface border border-strong rounded-full text-muted hover:text-red-400 text-[10px] leading-none flex items-center justify-center">&times;</button>
+                      class="absolute -top-1 -right-1 w-4 h-4 bg-surface border border-strong rounded-full text-muted hover:text-red-400 text-xs leading-none flex items-center justify-center">&times;</button>
             </div>
           </template>
           <template x-if="!selectionSlots[i-1]">
             <div class="border border-dashed border-strong rounded-md px-1.5 py-1 text-center flex items-center justify-center"
                  :class="i === selectionCount + 1 ? (i === <%= @contest.picks_required %> ? (pickUrgent ? 'pick-pulse-urgent' : 'pick-pulse-shimmer') : (i === 2 ? 'pick-pulse-shimmer' : 'pick-pulse')) : ''"
                  style="min-height:2.25rem">
-              <p class="text-[10px]" :class="i === selectionCount + 1 ? 'text-secondary' : 'text-muted'">Pick <span x-text="i"></span></p>
+              <p class="text-xs" :class="i === selectionCount + 1 ? 'text-secondary' : 'text-muted'">Pick <span x-text="i"></span></p>
             </div>
           </template>
         </div>

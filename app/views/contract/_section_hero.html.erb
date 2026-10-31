@@ -18,11 +18,11 @@
   <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
 
     <div class="card p-4 sm:p-5">
-      <div class="text-[10px] sm:text-xs uppercase tracking-wider text-secondary font-semibold mb-2">Deployed program</div>
+      <div class="text-xs uppercase tracking-wider text-secondary font-semibold mb-2">Deployed program</div>
       <div class="font-mono text-2xl sm:text-3xl tabular-nums text-heading leading-tight">
         <%= number_with_delimiter(deployed_file_bytes) %><span class="text-xs sm:text-sm text-secondary ml-1">bytes</span>
       </div>
-      <div class="text-[11px] sm:text-xs text-muted mt-2 leading-snug" data-test="contract-elf-content">
+      <div class="text-xs text-muted mt-2 leading-snug" data-test="contract-elf-content">
         ~<%= (deployed_file_bytes / 1024.0).round %> KB. The file the loader wrote, read through its last byte.
         <span data-test="contract-elf-content-bytes"><%= number_with_delimiter(elf_content_bytes) %></span>
         bytes of it are logical ELF content; the rest is zero padding.
@@ -30,11 +30,11 @@
     </div>
 
     <div class="card p-4 sm:p-5">
-      <div class="text-[10px] sm:text-xs uppercase tracking-wider text-secondary font-semibold mb-2">Locked in ProgramData</div>
+      <div class="text-xs uppercase tracking-wider text-secondary font-semibold mb-2">Locked in ProgramData</div>
       <div class="font-mono text-2xl sm:text-3xl tabular-nums text-warning leading-tight" data-test="contract-locked-sol">
         <%= sprintf("%.3f", locked_sol) %><span class="text-xs sm:text-sm text-secondary ml-1">SOL</span>
       </div>
-      <div class="text-[11px] sm:text-xs text-muted mt-2 leading-snug">
+      <div class="text-xs text-muted mt-2 leading-snug">
         <%
           delta = locked_sol - v015_perm_sol
           delta_word = delta >= 0 ? "more" : "less"
@@ -45,17 +45,17 @@
     </div>
 
     <div class="card p-4 sm:p-5">
-      <div class="text-[10px] sm:text-xs uppercase tracking-wider text-secondary font-semibold mb-2">Refundable buffer</div>
+      <div class="text-xs uppercase tracking-wider text-secondary font-semibold mb-2">Refundable buffer</div>
       <div class="font-mono text-2xl sm:text-3xl tabular-nums text-mint leading-tight">
         <%= sprintf("%.3f", buffer_sol) %><span class="text-xs sm:text-sm text-secondary ml-1">SOL</span>
       </div>
-      <div class="text-[11px] sm:text-xs text-muted mt-2 leading-snug">
+      <div class="text-xs text-muted mt-2 leading-snug">
         A buffer holding the same <%= number_with_delimiter(deployed_file_bytes) %>-byte file. Refunded once <code class="font-mono text-secondary">close-buffer</code> runs.
       </div>
     </div>
 
     <div class="card p-4 sm:p-5">
-      <div class="text-[10px] sm:text-xs uppercase tracking-wider text-secondary font-semibold mb-2">Float to deploy today</div>
+      <div class="text-xs uppercase tracking-wider text-secondary font-semibold mb-2">Float to deploy today</div>
       <div class="font-mono text-2xl sm:text-3xl tabular-nums text-primary leading-tight">
         ~<%= sprintf("%.2f", float_sol) %><span class="text-xs sm:text-sm text-secondary ml-1">SOL</span>
       </div>
@@ -63,13 +63,13 @@
           runs write-buffer, and upgrades execute through the Squads multisig,
           where the server key holds no mainnet seat. See docs/SOLANA.md,
           the Membership and threshold paragraph. %>
-      <div class="text-[11px] sm:text-xs text-muted mt-2 leading-snug" data-test="contract-float-holder">
+      <div class="text-xs text-muted mt-2 leading-snug" data-test="contract-float-holder">
         Both accounts exist at once during a deploy. Needed in the deploying wallet before write-buffer.
       </div>
     </div>
 
   </div>
-  <p class="text-[11px] sm:text-xs text-muted mt-3 leading-snug break-words"
+  <p class="text-xs text-muted mt-3 leading-snug break-words"
      data-test="contract-measured-on"
      data-version="<%= measured[:version] %>"
      data-idl-sha256="<%= measured[:idl_sha256] %>">

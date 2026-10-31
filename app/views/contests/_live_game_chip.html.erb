@@ -70,7 +70,7 @@
         <span class="relative text-sm font-extrabold tabular-nums flex-shrink-0"
               style="--nfl-team-fg: <%= palette[:fg] %>"
               data-role="score"><%= score.to_i %></span>
-        <span class="relative min-w-0 flex-1 text-[11px] font-extrabold truncate<%= " text-right" if side == :home %>"
+        <span class="relative min-w-0 flex-1 text-xs font-extrabold truncate<%= " text-right" if side == :home %>"
               style="color: <%= palette[:accent] %>; text-shadow: <%= palette[:mascot_shadow] %>">
           <%= team&.short_name || team&.mascot || team&.name %>
         </span>
@@ -86,21 +86,21 @@
   <div class="px-2 py-0.5 bg-surface-alt/60 flex items-center justify-between gap-1 whitespace-nowrap"
        style="overflow: hidden; border-bottom-left-radius: inherit; border-bottom-right-radius: inherit">
     <% if game.live? %>
-      <span class="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-red-400 flex-shrink-0">
+      <span class="inline-flex items-center gap-1 text-3xs font-bold uppercase tracking-wider text-red-400 flex-shrink-0">
         <span class="h-1 w-1 rounded-full bg-red-500 animate-pulse"></span> Live
       </span>
-      <span class="text-[9px] text-secondary font-mono truncate"><%= game.status_detail.presence %></span>
+      <span class="text-3xs text-secondary font-mono truncate"><%= game.status_detail.presence %></span>
     <% elsif game.completed? %>
-      <span class="text-[9px] font-bold uppercase tracking-wider text-muted">Final</span>
+      <span class="text-3xs font-bold uppercase tracking-wider text-muted">Final</span>
     <% elsif game.kickoff_at %>
       <%# Machine-readable, formatted by the BROWSER in the reader's own zone —
           the app runs on UTC, so a server-rendered kickoff is wrong for
           everyone. The text is a truthful no-JS fallback. %>
       <time datetime="<%= game.kickoff_at.utc.iso8601 %>"
             data-role="kickoff"
-            class="text-[9px] font-bold uppercase tracking-wider text-muted"><%= game.kickoff_at.utc.strftime("%a %-I:%M %p") %></time>
+            class="text-3xs font-bold uppercase tracking-wider text-muted"><%= game.kickoff_at.utc.strftime("%a %-I:%M %p") %></time>
     <% else %>
-      <span class="text-[9px] font-bold uppercase tracking-wider text-muted">TBD</span>
+      <span class="text-3xs font-bold uppercase tracking-wider text-muted">TBD</span>
     <% end %>
   </div>
 </button>

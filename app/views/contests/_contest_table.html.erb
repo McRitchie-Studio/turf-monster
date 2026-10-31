@@ -54,7 +54,7 @@
               <%# Only worth saying in a table where SOME rows are entered. In
                   My Contests every row is, so the chip would be pure noise. %>
               <% if payouts.nil? && entered_contest_ids.include?(contest.id) %>
-                <span class="badge text-[10px] bg-primary/15 text-primary border border-primary/30">Entered</span>
+                <span class="badge text-xs bg-primary/15 text-primary border border-primary/30">Entered</span>
               <% end %>
             </div>
             <% if contest.slate %>
@@ -62,7 +62,7 @@
             <% end %>
           </td>
           <td class="px-4 py-3">
-            <span class="badge text-[10px] whitespace-nowrap <%= badge[:classes] %>" data-contest-badge><%= badge[:label] %></span>
+            <span class="badge text-xs whitespace-nowrap <%= badge[:classes] %>" data-contest-badge><%= badge[:label] %></span>
           </td>
           <td class="px-4 py-3 text-right font-mono text-secondary whitespace-nowrap"><%= dollars(contest.entry_fee_dollars) %></td>
           <td class="px-4 py-3 text-right font-mono whitespace-nowrap <%= prize[:classes] %>" data-contest-prize><%= dollars(prize[:amount]) %></td>

@@ -22,7 +22,7 @@
          data-studio-action="turbo:before-cache@document->cost-calculator#reset">
   <div class="flex flex-col sm:flex-row sm:items-baseline sm:gap-4 mb-2">
     <h2 class="text-heading font-bold text-xl">Deploy-cost calculator</h2>
-    <span class="text-[11px] font-mono text-muted uppercase tracking-wider">SOL &rarr; USD</span>
+    <span class="text-xs font-mono text-muted uppercase tracking-wider">SOL &rarr; USD</span>
   </div>
   <p class="text-secondary text-sm mb-5 max-w-3xl" data-test="contract-rent-rate-copy">
     An account is rent-exempt once it holds the minimum for its size, and that minimum is
@@ -64,7 +64,7 @@
     <%# Permanent block — what you spend forever %>
     <div class="bg-surface-alt rounded-lg border border-subtle p-4 sm:p-5">
       <h3 class="text-heading font-semibold text-sm mb-3">PERMANENT (you spend forever)</h3>
-      <dl class="space-y-1.5 font-mono text-xs sm:text-[13px] text-secondary">
+      <dl class="space-y-1.5 font-mono text-xs text-secondary">
         <div class="flex justify-between items-baseline gap-2">
           <dt class="truncate" data-test="contract-pd-rent-min-line" data-space="<%= programdata_space %>">ProgramData minimum, <%= number_with_delimiter(programdata_space) %> bytes</dt>
           <dd class="text-heading tabular-nums whitespace-nowrap" data-test="contract-pd-rent-min"><%= number_with_delimiter(pd_rent_min) %> &#8467;</dd>
@@ -99,7 +99,7 @@
     <%# Float block — what you need on hand, then refundable %>
     <div class="bg-surface-alt rounded-lg border border-subtle p-4 sm:p-5">
       <h3 class="text-heading font-semibold text-sm mb-3">FLOAT (you need on hand, then refundable)</h3>
-      <dl class="space-y-1.5 font-mono text-xs sm:text-[13px] text-secondary">
+      <dl class="space-y-1.5 font-mono text-xs text-secondary">
         <div class="flex justify-between items-baseline gap-2">
           <dt class="truncate" data-test="contract-buffer-min-line" data-space="<%= buffer_space %>">Buffer minimum, <%= number_with_delimiter(buffer_space) %> bytes (37 + the <%= number_with_delimiter(deployed_file_bytes) %>-byte file)</dt>
           <dd class="text-heading tabular-nums whitespace-nowrap" data-test="contract-buffer-min"><%= number_with_delimiter(buffer_rent_min) %> &#8467;</dd>
@@ -125,7 +125,7 @@
 
   </div>
 
-  <p class="text-secondary text-[13px] mt-5 max-w-3xl leading-relaxed">
+  <p class="text-secondary text-xs mt-5 max-w-3xl leading-relaxed">
     Subsequent upgrades through the Squad multisig need only the <em>float</em> portion &mdash; a new
     buffer is written, the program is upgraded in place, then the old buffer is closed.
     Net cost per upgrade: roughly zero, modulo TX fees and the brief float for the new buffer.

@@ -10,7 +10,7 @@
   <% max_bucket = text_buckets.map { |b| b[:bytes] }.max %>
   <div class="flex flex-col sm:flex-row sm:items-baseline sm:gap-4 mb-2">
     <h2 class="text-heading font-bold text-xl">What's inside .text</h2>
-    <span class="text-[11px] font-mono text-muted uppercase tracking-wider">
+    <span class="text-xs font-mono text-muted uppercase tracking-wider">
       <%= attributed_on %> code: <%= number_with_delimiter(text_total) %> bytes
     </span>
   </div>
@@ -18,7 +18,7 @@
     .text is the BPF bytecode that actually runs on chain. Most of it is Anchor's
     auto-generated account-validation code, not the business logic itself.
   </p>
-  <p class="text-muted text-[13px] mb-5 max-w-3xl" data-test="contract-attributed-on" data-version="<%= attributed_on %>">
+  <p class="text-muted text-xs mb-5 max-w-3xl" data-test="contract-attributed-on" data-version="<%= attributed_on %>">
     These buckets were attributed on the turf-vault <%= attributed_on %> build, whose .text was
     <%= number_with_delimiter(text_total) %> bytes. The deployed v<%= measured[:version] %> .text is
     <%= number_with_delimiter(deployed_text_bytes) %> bytes and has not been re-attributed yet.
@@ -30,25 +30,25 @@
       <% share = 100.0 * b[:bytes] / text_total %>
       <%# Desktop: 4-column row; mobile: stack label above bar %>
       <div class="grid grid-cols-12 sm:grid-cols-12 items-center gap-2 sm:gap-3 text-sm">
-        <div class="col-span-12 sm:col-span-5 text-heading text-[13px] sm:text-sm leading-snug">
+        <div class="col-span-12 sm:col-span-5 text-heading text-xs sm:text-sm leading-snug">
           <%= b[:name].html_safe %>
         </div>
         <div class="col-span-7 sm:col-span-4 bg-surface-alt h-2.5 rounded-full overflow-hidden">
           <div class="h-full rounded-full"
                style="width: <%= sprintf("%.1f", bar_pct) %>%; background: <%= b[:color] %>;"></div>
         </div>
-        <div class="col-span-3 sm:col-span-2 font-mono tabular-nums text-secondary text-right text-[12px] sm:text-sm">
+        <div class="col-span-3 sm:col-span-2 font-mono tabular-nums text-secondary text-right text-xs sm:text-sm">
           <%= sprintf("%.1f", b[:bytes] / 1024.0) %> KB
         </div>
-        <div class="col-span-2 sm:col-span-1 font-mono tabular-nums text-muted text-right text-[11px]">
+        <div class="col-span-2 sm:col-span-1 font-mono tabular-nums text-muted text-right text-xs">
           <%= sprintf("%.1f", share) %>%
         </div>
         <%# Detail tooltip — visible on tap (mobile) via details/summary %>
         <details class="col-span-12 -mt-1">
-          <summary class="text-[12px] text-muted cursor-pointer hover:text-secondary select-none">
+          <summary class="text-xs text-muted cursor-pointer hover:text-secondary select-none">
             why this is here
           </summary>
-          <p class="text-[12px] text-secondary mt-1 pl-1 leading-snug max-w-3xl">
+          <p class="text-xs text-secondary mt-1 pl-1 leading-snug max-w-3xl">
             <%= b[:detail] %>
           </p>
         </details>

@@ -83,7 +83,7 @@ class LiveFocusRenderTest < ActionDispatch::IntegrationTest
   test "draws the focused game at hero size" do
     get live_path
 
-    assert_select "[data-test='live-focus-game'] [data-role=score].text-5xl", minimum: 1
+    assert_select "[data-test='live-focus-game'] [data-role=score].text-4xl", minimum: 1
   end
 
   # The panel is what select() scrolls to, and the header is sticky — without a

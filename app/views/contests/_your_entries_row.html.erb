@@ -3,7 +3,7 @@
     card's height. Score still surfaces on settled contests. %>
 <% if @contest.graded? && entry.score %>
   <div class="flex justify-end mb-0.5">
-    <span class="text-[10px] font-mono text-violet-ink"><%= sprintf('%.1f', entry.score) %></span>
+    <span class="text-xs font-mono text-violet-ink"><%= sprintf('%.1f', entry.score) %></span>
   </div>
 <% end %>
 <%# 6 picks → 3×2 mini-grid. Tight padding so 3 entry cards fit side by side. %>
@@ -17,7 +17,7 @@
         - 768-1023px (md kicks the parent into 2 cols, so the card is half-
           width and the pills get squeezed again until lg gives them back
           enough room). Full team name still surfaces via the title tooltip. %>
-    <span class="flex items-center justify-center min-w-0 px-1 py-0.5 rounded text-[10px] font-semibold text-white border border-white/15"
+    <span class="flex items-center justify-center min-w-0 px-1 py-0.5 rounded text-xs font-semibold text-white border border-white/15"
           style="background: linear-gradient(135deg, <%= c1 %>cc, <%= c2 %>99)"
           title="<%= t.name %>">
       <span class="truncate"><%= t.emoji %><span class="hidden pill-narrow:inline md:hidden lg:inline"> <%= t.short_name %></span></span>

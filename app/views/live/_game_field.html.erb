@@ -162,6 +162,6 @@
     <time datetime="<%= game.kickoff_at.utc.iso8601 %>" data-role="kickoff-date"
           class="text-xs font-bold uppercase tracking-wider text-white/60"><%= game.kickoff_at.utc.strftime("%b %-d") %></time>
     <time datetime="<%= game.kickoff_at.utc.iso8601 %>" data-role="kickoff"
-          class="text-lg font-bold text-white/90 leading-none"><%= game.kickoff_at.utc.strftime("%a %-I:%M %p") %></time>
+          class="text-base lg:text-lg font-bold text-white/90 leading-none"><%= game.kickoff_at.utc.strftime("%a %-I:%M %p") %></time>
   <% end %>
 <% end %>

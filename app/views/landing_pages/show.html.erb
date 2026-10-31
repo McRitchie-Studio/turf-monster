@@ -38,7 +38,7 @@
     <%# Contest snapshot + CTA %>
     <% if @contest %>
       <div class="card p-6 mb-6">
-        <p class="text-muted text-[10px] uppercase tracking-widest text-center mb-1">The Contest</p>
+        <p class="text-muted text-xs uppercase tracking-widest text-center mb-1">The Contest</p>
         <p class="text-heading text-xl font-bold text-center mb-5"><%= @contest.name %></p>
 
         <div class="grid grid-cols-3 gap-3 text-center mb-5">
@@ -46,15 +46,15 @@
             <%# Claim mode: the visitor's entry is the free one this page
                 promises, so the card must not quote the fee they will not pay. %>
             <p class="font-mono text-2xl font-bold text-heading"><%= @landing_page.claim_mode? || @contest.entry_fee_cents.to_i.zero? ? "Free" : "$#{@contest.entry_fee_dollars.to_i}" %></p>
-            <p class="text-muted text-[10px] uppercase tracking-wide"><%= @landing_page.claim_mode? ? "Your entry" : "Entry" %></p>
+            <p class="text-muted text-xs uppercase tracking-wide"><%= @landing_page.claim_mode? ? "Your entry" : "Entry" %></p>
           </div>
           <div>
             <p class="font-mono text-2xl font-bold text-primary">$<%= @contest.guaranteed_prize_dollars.to_i %></p>
-            <p class="text-muted text-[10px] uppercase tracking-wide">Prizes</p>
+            <p class="text-muted text-xs uppercase tracking-wide">Prizes</p>
           </div>
           <div>
             <p class="font-mono text-2xl font-bold text-heading"><%= @contest.active_entry_count %>/<%= @contest.max_entries %></p>
-            <p class="text-muted text-[10px] uppercase tracking-wide">Entries</p>
+            <p class="text-muted text-xs uppercase tracking-wide">Entries</p>
           </div>
         </div>
 
@@ -90,7 +90,7 @@
 
     <%# How it works %>
     <div class="mb-8" data-test="funnel-how-it-works">
-      <p class="text-muted text-[10px] uppercase tracking-widest text-center mb-4">How it works</p>
+      <p class="text-muted text-xs uppercase tracking-widest text-center mb-4">How it works</p>
       <div class="space-y-3">
         <% steps = @landing_page.claim_mode? ? funnel_claim_steps(@contest) : funnel_how_it_works(@contest) %>
         <% steps.each_with_index do |(title, body), i| %>

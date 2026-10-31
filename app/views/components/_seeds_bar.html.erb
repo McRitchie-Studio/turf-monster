@@ -275,7 +275,7 @@
         <span><%= label %></span>
         <span class="flex items-center gap-1 pointer-events-auto">
           <a href="#" @click.prevent="replay()" x-show="$store.devMode" x-cloak
-             class="text-[9px] font-bold text-yellow-400 hover:text-yellow-300 transition">Replay</a>
+             class="text-3xs font-bold text-yellow-400 hover:text-yellow-300 transition">Replay</a>
           <span :class="levelingUp && 'nav-level-pop'" x-text="'Level ' + displayLevel">Level <%= lvl %></span>
         </span>
       </div>
@@ -286,7 +286,7 @@
            :style="{ 'clip-path': 'inset(0 ' + (100 - displaySeeds) + '% 0 0)' }">
         <span><%= label %></span>
         <span class="flex items-center gap-1">
-          <span x-show="$store.devMode" x-cloak class="text-[9px] font-bold" style="visibility: hidden;">Replay</span>
+          <span x-show="$store.devMode" x-cloak class="text-3xs font-bold" style="visibility: hidden;">Replay</span>
           <span :class="levelingUp && 'nav-level-pop'" x-text="'Level ' + displayLevel">Level <%= lvl %></span>
         </span>
       </div>
@@ -302,7 +302,7 @@
       <% end %>
       <div class="relative flex items-center gap-2" x-ref="confettiZone" style="overflow: visible;">
         <a href="#" @click.prevent="replay()" x-show="$store.devMode" x-cloak
-           class="text-[10px] font-bold text-yellow-400 hover:text-yellow-300 transition">Replay</a>
+           class="text-xs font-bold text-yellow-400 hover:text-yellow-300 transition">Replay</a>
         <%# Per-level styled pill (level-badge-N from app/assets/tailwind/application.css)
             with a one-shot sheen sweep that fires 5s after load. The Ruby
             class supplies the initial styling so there's no FOUC; Alpine's
@@ -342,7 +342,7 @@
     </div>
 
     <%# Rotating-integer counter %>
-    <div class="flex items-center justify-end mt-2 font-mono text-[11px] text-secondary">
+    <div class="flex items-center justify-end mt-2 font-mono text-xs text-secondary">
       <span class="inline-flex items-baseline gap-1 font-mono font-bold text-sm" style="color: var(--color-primary-ink);">
         <%= render "components/digit_reel",
               value: "displaySeeds", max: 100, width: "3.1ch", cell_em: 1.25,

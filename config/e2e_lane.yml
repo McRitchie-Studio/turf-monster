@@ -1350,7 +1350,12 @@
 # image held two seconds; red with the answer bound to turbo:load alone, which on a first
 # load waits for readyState "complete"). Chromium, no skip, so excluded holds at 17 and
 # allowed_skips at 4. Derived with bin/e2e-lane-derive --write.
-total_specs: 566
+# 566 -> 568 (turf-adopts-type-scale): two specs in ONE new file, e2e/type_scale.spec.js —
+# the board's team names on the type scale at 768 with shrinkTeamNames() stepping a role at
+# a time (red on the old 0.7rem jump: 11.2px is on no role), and an admin page reading the
+# 14px dense base while a player page keeps 16px, measured as computed sizes. Chromium, no
+# skip, so excluded holds at 17 and allowed_skips at 4. Derived with bin/e2e-lane-derive --write.
+total_specs: 568
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need funded devnet wallets: the secrets
 # SOLANA_BOT_KEY and MACK_DEVNET_KEY (never literals; test/lib/committed_secret_key_guard_test.rb).
@@ -1780,7 +1785,9 @@ allowed_skips: 4
 # total_specs above; chromium, no skip.
 # 544 -> 545 (turf-navbar-stopgap-cleanup): the first-load navbar_brand_fit spec beside
 # total_specs above; chromium, no skip.
-executed: 545
+# 545 -> 547 (turf-adopts-type-scale): the two type_scale specs beside total_specs above;
+# chromium, no skip.
+executed: 547
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

@@ -175,7 +175,7 @@ class ContestLiveRenderTest < ActionDispatch::IntegrationTest
   test "draws the focused game at hero size" do
     get_live
 
-    assert_select "[data-test='live-focus-game'] [data-role=score].text-5xl", minimum: 1
+    assert_select "[data-test='live-focus-game'] [data-role=score].text-4xl", minimum: 1
   end
 
   test "chip and focus tile share the animation hooks" do

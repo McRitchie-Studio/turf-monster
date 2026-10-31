@@ -112,12 +112,12 @@
         orb happened to fall behind them; the 1-entry card sets clusters=[:r], so
         nothing landed behind its numeral at all. %>
     <div class="w-16 text-center">
-      <div class="text-5xl font-extrabold text-heading leading-none font-mono"><%= pack[:quantity] %></div>
+      <div class="text-4xl font-extrabold text-heading leading-none font-mono"><%= pack[:quantity] %></div>
       <%# text-body, not text-secondary: at 10px this is small text, so it needs
           AA's 4.5:1. Measured in-browser, text-secondary lands at 4.07:1 in
           light theme — a big lift from the 1.06:1 it was, but still short.
           text-body (#334155 light / #e2e8f0 dark) clears it in both. %>
-      <div class="text-[10px] uppercase tracking-widest text-body mt-1"><%= pack[:quantity] == 1 ? 'Entry' : 'Entries' %></div>
+      <div class="text-xs uppercase tracking-widest text-body mt-1"><%= pack[:quantity] == 1 ? 'Entry' : 'Entries' %></div>
     </div>
     <div class="flex-1 border-l border-strong pl-6 flex items-center justify-between gap-4">
       <%# Provider badge sits in the card's dead middle — it reads as "this many

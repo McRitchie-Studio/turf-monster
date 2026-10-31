@@ -15,7 +15,7 @@
 <section class="card border-2 border-primary/30 p-6 sm:p-8 mb-6">
   <div class="flex flex-col sm:flex-row sm:items-baseline sm:gap-4 mb-2">
     <h2 class="text-heading font-bold text-xl">Live deployment state</h2>
-    <span class="text-[11px] font-mono text-primary uppercase tracking-wider">admin only</span>
+    <span class="text-xs font-mono text-primary uppercase tracking-wider">admin only</span>
   </div>
   <p class="text-warning text-sm mb-5 max-w-3xl">
     Phase 2 &mdash; wires up after the live-state Rails refactor. Fields below are placeholders so the layout
@@ -45,7 +45,7 @@
   <dl class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
 
     <div class="bg-surface-alt border border-subtle rounded-lg p-4">
-      <dt class="text-[10px] uppercase tracking-wider text-secondary font-semibold mb-1">Program ID</dt>
+      <dt class="text-xs uppercase tracking-wider text-secondary font-semibold mb-1">Program ID</dt>
       <dd class="font-mono text-xs sm:text-sm text-heading break-all">
         <%# Phase 2: read from Solana::Config::PROGRAM_ID at request time.
 
@@ -111,11 +111,11 @@
           data-test is here so the guard can scope to this one caption. An
           assert_select or a body-wide match on the contract page also reads the
           navbar, the footer and the meta tags. %>
-      <p class="text-[11px] text-muted mt-1" data-test="program-id-caption">Per cluster &mdash; devnet and mainnet run different programs. This build runs on <%= cluster %>, pinned via SOLANA_PROGRAM_ID.</p>
+      <p class="text-xs text-muted mt-1" data-test="program-id-caption">Per cluster &mdash; devnet and mainnet run different programs. This build runs on <%= cluster %>, pinned via SOLANA_PROGRAM_ID.</p>
     </div>
 
     <div class="bg-surface-alt border border-subtle rounded-lg p-4">
-      <dt class="text-[10px] uppercase tracking-wider text-secondary font-semibold mb-1">Upgrade authority</dt>
+      <dt class="text-xs uppercase tracking-wider text-secondary font-semibold mb-1">Upgrade authority</dt>
       <dd class="font-mono text-xs sm:text-sm text-heading break-all">
         <%# Read from Solana::Config at request time. PER CLUSTER, LIKE the program ID
             above: devnet and mainnet are different Squads, so this must never be a
@@ -129,43 +129,43 @@
             a false sentence. %>
         <%= (Solana::Config.squads_vault_pda rescue "(Solana::Config did not load; with SOLANA_SQUADS_VAULT_PDA unset, as it is on both deployed apps, the cluster default is the live path)") %>
       </dd>
-      <p class="text-[11px] text-muted mt-1">Squads V4 vault PDA on <%= cluster %> &mdash; each cluster has its own Squad. Only the Squad can ship upgrades.</p>
+      <p class="text-xs text-muted mt-1">Squads V4 vault PDA on <%= cluster %> &mdash; each cluster has its own Squad. Only the Squad can ship upgrades.</p>
     </div>
 
     <div class="bg-surface-alt border border-subtle rounded-lg p-4">
-      <dt class="text-[10px] uppercase tracking-wider text-secondary font-semibold mb-1">Paused</dt>
+      <dt class="text-xs uppercase tracking-wider text-secondary font-semibold mb-1">Paused</dt>
       <dd class="font-mono text-sm text-muted">
         <%# Phase 2: replace with @vault_state&.paused ? "yes" : "no". %>
-        &mdash; <span class="text-[11px] text-muted">live data, wires after deploy</span>
+        &mdash; <span class="text-xs text-muted">live data, wires after deploy</span>
       </dd>
-      <p class="text-[11px] text-muted mt-1">Read from VaultState.paused via the cached vault-state preload.</p>
+      <p class="text-xs text-muted mt-1">Read from VaultState.paused via the cached vault-state preload.</p>
     </div>
 
     <div class="bg-surface-alt border border-subtle rounded-lg p-4">
-      <dt class="text-[10px] uppercase tracking-wider text-secondary font-semibold mb-1">Registered currencies</dt>
+      <dt class="text-xs uppercase tracking-wider text-secondary font-semibold mb-1">Registered currencies</dt>
       <dd class="font-mono text-sm text-muted">
         <%# Phase 2: iterate @accepted_currencies, render mint + active flag. %>
-        &mdash; <span class="text-[11px] text-muted">live data, wires after deploy</span>
+        &mdash; <span class="text-xs text-muted">live data, wires after deploy</span>
       </dd>
-      <p class="text-[11px] text-muted mt-1">accepted_currencies[16], filtered to active = true.</p>
+      <p class="text-xs text-muted mt-1">accepted_currencies[16], filtered to active = true.</p>
     </div>
 
     <div class="bg-surface-alt border border-subtle rounded-lg p-4">
-      <dt class="text-[10px] uppercase tracking-wider text-secondary font-semibold mb-1">Operator revenue (USDC)</dt>
+      <dt class="text-xs uppercase tracking-wider text-secondary font-semibold mb-1">Operator revenue (USDC)</dt>
       <dd class="font-mono text-sm text-muted">
         <%# Phase 2: @op_rev_balances[0] formatted as dollars. %>
-        &mdash; <span class="text-[11px] text-muted">live data, wires after deploy</span>
+        &mdash; <span class="text-xs text-muted">live data, wires after deploy</span>
       </dd>
-      <p class="text-[11px] text-muted mt-1">Balance in the per-currency op_rev ATA. Sweepable to Squads vault.</p>
+      <p class="text-xs text-muted mt-1">Balance in the per-currency op_rev ATA. Sweepable to Squads vault.</p>
     </div>
 
     <div class="bg-surface-alt border border-subtle rounded-lg p-4">
-      <dt class="text-[10px] uppercase tracking-wider text-secondary font-semibold mb-1">Treasury authority</dt>
+      <dt class="text-xs uppercase tracking-wider text-secondary font-semibold mb-1">Treasury authority</dt>
       <dd class="font-mono text-xs text-muted break-all">
         <%# Phase 2: pull from @vault_state&.treasury_authority once the field exists. %>
-        &mdash; <span class="text-[11px] text-muted">pinned at initialize</span>
+        &mdash; <span class="text-xs text-muted">pinned at initialize</span>
       </dd>
-      <p class="text-[11px] text-muted mt-1">Destination owner for sweep_operator_revenue. Set once, immutable.</p>
+      <p class="text-xs text-muted mt-1">Destination owner for sweep_operator_revenue. Set once, immutable.</p>
     </div>
 
   </dl>

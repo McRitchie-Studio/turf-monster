@@ -213,7 +213,7 @@ class MiniMarkdown
     @bold_open = false
     html = text.split(/(`[^`]*`)/).map do |part|
       if part.start_with?("`") && part.end_with?("`") && part.size >= 2
-        %(<code class="font-mono text-[0.85em] bg-inset rounded px-1 py-0.5 text-heading break-words">#{h(part[1..-2])}</code>)
+        %(<code class="font-mono bg-inset rounded px-1 py-0.5 text-heading break-words">#{h(part[1..-2])}</code>)
       else
         prose(part)
       end

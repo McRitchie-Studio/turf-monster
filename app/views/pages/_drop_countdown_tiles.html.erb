@@ -14,18 +14,18 @@
 <div class="grid grid-cols-4 gap-2 sm:gap-3 max-w-2xl mx-auto" data-test="v2-countdown" role="timer" aria-live="off">
   <div class="card px-1 py-3 sm:p-4 text-center">
     <p class="font-mono tabular-nums text-2xl sm:text-3xl md:text-4xl font-bold text-heading" x-text="days"><%= remaining[:days] %></p>
-    <p class="label-upper mt-1 text-[10px] sm:text-xs">Days</p>
+    <p class="label-upper mt-1 text-xs">Days</p>
   </div>
   <div class="card px-1 py-3 sm:p-4 text-center">
     <p class="font-mono tabular-nums text-2xl sm:text-3xl md:text-4xl font-bold text-heading" x-text="hours"><%= format("%02d", remaining[:hours]) %></p>
-    <p class="label-upper mt-1 text-[10px] sm:text-xs">Hours</p>
+    <p class="label-upper mt-1 text-xs">Hours</p>
   </div>
   <div class="card px-1 py-3 sm:p-4 text-center">
     <p class="font-mono tabular-nums text-2xl sm:text-3xl md:text-4xl font-bold text-heading" x-text="minutes"><%= format("%02d", remaining[:minutes]) %></p>
-    <p class="label-upper mt-1 text-[10px] sm:text-xs">Minutes</p>
+    <p class="label-upper mt-1 text-xs">Minutes</p>
   </div>
   <div class="card px-1 py-3 sm:p-4 text-center" aria-hidden="true" data-test="v2-countdown-seconds">
     <p class="font-mono tabular-nums text-2xl sm:text-3xl md:text-4xl font-bold text-heading" x-text="seconds">00</p>
-    <p class="label-upper mt-1 text-[10px] sm:text-xs">Seconds</p>
+    <p class="label-upper mt-1 text-xs">Seconds</p>
   </div>
 </div>

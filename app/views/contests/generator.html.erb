@@ -219,7 +219,7 @@
                               <span class="<%= contest.onchain? ? 'text-mint' : 'text-yellow-500' %>">●</span>
                               <%= contest.entries.where(status: [:active, :complete]).count %>/<%= contest.max_entries %>
                             </span>
-                            <span class="text-muted font-mono text-[10px]"><%= contest.status %></span>
+                            <span class="text-muted font-mono text-xs"><%= contest.status %></span>
                           </div>
                         <% end %>
                       <% end %>

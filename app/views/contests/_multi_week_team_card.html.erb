@@ -52,12 +52,15 @@
         <% if locked %>disabled<% end %>>
   <%# City small + lighter, mascot large + bold in the team accent. Two lines
       also cure the old single-line truncation ("San Francisco 49...",
-      "Los Angeles Char..."). %>
+      "Los Angeles Char...").
+      The mascot is the subhead role at every width (task turf-adopts-type-scale):
+      the heading role (48px) overflowed 28 of 32 cards at 768 and 14 at 1024,
+      and the board's shrinkTeamNames() then dropped each to fine print. %>
   <% if team.location.present? %>
     <p class="text-xs md:text-sm font-medium leading-tight truncate"
        style="color: <%= pal[:location] %>" title="<%= team.name %>"><%= team.location %></p>
   <% end %>
-  <p class="font-extrabold text-2xl md:text-3xl leading-tight truncate team-name"
+  <p class="font-extrabold text-2xl leading-tight truncate team-name"
      style="color: <%= pal[:accent] %>; text-shadow: <%= pal[:mascot_shadow] %>" title="<%= team.name %>"><%= team.mascot %></p>
 
   <%# One line: the stylish multiplier (1.6x) then the "Points" label.
@@ -107,7 +110,7 @@
         <%# The date ("Dec 25"), or the week when that game has no kickoff yet.
             Both fit the width "WEEK 16" already held, so the mobile column
             budget the sizes below were tuned against is unchanged. %>
-        <p class="tm-opponent-week text-[9px] lg:text-[10px] uppercase tracking-wide leading-tight" style="color: <%= pal[:grey] %>"><%= slot[:shown] %></p>
+        <p class="tm-opponent-week tile-print-week lg:text-xs uppercase tracking-wide leading-tight" style="color: <%= pal[:grey] %>"><%= slot[:shown] %></p>
         <%# emoji + abbreviation share one centered baseline (items-center,
             leading-none) so the taller emoji stops leaving vertical space above
             the text; the abbreviation wears the opponent's own color.
@@ -128,17 +131,26 @@
 
             10px emoji + 10px abbreviation clear the widest short name ("WAS")
             with room at 375px and up; below that `truncate` still degrades it,
-            as it did before. %>
+            as it did before.
+
+            OFF THE TYPE SCALE ON PURPOSE (task turf-adopts-type-scale). The
+            scale's smallest role, fine print, is 12px, and at 12px "WAS" and
+            "NOV 15" clip or wrap in this column at 375 and 768 (measured). So
+            below lg the row and the date wear the named tile-print-label (10px)
+            and tile-print-week (9px) utilities (app/assets/tailwind/type_scale.css),
+            the sizes this budget was measured at. From lg they are fine print,
+            and the abbreviation steps to body only at xl, because at 1024 a 16px
+            "WAS" clips the ~34px it is given. %>
         <%# The halo rides the ROW, behind emoji and abbreviation together, and
             the row stays a full-width block so the gradient can fade out
             inside the column. See TeamColorsHelper#opponent_label_halo. %>
         <p class="tm-opponent-row mt-1 py-1 flex items-center justify-center gap-0.5 lg:gap-1 leading-none"
            style="background: <%= opponent_label_halo(opponent, team) %>">
           <% if opponent %>
-            <span class="text-[10px] lg:text-sm"><%= opponent.emoji %></span>
-            <span class="text-[10px] lg:text-sm font-semibold truncate" style="color: <%= opponent_label_color(opponent, team) %>"><%= opponent.short_name %></span>
+            <span class="tile-print-label lg:text-xs xl:text-sm"><%= opponent.emoji %></span>
+            <span class="tile-print-label lg:text-xs xl:text-sm font-semibold truncate" style="color: <%= opponent_label_color(opponent, team) %>"><%= opponent.short_name %></span>
           <% else %>
-            <span class="text-[10px] lg:text-sm italic" style="color: <%= pal[:fg_soft] %>">bye</span>
+            <span class="tile-print-label lg:text-xs xl:text-sm italic" style="color: <%= pal[:fg_soft] %>">bye</span>
           <% end %>
         </p>
       </div>

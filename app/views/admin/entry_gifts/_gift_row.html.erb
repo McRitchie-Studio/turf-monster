@@ -32,7 +32,7 @@
       <div class="text-muted text-xs mt-0.5 max-w-xs"><%= gift.mint_error %></div>
     <% end %>
     <% if gift.mint_signature.present? %>
-      <div class="text-muted text-[10px] font-mono mt-0.5 truncate max-w-[16rem]"><%= gift.mint_signature %></div>
+      <div class="text-muted text-xs font-mono mt-0.5 truncate max-w-[16rem]"><%= gift.mint_signature %></div>
     <% end %>
   </td>
   <td class="px-4 py-3 text-right whitespace-nowrap">
@@ -49,7 +49,7 @@
         — see that method for why the test could not pin an inline env check. %>
     <% if !gift.claimed? && EntryGift.claim_links_visible? && gift.link %>
       <a href="<%= link_path(token: gift.link.token) %>"
-         class="text-muted hover:text-primary text-[10px] font-mono mr-2 underline"
+         class="text-muted hover:text-primary text-xs font-mono mr-2 underline"
          title="Dev only — the link the recipient would click">claim link</a>
     <% end %>
     <% if !gift.claimed? %>

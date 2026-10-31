@@ -236,6 +236,12 @@ class LiveFocusSituationRenderTest < ActionDispatch::IntegrationTest
     field = field_for(@scheduled.slug)
     assert_equal 1, field.css("time[data-role='kickoff-date']").size
     assert_equal 1, field.css("time[data-role='kickoff']").size
+    # Body on phones, subhead from lg (task turf-adopts-type-scale): the middle
+    # column is ~55px at 375, and at subhead (24px) "Fri 1:15 AM" wraps to three
+    # lines and clips the date above it.
+    kickoff = field.css("time[data-role='kickoff']").first["class"].split
+    assert_includes kickoff, "text-base"
+    assert_includes kickoff, "lg:text-lg"
     assert_empty rail_for(@scheduled.slug).css("time"),
       "the top third is the place alone"
     assert_empty field.css("[data-test='live-focus-down']"),

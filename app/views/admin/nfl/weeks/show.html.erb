@@ -45,7 +45,7 @@
       from the same service /live calls, so this is the answer, not a mock-up of
       it. It is a page-load reading: it does not follow a drag until you reload. %>
   <div class="card p-4 flex items-center gap-3 flex-wrap" data-test="week-focus-now">
-    <span class="text-[10px] text-muted uppercase tracking-wide">Focus right now</span>
+    <span class="text-xs text-muted uppercase tracking-wide">Focus right now</span>
     <% if @focus_now %>
       <%# Full names, matching the cards below — the abbreviations are for a
           scoreboard read at a glance, and this line is read once. %>
@@ -55,7 +55,7 @@
         <%= @focus_now.home_team&.name || @focus_now.home_team_slug %>
       </span>
       <% if @focus_now.focus_rank %>
-        <span class="text-[10px] font-bold uppercase tracking-wider text-primary">#<%= @focus_now.focus_rank %> in the order</span>
+        <span class="text-xs font-bold uppercase tracking-wider text-primary">#<%= @focus_now.focus_rank %> in the order</span>
       <% end %>
     <% else %>
       <span class="text-muted text-sm">No games in this week.</span>

@@ -8,7 +8,7 @@
 <section class="card p-6 sm:p-8 mb-6">
   <div class="flex flex-col sm:flex-row sm:items-baseline sm:gap-4 mb-2">
     <h2 class="text-heading font-bold text-xl">Where the <%= (deployed_file_bytes / 1024.0).round %> KB goes</h2>
-    <span class="text-[11px] font-mono text-muted uppercase tracking-wider">ELF section headers</span>
+    <span class="text-xs font-mono text-muted uppercase tracking-wider">ELF section headers</span>
   </div>
   <p class="text-secondary text-sm mb-5 max-w-3xl">
     Solana charges rent on every byte in the ProgramData account, regardless of what's in it.
@@ -22,7 +22,7 @@
     <% total = sections.sum { |s| s[:bytes] } %>
     <% sections.each do |s| %>
       <% pct = 100.0 * s[:bytes] / total %>
-      <div class="flex items-center justify-center text-[11px] font-mono text-black/70"
+      <div class="flex items-center justify-center text-xs font-mono text-black/70"
            style="width: <%= sprintf("%.2f", pct) %>%; background: <%= s[:color] %>;"
            title="<%= s[:name] %> &mdash; <%= number_with_delimiter(s[:bytes]) %> bytes (<%= sprintf("%.1f", pct) %>%)">
         <span class="truncate px-1"><%= pct >= 4 ? s[:name] : "" %></span>
@@ -55,7 +55,7 @@
               <%= number_with_delimiter(s[:bytes]) %> &middot; <%= sprintf("%.1f", pct) %>%
             </span>
           </div>
-          <div class="text-secondary text-[13px] leading-snug mt-0.5"><%= s[:desc] %></div>
+          <div class="text-secondary text-xs leading-snug mt-0.5"><%= s[:desc] %></div>
         </div>
       </div>
     <% end %>
