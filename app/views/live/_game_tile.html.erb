@@ -126,7 +126,7 @@
           <span class="nfl-rail relative rounded-full flex-shrink-0 w-1 h-8"
                 style="background: <%= palette[:accent] %>"></span>
         <% end %>
-        <span class="relative leading-none flex-shrink-0 <%= hero ? "text-4xl" : "text-xl" %>"
+        <span class="relative leading-none flex-shrink-0 <%= hero ? "text-2xl lg:text-4xl" : "text-xl" %>"
               style="text-shadow: <%= palette[:mascot_shadow] %>"><%= team&.emoji %></span>
         <%# Same colour convention as contests/_multi_week_team_card: the MASCOT
             in the team accent over its legibility halo, the CITY in the light
@@ -134,7 +134,7 @@
             team's own field — it is why Buffalo's red-on-blue (1.88:1 unaided)
             works here exactly as it does on the contests card. %>
         <span class="relative min-w-0 flex-1">
-          <span class="block font-extrabold truncate <%= hero ? "text-4xl leading-tight" : "text-sm" %>"
+          <span class="block font-extrabold truncate <%= hero ? "text-2xl lg:text-4xl leading-tight" : "text-sm" %>"
                 style="color: <%= palette[:accent] %>; text-shadow: <%= palette[:mascot_shadow] %>">
             <%= team&.mascot.presence || team&.short_name || team&.name %>
           </span>

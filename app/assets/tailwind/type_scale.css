@@ -53,3 +53,18 @@
   --text-9xl: calc(var(--type-base, 16px) * 6);
   --text-9xl--line-height: 1.05;
 }
+
+/* A data tile with a measured width budget is not running text, so it is not on
+   the scale: the multi-week team card's opponent column is a third of a card
+   that is half a phone (~43px at 375), and at fine print (12px) "WAS" clips and
+   "NOV 15" wraps there (contests/_multi_week_team_card, the comment above the
+   opponent row; test/helpers/multi_week_team_card_test.rb). These are the sizes
+   that budget was measured at, below lg only; from lg the tile is on the scale.
+   The sidebar-open hold in application.css restores these same two values. */
+@utility tile-print-label {
+  font-size: 10px;
+}
+
+@utility tile-print-week {
+  font-size: 9px;
+}

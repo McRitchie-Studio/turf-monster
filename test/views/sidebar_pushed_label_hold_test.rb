@@ -39,10 +39,15 @@ class SidebarPushedLabelHoldTest < ActiveSupport::TestCase
     "px-1"        => "0.25rem",
     "gap-0.5"     => "0.125rem",
     "gap-1"       => "0.25rem",
-    "text-[9px]"  => "9px",
-    "text-[10px]" => "10px",
-    "text-sm"     => "0.875rem"
+    # The opponent tile's off-scale sizes (app/assets/tailwind/type_scale.css,
+    # task turf-adopts-type-scale): the small variant below lg.
+    "tile-print-week"  => "9px",
+    "tile-print-label" => "10px"
   }.freeze
+
+  # A font-size step's small side is either a text-* class or one of the tile's
+  # named off-scale utilities, which carry no text- prefix.
+  SMALL_TEXT = /(?<![\w:-])(?:text|tile-print)-\S+?(?=["\s]|\z)/
 
   # class attr -> the tokens that have an `lg:` counterpart in the same attr
   def stepped_pairs(class_attr)
@@ -50,6 +55,7 @@ class SidebarPushedLabelHoldTest < ActiveSupport::TestCase
       base = large.sub(/-\[.*\]\z/) { "" }
       family = large[/\A[a-z-]+?(?=-)/] || large
       small = class_attr[/(?<![\w:-])#{Regexp.escape(family)}-\S+/]
+      small ||= class_attr[SMALL_TEXT] if family == "text"
       next if small.nil? || small == "lg:#{large}"
 
       [small, large]
@@ -104,7 +110,7 @@ class SidebarPushedLabelHoldTest < ActiveSupport::TestCase
 
     {
       "tm-opponent-cell" => { "px"       => %w[padding-left padding-right] },
-      "tm-opponent-week" => { "text"     => %w[font-size] },
+      "tm-opponent-week" => { "tile-print" => %w[font-size] },
       "tm-opponent-row"  => { "gap"      => %w[gap] }
     }.each do |hook, families|
       line = card_line(hook)
@@ -130,7 +136,7 @@ class SidebarPushedLabelHoldTest < ActiveSupport::TestCase
 
   test "the abbreviation spans are held at the partial's own small size" do
     span  = CARD.read.lines.find { |l| l.include?("opponent.short_name") }
-    small = span[/(?<![\w:-])text-\S+?(?=["\s])/]
+    small = span[SMALL_TEXT]
     value = TOKENS[small] || flunk("unmapped token `#{small}` on the abbreviation span")
 
     assert_match(/\.tm-opponent-row span\s*\{[^}]*font-size:\s*#{Regexp.escape(value)}/, hold_block,

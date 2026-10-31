@@ -154,29 +154,29 @@ class MultiWeekTeamCardTest < ActionView::TestCase
 
   test "week label is a touch smaller on mobile and restores at lg" do
     classes = classes_of(week_label(render_card(team_double), "Week 1"))
-    assert_includes classes, "text-[9px]", "mobile week label should shrink below 10px"
-    assert_includes classes, "lg:text-[10px]", "the wide (lg) card keeps the original 10px label"
+    assert_includes classes, "tile-print-week", "mobile week label keeps the 9px tile size, below fine print"
+    assert_includes classes, "lg:text-xs", "the wide (lg) card's label is fine print, on the type scale"
   end
 
   test "opponent abbreviation shrinks on mobile so a three-letter short name fits" do
     classes = classes_of(chip_span(render_card(team_double), "IND"))
     refute_includes classes, "text-sm",
                     "an unconditional text-sm truncates IND inside a ~48px mobile column"
-    assert_includes classes, "text-[10px]"
-    assert_includes classes, "lg:text-sm", "the wide (lg) card keeps the original size"
+    assert_includes classes, "tile-print-label"
+    assert_includes classes, "xl:text-sm", "the abbreviation steps to body only at xl, where 16px fits"
   end
 
   test "opponent emoji shrinks with its abbreviation on mobile" do
     classes = classes_of(chip_span(render_card(team_double), "\u{1F434}"))
     refute_includes classes, "text-sm"
-    assert_includes classes, "text-[10px]"
-    assert_includes classes, "lg:text-sm"
+    assert_includes classes, "tile-print-label"
+    assert_includes classes, "xl:text-sm"
   end
 
   test "bye week keeps the same responsive sizing as a real opponent" do
     classes = classes_of(chip_span(render_card(team_double), "bye"))
-    assert_includes classes, "text-[10px]"
-    assert_includes classes, "lg:text-sm"
+    assert_includes classes, "tile-print-label"
+    assert_includes classes, "xl:text-sm"
   end
 
   # --- opponent column labels ------------------------------------------------
