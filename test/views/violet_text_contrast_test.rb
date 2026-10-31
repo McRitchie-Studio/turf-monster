@@ -1246,7 +1246,9 @@ class VioletTextContrastTest < ActiveSupport::TestCase
   # is being measured against a ground it is not on — starting with the two
   # Save Formula buttons, which is the whole reason the fallback exists.
   test "the page fallback is the layout's real background" do
-    body = File.read(Rails.root.join("app/views/layouts/application.html.erb"))[/<body[^>]*>/m]
+    # ERB-aware: the class attribute carries `<%= ' type-dense' ... %>` (task
+    # turf-adopts-type-scale), whose `%>` would end a plain [^>]* match early.
+    body = File.read(Rails.root.join("app/views/layouts/application.html.erb"))[/<body\b(?:<%.*?%>|[^>])*>/m]
     assert body, "the app layout has no <body> tag to read a background from"
     assert_includes body[/class="([^"]*)"/, 1].to_s.split, "bg-page",
                     "surface_or_page measures an unmarked element against the page; the layout body must paint bg-page"

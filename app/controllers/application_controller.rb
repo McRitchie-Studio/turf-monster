@@ -119,24 +119,6 @@ class ApplicationController < ActionController::Base
 
   private
 
-  # Whether the page reads the type scale's 14px dense base (task
-  # turf-adopts-type-scale): the layout puts `type-dense` on <body>, not <html>,
-  # where the theme tag's unlayered :root rule would win. Dense means admin-only,
-  # and Turf has no route table of admin pages to read, so the guard itself is
-  # the answer: a page is admin-only exactly when `require_admin` ran for it and
-  # let the request through (the Admin:: namespace, the admin actions on
-  # ContestsController, SlatesController, AdminController, TransactionLogs,
-  # and the engine's admin pages, which all guard with it). Every page a player
-  # or visitor can reach keeps the 16px base.
-  def type_dense_page?
-    @type_dense_page == true
-  end
-
-  def require_admin
-    @type_dense_page = true
-    super
-  end
-
   # True only for an affirmative checkbox value ("1", "true", true). Each
   # signup controller reads its own source (params, omniauth.params, or the
   # MagicLink row) and funnels through this single truthiness rule.
@@ -1222,5 +1204,25 @@ class ApplicationController < ActionController::Base
   helper_method :studio_sidebar?
   def studio_sidebar?
     false
+  end
+
+  private
+
+  # Whether the page reads the type scale's 14px dense base (task
+  # turf-adopts-type-scale): the layout puts `type-dense` on <body>, not <html>,
+  # where the theme tag's unlayered :root rule would win. Dense means admin-only,
+  # and Turf has no route table of admin pages to read, so the guard itself is
+  # the answer: a page is admin-only exactly when `require_admin` ran for it and
+  # let the request through (the Admin:: namespace, the admin actions on
+  # ContestsController, SlatesController, AdminController, TransactionLogs,
+  # and the engine's admin pages, which all guard with it). Every page a player
+  # or visitor can reach keeps the 16px base.
+  def type_dense_page?
+    @type_dense_page == true
+  end
+
+  def require_admin
+    @type_dense_page = true
+    super
   end
 end
