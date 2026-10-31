@@ -146,7 +146,7 @@
             An inline style beats a stylesheet rule, so the hot state could never
             repaint it — the score reads its resting colour from --nfl-team-fg
             through a rule instead, which the hot rule can then override. %>
-        <span class="relative font-extrabold tabular-nums <%= hero ? "text-5xl" : "text-2xl" %>"
+        <span class="relative font-extrabold tabular-nums <%= hero ? "text-4xl" : "text-2xl" %>"
               style="--nfl-team-fg: <%= palette[:fg] %>"
               data-role="score"><%= score.to_i %></span>
       </div>

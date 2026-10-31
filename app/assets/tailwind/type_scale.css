@@ -68,3 +68,12 @@
 @utility tile-print-week {
   font-size: 9px;
 }
+
+/* A miniature of the app is drawn on the scale at a smaller base, the way an
+   admin page is under `type-dense`: the landing page's CSS phone
+   (pages/_phone_frame) holds the board's own cards, and at the page's 16px base
+   their labels wrap ("WEEK 1") and clip inside a 17rem phone. At a 12px base
+   every role keeps its multiple (9px fine print, 12px body, 18px subhead). */
+@utility type-mini {
+  --type-base: 12px;
+}

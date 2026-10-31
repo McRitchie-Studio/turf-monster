@@ -3,7 +3,7 @@
     grid tile) and _matchup_game_pair (paired game view). Only the button
     wrappers differ between the two; this is the common emoji / name / balance
     block, kept here so the two layouts can't drift. %>
-<p class="text-4xl md:text-5xl mb-2"><%= matchup.team.emoji %></p>
+<p class="text-4xl mb-2"><%= matchup.team.emoji %></p>
 <p class="font-bold text-heading text-lg md:text-xl mb-0.5 truncate team-name" title="<%= matchup.team.name %>"><%= matchup.team.name %></p>
 <% if matchup.turf_score %>
   <p class="font-mono text-lg md:text-xl text-primary"><%= format_turf_score(matchup.turf_score) %></p>

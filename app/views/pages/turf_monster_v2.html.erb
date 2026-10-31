@@ -157,9 +157,12 @@
       <div class="text-center md:text-left">
         <%# ONE SENTENCE PER LINE at every width: three block spans, each kept
             whole (whitespace-nowrap), at a size whose longest line, "Stack
-            points.", still fits the hero at 375px. A variant's headline lines
+            points.", still fits the hero at 375px. On the type scale that is
+            the subhead role on a phone (the heading, 48px, overflows the 375px
+            hero) and the heading from sm up; the title (96px) overflows the
+            copy column at every width, so the hero never takes it. A variant's headline lines
             are held to the same width (check it at 375 before it runs). %>
-        <h1 class="text-3xl font-extrabold leading-tight text-white" data-test="v2-headline">
+        <h1 class="text-2xl sm:text-3xl font-extrabold leading-tight text-white" data-test="v2-headline">
           <% headline_lines.each do |line| %>
             <span class="block whitespace-nowrap"><%= line %></span>
           <% end %>
@@ -167,7 +170,7 @@
         <%# Two spans, one shown per width, by CSS alone: the hidden one is
             display:none, so a screen reader hears exactly one. The phone
             copy lives in mobile_subhead at the top of this view. %>
-        <p class="mt-5 text-lg text-white/80 max-w-xl mx-auto md:mx-0" data-test="v2-subhead">
+        <p class="mt-5 text-base md:text-lg text-white/80 max-w-xl mx-auto md:mx-0" data-test="v2-subhead">
           <span class="md:hidden" data-test="v2-subhead-mobile"><%= mobile_subhead %></span>
           <span class="hidden md:inline" data-test="v2-subhead-desktop"><%= desktop_subhead %></span>
         </p>
