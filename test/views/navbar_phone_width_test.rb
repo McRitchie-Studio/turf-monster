@@ -156,7 +156,8 @@ class NavbarPhoneWidthTest < ActiveSupport::TestCase
     _, _, desktop = width_declarations
 
     # /tasks/turf-navbar-polish: the old calc(24vw + 0.5rem) sat on the floor up
-    # to about 1000px and starved the name; the ramp reaches 20.5rem at 1024.
+    # to ~1067px (where 24vw + 0.5rem passes 16.5rem) and starved the name; the
+    # ramp reaches 20.5rem at 1024.
     # Its own floor and ramp, measured by e2e/navbar_polish.spec.js.
     assert_equal "clamp(16.5rem, calc(16.5rem + (100vw - 48rem) * 0.25), 20.5rem)", desktop,
                  "768px and up grows the column a quarter of every pixel past its floor; " \
@@ -289,7 +290,10 @@ class NavbarPhoneWidthTest < ActiveSupport::TestCase
     # desktop preview kept the old calc(24% + ...) through
     # /tasks/turf-navbar-polish, green, and drew 264px at its 1032px default
     # where production draws 328px (/tasks/turf-navbar-stale-widths).
-    device = "100% + 2 * var(--preview-frame)"
+    # Parenthesised: the device width is ONE term wherever 100vw stood, so a
+    # shipped band that multiplies or subtracts 100vw cannot bind the operator
+    # to the frame alone (100vw * 0.25 must not become 100% + 2 * frame * 0.25).
+    device = "(100% + 2 * var(--preview-frame))"
     [[tiny, "tiny"], [small, "small"], [desktop, "desktop"]].zip(width_declarations)
       .each do |(rule, name), shipped|
         assert_includes shipped, "100vw", "the shipped #{name} band no longer reads the viewport"

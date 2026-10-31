@@ -1768,9 +1768,10 @@ body.modal-open { overflow: hidden; }
 }
 
 /* THE SQUEEZE BAND — md up to just under xl. Two things happen at exactly
-   768px and they compound: .user-nav-col STOPPED GROWING (its old 24vw clamp
-   sat on its floor up to about 1000px; since /tasks/turf-navbar-polish it grows
-   a quarter of every pixel past 768) and the gear + theme toggle
+   768px and they compound: .user-nav-col STOPPED GROWING (its old clamp sat
+   on its 16.5rem floor until 24vw + 0.5rem passed it at ~1067px; since
+   /tasks/turf-navbar-polish it grows a quarter of every pixel past 768) and
+   the gear + theme toggle
    JOIN the row (they are `hidden md:flex`, and below md they live in the
    mobile sub-navbar instead). So the column takes on ~44px of new controls
    against 16px of new width, and the username pays the difference — it is the
