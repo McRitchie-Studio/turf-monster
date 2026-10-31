@@ -140,8 +140,19 @@ async function readHeaderGeometry(page) {
     const leftBox = box(leftColumn);
     const userBox = box(userColumn);
 
+    // THE BRAND FITS OR IT IS THE MASCOT (/tasks/turf-navbar-logo-when-tight):
+    // nav_brand_fit.js says which on the header, and a tight header takes the
+    // words out of flow into a 1px clipped box, where no word box can reach
+    // past anything. So the word assertions below hold the words to their
+    // column only where they paint, and hold a tight header to not painting.
+    const titleStyle = title ? getComputedStyle(title) : null;
+    const titleBox = box(title);
+
     return {
       viewport,
+      brand: root.getAttribute("data-nav-brand"),
+      titleHidden: !!title && titleStyle.position === "absolute" && titleBox.width <= 1 && titleBox.height <= 1,
+      wordsClipped: title ? Array.from(title.children).filter((s) => s.scrollWidth > s.clientWidth).map((s) => s.textContent) : [],
       documentScrollWidth: de.scrollWidth,
       documentClientWidth: de.clientWidth,
       pastViewport: past,
@@ -170,6 +181,9 @@ async function openHeaderAt(page, width) {
   await page.goto("/contests");
   await expect(page.locator("[data-nav-account]").first()).toBeVisible();
   await exposeBalance(page);
+  // The balance just grew; let nav_brand_fit.js re-answer for the row it made.
+  await expect(page.locator("header[data-navbar-root]")).toHaveAttribute("data-nav-brand", /^(fit|tight)$/);
+  for (let i = 0; i < 2; i++) await page.evaluate(() => new Promise((r) => requestAnimationFrame(r)));
 }
 
 test("no part of the signed-in header reaches past a phone's edge", async ({ page }) => {
@@ -195,7 +209,7 @@ test("no part of the signed-in header reaches past a phone's edge", async ({ pag
   }
 });
 
-test("the app name stays inside its own column on every phone", async ({ page }) => {
+test("the app name paints whole inside its own column, or not at all, on every phone", async ({ page }) => {
   await page.setViewportSize(PHONE);
   await loginAdmin(page);
 
@@ -214,12 +228,28 @@ test("the app name stays inside its own column on every phone", async ({ page })
     await openHeaderAt(page, width);
     const g = await readHeaderGeometry(page);
 
+    // SINCE THE LOGO-ONLY MODE (/tasks/turf-navbar-logo-when-tight) a phone
+    // too narrow for "Turf Monster" on one line draws the mascot alone, and
+    // the words sit in a 1px clipped box, so a word box cannot fail the
+    // containment check below there (/tasks/turf-navbar-stopgap-cleanup found
+    // it inert). A tight header is held to drawing NO words instead, and a fit
+    // one to drawing them whole: no ellipsis, inside the column.
+    expect(g.brand, `at ${width}px nav_brand_fit.js has not answered`).toMatch(/^(fit|tight)$/);
+    if (g.brand === "tight") {
+      expect(g.titleHidden, `at ${width}px the header is tight but the words still paint: ` +
+        `${JSON.stringify(g.wordWidths)}`).toBe(true);
+    } else {
+      expect(g.titleHidden, `at ${width}px the header fits but the words are hidden`).toBe(false);
+      expect(g.wordsClipped, `at ${width}px a word of the app name is ellipsized`).toEqual([]);
+    }
+
     // THE ASSERTION THAT CATCHES THE ORIGINAL DEFECT, stated on the WORD boxes.
     // The <h1> is not enough: with min-w-0 in place it shrinks and reports
     // itself contained while a span inside it keeps its own max-content width.
     // Measured with align-items left at its inherited `baseline` — h1 46px
     // ending at 114, span "Monster" 88px ending at 156, column ending at 130.
-    const worst = Math.max(...g.wordRights);
+    // Live only where the words paint; a tight header passed it above.
+    const worst = g.titleHidden ? -Infinity : Math.max(...g.wordRights);
     expect(
       worst,
       `at ${width}px a word of the app name ends at ${worst}, outside its own column ` +
@@ -305,13 +335,27 @@ test("a wider phone never shows less of the app name", async ({ page }) => {
     const g = await readHeaderGeometry(page);
     measured.push({
       width,
-      titleWidth: g.titleWidth,
+      brand: g.brand,
+      titleWidth: g.titleHidden ? 0 : g.titleWidth,
       userColumnWidth: g.userColumnWidth,
       leftColumnWidth: g.leftColumnWidth
     });
   }
 
+  // SINCE THE LOGO-ONLY MODE the name is whole or not drawn, so "less of the
+  // name" means a wider phone going back to the mascot alone after a narrower
+  // one drew the words: once a width fits, every wider one fits. A hidden
+  // title counts as 0px wide (its 1px clipped box would otherwise make an
+  // all-tight series pass the width check vacuously), so the width check is
+  // live from the first width that fits (/tasks/turf-navbar-stopgap-cleanup).
   for (let i = 1; i < measured.length; i++) {
+    if (measured[i - 1].brand === "fit") {
+      expect(
+        measured[i].brand,
+        `the app name shows at ${measured[i - 1].width}px but not at the wider ` +
+          `${measured[i].width}px. Full series: ${JSON.stringify(measured)}`
+      ).toBe("fit");
+    }
     expect(
       measured[i].titleWidth,
       `the app name is ${measured[i].titleWidth}px wide at ${measured[i].width}px but ` +
