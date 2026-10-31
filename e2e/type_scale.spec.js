@@ -32,16 +32,26 @@ test("team names sit on the scale and shrink a role at a time, never off it", as
   });
   expect(forced).toBe("12px");
 
-  // A name that fits at body stops there.
+  // A name that overflows at subhead but fits at body stops at body. The box is
+  // sized from the name's own measured widths, not a pixel guess, because font
+  // metrics differ between macOS and the Linux CI runner.
   const body = await page.evaluate(() => {
     const el = document.querySelector(".team-name");
     el.textContent = "Commanders";
+    el.style.display = "inline-block";
+    el.style.maxWidth = "none";
+    el.style.fontSize = "calc(var(--type-base, 16px) * 1)";
+    const atBody = el.scrollWidth;
     el.style.fontSize = "";
-    el.parentElement.style.width = "150px";
+    const atSubhead = el.scrollWidth;
+    el.style.display = "";
+    el.style.maxWidth = "";
+    el.style.width = `${Math.round((atBody + atSubhead) / 2)}px`;
     window.shrinkTeamNames();
-    return { size: getComputedStyle(el).fontSize, clipped: el.scrollWidth > el.clientWidth };
+    return { atBody, atSubhead, size: getComputedStyle(el).fontSize, clipped: el.scrollWidth > el.clientWidth };
   });
-  expect(["16px", "24px"]).toContain(body.size);
+  expect(body.atSubhead).toBeGreaterThan(body.atBody);
+  expect(body.size).toBe("16px");
   expect(body.clipped).toBe(false);
 });
 
