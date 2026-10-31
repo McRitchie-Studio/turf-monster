@@ -1091,7 +1091,7 @@
    past 768 and reaches 20.5rem at 1024, where the name has its
    full 7rem beside a five-digit balance. 768 keeps the floor: the geo badge
    ends about 20px short of the column there, so the row has nothing to give,
-   and the name truncates with its full text as a title (nav_labels.js). The
+   and the name truncates with the engine's full-name title. The
    row's left side keeps its slack at every width (e2e/navbar_polish.spec.js). */
 @media (min-width: 768px) {
   .nav-shell .user-nav-col {

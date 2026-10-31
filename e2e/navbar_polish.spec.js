@@ -6,7 +6,7 @@ const { login, reseed } = require("./helpers");
 // A real account, signed in, with a real 29-character username set through the
 // same validation a user's own change goes through (POST /test/set_username), so
 // the server renders the name everywhere it renders it: the name control in
-// row 1, the avatar's label, and the title nav_labels.js adds.
+// row 1, the avatar's label, and the name control's title (the engine's).
 //
 //   · 360, 768, 1024, 1280, light and dark: no sideways scroll, the avatar on
 //     screen, every tab stop in the header named by its text or aria-label (a
@@ -19,7 +19,7 @@ const { login, reseed } = require("./helpers");
 //   · the hovers stay as they were: the gear, the name and the avatar open one
 //     sidebar and light as one group (engine.css, THE ACCOUNT GROUP), each in
 //     its own way (the name and the gear take the primary colour, the avatar
-//     glows), and the theme toggle this card labels stays outside the group.
+//     glows), and the theme toggle (the engine names it) stays outside the group.
 const EMAIL = "navbar-polish@e2e.test";
 const LONG_NAME = "Christopher_Montgomery_Wellin";
 const HEADER = "header[data-navbar-root]";
@@ -104,8 +104,10 @@ for (const theme of ["light", "dark"]) {
       await page.goto("/contests");
       await expect(page.locator(`${HEADER} [data-nav-account]`)).toBeVisible();
       await page.waitForLoadState("networkidle");
-      // nav_labels.js runs on turbo:load; wait for it rather than racing it.
-      await expect(page.locator(`${HEADER} .nav-toggle-icon > button[aria-label]`).first()).toBeAttached();
+      // The engine renders aria-label on the server, but aria-pressed is an
+      // Alpine binding (:aria-pressed on the theme store); wait for Alpine to
+      // have bound it rather than racing it.
+      await expect(page.locator(`${HEADER} .nav-toggle-icon > button[aria-pressed]`)).toHaveCount(2);
       await widenBalance(page);
 
       const m = await measure(page);
