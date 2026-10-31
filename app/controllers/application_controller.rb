@@ -29,7 +29,7 @@ class ApplicationController < ActionController::Base
   before_action :touch_last_seen
   before_action :require_profile_completion
   before_action :preload_navbar_solana_data
-  helper_method :display_balance, :display_seeds_data, :display_entry_token_count, :onchain_session?, :wallet_context, :client_session_payload, :true_user, :impersonating?, :current_wallet, :pending_signature_count
+  helper_method :type_dense_page?, :display_balance, :display_seeds_data, :display_entry_token_count, :onchain_session?, :wallet_context, :client_session_payload, :true_user, :impersonating?, :current_wallet, :pending_signature_count
 
   # OPSEC-045: extend the engine's set_app_session to also bind a per-user
   # session_token in the cookie. The verify_session_token before_action
@@ -118,6 +118,24 @@ class ApplicationController < ActionController::Base
                           "skill-based contests in your state before creating an account.".freeze
 
   private
+
+  # Whether the page reads the type scale's 14px dense base (task
+  # turf-adopts-type-scale): the layout puts `type-dense` on <body>, not <html>,
+  # where the theme tag's unlayered :root rule would win. Dense means admin-only,
+  # and Turf has no route table of admin pages to read, so the guard itself is
+  # the answer: a page is admin-only exactly when `require_admin` ran for it and
+  # let the request through (the Admin:: namespace, the admin actions on
+  # ContestsController, SlatesController, AdminController, TransactionLogs,
+  # and the engine's admin pages, which all guard with it). Every page a player
+  # or visitor can reach keeps the 16px base.
+  def type_dense_page?
+    @type_dense_page == true
+  end
+
+  def require_admin
+    @type_dense_page = true
+    super
+  end
 
   # True only for an affirmative checkbox value ("1", "true", true). Each
   # signup controller reads its own source (params, omniauth.params, or the

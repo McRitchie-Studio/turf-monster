@@ -1,0 +1,55 @@
+/* Turf Monster on the type scale (task turf-adopts-type-scale; Alex McRitchie's
+   ruling of 2026-10-28: 6/3/1.5/1/0.75x of body for every app, the trial the hub
+   ran first in hub-adopts-type-scale). Every Tailwind font size lands on one of
+   the engine's five roles, so the text-* classes in these views follow the
+   standard without a rewrite:
+
+     title      6x     text-5xl .. text-9xl
+     heading    3x     text-3xl, text-4xl
+     subhead    1.5x   text-lg, text-xl, text-2xl
+     body       1x     text-sm, text-base
+     fine print 0.75x  text-3xs, text-2xs, text-xs
+
+   INLINE ON PURPOSE. `@theme inline` writes calc(var(--type-base) * N) into each
+   utility, so it resolves on the element: under `type-dense` (the body of an
+   admin page, ApplicationController#type_dense_page?) the same class reads the
+   14px dense base. A plain @theme would resolve once on :root and every page
+   would keep 16px. The multiples must match Studio::TypeScale::ROLES
+   (test/lib/turf_type_scale_test.rb). Weights stay with each element's own
+   font-* class; only size and line height move. */
+@theme inline {
+  --text-3xs: calc(var(--type-base, 16px) * 0.75);
+  --text-3xs--line-height: 1.4;
+  --text-2xs: calc(var(--type-base, 16px) * 0.75);
+  --text-2xs--line-height: 1.4;
+  --text-xs: calc(var(--type-base, 16px) * 0.75);
+  --text-xs--line-height: 1.4;
+
+  --text-sm: calc(var(--type-base, 16px) * 1);
+  --text-sm--line-height: 1.5;
+  --text-base: calc(var(--type-base, 16px) * 1);
+  --text-base--line-height: 1.5;
+
+  --text-lg: calc(var(--type-base, 16px) * 1.5);
+  --text-lg--line-height: 1.25;
+  --text-xl: calc(var(--type-base, 16px) * 1.5);
+  --text-xl--line-height: 1.25;
+  --text-2xl: calc(var(--type-base, 16px) * 1.5);
+  --text-2xl--line-height: 1.25;
+
+  --text-3xl: calc(var(--type-base, 16px) * 3);
+  --text-3xl--line-height: 1.1;
+  --text-4xl: calc(var(--type-base, 16px) * 3);
+  --text-4xl--line-height: 1.1;
+
+  --text-5xl: calc(var(--type-base, 16px) * 6);
+  --text-5xl--line-height: 1.05;
+  --text-6xl: calc(var(--type-base, 16px) * 6);
+  --text-6xl--line-height: 1.05;
+  --text-7xl: calc(var(--type-base, 16px) * 6);
+  --text-7xl--line-height: 1.05;
+  --text-8xl: calc(var(--type-base, 16px) * 6);
+  --text-8xl--line-height: 1.05;
+  --text-9xl: calc(var(--type-base, 16px) * 6);
+  --text-9xl--line-height: 1.05;
+}

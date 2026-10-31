@@ -349,6 +349,18 @@ Studio.configure do |config|
   config.theme_success = "#2E7D32"
   config.theme_accent = "#8E82FE"
 
+  # The type scale (task turf-adopts-type-scale): the base sizes and weights the
+  # theme tag hands every text-* class (app/assets/tailwind/type_scale.css). Turf
+  # has no installed kit.json, so these are the `turf` brand kit's four settings
+  # as the hub computes them (Logos::TypeScale#engine_settings on the hub's
+  # /logos/turf Type Scale card): 16px public base, 14px inside `type-dense`
+  # (admin pages), Montserrat 800 for title/heading, Montserrat 500 for text.
+  # brand-kit-rollout step 4a replaces these four lines on a kit reinstall.
+  config.type_base = 16
+  config.type_dense_base = 14
+  config.type_display_weight = 800
+  config.type_text_weight = 500
+
   # S3 — overrides engine default ("mcritchie-studio") to use this app's bucket
   # Draw the shared email manager at /admin/emails (studio-engine). Turf Monster
   # used to own this path with its own Admin::EmailsController; that page and its
