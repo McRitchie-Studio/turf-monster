@@ -1004,7 +1004,10 @@
    need, plus the 6px of face-substitution slack measured above. Below 768px the
    links are not in this row, so that guess is the whole answer and the script
    only confirms it; from 768px the guess can only say "certainly not", and the
-   script says the rest. The script's answer wins either way.
+   script says the rest. The script's answer wins either way, and it answers
+   as soon as its module runs, not at Turbo's first turbo:load, which on a
+   first load waits for every image and font (/tasks/turf-navbar-stopgap-cleanup);
+   so the guess holds only until the page's modules run.
 
    HIDDEN FOR THE EYE, NOT FOR A SCREEN READER. The words are the page's h1
    (the engine's brand_heading), so they leave the layout (out of flow, a 1px

@@ -57,10 +57,14 @@ function stage({ room = 472, words = 208, nav = 188, gap = 24 } = {}) {
 
 let mod, listeners, observers, w
 
-async function boot() {
+// readyState is what the browser reports when the module runs. "loading" is
+// the default here, so the cases below drive turbo:load themselves; the
+// first-load cases set it past loading.
+async function boot(readyState = "loading") {
   listeners = {}
   observers = []
   globalThis.document = {
+    readyState,
     addEventListener: (type, fn) => { listeners[type] = fn },
     querySelectorAll: () => [w.header],
     fonts: { addEventListener: (type, fn) => { listeners[`fonts:${type}`] = fn } }
@@ -154,4 +158,32 @@ test("a font load re-answers", () => {
   w.world.words = 300
   listeners["fonts:loadingdone"]()
   assert.equal(w.attrs.get("data-nav-brand"), "tight")
+})
+
+// THE FIRST-LOAD FLASH (/tasks/turf-navbar-stopgap-cleanup). application.js is
+// a module, so it runs after the document is parsed; Turbo starts listening for
+// readystatechange then, misses "interactive", and fires its first turbo:load
+// only at "complete", after every image and font. Until then nothing wrote
+// data-nav-brand, the CSS guess held, and a desktop header whose guess says
+// "fits" showed the words ellipsized. So a module that runs with the DOM
+// already parsed answers at once.
+for (const readyState of ["interactive", "complete"]) {
+  test(`a module that runs with the document ${readyState} answers at once, without waiting for turbo:load`, async () => {
+    w = stage({ nav: 260 })
+    await boot(readyState)
+    assert.equal(w.attrs.get("data-nav-brand"), "tight", "answered at import")
+    assert.equal(observers.length, 1, "and watches the row from then on")
+    w.world.nav = 100
+    observers[0].report()
+    assert.equal(w.attrs.get("data-nav-brand"), "fit")
+  })
+}
+
+test("while the document is still loading it waits for turbo:load, and a later turbo:load re-answers", async () => {
+  await boot("loading")
+  assert.equal(w.attrs.has("data-nav-brand"), false, "nothing to measure yet")
+  listeners["turbo:load"]()
+  assert.equal(w.attrs.get("data-nav-brand"), "fit")
+  listeners["turbo:load"]()
+  assert.equal(observers.filter((o) => o.targets.length).length, 1, "a second visit replaces the watch, it does not stack one")
 })
