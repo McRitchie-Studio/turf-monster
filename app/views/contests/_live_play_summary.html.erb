@@ -33,7 +33,7 @@
           portrait = athlete&.headshot_url(width: 100)
           ring     = team ? team_card_palette(team)[:accent] : "rgba(255,255,255,0.3)"
         %>
-        <span class="relative h-7 w-7 rounded-full overflow-hidden flex items-center justify-center <%= name ? "text-[9px] font-black" : "text-sm" %>"
+        <span class="relative h-7 w-7 rounded-full overflow-hidden flex items-center justify-center <%= name ? "text-3xs font-black" : "text-sm" %>"
               <% if name %>data-test="live-plays-avatar" data-player="<%= name %>" title="<%= athlete ? athlete.person.full_name : name %>"<% end %>
               style="z-index: <%= 3 - index %>; <%= "margin-left: -0.75rem;" unless index.zero? %> color: <%= team_card_palette(team)[:fg] %>;
                      background: <%= normalize_hex(team&.card_background) || "#3a3f4b" %>;

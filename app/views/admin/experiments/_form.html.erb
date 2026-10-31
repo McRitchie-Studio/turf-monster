@@ -4,7 +4,7 @@
     no key is ignored, so the spare row costs nothing when left empty. %>
 <% field_class = "w-full text-sm rounded-md border border-subtle px-2 py-1.5" %>
 <% field_style = "background: var(--color-surface-alt); color: var(--color-text);" %>
-<% label_class = "text-muted text-[10px] uppercase tracking-wide block mb-1" %>
+<% label_class = "text-muted text-xs uppercase tracking-wide block mb-1" %>
 <% url = experiment.persisted? ? admin_experiment_path(experiment.slug) : admin_experiments_path %>
 
 <%= form_with model: experiment, scope: :page_experiment, url: url, local: true, class: "space-y-5", data: { test: "experiment-form" } do |f| %>

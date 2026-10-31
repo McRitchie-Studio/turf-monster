@@ -33,15 +33,15 @@
 
   <div class="grid grid-cols-3 gap-3">
     <div class="card p-4">
-      <div class="text-muted text-[10px] uppercase tracking-wide">Sent</div>
+      <div class="text-muted text-xs uppercase tracking-wide">Sent</div>
       <div class="text-heading text-2xl font-bold font-mono"><%= @counts[:sent] %></div>
     </div>
     <div class="card p-4">
-      <div class="text-muted text-[10px] uppercase tracking-wide">Claimed</div>
+      <div class="text-muted text-xs uppercase tracking-wide">Claimed</div>
       <div class="text-heading text-2xl font-bold font-mono"><%= @counts[:claimed] %></div>
     </div>
     <div class="card p-4">
-      <div class="text-muted text-[10px] uppercase tracking-wide">Minted</div>
+      <div class="text-muted text-xs uppercase tracking-wide">Minted</div>
       <div class="text-heading text-2xl font-bold font-mono"><%= @counts[:minted] %></div>
     </div>
   </div>
@@ -51,12 +51,12 @@
     <%= form_with url: admin_entry_gifts_path, method: :post, local: true, class: "space-y-4" do |f| %>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <label class="text-muted text-[10px] uppercase tracking-wide block mb-1">Friend's email</label>
+          <label class="text-muted text-xs uppercase tracking-wide block mb-1">Friend's email</label>
           <%= f.email_field :recipient_email, required: true, placeholder: "friend@example.com",
               class: field_class, style: field_style %>
         </div>
         <div>
-          <label class="text-muted text-[10px] uppercase tracking-wide block mb-1">Lands on</label>
+          <label class="text-muted text-xs uppercase tracking-wide block mb-1">Lands on</label>
           <%= f.select :contest_slug,
                 options_for_select(@contests.map { |c| [c.name, c.slug] }, @default_contest&.slug),
                 { include_blank: "Featured contest" },
@@ -65,7 +65,7 @@
       </div>
 
       <div>
-        <label class="text-muted text-[10px] uppercase tracking-wide block mb-1">
+        <label class="text-muted text-xs uppercase tracking-wide block mb-1">
           Personal note <span class="normal-case tracking-normal">(optional — quoted in the email)</span>
         </label>
         <%= f.text_area :note, rows: 2, maxlength: 500,
@@ -86,7 +86,7 @@
   <div class="card overflow-x-auto">
     <table class="w-full text-sm">
       <thead>
-        <tr class="border-b border-subtle text-muted text-[10px] uppercase tracking-wide">
+        <tr class="border-b border-subtle text-muted text-xs uppercase tracking-wide">
           <th class="text-left px-4 py-3">Recipient</th>
           <th class="text-left px-3 py-3">Contest</th>
           <th class="text-left px-3 py-3">Sent</th>

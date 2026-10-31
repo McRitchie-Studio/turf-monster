@@ -138,7 +138,7 @@
                 style="color: <%= palette[:accent] %>; text-shadow: <%= palette[:mascot_shadow] %>">
             <%= team&.mascot.presence || team&.short_name || team&.name %>
           </span>
-          <span class="block font-medium truncate <%= hero ? "text-lg" : "text-[11px]" %>" style="color: <%= palette[:location] %>">
+          <span class="block font-medium truncate <%= hero ? "text-lg" : "text-xs" %>" style="color: <%= palette[:location] %>">
             <%= team&.location %>
           </span>
         </span>
@@ -257,10 +257,10 @@
                 team's before a word of it is read. %>
             <div class="h-1/2 flex flex-col items-center justify-center gap-0.5 px-2 py-2 text-center"
                  data-role="status-event" aria-hidden="true">
-              <p class="text-[11px] font-medium leading-tight truncate max-w-full" data-role="status-location"></p>
+              <p class="text-xs font-medium leading-tight truncate max-w-full" data-role="status-location"></p>
               <p class="tt-status-headline font-black uppercase tracking-wide leading-none truncate max-w-full"
                  data-role="status-headline"></p>
-              <p class="text-[11px] text-white/70 leading-tight truncate max-w-full" data-role="status-detail"></p>
+              <p class="text-xs text-white/70 leading-tight truncate max-w-full" data-role="status-detail"></p>
               <p class="text-sm font-semibold text-white leading-tight truncate max-w-full" data-role="status-name"></p>
             </div>
           </div>
@@ -410,11 +410,11 @@
   <% detail = nil if detail && badge && detail.casecmp(badge).zero? %>
   <div class="bg-surface-alt/60 flex items-center justify-between gap-2 <%= hero ? "px-5 py-2.5" : "px-3 py-1.5" %>">
     <% if game.live? %>
-      <span class="inline-flex items-center gap-1 font-bold uppercase tracking-wider text-red-400 <%= hero ? "text-xs" : "text-[10px]" %>">
+      <span class="inline-flex items-center gap-1 font-bold uppercase tracking-wider text-red-400 <%= hero ? "text-xs" : "text-xs" %>">
         <span class="rounded-full bg-red-500 animate-pulse <%= hero ? "h-2 w-2" : "h-1.5 w-1.5" %>"></span> Live
       </span>
     <% elsif game.completed? %>
-      <span class="font-bold uppercase tracking-wider text-muted <%= hero ? "text-xs" : "text-[10px]" %>">Final</span>
+      <span class="font-bold uppercase tracking-wider text-muted <%= hero ? "text-xs" : "text-xs" %>">Final</span>
     <% elsif game.kickoff_at %>
       <%# A MACHINE-READABLE timestamp the browser formats in the VIEWER's zone.
           The app runs on UTC (config.time_zone is commented out), so a
@@ -425,11 +425,11 @@
           it is never silently four hours out. %>
       <time datetime="<%= game.kickoff_at.utc.iso8601 %>"
             data-role="kickoff"
-            class="font-bold uppercase tracking-wider text-muted <%= hero ? "text-xs" : "text-[10px]" %>"><%= game.kickoff_at.utc.strftime("%a %-I:%M %p") %> UTC</time>
+            class="font-bold uppercase tracking-wider text-muted <%= hero ? "text-xs" : "text-xs" %>"><%= game.kickoff_at.utc.strftime("%a %-I:%M %p") %> UTC</time>
     <% else %>
-      <span class="font-bold uppercase tracking-wider text-muted <%= hero ? "text-xs" : "text-[10px]" %>">TBD</span>
+      <span class="font-bold uppercase tracking-wider text-muted <%= hero ? "text-xs" : "text-xs" %>">TBD</span>
     <% end %>
-    <span class="text-secondary font-mono truncate <%= hero ? "text-sm" : "text-[11px]" %>"><%= detail %></span>
+    <span class="text-secondary font-mono truncate <%= hero ? "text-sm" : "text-xs" %>"><%= detail %></span>
   </div>
 
   <%# SCORING PLAYS, chronological. The score above says what the game stands at;
@@ -445,8 +445,8 @@
            data-test="live-game-scorers">
         <% plays.each do |play| %>
           <% scoring_team = play.team_slug == game.home_team_slug ? home : away %>
-          <span class="flex items-center gap-1 flex-shrink-0 leading-none whitespace-nowrap <%= hero ? "text-sm" : "text-[11px]" %>">
-            <span class="<%= hero ? "text-base" : "text-[10px]" %>"><%= scoring_team&.emoji %></span>
+          <span class="flex items-center gap-1 flex-shrink-0 leading-none whitespace-nowrap <%= hero ? "text-sm" : "text-xs" %>">
+            <span class="<%= hero ? "text-base" : "text-xs" %>"><%= scoring_team&.emoji %></span>
             <span class="text-secondary font-medium">
               <%= play.player&.name&.split&.last || play.scoring_label.presence || scoring_team&.short_name || "Score" %>
             </span>

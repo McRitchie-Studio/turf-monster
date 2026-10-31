@@ -13,7 +13,7 @@
   <div class="card overflow-x-auto">
     <table class="w-full text-sm">
       <thead>
-        <tr class="border-b border-subtle text-muted text-[10px] uppercase tracking-wide">
+        <tr class="border-b border-subtle text-muted text-xs uppercase tracking-wide">
           <th class="text-left px-4 py-3">ID</th>
           <th class="text-left px-3 py-3">Name</th>
           <th class="text-left px-3 py-3">Schedule (entry 0 → 4+)</th>
@@ -28,10 +28,10 @@
             <td class="px-4 py-3 font-mono"><%= s[:season_id] %></td>
             <td class="px-3 py-3 text-heading font-semibold"><%= s[:name] %></td>
             <td class="px-3 py-3 font-mono text-secondary"><%= s[:seed_schedule].join(" · ") %></td>
-            <td class="px-3 py-3 font-mono text-[11px] text-muted"><%= Time.at(s[:created_at]).strftime("%Y-%m-%d %H:%M") rescue "—" %></td>
+            <td class="px-3 py-3 font-mono text-xs text-muted"><%= Time.at(s[:created_at]).strftime("%Y-%m-%d %H:%M") rescue "—" %></td>
             <td class="px-4 py-3 text-right">
               <% if is_current %>
-                <span class="text-[10px] font-bold px-2 py-0.5 rounded-full" style="background: rgb(var(--color-primary-500-rgb) / 0.15); color: var(--color-primary-badge-ink); border: 1px solid rgb(var(--color-primary-500-rgb) / 0.4);">CURRENT</span>
+                <span class="text-xs font-bold px-2 py-0.5 rounded-full" style="background: rgb(var(--color-primary-500-rgb) / 0.15); color: var(--color-primary-badge-ink); border: 1px solid rgb(var(--color-primary-500-rgb) / 0.4);">CURRENT</span>
               <% else %>
                 <%= button_to admin_set_current_season_path(season_id: s[:season_id]), class: "btn btn-outline btn-sm" do %>
                   Set Current
@@ -53,13 +53,13 @@
     <%= form_with url: admin_seasons_path, method: :post, local: true, class: "space-y-4" do |f| %>
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div>
-          <label class="text-muted text-[10px] uppercase tracking-wide block mb-1">Season ID</label>
+          <label class="text-muted text-xs uppercase tracking-wide block mb-1">Season ID</label>
           <%= f.number_field :season_id, value: @next_season_id, min: 0,
               class: "w-full text-sm rounded-md border border-subtle px-2 py-1.5 font-mono",
               style: "background: var(--color-surface-alt); color: var(--color-text);" %>
         </div>
         <div class="md:col-span-2">
-          <label class="text-muted text-[10px] uppercase tracking-wide block mb-1">Name</label>
+          <label class="text-muted text-xs uppercase tracking-wide block mb-1">Name</label>
           <%= f.text_field :name, placeholder: "World Cup 2026", required: true,
               class: "w-full text-sm rounded-md border border-subtle px-2 py-1.5",
               style: "background: var(--color-surface-alt); color: var(--color-text);" %>
@@ -67,11 +67,11 @@
       </div>
 
       <div>
-        <label class="text-muted text-[10px] uppercase tracking-wide block mb-2">Seed Schedule (5 slots, entry indices 0–4+)</label>
+        <label class="text-muted text-xs uppercase tracking-wide block mb-2">Seed Schedule (5 slots, entry indices 0–4+)</label>
         <div class="grid grid-cols-5 gap-2">
           <% Solana::Vault::SEASON_DEFAULT_SCHEDULE.each_with_index do |default, i| %>
             <div>
-              <label class="text-muted text-[10px] block mb-1 text-center">entry <%= i %><%= "+" if i == 4 %></label>
+              <label class="text-muted text-xs block mb-1 text-center">entry <%= i %><%= "+" if i == 4 %></label>
               <%= f.number_field "slot_#{i}", value: default, min: 0,
                   class: "w-full text-sm rounded-md border border-subtle px-2 py-1.5 font-mono text-center",
                   style: "background: var(--color-surface-alt); color: var(--color-primary-ink);" %>

@@ -15,7 +15,7 @@
 <section class="card border-2 border-primary/30 p-6 sm:p-8 mb-6">
   <div class="flex flex-col sm:flex-row sm:items-baseline sm:gap-4 mb-2">
     <h2 class="text-heading font-bold text-xl">Operator playbook</h2>
-    <span class="text-[11px] font-mono text-primary uppercase tracking-wider">admin only</span>
+    <span class="text-xs font-mono text-primary uppercase tracking-wider">admin only</span>
   </div>
   <p class="text-secondary text-sm mb-5 max-w-3xl">
     <%= listed_names.size %> instructions, grouped by signer role, with the operational reasoning plus the
@@ -25,7 +25,7 @@
     you cosign in the Treasury. Byte counts are from the <%= attributed_on %> build.
   </p>
   <% if unlisted_names.any? %>
-    <p class="text-warning text-[13px] -mt-3 mb-5 max-w-3xl" data-test="contract-playbook-unlisted">
+    <p class="text-warning text-xs -mt-3 mb-5 max-w-3xl" data-test="contract-playbook-unlisted">
       Not yet in this playbook (in the committed IDL, never audited here):
       <%= safe_join(unlisted_names.map { |n| content_tag(:code, n, class: "font-mono text-xs") }, ", ") %>.
     </p>
@@ -61,7 +61,7 @@
                 <div class="flex items-center gap-3 min-w-0">
                   <code class="font-mono text-heading font-semibold text-sm truncate"><%= ix[:name] %></code>
                   <% if ix[:status].present? %>
-                    <span class="px-2 py-0.5 rounded-full text-[10px] font-mono border whitespace-nowrap <%= status_pill %>"><%= ix[:status] %></span>
+                    <span class="px-2 py-0.5 rounded-full text-xs font-mono border whitespace-nowrap <%= status_pill %>"><%= ix[:status] %></span>
                   <% end %>
                 </div>
                 <div class="flex items-center gap-3 text-xs text-muted">
@@ -72,9 +72,9 @@
                 </div>
               </summary>
               <div class="px-3 sm:px-4 pb-3 sm:pb-4">
-                <p class="text-body text-[13px] leading-relaxed"><%= ix[:playbook] %></p>
+                <p class="text-body text-xs leading-relaxed"><%= ix[:playbook] %></p>
                 <% if ix[:web2].present? || ix[:web3].present? %>
-                  <dl class="mt-3 grid sm:grid-cols-2 gap-x-4 gap-y-1 text-[12px]">
+                  <dl class="mt-3 grid sm:grid-cols-2 gap-x-4 gap-y-1 text-xs">
                     <div class="flex gap-2">
                       <dt class="font-mono text-muted shrink-0">web3</dt>
                       <dd class="font-mono text-secondary break-words"><%= ix[:web3].presence || "—" %></dd>
@@ -98,37 +98,37 @@
 
     <div class="bg-surface-alt border border-subtle border-l-2 border-l-warning rounded-lg p-4">
       <h4 class="text-heading font-semibold text-sm mb-2">When to pause</h4>
-      <ul class="space-y-1 text-[12px] text-secondary list-disc list-outside pl-4">
+      <ul class="space-y-1 text-xs text-secondary list-disc list-outside pl-4">
         <li>Active exploit suspected against any entry path</li>
         <li>Phantom / wallet provider has a known outage causing dropped sigs</li>
         <li>Oracle / scoring service is broken and bad settles could result</li>
       </ul>
-      <p class="text-[11px] text-muted mt-2">Reason logged on-chain (UTF-8 zero-padded to 64 bytes).</p>
+      <p class="text-xs text-muted mt-2">Reason logged on-chain (UTF-8 zero-padded to 64 bytes).</p>
     </div>
 
     <div class="bg-surface-alt border border-subtle border-l-2 border-l-warning rounded-lg p-4">
       <h4 class="text-heading font-semibold text-sm mb-2">When to cancel a contest</h4>
-      <ul class="space-y-1 text-[12px] text-secondary list-disc list-outside pl-4">
+      <ul class="space-y-1 text-xs text-secondary list-disc list-outside pl-4">
         <li>Event postponed past a useful window</li>
         <li>Force majeure invalidates the matchup slate</li>
         <li>Operator misconfigured prize structure pre-lock</li>
       </ul>
-      <p class="text-[11px] text-muted mt-2">Entry fees stay in op-revenue; compensate via mint_entry_token.</p>
+      <p class="text-xs text-muted mt-2">Entry fees stay in op-revenue; compensate via mint_entry_token.</p>
     </div>
 
     <div class="bg-surface-alt border border-subtle border-l-2 border-l-violet rounded-lg p-4">
       <h4 class="text-heading font-semibold text-sm mb-2">When to sweep operator revenue</h4>
-      <ul class="space-y-1 text-[12px] text-secondary list-disc list-outside pl-4">
+      <ul class="space-y-1 text-xs text-secondary list-disc list-outside pl-4">
         <li>Quarterly treasury reconciliation</li>
         <li>Tax-event preparation</li>
         <li>op_rev_ata balance crosses a configured threshold</li>
       </ul>
-      <p class="text-[11px] text-muted mt-2">Destination pinned to Squads vault PDA at initialize time.</p>
+      <p class="text-xs text-muted mt-2">Destination pinned to Squads vault PDA at initialize time.</p>
     </div>
 
     <div class="bg-surface-alt border border-subtle border-l-2 border-l-mint rounded-lg p-4">
       <h4 class="text-heading font-semibold text-sm mb-2">How to register a new currency</h4>
-      <ul class="space-y-1 text-[12px] text-secondary list-disc list-outside pl-4">
+      <ul class="space-y-1 text-xs text-secondary list-disc list-outside pl-4">
         <li>Pick a free slot (0&hellip;15) in accepted_currencies</li>
         <li>Build register_currency TX &mdash; <%= vault_auth_label("register_currency") %> cosign</li>
         <li>Creates per-currency op_rev_ata under PDA seeds [b"op_rev", mint]</li>

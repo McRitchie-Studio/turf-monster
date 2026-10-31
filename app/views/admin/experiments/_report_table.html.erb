@@ -7,7 +7,7 @@
 <div class="card overflow-x-auto" data-experiment-report="<%= report.experiment.slug %>">
   <table class="w-full text-sm">
     <thead>
-      <tr class="border-b border-subtle text-left text-muted text-[10px] uppercase tracking-wide">
+      <tr class="border-b border-subtle text-left text-muted text-xs uppercase tracking-wide">
         <th class="px-3 py-2">Variant</th>
         <th class="px-3 py-2 text-right">Weight</th>
         <th class="px-3 py-2 text-right">Visitors</th>
@@ -26,7 +26,7 @@
         <tr class="border-b border-subtle align-top" data-variant-row="<%= row.key %>">
           <td class="px-3 py-2">
             <span class="font-mono text-heading"><%= row.key %></span>
-            <% if row.key == control_key %><span class="ml-1 text-[10px] font-bold uppercase text-muted">control</span><% end %>
+            <% if row.key == control_key %><span class="ml-1 text-xs font-bold uppercase text-muted">control</span><% end %>
             <% if row.variant.label.present? %><div class="text-xs text-secondary"><%= row.variant.label %></div><% end %>
           </td>
           <td class="px-3 py-2 font-mono text-right text-secondary" data-cell="weight"><%= row.variant.weight %></td>
@@ -35,16 +35,16 @@
           <% report.ctas.each_key do |name| %>
             <td class="px-3 py-2 font-mono text-right" data-cell="cta-<%= name %>">
               <%= number_with_delimiter(row.ctas[name]) %>
-              <span class="block text-[10px] text-muted" data-cell="cta-<%= name %>-rate"><%= row.cta_rate(name) || "—" %> / 100</span>
+              <span class="block text-xs text-muted" data-cell="cta-<%= name %>-rate"><%= row.cta_rate(name) || "—" %> / 100</span>
             </td>
           <% end %>
           <td class="px-3 py-2 font-mono text-right" data-cell="email">
             <%= row.email_signups %>
-            <span class="block text-[10px] text-muted" data-cell="email-rate"><%= row.email_rate || "—" %> / 100</span>
+            <span class="block text-xs text-muted" data-cell="email-rate"><%= row.email_rate || "—" %> / 100</span>
           </td>
           <td class="px-3 py-2 font-mono text-right" data-cell="accounts">
             <%= row.account_signups %>
-            <span class="block text-[10px] text-muted" data-cell="account-rate"><%= row.account_rate || "—" %> / 100</span>
+            <span class="block text-xs text-muted" data-cell="account-rate"><%= row.account_rate || "—" %> / 100</span>
           </td>
           <td class="px-3 py-2 text-xs" data-cell="significance" data-verdict="<%= hint&.verdict %>">
             <% if hint %>

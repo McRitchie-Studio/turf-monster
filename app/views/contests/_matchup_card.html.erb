@@ -11,7 +11,7 @@
         aria-label="<%= matchup.team.name %><%= matchup.opponent_team ? " vs #{matchup.opponent_team.name}" : '' %>"
         <% if locked %>disabled<% end %>>
   <% if locked %>
-    <span class="absolute top-2 left-2 text-[10px] text-yellow-500">&#128274;</span>
+    <span class="absolute top-2 left-2 text-xs text-yellow-500">&#128274;</span>
   <% end %>
   <%= render "contests/matchup_card_face", matchup: matchup %>
 </button>

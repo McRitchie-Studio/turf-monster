@@ -13,7 +13,7 @@
     <section class="mb-8" data-coinflow-buy>
       <div class="flex items-baseline justify-between gap-3 mb-3">
         <h2 class="text-sm font-bold text-heading uppercase tracking-wider">Card &middot; Coinflow</h2>
-        <p class="text-[11px] text-muted">Hosted checkout &middot; lands in your wallet automatically</p>
+        <p class="text-xs text-muted">Hosted checkout &middot; lands in your wallet automatically</p>
       </div>
       <div class="space-y-3">
         <% @packs.each do |pack_id, pack| %>
@@ -25,7 +25,7 @@
           <button type="button" onclick="tmCoinflowSimulateSettle(); return false;" class="btn btn-outline text-xs">
             Simulate settlement (dev)
           </button>
-          <p class="text-[10px] text-muted mt-1">Local only &mdash; stands in for Coinflow's <span class="font-mono">Settled</span> webhook, which can't reach localhost. Click after a checkout to mint the tokens.</p>
+          <p class="text-xs text-muted mt-1">Local only &mdash; stands in for Coinflow's <span class="font-mono">Settled</span> webhook, which can't reach localhost. Click after a checkout to mint the tokens.</p>
         </div>
       <% end %>
     </section>
@@ -49,7 +49,7 @@
           <button type="button" onclick="tmAeropaySimulateSettle(); return false;" class="btn btn-outline text-xs">
             Simulate settlement (dev)
           </button>
-          <p class="text-[10px] text-muted mt-1">Local only &mdash; stands in for Aeropay's <span class="font-mono">transaction_completed</span> webhook, which can't reach localhost. Click after a deposit to mint the token. The Aerosync bank-link widget is a stub until merchant creds land.</p>
+          <p class="text-xs text-muted mt-1">Local only &mdash; stands in for Aeropay's <span class="font-mono">transaction_completed</span> webhook, which can't reach localhost. Click after a deposit to mint the token. The Aerosync bank-link widget is a stub until merchant creds land.</p>
         </div>
       <% end %>
     </div>
@@ -98,7 +98,7 @@
       <section class="mb-8">
         <div class="flex items-baseline justify-between gap-3 mb-3">
           <h2 class="text-sm font-bold text-heading uppercase tracking-wider">Card &middot; Stripe</h2>
-          <p class="text-[11px] text-muted">Stripe checkout</p>
+          <p class="text-xs text-muted">Stripe checkout</p>
         </div>
         <%= provider_notice %>
         <div class="space-y-3">
@@ -120,7 +120,7 @@
       Solana::Config.devnet? is currently true. %>
   <% if !Rails.env.production? && current_user&.admin? && Solana::Config.devnet? %>
     <div class="space-y-2 mb-6">
-      <p class="text-[10px] uppercase tracking-widest text-muted">Dev (admin · devnet)</p>
+      <p class="text-xs uppercase tracking-widest text-muted">Dev (admin · devnet)</p>
       <% @packs.each do |pack_id, pack| %>
         <%= button_to "Mint #{pack[:quantity]} free (dev)", tokens_dev_mint_path(pack: pack_id), method: :post,
           form: { data: { turbo: false } },

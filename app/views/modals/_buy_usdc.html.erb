@@ -153,7 +153,7 @@
         <button type="button" x-show="videoMuted" @click="unmuteVideo()"
                 class="group absolute inset-0 w-full h-full flex items-center justify-center bg-black/20 hover:bg-black/10 transition border-0 cursor-pointer"
                 aria-label="Unmute the video">
-          <span class="flex items-center gap-1.5 rounded-full bg-black/75 px-3 py-1.5 text-[11px] font-semibold text-white shadow-lg transition group-hover:bg-black/90">
+          <span class="flex items-center gap-1.5 rounded-full bg-black/75 px-3 py-1.5 text-xs font-semibold text-white shadow-lg transition group-hover:bg-black/90">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-3.5 h-3.5">
               <path d="M13 4.2a.8.8 0 0 0-1.32-.6L7.4 7.3H4.6A1.6 1.6 0 0 0 3 8.9v6.2a1.6 1.6 0 0 0 1.6 1.6h2.8l4.28 3.7a.8.8 0 0 0 1.32-.6V4.2Z" />
               <path d="M16.4 8.6a.9.9 0 0 1 1.27 0L19.5 10.4l1.83-1.83a.9.9 0 1 1 1.27 1.27L20.77 11.7l1.83 1.83a.9.9 0 1 1-1.27 1.27L19.5 13l-1.83 1.83a.9.9 0 0 1-1.27-1.27l1.83-1.83-1.83-1.83a.9.9 0 0 1 0-1.27Z" />
@@ -163,7 +163,7 @@
         </button>
       </div>
 
-      <p class="text-[11px] text-muted mt-1.5 text-center">
+      <p class="text-xs text-muted mt-1.5 text-center">
         <a href="<%= buy_usdc_video_watch_url %>" target="_blank" rel="noopener noreferrer"
            class="underline hover:text-secondary">Watch on YouTube</a>
       </p>

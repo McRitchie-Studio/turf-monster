@@ -15,7 +15,7 @@
   </td>
   <td class="px-4 py-3 text-secondary"><%= game.venue.presence || "—" %></td>
   <td class="px-4 py-3">
-    <span class="inline-flex items-center px-2 py-1 rounded text-[11px] font-bold uppercase <%= game.status == "completed" ? 'bg-primary/15 text-primary' : 'bg-surface-alt text-secondary' %>">
+    <span class="inline-flex items-center px-2 py-1 rounded text-xs font-bold uppercase <%= game.status == "completed" ? 'bg-primary/15 text-primary' : 'bg-surface-alt text-secondary' %>">
       <%= game.status %>
     </span>
   </td>

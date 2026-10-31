@@ -107,7 +107,7 @@
         <%# The date ("Dec 25"), or the week when that game has no kickoff yet.
             Both fit the width "WEEK 16" already held, so the mobile column
             budget the sizes below were tuned against is unchanged. %>
-        <p class="tm-opponent-week text-[9px] lg:text-[10px] uppercase tracking-wide leading-tight" style="color: <%= pal[:grey] %>"><%= slot[:shown] %></p>
+        <p class="tm-opponent-week text-3xs lg:text-xs uppercase tracking-wide leading-tight" style="color: <%= pal[:grey] %>"><%= slot[:shown] %></p>
         <%# emoji + abbreviation share one centered baseline (items-center,
             leading-none) so the taller emoji stops leaving vertical space above
             the text; the abbreviation wears the opponent's own color.
@@ -135,10 +135,10 @@
         <p class="tm-opponent-row mt-1 py-1 flex items-center justify-center gap-0.5 lg:gap-1 leading-none"
            style="background: <%= opponent_label_halo(opponent, team) %>">
           <% if opponent %>
-            <span class="text-[10px] lg:text-sm"><%= opponent.emoji %></span>
-            <span class="text-[10px] lg:text-sm font-semibold truncate" style="color: <%= opponent_label_color(opponent, team) %>"><%= opponent.short_name %></span>
+            <span class="text-xs lg:text-sm"><%= opponent.emoji %></span>
+            <span class="text-xs lg:text-sm font-semibold truncate" style="color: <%= opponent_label_color(opponent, team) %>"><%= opponent.short_name %></span>
           <% else %>
-            <span class="text-[10px] lg:text-sm italic" style="color: <%= pal[:fg_soft] %>">bye</span>
+            <span class="text-xs lg:text-sm italic" style="color: <%= pal[:fg_soft] %>">bye</span>
           <% end %>
         </p>
       </div>

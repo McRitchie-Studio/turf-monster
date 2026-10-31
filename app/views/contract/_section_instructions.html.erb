@@ -9,7 +9,7 @@
 <section class="card p-6 sm:p-8 mb-6">
   <div class="flex flex-col sm:flex-row sm:items-baseline sm:gap-4 mb-2">
     <h2 class="text-heading font-bold text-xl">What you can call yourself</h2>
-    <span class="text-[11px] font-mono text-muted uppercase tracking-wider">
+    <span class="text-xs font-mono text-muted uppercase tracking-wider">
       <%= user_instructions.size %> user-signed instructions
     </span>
   </div>
@@ -17,7 +17,7 @@
     These are the instructions you (the contestant) sign directly. Your wallet's signature
     is the only thing that authorizes them &mdash; no operator can call them on your behalf.
   </p>
-  <p class="text-muted text-[13px] -mt-3 mb-5 max-w-3xl" data-test="contract-attributed-on" data-version="<%= attributed_on %>">
+  <p class="text-muted text-xs -mt-3 mb-5 max-w-3xl" data-test="contract-attributed-on" data-version="<%= attributed_on %>">
     Byte counts per instruction were measured on the turf-vault <%= attributed_on %> build
     and have not been re-measured for the deployed v<%= measured[:version] %>.
   </p>
@@ -39,7 +39,7 @@
           <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div class="flex items-center gap-3 min-w-0">
               <code class="font-mono text-heading font-semibold text-sm sm:text-base truncate"><%= ix[:name] %></code>
-              <span class="px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-mono border whitespace-nowrap <%= auth_pill_classes %>">
+              <span class="px-2 py-0.5 rounded-full text-xs font-mono border whitespace-nowrap <%= auth_pill_classes %>">
                 <%= ix[:auth] %>
               </span>
             </div>
@@ -50,14 +50,14 @@
               </svg>
             </div>
           </div>
-          <p class="text-secondary text-[13px] sm:text-sm mt-3 leading-snug"><%= ix[:summary] %></p>
+          <p class="text-secondary text-xs sm:text-sm mt-3 leading-snug"><%= ix[:summary] %></p>
           <%# Inline byte-share bar for at-a-glance scale %>
           <div class="mt-3 h-1 bg-surface rounded-full overflow-hidden">
             <div class="h-full bg-primary/50 rounded-full" style="width: <%= sprintf("%.1f", bar_pct) %>%;"></div>
           </div>
         </summary>
         <div class="px-4 sm:px-5 pb-4 sm:pb-5 -mt-1">
-          <p class="text-body text-[13px] sm:text-sm leading-relaxed"><%= ix[:detail] %></p>
+          <p class="text-body text-xs sm:text-sm leading-relaxed"><%= ix[:detail] %></p>
         </div>
       </details>
     <% end %>

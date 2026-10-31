@@ -15,7 +15,7 @@
   <div class="card overflow-x-auto">
     <table class="w-full text-sm">
       <thead>
-        <tr class="border-b border-subtle text-muted text-[10px] uppercase tracking-wide">
+        <tr class="border-b border-subtle text-muted text-xs uppercase tracking-wide">
           <th class="text-left px-4 py-3">Name</th>
           <th class="text-left px-3 py-3">URL</th>
           <th class="text-left px-3 py-3">CTA Contest</th>
@@ -37,9 +37,9 @@
             </td>
             <td class="px-3 py-3 text-center">
               <% if lp.active? %>
-                <span class="text-[10px] font-bold px-2 py-0.5 rounded-full" style="background: rgb(var(--color-primary-500-rgb) / 0.15); color: var(--color-primary-badge-ink); border: 1px solid rgb(var(--color-primary-500-rgb) / 0.4);">LIVE</span>
+                <span class="text-xs font-bold px-2 py-0.5 rounded-full" style="background: rgb(var(--color-primary-500-rgb) / 0.15); color: var(--color-primary-badge-ink); border: 1px solid rgb(var(--color-primary-500-rgb) / 0.4);">LIVE</span>
               <% else %>
-                <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-inset text-muted border border-subtle">DRAFT</span>
+                <span class="text-xs font-bold px-2 py-0.5 rounded-full bg-inset text-muted border border-subtle">DRAFT</span>
               <% end %>
             </td>
             <td class="px-3 py-3 text-right font-mono text-heading"><%= lp.signup_count %></td>

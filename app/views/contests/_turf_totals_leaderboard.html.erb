@@ -229,14 +229,14 @@
               <%# Place, bottom-left, on its own disc so it stays readable over
                   whatever colour the avatar happens to be. %>
               <span class="absolute -bottom-1 -left-1 min-w-5 h-5 px-1 rounded-full bg-surface-alt border border-subtle
-                           flex items-center justify-center font-mono font-bold text-[11px] leading-none
+                           flex items-center justify-center font-mono font-bold text-xs leading-none
                            <%= first_place ? 'text-primary' : (dimmed ? 'text-muted' : 'text-secondary') %>"><%= display_rank %></span>
               <%# Movement sits beside the place, because "third" and "up two" are
                   one fact. Filled in by the live page after a re-rank — empty on a
                   first render, when nothing has moved yet and a board that claims
                   movement it did not observe is worse than one that claims none. %>
               <span data-role="rank-move"
-                    class="tt-rank-move absolute -bottom-1 left-5 pl-1 text-[10px] font-bold leading-5 whitespace-nowrap"
+                    class="tt-rank-move absolute -bottom-1 left-5 pl-1 text-xs font-bold leading-5 whitespace-nowrap"
                     aria-hidden="true"></span>
             </div>
 
@@ -390,7 +390,7 @@
                   <span class="absolute -top-2 -right-1 text-3xl leading-none">👑</span>
                 <% end %>
                 <span class="absolute -bottom-1 -left-1 min-w-5 h-5 px-1 rounded-full bg-surface-alt border border-subtle
-                             flex items-center justify-center font-mono font-bold text-[11px] leading-none text-muted"><%= seat_rank %></span>
+                             flex items-center justify-center font-mono font-bold text-xs leading-none text-muted"><%= seat_rank %></span>
               </div>
               <span class="text-sm text-muted">Open</span>
             </div>

@@ -96,7 +96,7 @@
         <div>
           <p class="text-heading font-semibold mb-1">3. Per-contest prize pool</p>
           <p class="font-mono text-xs text-secondary break-all">prize_pool token account</p>
-          <p class="text-[10px] text-muted mt-1 font-mono">seeds = [b"prize_pool", sha256(slug)]</p>
+          <p class="text-xs text-muted mt-1 font-mono">seeds = [b"prize_pool", sha256(slug)]</p>
         </div>
       </div>
       <p class="text-muted text-xs mt-5 leading-relaxed">
@@ -159,20 +159,20 @@
             <!-- Headline stats -->
             <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm mb-5">
               <div class="bg-surface-alt rounded-lg p-3 border border-mint/30">
-                <p class="text-[10px] text-muted uppercase tracking-wider mb-1">Prize pool on-chain</p>
+                <p class="text-xs text-muted uppercase tracking-wider mb-1">Prize pool on-chain</p>
                 <div class="flex items-center gap-1.5">
                   <img src="/usdc-mark.svg" alt="USDC" class="w-5 h-5 flex-shrink-0">
                   <p class="font-mono text-mint text-lg font-bold" data-field="prizePool"></p>
                 </div>
-                <p class="text-[10px] mt-0.5 text-muted" data-field="poolNote"
+                <p class="text-xs mt-0.5 text-muted" data-field="poolNote"
                    data-covered-class="text-muted" data-short-class="text-danger-ink"></p>
               </div>
               <div class="bg-surface-alt rounded-lg p-3 border border-subtle">
-                <p class="text-[10px] text-muted uppercase tracking-wider mb-1">Guaranteed prize</p>
+                <p class="text-xs text-muted uppercase tracking-wider mb-1">Guaranteed prize</p>
                 <p class="font-mono text-primary text-lg font-bold" data-field="prizes"></p>
               </div>
               <div class="bg-surface-alt rounded-lg p-3 border border-subtle">
-                <p class="text-[10px] text-muted uppercase tracking-wider mb-1">Entries</p>
+                <p class="text-xs text-muted uppercase tracking-wider mb-1">Entries</p>
                 <p class="font-mono text-heading text-lg font-bold">
                   <span data-field="currentEntries"></span>
                   <span class="text-muted">/</span>
@@ -180,20 +180,20 @@
                 </p>
               </div>
               <div class="bg-surface-alt rounded-lg p-3 border border-subtle">
-                <p class="text-[10px] text-muted uppercase tracking-wider mb-1">Entry fee</p>
+                <p class="text-xs text-muted uppercase tracking-wider mb-1">Entry fee</p>
                 <p class="font-mono text-heading text-lg font-bold" data-field="entryFee"></p>
               </div>
             </div>
 
             <!-- Payout breakdown -->
             <div class="mb-5" data-field="payouts" hidden>
-              <p class="text-[10px] text-muted uppercase tracking-wider mb-2">Payouts</p>
+              <p class="text-xs text-muted uppercase tracking-wider mb-2">Payouts</p>
               <div class="flex flex-wrap gap-2" data-field="payoutList"></div>
             </div>
 
             <!-- Solana links -->
             <div>
-              <p class="text-[10px] text-muted uppercase tracking-wider mb-2">On-chain</p>
+              <p class="text-xs text-muted uppercase tracking-wider mb-2">On-chain</p>
               <div class="grid grid-cols-1 md:grid-cols-2 gap-1.5 text-xs">
                 <a href="<%= explorer.call("address", c[:contest_pda]) %>" target="_blank" rel="noopener"
                    class="flex items-center justify-between bg-surface-alt rounded px-3 py-2 border border-subtle hover:border-violet/50 group">

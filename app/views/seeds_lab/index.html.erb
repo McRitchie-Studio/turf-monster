@@ -39,28 +39,28 @@
     <div class="flex flex-wrap items-center justify-between gap-4 mb-4">
       <div class="flex items-baseline gap-6">
         <div>
-          <div class="text-muted text-[10px] uppercase tracking-wide">Total seeds</div>
+          <div class="text-muted text-xs uppercase tracking-wide">Total seeds</div>
           <div class="text-heading font-mono font-bold text-xl" data-seeds-lab-target="label" data-label="seeds">0</div>
         </div>
         <div>
-          <div class="text-muted text-[10px] uppercase tracking-wide">Level</div>
+          <div class="text-muted text-xs uppercase tracking-wide">Level</div>
           <div class="font-mono font-bold text-xl" style="color: var(--color-primary-ink);" data-seeds-lab-target="label" data-label="level">1</div>
         </div>
         <div>
-          <div class="text-muted text-[10px] uppercase tracking-wide">Toward next</div>
+          <div class="text-muted text-xs uppercase tracking-wide">Toward next</div>
           <div class="text-secondary font-mono text-xl"><span data-seeds-lab-target="label" data-label="toward">0</span> / 100</div>
         </div>
       </div>
       <div class="flex flex-wrap gap-2">
         <button class="btn btn-success btn-sm"
                 data-seeds-lab-target="simButton"
-                data-studio-action="seeds-lab#add" data-seeds-lab-amount-param="25">+25 <span class="opacity-60 text-[10px] ml-1">new contest</span></button>
+                data-studio-action="seeds-lab#add" data-seeds-lab-amount-param="25">+25 <span class="opacity-60 text-xs ml-1">new contest</span></button>
         <button class="btn btn-primary btn-sm"
                 data-seeds-lab-target="simButton"
-                data-studio-action="seeds-lab#add" data-seeds-lab-amount-param="19">+19 <span class="opacity-60 text-[10px] ml-1">2nd entry</span></button>
+                data-studio-action="seeds-lab#add" data-seeds-lab-amount-param="19">+19 <span class="opacity-60 text-xs ml-1">2nd entry</span></button>
         <button class="btn btn-outline btn-sm"
                 data-seeds-lab-target="simButton"
-                data-studio-action="seeds-lab#add" data-seeds-lab-amount-param="14">+14 <span class="opacity-60 text-[10px] ml-1">3rd entry</span></button>
+                data-studio-action="seeds-lab#add" data-seeds-lab-amount-param="14">+14 <span class="opacity-60 text-xs ml-1">3rd entry</span></button>
         <button class="btn btn-outline btn-sm"
                 data-seeds-lab-target="simButton"
                 data-studio-action="seeds-lab#jump" data-seeds-lab-to-param="95">Jump → 95</button>
@@ -86,7 +86,7 @@
     </div>
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
       <div>
-        <label class="text-muted text-[10px] uppercase tracking-wide block mb-1">Mode</label>
+        <label class="text-muted text-xs uppercase tracking-wide block mb-1">Mode</label>
         <select data-seeds-lab-target="mode" data-studio-action="change->seeds-lab#shineChanged"
                 class="w-full text-sm rounded-md border border-subtle px-2 py-1.5"
                 style="background: var(--color-surface-alt); color: var(--color-text);">
@@ -97,7 +97,7 @@
         </select>
       </div>
       <div hidden data-seeds-lab-target="pulseOnly">
-        <label class="text-muted text-[10px] uppercase tracking-wide block mb-1">
+        <label class="text-muted text-xs uppercase tracking-wide block mb-1">
           Interval: <span class="text-secondary font-mono" data-seeds-lab-target="label" data-label="shineInterval">5s</span>
           <span class="text-muted ml-1" data-seeds-lab-target="label" data-label="shineIntervalHint"></span>
         </label>
@@ -105,15 +105,15 @@
                data-seeds-lab-target="interval" data-studio-action="input->seeds-lab#shineChanged">
       </div>
       <div>
-        <label class="text-muted text-[10px] uppercase tracking-wide block mb-1">
+        <label class="text-muted text-xs uppercase tracking-wide block mb-1">
           Initial delay: <span class="text-secondary font-mono" data-seeds-lab-target="label" data-label="shineDelay">0s</span>
         </label>
         <input type="range" min="0" max="10" step="0.5" value="0" class="w-full"
                data-seeds-lab-target="delay" data-studio-action="input->seeds-lab#shineChanged">
       </div>
       <div>
-        <label class="text-muted text-[10px] uppercase tracking-wide block mb-1">Active CSS</label>
-        <code class="block text-[10px] font-mono text-secondary px-2 py-1 rounded border border-subtle truncate"
+        <label class="text-muted text-xs uppercase tracking-wide block mb-1">Active CSS</label>
+        <code class="block text-xs font-mono text-secondary px-2 py-1 rounded border border-subtle truncate"
               style="background: var(--color-inset);"
               data-seeds-lab-target="label" data-label="shineDebug"></code>
       </div>
@@ -128,7 +128,7 @@
       <div>
         <div class="flex items-baseline justify-between">
           <h2 class="text-heading font-semibold text-base">1 · Segmented</h2>
-          <span class="text-[10px] font-bold px-2 py-0.5 rounded-full"
+          <span class="text-xs font-bold px-2 py-0.5 rounded-full"
                 style="background: rgb(var(--color-primary-500-rgb) / 0.15); color: var(--color-primary-badge-ink); border: 1px solid rgb(var(--color-primary-500-rgb) / 0.3);"
                 data-seeds-lab-target="pop label" data-label="levelBadge">Level 1</span>
         </div>
@@ -152,7 +152,7 @@
             </div>
           <% end %>
         </div>
-        <div class="flex items-center justify-end mt-2 font-mono text-[11px] text-secondary">
+        <div class="flex items-center justify-end mt-2 font-mono text-xs text-secondary">
           <%# Rotating-integer counter — one tall column of 0..100, transform slides up by displaySeeds × line-height. Same easing as the bar so they stay locked together. %>
           <span class="inline-flex items-baseline gap-1 font-mono font-bold text-sm" style="color: var(--color-primary-ink);">
             <span class="relative overflow-hidden inline-block text-right" style="height: 1.25em; width: 3.1ch; line-height: 1.25em;">
@@ -175,7 +175,7 @@
       <div>
         <div class="flex items-baseline justify-between">
           <h2 class="text-heading font-semibold text-base">1b · Segmented + Gap Glow</h2>
-          <span class="text-[10px] font-bold px-2 py-0.5 rounded-full"
+          <span class="text-xs font-bold px-2 py-0.5 rounded-full"
                 style="background: rgb(var(--color-primary-500-rgb) / 0.15); color: var(--color-primary-badge-ink); border: 1px solid rgb(var(--color-primary-500-rgb) / 0.3);"
                 data-seeds-lab-target="pop label" data-label="levelBadge">Level 1</span>
         </div>
@@ -205,7 +205,7 @@
             <% end %>
           </div>
         </div>
-        <div class="flex items-center justify-between mt-2 font-mono text-[11px] text-secondary">
+        <div class="flex items-center justify-between mt-2 font-mono text-xs text-secondary">
           <span data-seeds-lab-target="label" data-label="sections">0 / 5 sections</span>
           <span data-seeds-lab-target="label" data-label="seedsOf">0 / 100 seeds</span>
         </div>
@@ -217,7 +217,7 @@
       <div>
         <div class="flex items-baseline justify-between">
           <h2 class="text-heading font-semibold text-base">2 · Continuous + Ticks</h2>
-          <span class="text-[10px] font-bold px-2 py-0.5 rounded-full"
+          <span class="text-xs font-bold px-2 py-0.5 rounded-full"
                 style="background: rgb(var(--color-primary-500-rgb) / 0.15); color: var(--color-primary-badge-ink); border: 1px solid rgb(var(--color-primary-500-rgb) / 0.3);"
                 data-seeds-lab-target="pop label" data-label="levelBadge">Level 1</span>
         </div>
@@ -244,14 +244,14 @@
           <div class="absolute inset-y-0 pointer-events-none" style="left: 60%; width: 2px; background: rgba(255,255,255,0.55);"></div>
           <div class="absolute inset-y-0 pointer-events-none" style="left: 80%; width: 2px; background: rgba(255,255,255,0.45);"></div>
           <%# Centered counter %>
-          <span class="absolute inset-0 flex items-center justify-center text-[11px] font-mono font-bold"
+          <span class="absolute inset-0 flex items-center justify-center text-xs font-mono font-bold"
                 style="color: var(--color-primary-ink);"
                 data-seeds-lab-target="label" data-label="counter">0 / 100</span>
-          <span class="absolute inset-0 flex items-center justify-center text-[11px] font-mono font-bold"
+          <span class="absolute inset-0 flex items-center justify-center text-xs font-mono font-bold"
                 style="color: white; clip-path: inset(0 100% 0 0);"
                 data-seeds-lab-target="styled label" data-style="counterClip" data-label="counter">0 / 100</span>
         </div>
-        <div class="flex items-center justify-between mt-2 font-mono text-[11px] text-secondary">
+        <div class="flex items-center justify-between mt-2 font-mono text-xs text-secondary">
           <span data-seeds-lab-target="label" data-label="sections">0 / 5 sections</span>
           <span>↑ ticks at 20 · 40 · 60 · 80</span>
         </div>
@@ -263,7 +263,7 @@
       <div>
         <div class="flex items-baseline justify-between">
           <h2 class="text-heading font-semibold text-base">3 · Stepped Sprouts</h2>
-          <span class="text-[10px] font-bold px-2 py-0.5 rounded-full"
+          <span class="text-xs font-bold px-2 py-0.5 rounded-full"
                 style="background: rgb(var(--color-primary-500-rgb) / 0.15); color: var(--color-primary-badge-ink); border: 1px solid rgb(var(--color-primary-500-rgb) / 0.3);"
                 data-seeds-lab-target="pop label" data-label="levelBadge">Level 1</span>
         </div>
@@ -285,7 +285,7 @@
             </div>
           <% end %>
         </div>
-        <div class="flex items-center justify-between mt-3 font-mono text-[11px] text-secondary">
+        <div class="flex items-center justify-between mt-3 font-mono text-xs text-secondary">
           <span data-seeds-lab-target="label" data-label="grown">0 of 5 grown</span>
           <span data-seeds-lab-target="label" data-label="seedsOf">0 / 100 seeds</span>
         </div>
@@ -297,7 +297,7 @@
       <div>
         <div class="flex items-baseline justify-between">
           <h2 class="text-heading font-semibold text-base">4 · Battery Cells</h2>
-          <span class="text-[10px] font-bold px-2 py-0.5 rounded-full"
+          <span class="text-xs font-bold px-2 py-0.5 rounded-full"
                 style="background: rgb(var(--color-primary-500-rgb) / 0.15); color: var(--color-primary-badge-ink); border: 1px solid rgb(var(--color-primary-500-rgb) / 0.3);"
                 data-seeds-lab-target="pop label" data-label="levelBadge">Level 1</span>
         </div>
@@ -320,7 +320,7 @@
           </div>
           <div style="width: 5px; height: 12px; background: var(--color-cta); border-radius: 0 2px 2px 0; margin-left: -1px;"></div>
         </div>
-        <div class="flex items-center justify-between mt-3 font-mono text-[11px] text-secondary">
+        <div class="flex items-center justify-between mt-3 font-mono text-xs text-secondary">
           <span data-seeds-lab-target="label" data-label="cells">0 / 5 cells</span>
           <span data-seeds-lab-target="label" data-label="seedsOf">0 / 100 seeds</span>
         </div>

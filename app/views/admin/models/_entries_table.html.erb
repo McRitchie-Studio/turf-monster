@@ -12,7 +12,7 @@
   </td>
   <td class="px-4 py-3 text-secondary truncate"><%= entry.contest&.name || "—" %></td>
   <td class="px-4 py-3">
-    <span class="inline-flex items-center px-2 py-1 rounded text-[11px] font-bold uppercase <%= entry.complete? ? 'bg-primary/15 text-primary' : entry.active? ? 'bg-surface-alt text-secondary' : 'bg-surface-alt text-muted' %>">
+    <span class="inline-flex items-center px-2 py-1 rounded text-xs font-bold uppercase <%= entry.complete? ? 'bg-primary/15 text-primary' : entry.active? ? 'bg-surface-alt text-secondary' : 'bg-surface-alt text-muted' %>">
       <%= entry.status %>
     </span>
   </td>
