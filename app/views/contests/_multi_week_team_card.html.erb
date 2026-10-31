@@ -52,12 +52,15 @@
         <% if locked %>disabled<% end %>>
   <%# City small + lighter, mascot large + bold in the team accent. Two lines
       also cure the old single-line truncation ("San Francisco 49...",
-      "Los Angeles Char..."). %>
+      "Los Angeles Char...").
+      The mascot is the subhead role at every width (task turf-adopts-type-scale):
+      the heading role (48px) overflowed 28 of 32 cards at 768 and 14 at 1024,
+      and the board's shrinkTeamNames() then dropped each to fine print. %>
   <% if team.location.present? %>
     <p class="text-xs md:text-sm font-medium leading-tight truncate"
        style="color: <%= pal[:location] %>" title="<%= team.name %>"><%= team.location %></p>
   <% end %>
-  <p class="font-extrabold text-2xl md:text-3xl leading-tight truncate team-name"
+  <p class="font-extrabold text-2xl leading-tight truncate team-name"
      style="color: <%= pal[:accent] %>; text-shadow: <%= pal[:mascot_shadow] %>" title="<%= team.name %>"><%= team.mascot %></p>
 
   <%# One line: the stylish multiplier (1.6x) then the "Points" label.
