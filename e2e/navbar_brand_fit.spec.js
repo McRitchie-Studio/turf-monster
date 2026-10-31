@@ -153,3 +153,32 @@ test("the desktop scroll collapse still shrinks the brand and keeps the answer",
   expect(b.hidden).toBe(false);
   expect(b.clipped).toEqual([]);
 });
+
+// THE FIRST LOAD ANSWERS BEFORE THE PAGE FINISHES LOADING
+// (/tasks/turf-navbar-stopgap-cleanup). On a first load Turbo fires turbo:load
+// only at readyState "complete", after every image and font, and the header
+// painted the CSS guess (an ellipsized wordmark on a desktop row) until then.
+// Every image is held here for two seconds, so "complete" is far off: the
+// script must have answered while the document is still short of it. Red
+// with watch() bound to turbo:load alone.
+test("a first load answers before every image has loaded, at 375, 768 and 1280", async ({ page }) => {
+  let held = 0;
+  await page.route(/\.(png|jpe?g|webp|gif|svg)(\?|$)/, async (route) => {
+    held += 1;
+    await new Promise((r) => setTimeout(r, 2000));
+    await route.continue().catch(() => {});
+  });
+  for (const width of [375, 768, 1280]) {
+    await page.setViewportSize({ width, height: 800 });
+    held = 0;
+    await page.goto("/contests", { waitUntil: "commit" });
+    const seen = await page.waitForFunction((sel) => {
+      const h = document.querySelector(sel);
+      const state = h && h.getAttribute("data-nav-brand");
+      return (state || document.readyState === "complete") && { state, readyState: document.readyState };
+    }, HEADER, { timeout: 15_000 }).then((handle) => handle.jsonValue());
+    expect(held, `${width}px: no image was held, so "complete" was never far off`).toBeGreaterThan(0);
+    expect(seen.readyState, `${width}px: the brand waited for the whole page: ${JSON.stringify(seen)}`).not.toBe("complete");
+    expect(seen.state, `${width}px: ${JSON.stringify(seen)}`).toMatch(/^(fit|tight)$/);
+  }
+});

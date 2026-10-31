@@ -77,7 +77,10 @@
      slider and the label count the border box; a percentage resolves against
      the content box, so without it every column here is 4px narrow. The
      desktop band takes the same correction: its ramp reads the device width
-     exactly where the shipped rule reads 100vw.
+     exactly where the shipped rule reads 100vw. The device width is one
+     parenthesised term, (100% + 2 * var(--preview-frame)), wherever it stands
+     in for 100vw, so it stays one quantity whatever the shipped rule does to
+     100vw (a multiplication would otherwise bind to the frame alone).
 
      THE DESKTOP STEP SAYS WHAT SHIPS TOO. It once read a flat 20rem against a
      shipped 24vw clamp, and then kept that 24vw after /tasks/turf-navbar-polish
@@ -96,13 +99,13 @@
 
   /* Tiny (< 400px) */
   .navbar-preview.bp-tiny .nav-logo-link { gap: 0.25rem !important; }
-  .navbar-preview.bp-tiny .user-nav-col { --nav-left-need: 11.125rem; width: clamp(var(--user-nav-floor), calc(100% + 2 * var(--preview-frame) - var(--nav-left-need)), 14rem) !important; }
+  .navbar-preview.bp-tiny .user-nav-col { --nav-left-need: 11.125rem; width: clamp(var(--user-nav-floor), calc((100% + 2 * var(--preview-frame)) - var(--nav-left-need)), 14rem) !important; }
 
   /* Small (400–767px) */
-  .navbar-preview.bp-small .user-nav-col { --nav-left-need: 12.25rem; width: clamp(var(--user-nav-floor), calc(100% + 2 * var(--preview-frame) - var(--nav-left-need)), 15rem) !important; }
+  .navbar-preview.bp-small .user-nav-col { --nav-left-need: 12.25rem; width: clamp(var(--user-nav-floor), calc((100% + 2 * var(--preview-frame)) - var(--nav-left-need)), 15rem) !important; }
 
   /* Desktop (768px+) */
-  .navbar-preview.is-desktop .user-nav-col { width: clamp(16.5rem, calc(16.5rem + (100% + 2 * var(--preview-frame) - 48rem) * 0.25), 20.5rem) !important; }
+  .navbar-preview.is-desktop .user-nav-col { width: clamp(16.5rem, calc(16.5rem + ((100% + 2 * var(--preview-frame)) - 48rem) * 0.25), 20.5rem) !important; }
 
   /* Scrolled state. The size half of this used to be TWELVE !important rules
      restating every collapsed value; the toggle now just sets --nav-p: 1 on

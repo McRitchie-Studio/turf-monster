@@ -21,6 +21,14 @@
 // from 768px the collapse is a transform (the scroll timeline), which offset
 // geometry ignores. So the answer never flips while the page scrolls.
 //
+// IT ANSWERS AT ONCE when this module runs with the document already parsed,
+// which on a first load it always is: an importmap module runs after parsing,
+// and Turbo, which starts listening for readystatechange only then, misses
+// "interactive" and fires its first turbo:load at "complete", after every
+// image and font. Waiting for it painted the CSS guess, an ellipsized
+// wordmark on a desktop row, for that whole stretch
+// (/tasks/turf-navbar-stopgap-cleanup).
+//
 // IT RE-MEASURES on turbo:load, when the row or any item in it changes size
 // (a hydrate, a viewport resize), and when a font loads. Its own write only
 // changes the logo link's width, which it does not watch, so it cannot loop;
@@ -97,3 +105,4 @@ function watch() {
 }
 
 document.addEventListener("turbo:load", watch)
+if (document.readyState !== "loading") watch()

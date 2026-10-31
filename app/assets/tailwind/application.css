@@ -1004,7 +1004,10 @@
    need, plus the 6px of face-substitution slack measured above. Below 768px the
    links are not in this row, so that guess is the whole answer and the script
    only confirms it; from 768px the guess can only say "certainly not", and the
-   script says the rest. The script's answer wins either way.
+   script says the rest. The script's answer wins either way, and it answers
+   as soon as its module runs, not at Turbo's first turbo:load, which on a
+   first load waits for every image and font (/tasks/turf-navbar-stopgap-cleanup);
+   so the guess holds only until the page's modules run.
 
    HIDDEN FOR THE EYE, NOT FOR A SCREEN READER. The words are the page's h1
    (the engine's brand_heading), so they leave the layout (out of flow, a 1px
@@ -1091,7 +1094,7 @@
    past 768 and reaches 20.5rem at 1024, where the name has its
    full 7rem beside a five-digit balance. 768 keeps the floor: the geo badge
    ends about 20px short of the column there, so the row has nothing to give,
-   and the name truncates with its full text as a title (nav_labels.js). The
+   and the name truncates with the engine's full-name title. The
    row's left side keeps its slack at every width (e2e/navbar_polish.spec.js). */
 @media (min-width: 768px) {
   .nav-shell .user-nav-col {
@@ -1765,9 +1768,10 @@ body.modal-open { overflow: hidden; }
 }
 
 /* THE SQUEEZE BAND — md up to just under xl. Two things happen at exactly
-   768px and they compound: .user-nav-col STOPPED GROWING (its old 24vw clamp
-   sat on its floor up to about 1000px; since /tasks/turf-navbar-polish it grows
-   a quarter of every pixel past 768) and the gear + theme toggle
+   768px and they compound: .user-nav-col STOPPED GROWING (its old clamp sat
+   on its 16.5rem floor until 24vw + 0.5rem passed it at ~1067px; since
+   /tasks/turf-navbar-polish it grows a quarter of every pixel past 768) and
+   the gear + theme toggle
    JOIN the row (they are `hidden md:flex`, and below md they live in the
    mobile sub-navbar instead). So the column takes on ~44px of new controls
    against 16px of new width, and the username pays the difference — it is the
