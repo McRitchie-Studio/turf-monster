@@ -1832,30 +1832,13 @@ class ContestsController < ApplicationController
   # rather than trusting contest.user.solana_address.
   def cancel_onchain
     rescue_and_log(target: @contest) do
-      raise "Contest is not on-chain" unless @contest.onchain?
-      raise "Only open contests can be cancelled" unless @contest.open?
-      raise "Contest is already cancelled" if @contest.onchain_cancelled?
+      pending, created = @contest.queue_cancel_cosign!
+      unless created
+        return redirect_to admin_pending_transactions_path,
+                           notice: "Cancel is already waiting for a cosign in the Treasury."
+      end
 
-      vault = Solana::Vault.new
-      onchain = vault.read_contest(@contest.slug)
-      raise "Could not read on-chain contest" unless onchain
-      creator_pubkey = onchain[:creator]
-      raise "On-chain creator unavailable" if creator_pubkey.blank?
-
-      result = vault.build_cancel_contest(
-        @contest.slug,
-        creator_pubkey: creator_pubkey,
-        cosigner_pubkey: Solana::Config::MULTISIG_COSIGNER
-      )
-
-      PendingTransaction.create!(
-        tx_type: "cancel_contest",
-        serialized_tx: result[:serialized_tx],
-        target: @contest,
-        initiator_address: Solana::Keypair.admin.to_base58,
-        metadata: { creator: creator_pubkey }.to_json
-      )
-
+      creator_pubkey = pending.parsed_metadata["creator"].to_s
       redirect_to admin_pending_transactions_path,
         notice: "Cancel queued for cosign — refunds #{creator_pubkey[0..7]}… in the Treasury."
     end

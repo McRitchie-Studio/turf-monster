@@ -861,6 +861,57 @@ class Contest < ApplicationRecord
     onchain_cancelled?
   end
 
+  # A cancel the app refuses to queue (not on chain, not open, already
+  # cancelled). Its message is operator copy: ContestsController#cancel_onchain
+  # flashes it and the operator endpoint (Operator::ContestOps) returns it.
+  class CancelRefused < StandardError; end
+
+  # The cancel_contest PendingTransaction still waiting on a cosign, or nil.
+  CANCEL_IN_FLIGHT = %w[pending submitted].freeze
+
+  def pending_cancel_transaction
+    PendingTransaction.where(target: self, tx_type: "cancel_contest", status: CANCEL_IN_FLIGHT).order(:id).first
+  end
+
+  # Queue this contest's on-chain cancel for a cosign in the Treasury, the one
+  # path the admin button (ContestsController#cancel_onchain) and the operator
+  # endpoint (Operator::ContestOps#cancel) share. Returns [pending_tx, created].
+  #
+  # THE APP BUILDS IT AND NOBODY ELSE SIGNS IT HERE. Solana::Vault
+  # #build_cancel_contest pre-signs the admin (payer) slot only, exactly as the
+  # button always has; the cosign is an owner's wallet in
+  # /admin/pending_transactions (AGENTS.md First Rule 10). Nothing is broadcast.
+  #
+  # ONE AT A TIME. A cancel already waiting is returned, not stacked, so a
+  # second press or a repeated operator call queues nothing new.
+  #
+  # The creator is read off chain: the program constrains the refund ATA's
+  # authority to contest.creator, so contest.user's address is not trusted.
+  def queue_cancel_cosign!(vault: Solana::Vault.new, metadata: {})
+    raise CancelRefused, "Contest is not on-chain" unless onchain?
+    raise CancelRefused, "Only open contests can be cancelled" unless open?
+    raise CancelRefused, "Contest is already cancelled" if onchain_cancelled?
+
+    existing = pending_cancel_transaction
+    return [existing, false] if existing
+
+    onchain = vault.read_contest(slug)
+    raise CancelRefused, "Could not read on-chain contest" unless onchain
+    creator_pubkey = onchain[:creator]
+    raise CancelRefused, "On-chain creator unavailable" if creator_pubkey.blank?
+
+    result = vault.build_cancel_contest(slug, creator_pubkey: creator_pubkey,
+                                              cosigner_pubkey: Solana::Config::MULTISIG_COSIGNER)
+    pending = PendingTransaction.create!(
+      tx_type: "cancel_contest",
+      serialized_tx: result[:serialized_tx],
+      target: self,
+      initiator_address: Solana::Keypair.admin.to_base58,
+      metadata: metadata.to_h.stringify_keys.merge("creator" => creator_pubkey).to_json
+    )
+    [pending, true]
+  end
+
   def onchain_params
     fee_cents  = entry_fee_cents.to_i
     guaranteed = guaranteed_prize_cents

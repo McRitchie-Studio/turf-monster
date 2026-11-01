@@ -810,4 +810,13 @@ Rails.application.routes.draw do
   post "test/signing_csp", to: "test#set_signing_csp" unless Rails.env.production?
   # The strict script policy's violation reports (SigningCsp::REPORT_PATH).
   post "csp_reports", to: "csp_reports#create"
+
+  # The hub's operator endpoint (Operator::ContestsController, docs/OPERATOR_API.md):
+  # bearer-gated by TURF_OPERATOR_TOKEN, a bare 404 without it. At the end of the
+  # file for the same no-citation-moves reason as above.
+  scope "_operator", module: "operator", as: "operator", defaults: { format: :json } do
+    get  "contests",              to: "contests#index",   format: false, as: :contests
+    post "contests/prepare",      to: "contests#prepare", format: false, as: :prepare_contest
+    post "contests/:slug/cancel", to: "contests#cancel",  format: false, as: :cancel_contest
+  end
 end
