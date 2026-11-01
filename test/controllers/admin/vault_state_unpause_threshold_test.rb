@@ -111,5 +111,4 @@ class Admin::VaultStateUnpauseThresholdTest < ActionDispatch::IntegrationTest
     assert_operator Solana::Governance.required_signatures("pause"), :<,
                     Solana::Governance.required_signatures("unpause")
   end
-
 end

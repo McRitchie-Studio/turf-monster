@@ -120,5 +120,4 @@ class Solana::GovernanceChainThresholdsTest < ActiveSupport::TestCase
     assert_equal "set_contest_conclusion_time",
                  vault_with_contest(lock: 0).contest_time_action("set_contest_conclusion_time", "c")
   end
-
 end

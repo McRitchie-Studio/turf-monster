@@ -174,5 +174,4 @@ class QaRehearsalV026CosignTest < ActiveSupport::TestCase
   test "the shipped roster files Mack alone: Mason is a mainnet signer" do
     assert_equal %w[mack], Driver::VAULT_AGENTS
   end
-
 end
