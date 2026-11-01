@@ -65,28 +65,13 @@ class Solana::GovernanceChainThresholdsTest < ActiveSupport::TestCase
   test "on v0.26 the vault answers with the stored table" do
     vault = vault_with({ thresholds: table("settle_contest" => 2, "close_contest" => 3) })
 
-    Solana::Config.stub(:governance?, true) do
-      assert_equal 2, vault.required_signatures("settle_contest")
-      assert_equal 3, vault.required_signatures("close_contest")
-      assert_equal 3, vault.required_signatures("cancel_contest"), "an unset entry is still the default"
-    end
+    assert_equal 2, vault.required_signatures("settle_contest")
+    assert_equal 3, vault.required_signatures("close_contest")
+    assert_equal 3, vault.required_signatures("cancel_contest"), "an unset entry is still the default"
   end
 
   test "on v0.26 an unreadable GovernanceConfig falls back to the defaults" do
-    Solana::Config.stub(:governance?, true) do
-      assert_equal 3, vault_with(nil).required_signatures("settle_contest")
-    end
-  end
-
-  test "on v0.25 the vault answers with constants and never reads the chain" do
-    reads = []
-    vault = vault_with({ thresholds: table("settle_contest" => 2) }, reads: reads)
-
-    Solana::Config.stub(:governance?, false) do
-      assert_equal 3, vault.required_signatures("settle_contest")
-      assert_empty vault.unattended_extra_signer_metas("settle_contest", signers: [])
-    end
-    assert_empty reads
+    assert_equal 3, vault_with(nil).required_signatures("settle_contest")
   end
 
   # The unattended settle names admin + cosigner. At the default 3 that is one
@@ -95,24 +80,20 @@ class Solana::GovernanceChainThresholdsTest < ActiveSupport::TestCase
     cosigner = key(1)
     named = [admin.public_key_bytes, cosigner.public_key_bytes]
 
-    Solana::Config.stub(:governance?, true) do
-      assert_raises(Solana::Vault::ThresholdUnreachableError) do
-        vault_with({ thresholds: table }).unattended_extra_signer_metas("settle_contest", signers: [], named: named)
-      end
-
-      assert_empty vault_with({ thresholds: table("settle_contest" => 2) })
-        .unattended_extra_signer_metas("settle_contest", signers: [], named: named)
+    assert_raises(Solana::Vault::ThresholdUnreachableError) do
+      vault_with({ thresholds: table }).unattended_extra_signer_metas("settle_contest", signers: [], named: named)
     end
+
+    assert_empty vault_with({ thresholds: table("settle_contest" => 2) })
+      .unattended_extra_signer_metas("settle_contest", signers: [], named: named)
   end
 
   test "a close retuned to three refuses a server plus one agent" do
-    Solana::Config.stub(:governance?, true) do
-      error = assert_raises(Solana::Vault::ThresholdUnreachableError) do
-        vault_with({ thresholds: table("close_contest" => 3) })
-          .unattended_extra_signer_metas("close_contest", signers: [key(1)])
-      end
-      assert_match(/close_contest needs 3 vault signatures/, error.message)
+    error = assert_raises(Solana::Vault::ThresholdUnreachableError) do
+      vault_with({ thresholds: table("close_contest" => 3) })
+        .unattended_extra_signer_metas("close_contest", signers: [key(1)])
     end
+    assert_match(/close_contest needs 3 vault signatures/, error.message)
   end
 
   # ── The escalated contest-time actions read the contest account ─────────
@@ -140,12 +121,4 @@ class Solana::GovernanceChainThresholdsTest < ActiveSupport::TestCase
                  vault_with_contest(lock: 0).contest_time_action("set_contest_conclusion_time", "c")
   end
 
-  test "v0.25 picks the base action without reading the contest" do
-    vault = Solana::Vault.new(client: Object.new)
-    vault.define_singleton_method(:read_contest) { |_slug| flunk "v0.25 must not read the contest" }
-
-    Solana::Config.stub(:governance?, false) do
-      assert_equal "set_contest_lock_time", vault.governed_time_action("set_contest_lock_time", "c")
-    end
-  end
 end

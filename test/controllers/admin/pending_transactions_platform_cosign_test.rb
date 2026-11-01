@@ -26,11 +26,9 @@ class Admin::PendingTransactionsPlatformCosignTest < ActionDispatch::Integration
                                initiator_address: "init", metadata: metadata.to_json)
   end
 
-  def with_platform(platform, governance: true, &block)
-    Solana::Config.stub(:governance?, governance) do
-      Solana::Vault.stub(:cached_vault_state, nil) do
-        Solana::PlatformCosigner.stub(:current, platform, &block)
-      end
+  def with_platform(platform, &block)
+    Solana::Vault.stub(:cached_vault_state, nil) do
+      Solana::PlatformCosigner.stub(:current, platform, &block)
     end
   end
 

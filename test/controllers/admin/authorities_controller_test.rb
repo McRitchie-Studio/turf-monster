@@ -296,7 +296,7 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
 
   test "plan names the chain rule and its code when the set breaks one" do
     vault = StubVault.new(signers: [server, ALEX, MASON, ALEX2, ALEX3], governance: { thresholds: Array.new(32, 0) })
-    body = Solana::Config.stub(:governance?, true) do
+    body = begin
       Solana::Governance.stub(:max_live_threshold, 4) do
         plan_json(vault, intent: "remove", remove: [MASON, ALEX3])
       end
@@ -306,7 +306,7 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "plan refuses when the app switch and the chain disagree about the program" do
-    body = Solana::Config.stub(:governance?, true) do
+    body = begin
       plan_json(StubVault.new(signers: [server, ALEX, MASON], governance: nil),
                 intent: "replace", remove: [MASON], add: [ALEX2])
     end
@@ -424,12 +424,10 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
     Rails.logger.broadcast_to(logger = ActiveSupport::Logger.new(log))
     begin
       Solana::Keypair.stub(:cosigners, [held]) do
-        Solana::Config.stub(:governance?, true) do
-          with_vault(vault) do
-            post admin_authority_rotations_path,
-                 params: reviewed(proposed: [server, ALEX, held.to_base58, ALEX2, ALEX3],
-                                  authorizers: [server, held.to_base58, ALEX]), as: :json
-          end
+        with_vault(vault) do
+          post admin_authority_rotations_path,
+               params: reviewed(proposed: [server, ALEX, held.to_base58, ALEX2, ALEX3],
+                                authorizers: [server, held.to_base58, ALEX]), as: :json
         end
       end
     ensure
@@ -635,7 +633,7 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "rebuild refuses when this app and the chain disagree about the program version" do
-    # Every builder routes its shape through Config.governance?. When that
+    # When the chain has no GovernanceConfig
     # disagrees with the chain, the account list and the argument describe a
     # program that is not there, and the failure arrives as an opaque
     # deserialization error after a fee.
@@ -643,10 +641,8 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
     arm(vault, signers: [ALEX, MASON, ALEX2], authorizers: [ALEX, MASON])
     row = PendingTransaction.last
 
-    Solana::Config.stub(:governance?, true) do
-      with_vault(vault) do
-        post admin_rebuild_authority_rotation_path(row.slug), as: :json
-      end
+    with_vault(vault) do
+      post admin_rebuild_authority_rotation_path(row.slug), as: :json
     end
 
     assert_response :unprocessable_entity

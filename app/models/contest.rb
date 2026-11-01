@@ -336,7 +336,7 @@ class Contest < ApplicationRecord
   #
   # NO FORMAT PAYS MORE THAN MAX_PAID_RANKS PLACES. Settlement is one
   # settle_contest call in one legacy transaction, and the 1,232-byte packet
-  # holds four paid entries on turf-vault v0.26 (five on v0.25). Grading never
+  # holds four paid entries on turf-vault v0.26. Grading never
   # pays more entries than the table has places (Contest::PayoutSplit), so a
   # format that fits here fits one settlement, ties included.
   #

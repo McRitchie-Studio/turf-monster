@@ -1,6 +1,6 @@
 require "test_helper"
 
-# THE KEYSTONE GUARD for the v0.25 <-> v0.26 account-shape switch.
+# THE KEYSTONE GUARD for the turf-vault account shape.
 #
 # Every turf-vault instruction is a POSITIONAL account list. Anchor reads slot N
 # as the Nth field of the `#[derive(Accounts)]` struct, so an account inserted,
@@ -10,21 +10,11 @@ require "test_helper"
 # any builder before this file; the only order pin anywhere was a single
 # hard-coded index used by the cosign guard.
 #
-# That is exactly the blind spot v0.26 walks into. It adds `governance` to
-# EVERY vault-authorized instruction, `treasury` to close_contest, `mint_window`
-# to mint_entry_token, `invitee_user_account` to grant_seeds, and
-# `username_record` to the two username paths. This app now carries BOTH shapes
-# and picks between them at boot (`Solana::Config.governance?`), so there are two
-# correct answers per builder and no way to eyeball which one shipped.
-#
-# So the assertions here are made against the COMMITTED IDLs rather than against
-# a list retyped from the program. `config/turf_vault.idl.json` (v0.25) and
-# `config/turf_vault.v026.idl.json` (v0.26) are the artifacts the boot guard
-# hashes, so a test that agrees with them agrees with the thing production
-# verifies. A hand-written expectation would only prove this file and vault.rb
-# were written by the same person on the same afternoon.
+# So the assertions here are made against the COMMITTED IDL rather than against
+# a list retyped from the program. `config/turf_vault.v026.idl.json` is the
+# artifact the boot guard hashes, so a test that agrees with it agrees with the
+# thing production verifies.
 class Solana::VaultAccountLayoutTest < ActiveSupport::TestCase
-  V025_IDL = JSON.parse(File.read(Rails.root.join("config", "turf_vault.idl.json"))).freeze
   V026_IDL = JSON.parse(File.read(Rails.root.join("config", "turf_vault.v026.idl.json"))).freeze
 
   # A recording stand-in for Solana::Transaction. Captures the turf-vault
@@ -108,20 +98,9 @@ class Solana::VaultAccountLayoutTest < ActiveSupport::TestCase
     CapturingVault.new(client: fake_client)
   end
 
-  # Run `blk` with the app resolved to one shape or the other. `governance?` is
-  # the single seam every builder reads, which is what makes a two-shape app
-  # testable at all — the alternative would be re-booting under a different ENV.
-  def with_shape(governance)
-    Solana::Config.stub(:governance?, governance) { yield }
-  end
-
-  def idl_for(governance)
-    governance ? V026_IDL : V025_IDL
-  end
-
-  def idl_accounts(governance, ix_name)
-    ix = idl_for(governance).fetch("instructions").find { |i| i["name"] == ix_name }
-    refute_nil ix, "#{ix_name} is absent from the #{governance ? 'v0.26' : 'v0.25'} IDL"
+  def idl_accounts(ix_name)
+    ix = V026_IDL.fetch("instructions").find { |i| i["name"] == ix_name }
+    refute_nil ix, "#{ix_name} is absent from the IDL"
     ix.fetch("accounts")
   end
 
@@ -168,7 +147,7 @@ class Solana::VaultAccountLayoutTest < ActiveSupport::TestCase
   def builder_cases(v)
     {
       "pause" => -> { v.build_pause_vault(cosigner_pubkey: COSIGNER, reason: "test") },
-      "unpause" => -> { v.build_unpause_vault(cosigner_pubkey: COSIGNER, extra_cosigners: Solana::Config.governance? ? [COSIGNER2] : []) },
+      "unpause" => -> { v.build_unpause_vault(cosigner_pubkey: COSIGNER, extra_cosigners: [COSIGNER2]) },
       "register_currency" => -> { v.build_register_currency(cosigner_pubkey: COSIGNER, mint: Solana::Config::USDC_MINT) },
       "deactivate_currency" => -> { v.build_deactivate_currency(cosigner_pubkey: COSIGNER, currency_idx: 1) },
       "create_user_account" => -> { v.create_user_account(WALLET, username: "tester") },
@@ -178,8 +157,8 @@ class Solana::VaultAccountLayoutTest < ActiveSupport::TestCase
       "set_contest_conclusion_time" => -> { v.contest_time_instruction("set_contest_conclusion_time", "slug-a", 123, admin_pubkey: COSIGNER) },
       "cancel_contest" => -> { v.build_cancel_contest("slug-a", creator_pubkey: WALLET, cosigner_pubkey: COSIGNER) },
       "settle_contest" => -> { v.build_settle_contest("slug-a", [], cosigner_pubkey: COSIGNER) },
-      "close_contest" => -> { v.close_contest("slug-a", extra_signers: Solana::Config.governance? ? [spare_signer] : []) },
-      "create_season" => -> { v.create_season(season_id: 1, name: "S", schedule: [1, 1, 1, 1, 1], extra_signers: Solana::Config.governance? ? [spare_signer, spare_signer2] : []) },
+      "close_contest" => -> { v.close_contest("slug-a", extra_signers: [spare_signer]) },
+      "create_season" => -> { v.create_season(season_id: 1, name: "S", schedule: [1, 1, 1, 1, 1], extra_signers: [spare_signer, spare_signer2]) },
       "sweep_operator_revenue" => -> { v.build_sweep_operator_revenue(cosigner_pubkey: COSIGNER, currency_mint: Solana::Config::USDC_MINT, treasury_ata_pubkey: WALLET2) },
       "enter_contest" => -> { v.build_enter_contest(WALLET, "slug-a", 0, currency_idx: 0, season_id: 1) },
       "enter_contest_with_token" => -> { v.build_enter_contest_with_token(WALLET, "slug-a", 0, WALLET2, season_id: 1) },
@@ -190,58 +169,51 @@ class Solana::VaultAccountLayoutTest < ActiveSupport::TestCase
 
   # ── THE MAIN EVENT ────────────────────────────────────────────────────────
   #
-  # For every builder, in BOTH shapes: the account list it produces must have
-  # the same length, the same signer flags and the same writable flags as the
-  # IDL for that shape declares. Length alone would miss a swap; the flags are
+  # For every builder: the account list it produces must have the same length,
+  # the same signer flags and the same writable flags as the IDL declares. Length alone would miss a swap; the flags are
   # what catch an account inserted at the wrong index with a plausible count.
-  [false, true].each do |governance|
-    label = governance ? "v0.26" : "v0.25"
+  test "every builder's account list matches the IDL" do
+    checked = 0
+    program_id = vault.instance_variable_get(:@program_id)
+    builder_cases(vault).each do |ix_name, _thunk|
+      v = vault
+      returned = builder_cases(v).fetch(ix_name).call
+      actual = captured_accounts(v, returned)
+      expected = idl_accounts(ix_name)
 
-    test "every builder's account list matches the #{label} IDL" do
-      with_shape(governance) do
-        checked = 0
-        program_id = vault.instance_variable_get(:@program_id)
-        builder_cases(vault).each do |ix_name, _thunk|
-          v = vault
-          returned = builder_cases(v).fetch(ix_name).call
-          actual = captured_accounts(v, returned)
-          expected = idl_accounts(governance, ix_name)
+      assert_operator actual.length, :>=, expected.length,
+                      "#{ix_name}: expected at least #{expected.length} accounts " \
+                      "(#{expected.map { |a| a['name'] }.join(', ')}), built #{actual.length}"
 
-          assert_operator actual.length, :>=, expected.length,
-                          "#{ix_name} (#{label}): expected at least #{expected.length} accounts " \
-                          "(#{expected.map { |a| a['name'] }.join(', ')}), built #{actual.length}"
-
-          # Anything past the IDL's named list is a LEADING remaining account —
-          # the shape `instructions::governance::authorize` reads extra vault
-          # signatures from. Every one of them must be a signer; a non-signer
-          # there is junk the program would read as a cosigner that did not sign.
-          actual[expected.length..].to_a.each_with_index do |meta, i|
-            assert meta[:is_signer],
-                   "#{ix_name} (#{label}): surplus account #{expected.length + i} is not a signer"
-          end
-
-          expected.each_with_index do |spec, idx|
-            # ANCHOR'S OWN RULE for an optional account, mirrored rather than
-            # invented: an absent one is encoded as the PROGRAM ID with BOTH
-            # flags forced false, whatever the IDL says the slot carries when it
-            # is present. From @coral-xyz/anchor, program/namespace/instruction.js:
-            #   isOptional = acc.optional && pubkey.equals(programId)
-            #   isWritable = Boolean(acc.writable && !isOptional)
-            #   isSigner   = Boolean(acc.signer   && !isOptional)
-            # Asserting the IDL's flags unconditionally would fail every
-            # correctly-absent optional — `cosigner` on the two time setters, and
-            # `previous_username_record` on a non-rename.
-            absent = spec["optional"] && actual[idx][:pubkey] == program_id
-            assert_equal(!!spec["signer"] && !absent, !!actual[idx][:is_signer],
-                         "#{ix_name} (#{label}) slot #{idx} (#{spec['name']}): signer flag")
-            assert_equal(!!spec["writable"] && !absent, !!actual[idx][:is_writable],
-                         "#{ix_name} (#{label}) slot #{idx} (#{spec['name']}): writable flag")
-          end
-          checked += 1
-        end
-        assert_operator checked, :>=, 18, "the builder table shrank — a builder lost its layout guard"
+      # Anything past the IDL's named list is a LEADING remaining account —
+      # the shape `instructions::governance::authorize` reads extra vault
+      # signatures from. Every one of them must be a signer; a non-signer
+      # there is junk the program would read as a cosigner that did not sign.
+      actual[expected.length..].to_a.each_with_index do |meta, i|
+        assert meta[:is_signer],
+               "#{ix_name}: surplus account #{expected.length + i} is not a signer"
       end
+
+      expected.each_with_index do |spec, idx|
+        # ANCHOR'S OWN RULE for an optional account, mirrored rather than
+        # invented: an absent one is encoded as the PROGRAM ID with BOTH
+        # flags forced false, whatever the IDL says the slot carries when it
+        # is present. From @coral-xyz/anchor, program/namespace/instruction.js:
+        #   isOptional = acc.optional && pubkey.equals(programId)
+        #   isWritable = Boolean(acc.writable && !isOptional)
+        #   isSigner   = Boolean(acc.signer   && !isOptional)
+        # Asserting the IDL's flags unconditionally would fail every
+        # correctly-absent optional — `cosigner` on the two time setters, and
+        # `previous_username_record` on a non-rename.
+        absent = spec["optional"] && actual[idx][:pubkey] == program_id
+        assert_equal(!!spec["signer"] && !absent, !!actual[idx][:is_signer],
+                     "#{ix_name} slot #{idx} (#{spec['name']}): signer flag")
+        assert_equal(!!spec["writable"] && !absent, !!actual[idx][:is_writable],
+                     "#{ix_name} slot #{idx} (#{spec['name']}): writable flag")
+      end
+      checked += 1
     end
+    assert_operator checked, :>=, 18, "the builder table shrank — a builder lost its layout guard"
   end
 
   # ── THE GOVERNANCE ACCOUNT LANDS WHERE THE IDL PUTS IT ────────────────────
@@ -250,104 +222,79 @@ class Solana::VaultAccountLayoutTest < ActiveSupport::TestCase
   # non-signer non-writable account swapped places, because their flags are
   # identical. This pins the PDA itself, at the index the IDL names.
   test "the governance PDA sits at the IDL's governance index, in every instruction that declares one" do
-    with_shape(true) do
-      expected_pda, _ = vault.governance_pda
-      checked = 0
+    expected_pda, _ = vault.governance_pda
+    checked = 0
 
-      builder_cases(vault).each do |ix_name, _|
-        spec = idl_accounts(true, ix_name)
-        idx = spec.index { |a| a["name"] == "governance" }
-        next if idx.nil?
+    builder_cases(vault).each do |ix_name, _|
+      spec = idl_accounts(ix_name)
+      idx = spec.index { |a| a["name"] == "governance" }
+      next if idx.nil?
 
-        v = vault
-        returned = builder_cases(v).fetch(ix_name).call
-        assert_equal expected_pda, captured_accounts(v, returned)[idx][:pubkey],
-                     "#{ix_name}: slot #{idx} should be the [b\"governance\"] PDA"
-        checked += 1
-      end
-
-      assert_operator checked, :>=, 14,
-                      "fewer instructions carried a governance account than the IDL declares"
+      v = vault
+      returned = builder_cases(v).fetch(ix_name).call
+      assert_equal expected_pda, captured_accounts(v, returned)[idx][:pubkey],
+                   "#{ix_name}: slot #{idx} should be the [b\"governance\"] PDA"
+      checked += 1
     end
-  end
 
-  # The v0.25 branch has to be byte-identical to what shipped, or this PR is an
-  # outage rather than a preparation. No builder may emit the governance PDA
-  # while the app is resolved to the old program.
-  test "no builder emits the governance PDA in the v0.25 shape" do
-    with_shape(false) do
-      gov_pda, _ = vault.governance_pda
-
-      builder_cases(vault).each_key do |ix_name|
-        v = vault
-        returned = builder_cases(v).fetch(ix_name).call
-        pubkeys = captured_accounts(v, returned).map { |m| m[:pubkey] }
-        refute_includes pubkeys, gov_pda,
-                        "#{ix_name} passed the governance account to the v0.25 program, which would reject it"
-      end
-    end
+    assert_operator checked, :>=, 14,
+                    "fewer instructions carried a governance account than the IDL declares"
   end
 
   # ── THE NEW NAMED ACCOUNTS ────────────────────────────────────────────────
 
   test "close_contest pays reclaimed rent to the pinned treasury, not the caller" do
-    with_shape(true) do
-      v = vault
-      Solana::Vault.stub(:cached_vault_state, { treasury_authority: WALLET2 }) do
-        v.close_contest("slug-a", extra_signers: [spare_signer])
-      end
-      idx = idl_accounts(true, "close_contest").index { |a| a["name"] == "treasury" }
-      meta = captured_accounts(v)[idx]
-
-      assert_equal Solana::Keypair.decode_base58(WALLET2), meta[:pubkey]
-      assert meta[:is_writable], "the rent destination must be writable"
-      refute_equal Solana::Keypair.admin.public_key_bytes, meta[:pubkey],
-                   "the admin is the CALLER; paying rent there is the incentive v0.26 removed"
+    v = vault
+    Solana::Vault.stub(:cached_vault_state, { treasury_authority: WALLET2 }) do
+      v.close_contest("slug-a", extra_signers: [spare_signer])
     end
+    idx = idl_accounts("close_contest").index { |a| a["name"] == "treasury" }
+    meta = captured_accounts(v)[idx]
+
+    assert_equal Solana::Keypair.decode_base58(WALLET2), meta[:pubkey]
+    assert meta[:is_writable], "the rent destination must be writable"
+    refute_equal Solana::Keypair.admin.public_key_bytes, meta[:pubkey],
+                 "the admin is the CALLER; paying rent there is the incentive v0.26 removed"
   end
 
   test "mint_entry_token passes the current mint window and its index argument" do
-    with_shape(true) do
-      v = vault
-      frozen = Time.utc(2026, 9, 15, 12, 0, 0)
-      expected_index = frozen.to_i.div(Solana::Vault::DEFAULT_MINT_WINDOW_SECONDS)
+    v = vault
+    frozen = Time.utc(2026, 9, 15, 12, 0, 0)
+    expected_index = frozen.to_i.div(Solana::Vault::DEFAULT_MINT_WINDOW_SECONDS)
 
-      travel_to(frozen) do
-        v.stub(:cached_governance, { mint_window_seconds: Solana::Vault::DEFAULT_MINT_WINDOW_SECONDS, mint_window_cap: 250 }) do
-          v.mint_entry_token(wallet_address: WALLET, source: :operator, source_ref: "ref-window")
-        end
+    travel_to(frozen) do
+      v.stub(:cached_governance, { mint_window_seconds: Solana::Vault::DEFAULT_MINT_WINDOW_SECONDS, mint_window_cap: 250 }) do
+        v.mint_entry_token(wallet_address: WALLET, source: :operator, source_ref: "ref-window")
       end
-
-      idx = idl_accounts(true, "mint_entry_token").index { |a| a["name"] == "mint_window" }
-      expected_pda, _ = v.mint_window_pda(expected_index)
-      assert_equal expected_pda, captured_accounts(v)[idx][:pubkey]
-
-      # ...and the index must ALSO ride as the trailing i64 argument, because the
-      # handler pins the seed against its own clock and rejects a disagreement.
-      data = v.recorder.captured.last[:data]
-      assert_equal [expected_index].pack("q<"), data[-8, 8],
-                   "window_index must be the last 8 bytes of the instruction data"
     end
+
+    idx = idl_accounts("mint_entry_token").index { |a| a["name"] == "mint_window" }
+    expected_pda, _ = v.mint_window_pda(expected_index)
+    assert_equal expected_pda, captured_accounts(v)[idx][:pubkey]
+
+    # ...and the index must ALSO ride as the trailing i64 argument, because the
+    # handler pins the seed against its own clock and rejects a disagreement.
+    data = v.recorder.captured.last[:data]
+    assert_equal [expected_index].pack("q<"), data[-8, 8],
+                 "window_index must be the last 8 bytes of the instruction data"
   end
 
   test "grant_seeds names the invitee's own account for invites and omits it otherwise" do
-    with_shape(true) do
-      idx = idl_accounts(true, "grant_seeds").index { |a| a["name"] == "invitee_user_account" }
+    idx = idl_accounts("grant_seeds").index { |a| a["name"] == "invitee_user_account" }
 
-      invite = vault
-      invite.grant_seeds(wallet_address: WALLET, amount: 5, kind: :invite, invitee: WALLET2)
-      expected_pda, _ = invite.user_account_pda(WALLET2)
-      assert_equal expected_pda, captured_accounts(invite)[idx][:pubkey],
-                   "an :invite grant must bind the guard to a REAL invitee account"
+    invite = vault
+    invite.grant_seeds(wallet_address: WALLET, amount: 5, kind: :invite, invitee: WALLET2)
+    expected_pda, _ = invite.user_account_pda(WALLET2)
+    assert_equal expected_pda, captured_accounts(invite)[idx][:pubkey],
+                 "an :invite grant must bind the guard to a REAL invitee account"
 
-      # Every other kind must pass the ABSENT-optional encoding. Passing a real
-      # account there is refused by the program (InvalidSeedGrantInvitee), not
-      # ignored, so "omit it" has to mean the program id and nothing else.
-      plain = vault
-      plain.grant_seeds(wallet_address: WALLET, amount: 5, kind: :newsletter)
-      assert_equal plain.instance_variable_get(:@program_id), captured_accounts(plain)[idx][:pubkey],
-                   "Anchor encodes an absent optional account as the program id"
-    end
+    # Every other kind must pass the ABSENT-optional encoding. Passing a real
+    # account there is refused by the program (InvalidSeedGrantInvitee), not
+    # ignored, so "omit it" has to mean the program id and nothing else.
+    plain = vault
+    plain.grant_seeds(wallet_address: WALLET, amount: 5, kind: :newsletter)
+    assert_equal plain.instance_variable_get(:@program_id), captured_accounts(plain)[idx][:pubkey],
+                 "Anchor encodes an absent optional account as the program id"
   end
 
   # ── THE COSIGN GUARD'S SLOTS MOVE WITH THE SHAPE ──────────────────────────
@@ -355,34 +302,20 @@ class Solana::VaultAccountLayoutTest < ActiveSupport::TestCase
   # This is the one that is a security bug rather than a correctness bug. The
   # C1 blind-cosign guard reads a FIXED index to prove a Phantom-signed wire
   # binds the session's wallet to the entry PDA we derived. `governance` is
-  # inserted ahead of that slot, so an index left at its v0.25 value would send
+  # inserted ahead of that slot, so an index one short would send
   # the guard to look at `contest` — and report a pass.
-  test "the cosign guard's entry-PDA slot tracks the shape and matches the IDL" do
-    { false => V025_IDL, true => V026_IDL }.each do |governance, idl|
-      with_shape(governance) do
-        %w[enter_contest enter_contest_with_token].each do |ix_name|
-          accounts = idl.fetch("instructions").find { |i| i["name"] == ix_name }.fetch("accounts")
-          assert_equal accounts.index { |a| a["name"] == "contest_entry" },
-                       Solana::Vault.enter_contest_entry_pda_position,
-                       "#{ix_name}: entry-PDA slot disagrees with the #{governance ? 'v0.26' : 'v0.25'} IDL"
-        end
-
-        token_accounts = idl.fetch("instructions").find { |i| i["name"] == "enter_contest_with_token" }.fetch("accounts")
-        assert_equal token_accounts.index { |a| a["name"] == "entry_token" },
-                     Solana::Vault.enter_contest_with_token_token_pda_position,
-                     "entry-token slot disagrees with the #{governance ? 'v0.26' : 'v0.25'} IDL"
-      end
+  test "the cosign guard's entry-PDA slot matches the IDL" do
+    %w[enter_contest enter_contest_with_token].each do |ix_name|
+      accounts = V026_IDL.fetch("instructions").find { |i| i["name"] == ix_name }.fetch("accounts")
+      assert_equal accounts.index { |a| a["name"] == "contest_entry" },
+                   Solana::Vault.enter_contest_entry_pda_position,
+                   "#{ix_name}: entry-PDA slot disagrees with the IDL"
     end
-  end
 
-  # A control: the two positions must actually DIFFER between the shapes. Without
-  # this, a pair of accessors that ignored the switch and returned the v0.25
-  # numbers would satisfy the assertion above on the v0.25 pass and be caught
-  # only by the v0.26 pass — and if both IDLs ever agreed by accident, not at all.
-  test "the guard slots really do shift between the two shapes" do
-    old = with_shape(false) { Solana::Vault.enter_contest_entry_pda_position }
-    new = with_shape(true) { Solana::Vault.enter_contest_entry_pda_position }
-    assert_equal old + 1, new, "governance is inserted ahead of contest_entry, so the slot must move by exactly one"
+    token_accounts = V026_IDL.fetch("instructions").find { |i| i["name"] == "enter_contest_with_token" }.fetch("accounts")
+    assert_equal token_accounts.index { |a| a["name"] == "entry_token" },
+                 Solana::Vault.enter_contest_with_token_token_pda_position,
+                 "entry-token slot disagrees with the IDL"
   end
 
   # ── COMPLETENESS ──────────────────────────────────────────────────────────
@@ -417,7 +350,6 @@ class Solana::VaultAccountLayoutTest < ActiveSupport::TestCase
   test "the deleted admin username instructions are absent from the v0.26 IDL and uncalled" do
     v026_names = V026_IDL.fetch("instructions").map { |i| i["name"] }
     %w[admin_create_user_account admin_set_username].each do |gone|
-      assert_includes V025_IDL.fetch("instructions").map { |i| i["name"] }, gone
       refute_includes v026_names, gone
 
       ruby = Dir[Rails.root.join("{app,lib,bin}/**/*.rb")]

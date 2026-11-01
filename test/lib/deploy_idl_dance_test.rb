@@ -6,20 +6,11 @@ require "fileutils"
 # bin/deploy's EXPECTED_IDL_HASH dance, driven end to end against a FAKE Heroku
 # target (task make-deploy-governance-aware).
 #
-# THE BUG, MEASURED. `wire-rails-to-governance` taught Solana::Config to select
-# one of FOUR IDLs — two clusters x two turf-vault versions — by
-# SOLANA_VAULT_GOVERNANCE. bin/deploy kept selecting on SOLANA_NETWORK alone. Run
-# the pre-fix script against the post-ceremony steady state (governance on, pin =
-# the v0.26 hash) and it does this, measured 2026-09-15 by this very harness:
-#
-#   config:set EXPECTED_IDL_HASH=d1eea2a…,b9b5226…   (widen)
-#   push heroku-mainnet main
-#   config:set EXPECTED_IDL_HASH=b9b5226…            (tighten — THE v0.25 HASH)
-#
-# That last line drops d1eea2a… — the hash of the file the running app actually
-# reads — and a `config:set` restarts the dynos, so the app stops booting on the
-# spot. verify_governance_alignment! is deliberately outside BYPASS_IDL_CHECK
-# (the hatch covers hash SKEW, not a wrong SHAPE), so there is no hatch either.
+# THE BUG THIS EXISTS FOR. bin/deploy once selected its IDL apart from the app,
+# wrote `EXPECTED_IDL_HASH` to a hash the running app did not read, and a
+# `config:set` restarts the dynos, so the app stopped booting on the spot.
+# verify_governance_alignment! is deliberately outside BYPASS_IDL_CHECK (the hatch
+# covers hash SKEW, not a wrong SHAPE), so there is no hatch either.
 #
 # WHY A REAL RUN AND NOT A SOURCE READ. A structural assertion that bin/deploy
 # "mentions the switch" would have passed on plenty of wrong scripts. What has to
@@ -33,12 +24,10 @@ require "fileutils"
 class DeployIdlDanceTest < ActiveSupport::TestCase
   DEPLOY = Rails.root.join("bin", "deploy")
   SELECTION_RB = Rails.root.join("lib", "solana", "idl_selection.rb")
-  IDLS = %w[
-    turf_vault.idl.json turf_vault.v026.idl.json
-    turf_vault.mainnet.idl.json turf_vault.mainnet.v026.idl.json
-  ].freeze
+  IDLS = %w[turf_vault.v026.idl.json turf_vault.mainnet.v026.idl.json].freeze
 
-  V025 = Digest::SHA256.hexdigest(File.read(Rails.root.join("config", "turf_vault.mainnet.idl.json")))
+  # The retired v0.25 hash production still pins until Steffon tightens it.
+  V025 = "b9b522635894a42f5434f1faa1cd126d146f3042ae2c233acd1dd76a300f7152".freeze
   V026 = Digest::SHA256.hexdigest(File.read(Rails.root.join("config", "turf_vault.mainnet.v026.idl.json")))
   STALE = "0" * 64 # a pin left over from an earlier turf-vault revision
 
@@ -72,14 +61,18 @@ class DeployIdlDanceTest < ActiveSupport::TestCase
                  "the script must name the file the app boots against")
   end
 
-  # A pin of the live hash alone (the pre-fix tighten could leave one) is
-  # completed with the other shape's hash, and never loses the live one.
-  test "a live-only pin under governance gains the v0.25 hash and keeps v0.26 first" do
+  test "a pin of the live hash alone writes nothing" do
     result = deploy(governance: "on", pin: V026)
 
     assert_equal 0, result[:status], result[:stderr]
-    result[:config_sets].each { |set| assert_includes set.split(","), V026, "the running app's hash is never dropped" }
-    assert_equal [V026, V025], result[:config_sets].last.split(",")
+    assert_empty result[:config_sets]
+  end
+
+  test "an absent switch deploys the same file" do
+    result = deploy(governance: nil, pin: V026)
+
+    assert_equal 0, result[:status], result[:stderr]
+    assert_match(%r{config/turf_vault\.mainnet\.v026\.idl\.json}, result[:stdout])
   end
 
   # ── THE TIGHTEN WRITES THE LIVE HASH ──────────────────────────────────────
@@ -94,23 +87,7 @@ class DeployIdlDanceTest < ActiveSupport::TestCase
     assert_includes widen.split(","), STALE, "the outgoing slug must stay bootable across the release"
     assert_includes widen.split(","), V026
 
-    assert_includes tighten.split(","), V026, "the tighten must keep the hash the running app reads"
-    refute_includes tighten.split(","), STALE, "and must drop the stale one — that is what a tighten is for"
-    assert_equal V026, tighten.split(",").first, "the live shape leads the set"
-  end
-
-  # THE ROLLBACK THE WHOLE DESIGN WAS CHOSEN FOR. `heroku config:unset
-  # SOLANA_VAULT_GOVERNANCE` re-resolves IDL_PATH to the other shape's file and
-  # restarts the dynos — no deploy, no second Squads ceremony. It boots only
-  # while that file's hash is still allow-listed, so a tighten onto ONE hash
-  # spends the reversibility silently.
-  test "the tighten keeps the other switch position bootable" do
-    result = deploy(governance: "on", pin: STALE)
-    tighten = result[:config_sets].last.split(",")
-
-    assert_includes tighten, V025,
-                    "unsetting SOLANA_VAULT_GOVERNANCE must still boot: the v0.25 IDL's hash stays allow-listed"
-    assert_equal 2, tighten.length, "exactly the two IDLs this slug ships for this cluster"
+    assert_equal [V026], tighten.split(","), "the tighten is the hash the running app reads, and only it"
   end
 
   # The same property in the direction that is live TODAY: the switch is unset,
@@ -121,6 +98,15 @@ class DeployIdlDanceTest < ActiveSupport::TestCase
   # no bump, wrote nothing, and the v0.26 hash never reached the allow-list —
   # the forward flip would then have refused to boot. A deploy must add it.
   # ── REFUSALS HAPPEN BEFORE ANYTHING IS WRITTEN ────────────────────────────
+
+  test "a target set to the retired shape stops the deploy before anything is written" do
+    result = deploy(governance: "off", pin: V026)
+
+    refute_equal 0, result[:status]
+    assert_empty result[:config_sets]
+    refute_includes result[:log], "push heroku-mainnet main"
+    assert_match(/code revert/, result[:stderr])
+  end
 
   test "a garbage switch stops the deploy before the widen and before the push" do
     result = deploy(governance: "yeah", pin: V026)

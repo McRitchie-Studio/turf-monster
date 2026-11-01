@@ -20,10 +20,10 @@ class Solana::SignerCeremonyTest < ActiveSupport::TestCase
 
   FUNDED = { balance_sol: 0.4, funded: true }.freeze
 
-  def ceremony(chain_set: [XAN, ALEX, MASON], governance: true, config: true, server: XAN,
+  def ceremony(chain_set: [XAN, ALEX, MASON], governance: true, server: XAN,
                held: [MASON], fee_payer: FUNDED, steps: self.class.minted_steps)
     Solana::SignerCeremony.new(network: "mainnet-beta", chain_set: chain_set, chain_governance: governance,
-                               config_governance: config, server: server, server_held: held,
+                               server: server, server_held: held,
                                fee_payer: fee_payer, steps: steps)
   end
 
@@ -48,7 +48,7 @@ class Solana::SignerCeremonyTest < ActiveSupport::TestCase
 
   test "each hard precondition blocks on its own" do
     assert_equal "blocked", step(ceremony(server: NEW), "add")[:status], "wrong server identity"
-    assert_equal "blocked", step(ceremony(config: false), "add")[:status], "switch disagrees"
+    assert_equal "blocked", step(ceremony(governance: false), "add")[:status], "no GovernanceConfig"
     assert_equal "blocked", step(ceremony(fee_payer: { funded: false, balance_sol: 0.0 }), "add")[:status]
     assert_equal "blocked", step(ceremony(chain_set: [XAN, ALEX, GOV]), "add")[:status], "wrong start set"
   end
@@ -97,7 +97,7 @@ class Solana::SignerCeremonyTest < ActiveSupport::TestCase
     refute_includes filed, "UNMINTED", "3LTL is minted and filed; no placeholder remains"
     refute_includes filed, "4bKNSqkrKeggSyrds16Ak7rcB4ibvGJ4ZLsKjvQgC3Vk", "4bKN was exposed and is in no VaultState target"
     c = Solana::SignerCeremony.new(network: "mainnet-beta", chain_set: ROTATED.reverse, chain_governance: true,
-                                   config_governance: true, server: NEW, server_held: [], fee_payer: FUNDED)
+                                   server: NEW, server_held: [], fee_payer: FUNDED)
     assert_equal "Governance key v2", c.name_for(GOV)
     assert_equal "done", step(c, "evict")[:status], "the EVICT's end set is the chain read 2026-10-14"
     assert_equal "done", step(c, "flip")[:status], "production's server key is 4S39"

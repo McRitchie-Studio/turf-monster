@@ -81,12 +81,10 @@ class QaRehearsalUnattendedSettleTest < ActiveSupport::TestCase
 
   def settle(vault:, signers:)
     verified = @verified
-    Solana::Config.stub(:governance?, true) do
-      Solana::Config.stub(:client, @broadcasts) do
-        stub_const_signers(signers) do
-          Solana::TxVerifier.stub(:verify!, ->(**kw) { verified << kw; true }) do
-            Solana::Vault.stub(:new, vault) { @driver.send(:cosign_with_agent, { "ptx_slug" => @ptx.slug }) }
-          end
+    Solana::Config.stub(:client, @broadcasts) do
+      stub_const_signers(signers) do
+        Solana::TxVerifier.stub(:verify!, ->(**kw) { verified << kw; true }) do
+          Solana::Vault.stub(:new, vault) { @driver.send(:cosign_with_agent, { "ptx_slug" => @ptx.slug }) }
         end
       end
     end
@@ -159,14 +157,12 @@ class QaRehearsalUnattendedSettleTest < ActiveSupport::TestCase
 
   test "a failed verification leaves the row submitted, unconfirmed, and the contest unsettled" do
     vault = chain_vault(seated: [@admin, @mack.to_base58])
-    Solana::Config.stub(:governance?, true) do
-      Solana::Config.stub(:client, @broadcasts) do
-        stub_const_signers([@admin, @mack.to_base58]) do
-          Solana::TxVerifier.stub(:verify!, ->(**) { raise Solana::TxVerifier::VerificationError, "no such tx" }) do
-            Solana::Vault.stub(:new, vault) do
-              assert_raises(Solana::TxVerifier::VerificationError) do
-                @driver.send(:cosign_with_agent, { "ptx_slug" => @ptx.slug })
-              end
+    Solana::Config.stub(:client, @broadcasts) do
+      stub_const_signers([@admin, @mack.to_base58]) do
+        Solana::TxVerifier.stub(:verify!, ->(**) { raise Solana::TxVerifier::VerificationError, "no such tx" }) do
+          Solana::Vault.stub(:new, vault) do
+            assert_raises(Solana::TxVerifier::VerificationError) do
+              @driver.send(:cosign_with_agent, { "ptx_slug" => @ptx.slug })
             end
           end
         end

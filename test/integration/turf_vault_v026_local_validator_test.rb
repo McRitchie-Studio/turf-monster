@@ -42,7 +42,6 @@ class TurfVaultV026LocalValidatorTest < ActiveSupport::TestCase
 
   setup do
     skip "local v0.26 validator proof — run bin/v026-local-validator-proof" unless self.class.enabled?
-    assert Solana::Config.governance?, "the proof runs the v0.26 shape (SOLANA_VAULT_GOVERNANCE=on)"
     assert_match(%r{\Ahttp://(127\.0\.0\.1|localhost):}, Solana::Config::RPC_URL, "never a real cluster")
 
     @server = Solana::Keypair.admin

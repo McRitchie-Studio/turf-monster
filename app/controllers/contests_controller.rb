@@ -1804,21 +1804,14 @@ class ContestsController < ApplicationController
   # the Contest PDA is in a terminal state (Settled or Cancelled — error 6005
   # otherwise), so we gate on the same.
   #
-  # v0.25: one vault signer, so the server signs and broadcasts itself.
-  # v0.26: CLOSE_CONTEST needs 2, so the server signs its half and queues the
+  # CLOSE_CONTEST needs 2, so the server signs its half and queues the
   # rest for a Phantom cosign in the Treasury, as cancel_onchain does.
   def close_onchain
     rescue_and_log(target: @contest) do
       raise "Contest must be settled or cancelled before closing on-chain" unless @contest.settled? || @contest.onchain_cancelled?
       raise "Contest is already closed on-chain" if @contest.onchain_closed?
 
-      if Solana::Config.governance?
-        queue_close_cosign!
-      else
-        result = Solana::Vault.new.close_contest(@contest.slug)
-        @contest.update!(onchain_closed: true)
-        redirect_to @contest, notice: "On-chain rent reclaimed (close_contest: #{result[:signature]})."
-      end
+      queue_close_cosign!
     end
   rescue StandardError => e
     redirect_to @contest || contests_path, alert: e.message

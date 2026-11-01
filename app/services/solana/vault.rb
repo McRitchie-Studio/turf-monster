@@ -153,9 +153,7 @@ module Solana
     # +8 for the Anchor discriminator. See the layout note on `read_vault_state`.
     SIGNERS_EXT_OFFSET = 8 + 1443
 
-    # turf-vault `state.rs::MAX_SIGNERS`. Five since v0.26; the DEPLOYED v0.25
-    # binary takes three, which is why nothing here may assume this number
-    # without first establishing which program is on chain.
+    # turf-vault `state.rs::MAX_SIGNERS`. Five since v0.26.
     MAX_SIGNERS = 5
 
     # Quest seed-grant kinds — mirror turf-vault `seed_grant_kind` (grant_seeds).
@@ -253,7 +251,7 @@ module Solana
       Transaction.find_pda([b("vault")], @program_id)
     end
 
-    # ── turf-vault v0.26 governance (Config.governance? gates every use) ────
+    # ── turf-vault v0.26 governance ──────────────────────────────────
 
     # GovernanceConfig PDA — seeds [b"governance"]. Holds the per-action
     # signature thresholds AND the entry-token mint-window policy, both as
@@ -296,16 +294,11 @@ module Solana
       Transaction.find_pda([b("username"), username_name_key(username)], @program_id)
     end
 
-    # The governance account meta every vault-authorized instruction carries in
-    # v0.26, and carries NOWHERE in v0.25.
+    # The governance account meta every vault-authorized instruction carries.
     #
     # Splatted into each builder's account array at the exact index the Anchor
-    # struct declares (always immediately after `vault_state`), so on the v0.25
-    # branch it contributes nothing and the array is byte-identical to what
-    # shipped. That is what lets one slug speak both shapes: the switch is read
-    # once, here, instead of being duplicated across seventeen builders.
+    # struct declares (always immediately after `vault_state`).
     def governance_metas
-      return [] unless Config.governance?
       pda, _ = governance_pda
       [{ pubkey: pda, is_signer: false, is_writable: false }]
     end
@@ -338,8 +331,6 @@ module Solana
     # vault state, and a stale one fails closed rather than paying the wrong
     # account.
     def treasury_metas
-      return [] unless Config.governance?
-
       authority = begin
         self.class.cached_vault_state&.dig(:treasury_authority)
       rescue StandardError
@@ -359,10 +350,7 @@ module Solana
     # takes exactly `threshold - named.count` of them and requires each to have
     # signed, so the split is deterministic on both sides of the wire.
     #
-    # Returns [] on the v0.25 branch: the old program has no notion of these and
-    # would read them as trailing junk.
     def extra_cosigner_metas(pubkeys)
-      return [] unless Config.governance?
       Array(pubkeys).compact.map do |key|
         { pubkey: key.is_a?(String) ? Keypair.decode_base58(key) : key,
           is_signer: true, is_writable: false }
@@ -419,8 +407,6 @@ module Solana
     # `required` defaults to the chain's own threshold (#required_signatures),
     # so a retune reaches this path without a deploy.
     def unattended_extra_signer_metas(action, signers:, named: nil, required: nil)
-      return [] unless Config.governance?
-
       required ||= required_signatures(action)
 
       named_keys = Array(named || Keypair.admin.public_key_bytes).compact
@@ -1037,10 +1023,8 @@ module Solana
     # Signatures `action` needs on this boot. v0.26 reads the stored
     # GovernanceConfig table (cached one minute), so a `set_action_threshold`
     # retune reaches the build; an unreadable or absent account falls back to
-    # the shipped defaults, which fail closed if wrong. v0.25 makes no read.
+    # the shipped defaults, which fail closed if wrong.
     def required_signatures(action)
-      return Governance.required_signatures(action) unless Config.governance?
-
       Governance.required_signatures(action, thresholds: cached_governance&.dig(:thresholds))
     end
 
@@ -1075,7 +1059,7 @@ module Solana
     # The action a server-signed time change is authorized under. v0.25 has no
     # action ids and makes no read.
     def governed_time_action(instruction, contest_slug)
-      Config.governance? ? contest_time_action(instruction, contest_slug) : instruction
+      contest_time_action(instruction, contest_slug)
     end
 
     # The cap window a given moment falls in — `unix_timestamp.div_euclid(
@@ -1143,10 +1127,6 @@ module Solana
 
     # The current window's budget: `{ window_index:, minted:, cap:, remaining: }`.
     #
-    # nil has ONE meaning — "this platform has no mint cap to enforce" — and it
-    # is returned only in the v0.25 shape, where `GovernanceConfig` does not
-    # exist and neither does the cap. Callers treat nil as unlimited.
-    #
     # An unreadable COUNT is a different thing and is reported as
     # `minted: nil` / `remaining: nil`, because it must not read as either "no
     # cap" or "cap hit".
@@ -1155,8 +1135,6 @@ module Solana
     # a mint and the guard in front of it cannot land in different windows
     # across a boundary.
     def mint_window_usage(at = Time.current, window_index: nil)
-      return nil unless Config.governance?
-
       index = window_index || mint_window_index(at)
       cap = mint_window_cap
       minted = begin
@@ -1212,7 +1190,6 @@ module Solana
     # leaves them for a paying customer. See Tokens::LevelUpGrant.
     def assert_mint_window_headroom!(window_index, reserve: 0, label: "mint_entry_token")
       usage = mint_window_usage(window_index: window_index)
-      return if usage.nil?
 
       minted = usage[:minted]
       return if minted.nil?
@@ -1302,21 +1279,8 @@ module Solana
     # vault still mints entry tokens, grants seeds and creates contests — the
     # value-creating paths a key thief would actually use.
     #
-    # ── TWO SHAPES, AND THE CHAIN PICKS ───────────────────────────────────
-    #
-    #   v0.25 (DEPLOYED on devnet and mainnet today): `new_signers: [Pubkey; 3]`,
-    #     exactly two signatures, no governance account, and a zeroed slot is
-    #     refused outright — so a REDUCED set is not expressible at all.
-    #   v0.26 (turf-vault `accepted`): `new_signers: [Pubkey; 5]`, left-packed
-    #     with `Pubkey::default()` for empty trailing slots, three signatures,
-    #     and the governance account in the list.
-    #
-    # The arg width therefore rides the SAME switch `governance_metas` rides,
-    # so the account list and the argument can never describe different
-    # programs. Callers are expected to have proved the switch agrees with the
-    # chain first (Admin::AuthoritiesController#vault_shape!) — a v0.26-shaped
-    # argument sent to the live v0.25 binary deserializes 160 bytes where 96
-    # are expected and fails, which is loud but wastes a ceremony.
+    # `new_signers: [Pubkey; 5]`, left-packed with `Pubkey::default()` for empty
+    # trailing slots, three signatures, and the governance account in the list.
     #
     # ── THE CONSOLE NONCE (`durable_nonce:`), SERVER-LED BUILDS ONLY ──────
     #
@@ -1400,7 +1364,7 @@ module Solana
       extras         = extra_cosigner_metas(extra_cosigners)
 
       slots = Array(new_signers).map { |key| key.to_s.strip }.reject(&:blank?)
-      width = Config.governance? ? MAX_SIGNERS : 3
+      width = MAX_SIGNERS
       if slots.length > width
         raise ArgumentError,
               "update_signers takes #{width} slots on this build and #{slots.length} were given — " \
@@ -1470,7 +1434,7 @@ module Solana
       }
     end
 
-    # --- Currency registry (2 signatures on v0.25, 3 from v0.26) ---
+    # --- Currency registry (3 signatures) ---
 
     # Build a partially-signed register_currency TX. Admin signs (pays
     # ATA rent), cosigner slot left for Phantom. `kind` is informational
@@ -1503,8 +1467,8 @@ module Solana
       { serialized_tx: serialized, op_rev_ata: Keypair.encode_base58(op_rev) }
     end
 
-    # Build a partially-signed deactivate_currency TX. 2 signatures on v0.25,
-    # 3 from v0.26 (DEACTIVATE_CURRENCY).
+    # Build a partially-signed deactivate_currency TX. 3 signatures
+    # (DEACTIVATE_CURRENCY).
     def build_deactivate_currency(cosigner_pubkey:, currency_idx:, extra_cosigners: [])
       cosigner_bytes = Keypair.decode_base58(cosigner_pubkey)
       vault_pda, _   = vault_state_pda
@@ -1579,15 +1543,9 @@ module Solana
       data = Transaction.anchor_discriminator("create_user_account") +
              Borsh.encode_pubkey(wallet_bytes) +
              username_bytes32(username) +
-             (Config.governance? ? username_name_key(username) : "".b)
+             username_name_key(username)
 
-      username_record_metas =
-        if Config.governance?
-          record_pda, _ = username_record_pda(username)
-          [{ pubkey: record_pda, is_signer: false, is_writable: true }]
-        else
-          []
-        end
+      record_pda, _ = username_record_pda(username)
 
       tx = build_tx(admin)
       tx.add_instruction(
@@ -1595,7 +1553,7 @@ module Solana
         accounts: [
           { pubkey: admin.public_key_bytes,         is_signer: true,  is_writable: true  },
           { pubkey: user_pda,                       is_signer: false, is_writable: true  },
-          *username_record_metas,
+          { pubkey: record_pda,                     is_signer: false, is_writable: true  },
           { pubkey: Transaction::SYSTEM_PROGRAM_ID, is_signer: false, is_writable: false }
         ],
         data: data
@@ -1657,10 +1615,8 @@ module Solana
       { pubkey: pda, is_signer: false, is_writable: true }
     end
 
-    # The accounts + trailing args set_username gained in v0.26. Empty on the
-    # v0.25 branch, so both builders below keep one shape each.
+    # The accounts + trailing args set_username gained in v0.26.
     def set_username_registry_metas(wallet_address, username)
-      return [] unless Config.governance?
       record_pda, _ = username_record_pda(username)
       [
         { pubkey: record_pda, is_signer: false, is_writable: true },
@@ -1677,21 +1633,20 @@ module Solana
       admin = Keypair.admin
       user_pda, _ = user_account_pda(wallet_address)
       wallet_bytes = Keypair.decode_base58(wallet_address)
-      wallet_writable = Config.governance?
 
       data = Transaction.anchor_discriminator("set_username") +
              username_bytes32(username) +
-             (Config.governance? ? username_name_key(username) : "".b)
+             username_name_key(username)
 
       tx = build_tx(admin)
       tx.add_signer(user_keypair)
       tx.add_instruction(
         program_id: @program_id,
         accounts: [
-          { pubkey: wallet_bytes, is_signer: true,  is_writable: wallet_writable },
+          { pubkey: wallet_bytes, is_signer: true,  is_writable: true  },
           { pubkey: user_pda,     is_signer: false, is_writable: true  },
           *set_username_registry_metas(wallet_address, username),
-          *(Config.governance? ? [{ pubkey: Transaction::SYSTEM_PROGRAM_ID, is_signer: false, is_writable: false }] : [])
+          { pubkey: Transaction::SYSTEM_PROGRAM_ID, is_signer: false, is_writable: false }
         ],
         data: data
       )
@@ -1702,18 +1657,17 @@ module Solana
     def build_set_username(wallet_address, username)
       user_pda, _ = user_account_pda(wallet_address)
       wallet_bytes = Keypair.decode_base58(wallet_address)
-      wallet_writable = Config.governance?
 
       data = Transaction.anchor_discriminator("set_username") +
              username_bytes32(username) +
-             (Config.governance? ? username_name_key(username) : "".b)
+             username_name_key(username)
 
       serialized = build_partial_signed(
         accounts: [
-          { pubkey: wallet_bytes, is_signer: true,  is_writable: wallet_writable },
+          { pubkey: wallet_bytes, is_signer: true,  is_writable: true  },
           { pubkey: user_pda,     is_signer: false, is_writable: true  },
           *set_username_registry_metas(wallet_address, username),
-          *(Config.governance? ? [{ pubkey: Transaction::SYSTEM_PROGRAM_ID, is_signer: false, is_writable: false }] : [])
+          { pubkey: Transaction::SYSTEM_PROGRAM_ID, is_signer: false, is_writable: false }
         ],
         data: data,
         additional_signers: [wallet_bytes]
@@ -1981,8 +1935,8 @@ module Solana
 
     # --- Contest lifecycle ---
 
-    # Set (or clear) a contest's derived lock timestamp. ONE signature on
-    # v0.25; SET_CONTEST_LOCK_TIME (2) from v0.26, escalating to 3 to RE-OPEN a
+    # Set (or clear) a contest's derived lock timestamp.
+    # SET_CONTEST_LOCK_TIME (2), escalating to 3 to RE-OPEN a
     # lock that has already passed — which is why the unattended QA lane loses
     # this path at the upgrade (docs/SOLANA.md, "THE 3-OF-3 GAP").
     # (1-of-3, admin alone
@@ -2079,9 +2033,8 @@ module Solana
     # The bare set_contest_{lock,conclusion}_time instruction, as
     # { accounts:, data: } — ONE definition shared by the builder that hands
     # it to Phantom and the expectation that judges what Phantom hands back, so
-    # the two cannot drift. `cosigner: None` (the program id in the optional
-    # slot) is the v0.25 1-of-3 first-set shape (v0.19 #5); on v0.26 the slot
-    # carries the server key (#operator_contest_time_cosigner_meta).
+    # the two cannot drift. The optional `cosigner` slot carries the server
+    # key (#operator_contest_time_cosigner_meta).
     CONTEST_TIME_INSTRUCTIONS = %w[set_contest_lock_time set_contest_conclusion_time].freeze
 
     def contest_time_instruction(instruction, contest_slug, timestamp, admin_pubkey:)
@@ -2105,9 +2058,7 @@ module Solana
     # The named `cosigner` slot of an OPERATOR (Phantom-first) contest time
     # change.
     #
-    # v0.25: `None` (the program id), as since v0.19 — one signature.
-    #
-    # v0.26: SET_CONTEST_LOCK_TIME and SET_CONTEST_CONCLUSION_TIME are 2, and
+    # SET_CONTEST_LOCK_TIME and SET_CONTEST_CONCLUSION_TIME are 2, and
     # `authorize` counts the named signers first. With `cosigner: None` and no
     # remaining accounts it wanted one more and found none: 6046
     # InsufficientSigners, the failure this replaces. The second signature is
@@ -2124,8 +2075,6 @@ module Solana
     # server, so Rails refuses before Phantom opens instead of letting the
     # chain answer 6046.
     def operator_contest_time_cosigner_meta(instruction, contest_slug, admin_bytes)
-      return absent_optional_meta unless Config.governance?
-
       action = contest_time_action(instruction, contest_slug)
       required = required_signatures(action)
       return absent_optional_meta if required <= 1
@@ -2177,8 +2126,8 @@ module Solana
       end
     end
 
-    # Set (or clear) a contest's conclusion timestamp, server-signed. ONE
-    # signature on v0.25; SET_CONTEST_CONCLUSION_TIME (2) from v0.26, escalating
+    # Set (or clear) a contest's conclusion timestamp, server-signed.
+    # SET_CONTEST_CONCLUSION_TIME (2), escalating
     # to 3 to AMEND one already set.
     # Parallel to set_contest_lock_time. Once chain time passes it the contest
     # has concluded and the lock time can no longer change. 0 clears it.
@@ -2230,7 +2179,7 @@ module Solana
     end
     private :build_contest_time
 
-    # Build cancel_contest TX (2 on v0.25, CANCEL_CONTEST 3 from v0.26).
+    # Build cancel_contest TX (CANCEL_CONTEST 3).
     # Refunds prize_pool → creator ATA.
     def build_cancel_contest(contest_slug, creator_pubkey:, cosigner_pubkey:, extra_cosigners: [])
       cosigner_bytes = Keypair.decode_base58(cosigner_pubkey)
@@ -2587,7 +2536,7 @@ module Solana
 
     # --- Settle ---
 
-    # Settle a contest (2 on v0.25, SETTLE_CONTEST 3 from v0.26 — the third
+    # Settle a contest (SETTLE_CONTEST 3 — the third
     # signature rides in remaining_accounts, AHEAD of the winner triples).
     # v0.16 changes:
     #   - remaining_accounts pattern is now TRIPLES: [user_account_pda,
@@ -2731,8 +2680,7 @@ module Solana
 
     # --- Close ---
 
-    # close_contest: ONE vault signer on v0.25; CLOSE_CONTEST (2) from v0.26,
-    # which also redirects the reclaimed rent to the pinned treasury rather than
+    # close_contest: CLOSE_CONTEST (2), which also redirects the reclaimed rent to the pinned treasury rather than
     # to whichever signer called it. Sweeps any prize-pool dust
     # to the op_rev USDC ATA, then closes both the prize_pool ATA and the
     # Contest PDA. Reclaims rent to admin.
@@ -2822,7 +2770,7 @@ module Solana
       Keypair.encode_base58(ata_bytes)
     end
 
-    # --- Sweep operator revenue (2 on v0.25, SWEEP_OPERATOR_REVENUE 3 from v0.26) ---
+    # --- Sweep operator revenue (SWEEP_OPERATOR_REVENUE 3) ---
 
     # Build a partially-signed sweep_operator_revenue TX. `amount` of 0
     # sweeps the whole op_rev ATA. `treasury_ata_pubkey` must be a USDC ATA
@@ -2996,7 +2944,7 @@ module Solana
       # computed seed — and the handler pins it to the chain clock
       # (`MintWindowMismatch`), so a caller cannot name an empty window and mint
       # at the low threshold forever.
-      window_index = Config.governance? ? mint_window_index : nil
+      window_index = mint_window_index
 
       # THE CAP IS READ AND COMPARED, not merely decoded. Until this guard the
       # window count was fetched by `read_governance`, handed back through
@@ -3004,22 +2952,15 @@ module Solana
       # crossed the cap was broadcast at one signature and came back 6046. The
       # same index feeds the guard and the PDA below, so the two cannot disagree
       # across a window boundary.
-      assert_mint_window_headroom!(window_index, reserve: reserve) if window_index
+      assert_mint_window_headroom!(window_index, reserve: reserve)
 
       data = Transaction.anchor_discriminator("mint_entry_token") +
              [source_u8].pack("C") +   # source: u8
              ref_buffer +              # source_ref: [u8;64] (fixed array — raw bytes)
              ref_hash +                # source_ref_hash: [u8;32] (fixed array — raw bytes)
-             (window_index ? Borsh.encode_i64(window_index) : "".b)
+             Borsh.encode_i64(window_index)
 
-      mint_window_metas =
-        if Config.governance?
-          window_pda, _ = mint_window_pda(window_index)
-          [{ pubkey: window_pda, is_signer: false, is_writable: true }]
-        else
-          []
-        end
-
+      window_pda, _ = mint_window_pda(window_index)
       vault_pda, _ = vault_state_pda
 
       tx = build_tx(admin)
@@ -3029,7 +2970,7 @@ module Solana
           { pubkey: admin.public_key_bytes,         is_signer: true,  is_writable: true  }, # admin
           { pubkey: vault_pda,                      is_signer: false, is_writable: false }, # vault_state
           *governance_metas,
-          *mint_window_metas,
+          { pubkey: window_pda,                     is_signer: false, is_writable: true  },
           { pubkey: wallet_bytes,                   is_signer: false, is_writable: false }, # user_wallet
           { pubkey: pda,                            is_signer: false, is_writable: true  }, # entry_token (init)
           { pubkey: Transaction::SYSTEM_PROGRAM_ID, is_signer: false, is_writable: false }
@@ -3043,8 +2984,7 @@ module Solana
     end
 
     # Void ONE unspent entry token — the operator claw-back counterpart to
-    # #mint_entry_token. One vault signer on v0.25; BURN_ENTRY_TOKEN (3) from
-    # v0.26 — it destroys user property and the holder does NOT sign.
+    # #mint_entry_token. BURN_ENTRY_TOKEN (3) — it destroys user property and the holder does NOT sign.
     #
     # Identified by `source_ref`, not by PDA, because the ref is what the caller
     # actually has: #list_entry_tokens decodes it off each account, and the ref is
@@ -3161,9 +3101,7 @@ module Solana
       # (`InvalidSeedGrantInvitee`); the program additionally demands
       # `entries > 0`, so manufacturing a fake invitee now costs a real entry.
       invitee_metas =
-        if !Config.governance?
-          []
-        elsif kind_u8 == SEED_GRANT_KIND[:invite]
+        if kind_u8 == SEED_GRANT_KIND[:invite]
           invitee_pda, _ = user_account_pda(invitee)
           [{ pubkey: invitee_pda, is_signer: false, is_writable: false }]
         else
@@ -3583,33 +3521,30 @@ module Solana
     # what every builder in this file emits.
     #
     # v0.26 inserts `governance` at index 4, immediately after `vault_state`, in
-    # BOTH entry instructions. Every slot at or after it shifts by one. They were
-    # constants; they are now METHODS, because the correct value is a fact about
-    # the shape this boot builds and a constant cannot follow a runtime switch.
+    # BOTH entry instructions.
     #
-    #   account order          v0.25              v0.26
-    #   0 payer                0                  0
-    #   1 user                 1                  1
-    #   2 user_account         2                  2
-    #   3 vault_state          3                  3
-    #   -                      -                  4 governance
-    #   contest                4                  5
-    #   contest_entry          5                  6   <- ENTRY_PDA
-    #   entry_token            6                  7   <- TOKEN_PDA (with_token only)
+    #   account order
+    #   0 payer
+    #   1 user
+    #   2 user_account
+    #   3 vault_state
+    #   4 governance
+    #   5 contest
+    #   6 contest_entry   <- ENTRY_PDA
+    #   7 entry_token     <- TOKEN_PDA (with_token only)
     #
-    # contest_entry sits at the same index in BOTH entry instructions on either
-    # shape, which is why one accessor still serves both. `test/services/solana/
+    # contest_entry sits at the same index in BOTH entry instructions, which is why one accessor still serves both. `test/services/solana/
     # vault_account_layout_test.rb` pins every number above against the committed
     # IDLs, so a future account-order change fails loudly instead of moving the
     # guard's eye.
     GOVERNANCE_ACCOUNT_SHIFT = 1
 
     def self.enter_contest_entry_pda_position
-      Config.governance? ? 5 + GOVERNANCE_ACCOUNT_SHIFT : 5
+      5 + GOVERNANCE_ACCOUNT_SHIFT
     end
 
     def self.enter_contest_with_token_token_pda_position
-      Config.governance? ? 6 + GOVERNANCE_ACCOUNT_SHIFT : 6
+      6 + GOVERNANCE_ACCOUNT_SHIFT
     end
 
     def enter_contest_entry_pda_position
@@ -3755,7 +3690,7 @@ module Solana
     #
     # WHY THE ENTRY DOES NOT USE THIS. A rebuild compares against what the server
     # believes NOW, so any input that drifts between prepare and confirm —
-    # `Config.governance?` flipping, a season rolling over — refuses a wire the
+    # a season rolling over — refuses a wire the
     # player signed correctly. The entry is the player-money path and re-prepares
     # seconds before signing, so it judges against the exact bytes it handed out
     # (#cosign_expectation) and lets the post-broadcast on-chain verification

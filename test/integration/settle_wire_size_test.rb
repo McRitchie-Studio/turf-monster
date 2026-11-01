@@ -9,16 +9,14 @@ require "test_helper"
 # (Solana::Vault#build_settle_contest over solana-studio's Transaction), decodes
 # it with Solana::WireMessage, and measures it: for every format, with a full
 # field graded through Contest::PayoutSplit under each tie pattern, in both the
-# turf-vault v0.25 shape and the v0.26 governance shape (the governance account
-# plus a third signer, which is what the cosign rebuild adds).
+# turf-vault v0.26 shape (the governance account plus a third signer, which is
+# what the cosign rebuild adds).
 #
 # Only the RPC is stood in for, and only for the recent blockhash, a fixed 32
 # bytes on every wire.
 class SettleWireSizeTest < ActiveSupport::TestCase
   COSIGNER = "7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr".freeze
   THIRD_SIGNER = "GDDMwNyyx8uB6zrqwBFHjLLG3TBYk2F8Az4yrQC5RzMp".freeze
-
-  SHAPES = { "v0.25" => false, "v0.26" => true }.freeze
 
   # Finishing scores for a full field of `size` entries, best first.
   TIE_PATTERNS = {
@@ -28,6 +26,7 @@ class SettleWireSizeTest < ActiveSupport::TestCase
     "tie across the last paid rank" => ->(size, paid) { [1000] + Array.new(size - 1, 500) },
     "pairs tied all the way down" => ->(size, _paid) { (0...size).map { |i| 1000 - (i / 2) } }
   }.freeze
+
 
   def fake_client
     client = Object.new
@@ -49,32 +48,28 @@ class SettleWireSizeTest < ActiveSupport::TestCase
     end
   end
 
-  def wire_bytes(settlements, governance:)
-    Solana::Config.stub(:governance?, governance) do
-      result = Solana::Vault.new(client: fake_client).build_settle_contest(
-        "settle-size-contest", settlements,
-        cosigner_pubkey: COSIGNER,
-        extra_cosigners: governance ? [THIRD_SIGNER] : []
-      )
-      Solana::WireMessage.parse_base64(result[:serialized_tx]).to_bytes.bytesize
-    end
+  def wire_bytes(settlements)
+    result = Solana::Vault.new(client: fake_client).build_settle_contest(
+      "settle-size-contest", settlements,
+      cosigner_pubkey: COSIGNER,
+      extra_cosigners: [THIRD_SIGNER]
+    )
+    Solana::WireMessage.parse_base64(result[:serialized_tx]).to_bytes.bytesize
   end
 
   Contest::FORMATS.each_key do |format|
-    SHAPES.each do |shape, governance|
-      test "#{format} settles in one transaction on #{shape} under every tie pattern" do
-        config = Contest::FORMATS.fetch(format)
-        payouts = Contest.new(contest_type: format).payouts
-        paid = payouts.keys.max
+    test "#{format} settles in one transaction under every tie pattern" do
+      config = Contest::FORMATS.fetch(format)
+      payouts = Contest.new(contest_type: format).payouts
+      paid = payouts.keys.max
 
-        TIE_PATTERNS.each do |pattern, scores_for|
-          settlements = settlements_for(scores_for.call(config[:max_entries], paid), payouts)
-          assert_operator settlements.size, :<=, Contest::MAX_PAID_RANKS, "#{format} / #{pattern}"
+      TIE_PATTERNS.each do |pattern, scores_for|
+        settlements = settlements_for(scores_for.call(config[:max_entries], paid), payouts)
+        assert_operator settlements.size, :<=, Contest::MAX_PAID_RANKS, "#{format} / #{pattern}"
 
-          size = wire_bytes(settlements, governance: governance)
-          assert_operator size, :<=, Solana::Vault::PACKET_DATA_SIZE,
-                          "#{format} / #{pattern} on #{shape}: #{settlements.size} paid entries serialize to #{size} bytes"
-        end
+        size = wire_bytes(settlements)
+        assert_operator size, :<=, Solana::Vault::PACKET_DATA_SIZE,
+                        "#{format} / #{pattern}: #{settlements.size} paid entries serialize to #{size} bytes"
       end
     end
   end
@@ -90,7 +85,7 @@ class SettleWireSizeTest < ActiveSupport::TestCase
 
     # Control: the table it opened with does not fit.
     assert_raises(Solana::Vault::SettleTooLargeError) do
-      wire_bytes(settlements_for(no_ties, contest.reload.payouts), governance: true)
+      wire_bytes(settlements_for(no_ties, contest.reload.payouts))
     end
 
     ENV["WRITE"] = "1"
@@ -102,12 +97,10 @@ class SettleWireSizeTest < ActiveSupport::TestCase
 
     payouts = contest.reload.payouts
     assert_equal 1800_00, payouts.values.sum
-    SHAPES.each do |shape, governance|
-      TIE_PATTERNS.each do |pattern, scores_for|
-        settlements = settlements_for(scores_for.call(99, payouts.keys.max), payouts)
-        size = wire_bytes(settlements, governance: governance)
-        assert_operator size, :<=, Solana::Vault::PACKET_DATA_SIZE, "#{pattern} on #{shape}: #{size} bytes"
-      end
+    TIE_PATTERNS.each do |pattern, scores_for|
+      settlements = settlements_for(scores_for.call(99, payouts.keys.max), payouts)
+      size = wire_bytes(settlements)
+      assert_operator size, :<=, Solana::Vault::PACKET_DATA_SIZE, "#{pattern}: #{size} bytes"
     end
   ensure
     %w[WRITE TABLE_CENTS].each { |key| ENV.delete(key) }
@@ -120,9 +113,9 @@ class SettleWireSizeTest < ActiveSupport::TestCase
     four = (0...4).map { |i| { wallet: wallet(i), entry_num: 1, rank: i + 1, payout: 1_000_000 } }
     five = four + [{ wallet: wallet(4), entry_num: 1, rank: 5, payout: 1_000_000 }]
 
-    assert_operator wire_bytes(four, governance: true), :<=, Solana::Vault::PACKET_DATA_SIZE
+    assert_operator wire_bytes(four), :<=, Solana::Vault::PACKET_DATA_SIZE
 
-    error = assert_raises(Solana::Vault::SettleTooLargeError) { wire_bytes(five, governance: true) }
+    error = assert_raises(Solana::Vault::SettleTooLargeError) { wire_bytes(five) }
     assert_match(/5 paid entries serializes to \d+ bytes/, error.message)
   end
 end

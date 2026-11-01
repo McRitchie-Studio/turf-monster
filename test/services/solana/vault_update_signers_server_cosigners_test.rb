@@ -22,7 +22,7 @@ class Solana::VaultUpdateSignersServerCosignersTest < ActiveSupport::TestCase
     phantom = Solana::Keypair.generate.to_base58
     admin = Solana::Keypair.admin.to_base58
 
-    result = Solana::Config.stub(:governance?, false) do
+    result = begin
       vault.build_update_signers(new_signers: [admin, held.to_base58, phantom],
                                  lead_signer: admin, cosigner_pubkey: held.to_base58,
                                  extra_cosigners: [phantom], server_cosigners: [held])
@@ -40,7 +40,7 @@ class Solana::VaultUpdateSignersServerCosignersTest < ActiveSupport::TestCase
   test "without held keys the build is the shape that shipped" do
     phantom = Solana::Keypair.generate.to_base58
     admin = Solana::Keypair.admin.to_base58
-    result = Solana::Config.stub(:governance?, false) do
+    result = begin
       vault.build_update_signers(new_signers: [admin, phantom, Solana::Keypair.generate.to_base58],
                                  lead_signer: admin, cosigner_pubkey: phantom)
     end
@@ -52,11 +52,9 @@ class Solana::VaultUpdateSignersServerCosignersTest < ActiveSupport::TestCase
     held = Solana::Keypair.generate
     lead = Solana::Keypair.generate.to_base58
     error = assert_raises(ArgumentError) do
-      Solana::Config.stub(:governance?, false) do
-        vault.build_update_signers(new_signers: [lead, held.to_base58, Solana::Keypair.generate.to_base58],
-                                   lead_signer: lead, cosigner_pubkey: held.to_base58,
-                                   server_cosigners: [held])
-      end
+      vault.build_update_signers(new_signers: [lead, held.to_base58, Solana::Keypair.generate.to_base58],
+                                 lead_signer: lead, cosigner_pubkey: held.to_base58,
+                                 server_cosigners: [held])
     end
     assert_match(/only a rotation the server leads/, error.message)
   end
@@ -66,10 +64,8 @@ class Solana::VaultUpdateSignersServerCosignersTest < ActiveSupport::TestCase
     admin = Solana::Keypair.admin.to_base58
     phantom = Solana::Keypair.generate.to_base58
     assert_raises(ArgumentError) do
-      Solana::Config.stub(:governance?, false) do
-        vault.build_update_signers(new_signers: [admin, phantom, stray.to_base58],
-                                   lead_signer: admin, cosigner_pubkey: phantom, server_cosigners: [stray])
-      end
+      vault.build_update_signers(new_signers: [admin, phantom, stray.to_base58],
+                                 lead_signer: admin, cosigner_pubkey: phantom, server_cosigners: [stray])
     end
   end
 end

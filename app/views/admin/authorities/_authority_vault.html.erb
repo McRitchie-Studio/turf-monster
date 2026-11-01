@@ -31,7 +31,6 @@
       <% slots = vault[:signer_slots] || vault[:signers] %>
       <% slots.each_with_index do |address, i| %>
         <% empty = address == Solana::SignerRotation::EMPTY %>
-        <% beyond = (i + 1) > max_slots %>
         <li class="flex items-start gap-2 rounded-md border px-2 py-1.5
                    <%= empty ? "border-dashed border-subtle bg-surface-alt" : "border-subtle bg-surface" %>">
           <span class="mt-0.5 w-8 shrink-0 text-3xs font-bold uppercase tracking-wide text-muted">
@@ -39,9 +38,7 @@
           </span>
           <div class="min-w-0 flex-1">
             <% if empty %>
-              <p class="text-xs text-muted">
-                Empty<%= " — and unreachable on the deployed program, which has only #{max_slots} slots" if beyond %>
-              </p>
+              <p class="text-xs text-muted">Empty</p>
             <% else %>
               <%# THE PERSON FIRST, THE KEY UNDERNEATH — and the key is still
                   rendered in full. Three unbroken lines of base58 was what this

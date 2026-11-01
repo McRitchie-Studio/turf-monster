@@ -29,13 +29,11 @@ class ContestsCloseOnchainV026Test < ActionDispatch::IntegrationTest
     end
   end
 
-  def press_close(governance:)
+  def press_close
     vault = Solana::Vault.new(client: fake_client)
     log_in_as(@admin)
-    Solana::Config.stub(:governance?, governance) do
-      Solana::Vault.stub(:cached_vault_state, nil) do
-        Solana::Vault.stub(:new, vault) { post close_onchain_contest_path(@contest) }
-      end
+    Solana::Vault.stub(:cached_vault_state, nil) do
+      Solana::Vault.stub(:new, vault) { post close_onchain_contest_path(@contest) }
     end
   end
 
@@ -43,7 +41,7 @@ class ContestsCloseOnchainV026Test < ActionDispatch::IntegrationTest
 
   test "v0.26 queues a two-signer close for a Treasury cosign" do
     assert_difference -> { PendingTransaction.where(tx_type: "close_contest").count }, 1 do
-      press_close(governance: true)
+      press_close
     end
     assert_redirected_to admin_pending_transactions_path
     refute @contest.reload.onchain_closed?, "nothing is closed until the cosign lands"
@@ -68,22 +66,10 @@ class ContestsCloseOnchainV026Test < ActionDispatch::IntegrationTest
   end
 
   test "a second press does not stack a second cosign" do
-    press_close(governance: true)
+    press_close
     assert_no_difference -> { PendingTransaction.where(tx_type: "close_contest").count } do
-      press_close(governance: true)
+      press_close
     end
-  end
-
-  test "v0.25 still closes server-signed with no queued row" do
-    vault = FakeVault.new
-    log_in_as(@admin)
-    Solana::Config.stub(:governance?, false) do
-      Solana::Vault.stub(:new, vault) { post close_onchain_contest_path(@contest) }
-    end
-
-    assert_equal [@contest.slug], vault.close_calls
-    assert @contest.reload.onchain_closed?
-    assert_empty PendingTransaction.where(tx_type: "close_contest")
   end
 
   def queued_close
@@ -95,9 +81,7 @@ class ContestsCloseOnchainV026Test < ActionDispatch::IntegrationTest
     tx = queued_close
     vault = FakeVault.new
     log_in_as(@admin)
-    Solana::Config.stub(:governance?, true) do
-      Solana::Vault.stub(:new, vault) { post rebuild_admin_pending_transaction_path(slug: tx.slug), as: :json }
-    end
+    Solana::Vault.stub(:new, vault) { post rebuild_admin_pending_transaction_path(slug: tx.slug), as: :json }
 
     assert_response :success
     assert_equal [{ slug: @contest.slug, cosigner: COSIGNER, extra_cosigners: [] }], vault.close_build_calls
@@ -107,12 +91,10 @@ class ContestsCloseOnchainV026Test < ActionDispatch::IntegrationTest
   test "a verified close cosign flips onchain_closed" do
     tx = queued_close
     log_in_as(@admin)
-    Solana::Config.stub(:governance?, true) do
-      Solana::Vault.stub(:new, FakeVault.new) do
-        Solana::TxVerifier.stub(:verify!, true) do
-          post confirm_admin_pending_transaction_path(slug: tx.slug),
-               params: { cosigner_address: COSIGNER, tx_signature: "sig_close" }, as: :json
-        end
+    Solana::Vault.stub(:new, FakeVault.new) do
+      Solana::TxVerifier.stub(:verify!, true) do
+        post confirm_admin_pending_transaction_path(slug: tx.slug),
+             params: { cosigner_address: COSIGNER, tx_signature: "sig_close" }, as: :json
       end
     end
 
@@ -122,9 +104,7 @@ class ContestsCloseOnchainV026Test < ActionDispatch::IntegrationTest
 
   test "the Treasury rebuild and the cosign plan know close_contest" do
     plan = Solana::CosignPlan.new(tx_type: "close_contest")
-    Solana::Config.stub(:governance?, true) do
-      assert_equal 2, plan.required_signatures
-      assert_equal 0, plan.extra_cosigners_needed, "the one Phantom signature is the primary cosigner"
-    end
+    assert_equal 2, plan.required_signatures
+    assert_equal 0, plan.extra_cosigners_needed, "the one Phantom signature is the primary cosigner"
   end
 end

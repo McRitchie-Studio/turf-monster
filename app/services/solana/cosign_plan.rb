@@ -91,7 +91,7 @@ module Solana
 
     # Total vault signatures the chain will demand for this action.
     #
-    # ON A GOVERNANCE (v0.26) BOOT THIS IS THE CHAIN'S NUMBER. It used to be the
+    # THIS IS THE CHAIN'S NUMBER. It used to be the
     # compiled default, so a `set_action_threshold` retune reached the program
     # and never reached this plan: retune settle to 2 and the console still
     # reserved a third slot, which `settle_contest` reads as payload and refuses;
@@ -101,13 +101,7 @@ module Solana
     # program's own `threshold_for` (zero reads as the default, floors on read).
     # An unreadable or absent GovernanceConfig — between the upgrade and
     # `init_governance` — falls back to the shipped defaults, which fail closed.
-    #
-    # On a v0.25 boot nothing is read: the answer is the compiled default, as it
-    # always was (PendingTransaction#required_signatures documents why that
-    # number is governance-independent there).
     def required_signatures
-      return Governance.required_signatures(action) unless Config.governance?
-
       Governance.required_signatures(action, thresholds: chain_thresholds)
     end
 
@@ -118,12 +112,9 @@ module Solana
       required_signatures - 1
     end
 
-    # How many EXTRA (remaining-account) cosigner slots to reserve. Zero on a
-    # v0.25 boot and on any action the two named signers already satisfy — in
-    # which case the whole flow is byte-identical to what shipped.
+    # How many EXTRA (remaining-account) cosigner slots to reserve. Zero on any
+    # action the two named signers already satisfy.
     def extra_cosigners_needed
-      return 0 unless Config.governance?
-
       Governance.extra_cosigners_needed(action, named_count: NAMED_SIGNER_COUNT, thresholds: chain_thresholds)
     end
 
@@ -136,8 +127,7 @@ module Solana
     # THE INVARIANT IS `extra_cosigners_needed.positive?`: the platform fills
     # the two NAMED slots and never an extra one, so it may sign only when at
     # least one extra slot is left for him. That is "his wallet is always the
-    # third" stated as arithmetic, and it is what keeps a v0.25 boot (no extra
-    # slots, two signatures complete the action) and a devnet settle retuned
+    # third" stated as arithmetic, and it is what keeps a devnet settle retuned
     # to two from ever being finished by agent keys alone.
     #
     # Automatic for a settle; on request for the other three-signature types.
@@ -152,12 +142,10 @@ module Solana
     end
 
     # Whether the server and the platform cosigner may COMPLETE this action
-    # alone, from an explicit admin click. Only a two-signature action, only
-    # on a governance boot (where two is the chain's number, not the v0.25
-    # shape), and only a type listed in COMPLETABLE_TX_TYPES.
+    # alone, from an explicit admin click. Only a two-signature action, and
+    # only a type listed in COMPLETABLE_TX_TYPES.
     def platform_completes?(platform: PlatformCosigner.current)
       platform.configured? &&
-        Config.governance? &&
         PlatformCosigner::COMPLETABLE_TX_TYPES.include?(tx_type) &&
         required_signatures == 2 &&
         self.class.signer_set.include?(platform.address)
@@ -168,12 +156,10 @@ module Solana
     # v0.26 has FIVE slots (`signers` + `signers_ext`) and Config::MULTISIG_SIGNERS
     # is an env-overridable literal that can lag the chain. Judging membership against
     # the config list would refuse a wallet a rotation seated since it was written
-    # — a valid third signature the chain would accept — so a governance boot
-    # reads VaultState's active slots (Vault.cached_vault_state, one request /
-    # one minute). Unreadable falls back to the config list; v0.25 never reads.
+    # — a valid third signature the chain would accept — so this reads
+    # VaultState's active slots (Vault.cached_vault_state, one request / one
+    # minute). Unreadable falls back to the config list.
     def self.signer_set
-      return Config::MULTISIG_SIGNERS unless Config.governance?
-
       seated = begin
         Vault.cached_vault_state&.dig(:active_signers)
       rescue StandardError
@@ -232,13 +218,10 @@ module Solana
       extras = Array(requested).map { |a| a.to_s.strip }.reject(&:blank?)
       needed = extra_cosigners_needed
 
-      # NOTHING TO ADD, NOTHING TO JUDGE. On a v0.25 boot, and on any action
-      # whose two named signers already satisfy its threshold, this plan
-      # contributes no slots — and a validator that went on to inspect the
-      # NAMED signers would be judging a build it is not part of. It would also
-      # be a behaviour change smuggled in sideways: the pre-governance shape
-      # must stay byte-identical, which means it must also stay refusal-
-      # identical. Returning early is what keeps "governance off" genuinely off.
+      # NOTHING TO ADD, NOTHING TO JUDGE. On any action whose two named signers
+      # already satisfy its threshold, this plan contributes no slots — and a
+      # validator that went on to inspect the NAMED signers would be judging a
+      # build it is not part of.
       return [] if needed.zero? && extras.empty?
 
       if extras.length != needed

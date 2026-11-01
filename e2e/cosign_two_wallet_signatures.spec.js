@@ -48,24 +48,13 @@ const { loginAdmin, reseed } = require("./helpers");
 // ── ONE FIXTURE IS THE SPEC'S, AND IT IS DECLARED HERE ────────────────────
 //
 // In the second test the <select data-extra-cosigner> is BUILT BY THIS SPEC,
-// because it cannot be rendered in this lane — for TWO independent reasons,
-// either of which alone would be enough:
+// because it cannot be rendered in this lane: NO SEEDABLE ROW HAS A COSIGNABLE
+// TYPE. The only PendingTransaction this lane can create is
+// TestController#set_pending_signatures' hardcoded "e2e_signature_probe", a
+// tx_type CosignPlan refuses, so the gate rescues to 0.
 //
-//   1. GOVERNANCE IS OFF HERE. The view's gate is `tx.extra_cosigners_needed`,
-//      which routes through Solana::CosignPlan#extra_cosigners_needed and
-//      returns 0 unless Solana::Config.governance?. Nothing in the e2e lane
-//      sets SOLANA_VAULT_GOVERNANCE (playwright.config.js's webServer.env and
-//      bin/e2e-parallel both leave it unset), and unset means the v0.25 shape,
-//      which reserves no extra slot at all.
-//   2. NO SEEDABLE ROW HAS A COSIGNABLE TYPE. The only PendingTransaction this
-//      lane can create is TestController#set_pending_signatures' hardcoded
-//      "e2e_signature_probe" — a tx_type CosignPlan refuses — so the gate
-//      rescues to 0 whatever the governance flag says.
-//
-// Retiring the fixture therefore takes BOTH: a tx_type parameter on
-// set_pending_signatures AND governance on for the lane. Note that the gate
-// is deliberately NOT `required_signatures - 2`: that arithmetic is
-// governance-independent while the server's validation is not, and the two
+// Retiring the fixture takes a tx_type parameter on set_pending_signatures. Note
+// that the gate is deliberately NOT `required_signatures - 2`: two derivations
 // disagreeing is what made the page ask for a wallet #rebuild then refused 422.
 //
 // Everything the fixture DRIVES is the app's own: the button's onclick, the

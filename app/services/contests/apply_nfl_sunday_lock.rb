@@ -112,12 +112,11 @@ module Contests
       row
     end
 
-    # v0.26 only: how many vault signatures this move needs (the chain's own
+    # How many vault signatures this move needs (the chain's own
     # threshold for the action the contest's state selects) against how many
     # this run holds, so the dry run says before WRITE=1 whether it can land.
-    # Empty on v0.25, where the admin key alone moves a lock.
     def signature_note(contest)
-      return "" unless Solana::Config.governance? && contest.onchain_verified?
+      return "" unless contest.onchain_verified?
 
       action = vault.governed_time_action("set_contest_lock_time", contest.slug)
       needed = vault.required_signatures(action)

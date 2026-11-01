@@ -355,8 +355,7 @@ class PendingTransaction < ApplicationRecord
   # here that is too low is exactly the defect that took six treasury paths down.
   #
   # THIS IS NOT THE NUMBER A UI SHOULD SIZE A FORM FROM. It is what the PROGRAM
-  # demands, and it is deliberately governance-INDEPENDENT — three is three
-  # whether or not this boot speaks v0.26. What a form needs is how many slots
+  # demands. What a form needs is how many slots
   # THIS BUILD will actually reserve, which is `extra_cosigners_needed` below.
   # Sizing a control from `required_signatures - 2` is how the page came to ask
   # for a wallet the server then refused.
@@ -370,11 +369,10 @@ class PendingTransaction < ApplicationRecord
   # THE SAME METHOD THE SERVER SIZES ITS VALIDATION FROM.
   #
   # ONE SOURCE OF TRUTH, ON PURPOSE. When the view derived this number
-  # separately it disagreed with the server on a v0.25 boot: the page rendered a
+  # separately it disagreed with the server: the page rendered a
   # second-wallet control (three signatures minus two named) while
   # `CosignPlan#validate_extras!` sized `needed` at zero, so the operator picked
-  # a wallet and `#rebuild` refused it 422. That is the DEPLOYED shape — it
-  # would have broken the treasury page before v0.26 ever landed. Two
+  # a wallet and `#rebuild` refused it 422. Two
   # derivations of one number is the defect class this whole change exists to
   # remove, so the view asks this and the server asks the plan, and they are the
   # same call.

@@ -346,14 +346,13 @@ class TestController < ApplicationController
                    awaiting: PendingTransaction.awaiting_signature.count }
   end
 
-  # THE TREASURY PAGE AS A GOVERNANCE (turf-vault v0.26) BOOT RENDERS IT — a host
+  # THE TREASURY PAGE WITH A THIRD-SIGNATURE ROW — a host
   # harness for e2e/treasury_cosign_row_layout.spec.js.
   #
   # WHY A HARNESS. The controls that overflowed a phone — the second-wallet
   # select and the signing roster — render only when a row's
-  # `extra_cosigners_needed` is positive, and that answer is 0 unless
-  # Solana::Config.governance?, a BOOT constant this lane leaves off (the same
-  # wall e2e/cosign_two_wallet_signatures.spec.js documents). Overflow is a
+  # `extra_cosigners_needed` is positive, and no seedable row has a cosignable
+  # type (the wall e2e/cosign_two_wallet_signatures.spec.js documents). Overflow is a
   # layout fact only a real browser can measure, so this renders the REAL
   # admin/pending_transactions/index template, in the real layout, against the
   # real stylesheet, and stubs exactly TWO answers per row: how many signatures

@@ -43,7 +43,7 @@
 # THAT GUARANTEE DEPENDS ON bin/deploy WIDENING THE RIGHT HASH, which it only
 # does because it resolves the IDL through the app's own selection rule
 # (lib/solana/idl_selection.rb) rather than a copy of it. For one day it kept a
-# stale bash copy that ignored SOLANA_VAULT_GOVERNANCE, and a widen computed
+# stale bash copy that ignored the IDL rule, and a widen computed
 # from the wrong file protects nothing — see make-deploy-governance-aware.
 if Rails.env.production? && !ENV["SECRET_KEY_BASE_DUMMY"]
   if ENV["SKIP_IDL_VERIFICATION"].present?

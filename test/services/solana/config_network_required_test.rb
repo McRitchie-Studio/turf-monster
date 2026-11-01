@@ -152,22 +152,10 @@ class Solana::ConfigNetworkRequiredTest < ActiveSupport::TestCase
   test "IDL_PATH's CLUSTER half is keyed on NETWORK alone, with no env override" do
     rule = Solana::IdlSelection
 
-    [true, false].each do |governance|
-      %w[devnet localnet testnet].each do |network|
-        refute_includes rule.relative_idl_path(network: network, governance: governance), "mainnet",
-                        "the switch must not be able to name a cluster (#{network}, governance #{governance})"
-      end
-      assert_includes rule.relative_idl_path(network: "mainnet-beta", governance: governance), "turf_vault.mainnet",
-                      "a mainnet app takes the mainnet artifact in BOTH switch positions"
+    %w[devnet localnet testnet].each do |network|
+      refute_includes rule.relative_idl_path(network: network), "mainnet", "#{network} must not name mainnet"
     end
-
-    # The version axis may only APPEND a suffix, never rewrite the base.
-    %w[mainnet-beta devnet].each do |network|
-      off = rule.idl_basename(network: network, governance: false)
-      on = rule.idl_basename(network: network, governance: true)
-      assert_equal off.sub(".idl.json", ".v026.idl.json"), on,
-                   "the governance switch adds `.v026` to the NETWORK-derived base and does nothing else"
-    end
+    assert_includes rule.relative_idl_path(network: "mainnet-beta"), "turf_vault.mainnet"
 
     # And the cluster half still reads its argument, not the environment.
     assert_no_match(/base = ENV/, Rails.root.join("lib", "solana", "idl_selection.rb").read,
@@ -176,10 +164,10 @@ class Solana::ConfigNetworkRequiredTest < ActiveSupport::TestCase
                  "IDL_PATH must feed the rule the NETWORK constant this file guards")
   end
 
-  # The switch and the file have to agree, or Rails builds account lists for a
-  # program shape other than the one it believes is deployed. That check is
+  # The file has to be the governance shape, or Rails builds account lists for a
+  # program other than the one it believes is deployed. That check is
   # deliberately NOT covered by BYPASS_IDL_CHECK, which exists for hash skew.
-  test "a governance switch that disagrees with the pinned IDL refuses the boot" do
+  test "a pinned IDL of the wrong shape refuses the boot" do
     source = CONFIG_RB.read
 
     assert_match(/def self\.verify_governance_alignment!/, source)

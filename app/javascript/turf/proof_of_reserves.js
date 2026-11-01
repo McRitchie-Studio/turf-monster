@@ -18,7 +18,7 @@ function readU64LE(view, offset) {
 }
 
 // Layout after the 8-byte Anchor discriminator, from the turf-vault Contest
-// struct (v0.18, config/turf_vault.idl.json):
+// struct (v0.18, config/turf_vault.v026.idl.json):
 //   contest_id [u8;32] | admin pk(32) | creator pk(32) | season_id u32
 //   prize_pool u64 | entry_fee_by_currency [u64;16] | entry_fees [u64;16]
 //   max_entries u32 | current_entries u32 | status u8 (ContestStatus enum)

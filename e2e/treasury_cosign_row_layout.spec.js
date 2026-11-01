@@ -3,7 +3,7 @@ const { test, expect } = require("@playwright/test");
 // [component] The treasury's cosign row keeps its Co-sign button on screen at a
 // phone width, and stays one aligned control group on a desktop.
 //
-// THE DEFECT, MEASURED ON A GOVERNANCE BOOT AT 390px (2026-09-16). The row was
+// THE DEFECT, MEASURED AT 390px (2026-09-16). The row was
 // two flex columns: the title column `flex-1 min-w-0`, the controls column
 // `flex-shrink-0`. A column that may not shrink is as wide as its widest
 // unwrapped line, and the signing roster's footer sentence is 528px on one line.

@@ -33,11 +33,9 @@ class Solana::CosignPlanTest < ActiveSupport::TestCase
     end
   end
 
-  def with_governance(on = true, thresholds: nil, seated: nil, reader: ChainReader.new(thresholds: thresholds), &block)
-    Solana::Config.stub(:governance?, on) do
-      Solana::Vault.stub(:new, reader) do
-        Solana::Vault.stub(:cached_vault_state, seated && { active_signers: seated }, &block)
-      end
+  def with_chain(thresholds: nil, seated: nil, reader: ChainReader.new(thresholds: thresholds), &block)
+    Solana::Vault.stub(:new, reader) do
+      Solana::Vault.stub(:cached_vault_state, seated && { active_signers: seated }, &block)
     end
   end
 
@@ -58,7 +56,7 @@ class Solana::CosignPlanTest < ActiveSupport::TestCase
   # ── THE SHAPE OF THE ASK ──────────────────────────────────────────────────
 
   test "a raised action needs one extra slot beyond the two named signers" do
-    with_governance do
+    with_chain do
       plan = Solana::CosignPlan.new(tx_type: "settle_contest")
       assert_equal 3, plan.required_signatures
       assert_equal 1, plan.extra_cosigners_needed
@@ -68,7 +66,7 @@ class Solana::CosignPlanTest < ActiveSupport::TestCase
   end
 
   test "every raised cosign tx_type asks for an extra slot" do
-    with_governance do
+    with_chain do
       %w[settle_contest cancel_contest sweep_operator_revenue
          register_currency deactivate_currency unpause].each do |tx_type|
         plan = Solana::CosignPlan.new(tx_type: tx_type)
@@ -79,35 +77,10 @@ class Solana::CosignPlanTest < ActiveSupport::TestCase
     end
   end
 
-  # ── THE v0.25 SHAPE MUST STAY UNTOUCHED ───────────────────────────────────
-  #
-  # The switch exists so the changeover is a config write, not a deploy. That
-  # promise only holds if the governance-off path is identical to what shipped:
-  # no extra slots, and no new refusals.
-  test "governance off reserves nothing and refuses nothing" do
-    with_governance(false) do
-      plan = Solana::CosignPlan.new(tx_type: "settle_contest")
-      assert_equal 0, plan.extra_cosigners_needed
-      assert_equal [], plan.validate_extras!(nil, primary: PRIMARY)
-      assert_equal [], plan.validate_extras!([], primary: PRIMARY)
-    end
-  end
-
-  # A pre-governance build names admin and cosigner, and on this test box those
-  # two can be the SAME key. That was true before this change and must stay
-  # acceptable to the planner — judging a named pair it did not choose would be
-  # a behaviour change smuggled in through a validator.
-  test "governance off does not judge the named signers" do
-    with_governance(false) do
-      plan = Solana::CosignPlan.new(tx_type: "settle_contest")
-      assert_equal [], plan.validate_extras!([], primary: Solana::CosignPlan.admin_address)
-    end
-  end
-
   # ── THE REFUSALS ──────────────────────────────────────────────────────────
 
   test "too few extra cosigners is refused before a transaction is built" do
-    with_governance do
+    with_chain do
       plan = Solana::CosignPlan.new(tx_type: "settle_contest")
       error = assert_raises(Solana::CosignPlan::InvalidCosignerError) do
         plan.validate_extras!([], primary: PRIMARY)
@@ -122,7 +95,7 @@ class Solana::CosignPlanTest < ActiveSupport::TestCase
   # remaining accounts; on settle_contest the rest is the settlement payload,
   # so a surplus slot shifts that payload and the length check fails.
   test "too many extra cosigners is refused rather than trimmed" do
-    with_governance do
+    with_chain do
       plan = Solana::CosignPlan.new(tx_type: "settle_contest")
 
       # The COUNT is checked before membership, so this asserts the surplus is
@@ -137,7 +110,7 @@ class Solana::CosignPlanTest < ActiveSupport::TestCase
   end
 
   test "a pubkey outside the vault signer set is refused" do
-    with_governance do
+    with_chain do
       plan = Solana::CosignPlan.new(tx_type: "settle_contest")
       error = assert_raises(Solana::CosignPlan::InvalidCosignerError) do
         plan.validate_extras!(["NotAVaultSigner1111111111111111111111111111"], primary: PRIMARY)
@@ -152,7 +125,7 @@ class Solana::CosignPlanTest < ActiveSupport::TestCase
   # so "pass one more key" would be the wrong remedy. The message has to say
   # which reading applies or the operator debugs the wrong one.
   test "reusing the named cosigner as the extra is refused as a duplicate" do
-    with_governance do
+    with_chain do
       plan = Solana::CosignPlan.new(tx_type: "settle_contest")
       error = assert_raises(Solana::CosignPlan::InvalidCosignerError) do
         plan.validate_extras!([PRIMARY], primary: PRIMARY)
@@ -167,7 +140,7 @@ class Solana::CosignPlanTest < ActiveSupport::TestCase
     skip "no admin key configured" if admin.blank?
     skip "admin key is not in the signer set here" unless SIGNERS.include?(admin)
 
-    with_governance do
+    with_chain do
       plan = Solana::CosignPlan.new(tx_type: "settle_contest")
       error = assert_raises(Solana::CosignPlan::InvalidCosignerError) do
         plan.validate_extras!([admin], primary: PRIMARY)
@@ -182,7 +155,7 @@ class Solana::CosignPlanTest < ActiveSupport::TestCase
     spare = spare_signer
     skip "needs a spare vault signer beyond admin and the named cosigner" if spare.blank?
 
-    with_governance do
+    with_chain do
       plan = Solana::CosignPlan.new(tx_type: "settle_contest")
       assert_equal [spare], plan.validate_extras!([spare], primary: PRIMARY)
     end
@@ -208,7 +181,7 @@ class Solana::CosignPlanTest < ActiveSupport::TestCase
   # the settlement payload and the chain refuses it; too few is 6046.
 
   test "a settle retuned to 2 on chain reserves no extra slot" do
-    with_governance(thresholds: table("settle_contest" => 2)) do
+    with_chain(thresholds: table("settle_contest" => 2)) do
       plan = Solana::CosignPlan.new(tx_type: "settle_contest")
       assert_equal 2, plan.required_signatures
       assert_equal 0, plan.extra_cosigners_needed
@@ -217,7 +190,7 @@ class Solana::CosignPlanTest < ActiveSupport::TestCase
   end
 
   test "a cancel retuned above the default reserves the chain's count" do
-    with_governance(thresholds: table("cancel_contest" => 4)) do
+    with_chain(thresholds: table("cancel_contest" => 4)) do
       plan = Solana::CosignPlan.new(tx_type: "cancel_contest")
       assert_equal 4, plan.required_signatures
       assert_equal 2, plan.extra_cosigners_needed
@@ -226,14 +199,14 @@ class Solana::CosignPlanTest < ActiveSupport::TestCase
 
   # A stored value under the program's floor reads as the floor, as on chain.
   test "the floor holds against a stored table" do
-    with_governance(thresholds: table("unpause" => 1)) do
+    with_chain(thresholds: table("unpause" => 1)) do
       assert_equal 3, Solana::CosignPlan.new(tx_type: "unpause").required_signatures
     end
   end
 
   # Between the upgrade and init_governance the account does not exist.
   test "an unreadable GovernanceConfig falls back to the shipped defaults" do
-    with_governance(thresholds: nil) do
+    with_chain(thresholds: nil) do
       plan = Solana::CosignPlan.new(tx_type: "settle_contest")
       assert_equal 3, plan.required_signatures
       assert_equal 1, plan.extra_cosigners_needed
@@ -242,7 +215,7 @@ class Solana::CosignPlanTest < ActiveSupport::TestCase
 
   test "one plan reads the table once" do
     reader = ChainReader.new(thresholds: table)
-    with_governance(reader: reader) do
+    with_chain(reader: reader) do
       plan = Solana::CosignPlan.new(tx_type: "settle_contest")
       plan.required_signatures
       plan.extra_cosigners_needed
@@ -253,18 +226,8 @@ class Solana::CosignPlanTest < ActiveSupport::TestCase
 
   test "an injected vault is the reader" do
     reader = ChainReader.new(thresholds: table("close_contest" => 3))
-    with_governance do
+    with_chain do
       assert_equal 3, Solana::CosignPlan.new(tx_type: "close_contest", vault: reader).required_signatures
-    end
-  end
-
-  test "v0.25 reads nothing from the chain" do
-    exploding = Object.new
-    def exploding.cached_governance = raise("v0.25 must not read GovernanceConfig")
-    with_governance(false, reader: exploding) do
-      plan = Solana::CosignPlan.new(tx_type: "settle_contest")
-      assert_equal 3, plan.required_signatures
-      assert_equal 0, plan.extra_cosigners_needed
     end
   end
 
@@ -276,7 +239,7 @@ class Solana::CosignPlanTest < ActiveSupport::TestCase
   test "a signer seated in slot 4 is eligible and accepted as an extra" do
     slot4 = Solana::Keypair.generate.address
     seated = SIGNERS + [slot4]
-    with_governance(seated: seated) do
+    with_chain(seated: seated) do
       assert_includes Solana::CosignPlan.eligible_cosigners, slot4
       plan = Solana::CosignPlan.new(tx_type: "settle_contest")
       assert_equal [slot4], plan.validate_extras!([slot4], primary: PRIMARY)
@@ -287,7 +250,7 @@ class Solana::CosignPlanTest < ActiveSupport::TestCase
     evicted = (SIGNERS - [PRIMARY, Solana::CosignPlan.admin_address]).first
     skip "needs a config signer beyond admin and the named cosigner" if evicted.blank?
     seated = SIGNERS - [evicted] + [Solana::Keypair.generate.address]
-    with_governance(seated: seated) do
+    with_chain(seated: seated) do
       error = assert_raises(Solana::CosignPlan::InvalidCosignerError) do
         Solana::CosignPlan.new(tx_type: "settle_contest").validate_extras!([evicted], primary: PRIMARY)
       end
@@ -296,7 +259,7 @@ class Solana::CosignPlanTest < ActiveSupport::TestCase
   end
 
   test "an unreadable vault state falls back to the config list" do
-    with_governance(seated: nil) do
+    with_chain(seated: nil) do
       assert_equal (SIGNERS - [Solana::CosignPlan.admin_address].compact).sort,
                    Solana::CosignPlan.eligible_cosigners.sort
     end
@@ -322,7 +285,7 @@ class Solana::CosignPlanTest < ActiveSupport::TestCase
   ALEX_3  = "9gACbzsCLmkYF9Yx1EBGmwMvvyfuTquJ6qs8QsoQvHXf".freeze
 
   def with_mainnet_seats(seated = MAINNET_SEATED, &block)
-    with_governance(seated: seated) do
+    with_chain(seated: seated) do
       Solana::CosignPlan.stub(:admin_address, SERVER, &block)
     end
   end
@@ -357,12 +320,6 @@ class Solana::CosignPlanTest < ActiveSupport::TestCase
       assert_equal "extra", extra[:role]
       assert_nil extra[:address]
       assert_equal 3, rows.length
-    end
-  end
-
-  test "v0.25 judges membership against the config list" do
-    with_governance(false, seated: SIGNERS + [Solana::Keypair.generate.address]) do
-      assert_equal SIGNERS, Solana::CosignPlan.signer_set
     end
   end
 

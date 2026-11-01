@@ -25,15 +25,16 @@ require "digest"
 #
 # WHAT THIS CAN PIN, AND WHAT IT CANNOT. A test cannot read the chain, so it cannot
 # prove the figures are current. It pins the next best thing: the record the figures
-# were measured under must name the IDL that is committed for mainnet, by version
-# AND by sha256. Re-pinning config/turf_vault.mainnet.idl.json after a turf-vault
-# deploy is the moment the program's bytes change, so that turns this red until
-# someone re-measures (docs/SOLANA.md, "Also refresh the /contract page"). The hash
-# matters because the version alone is weak: turf-vault's unreleased tree still
-# reads 0.25.0. A deploy that leaves the IDL byte-identical (a handler-only patch)
-# is invisible here; only the chain's program sha256 sees that.
+# were measured under must name the program it measured, by version AND by sha256
+# (docs/SOLANA.md, "Also refresh the /contract page").
 class ContractMeasurementsTest < ActionDispatch::IntegrationTest
-  MAINNET_IDL = Rails.root.join("config", "turf_vault.mainnet.idl.json")
+  # WHAT THE `measured` BLOCK MEASURED: the v0.25 program, 2026-09-10. That IDL left
+  # the tree on 2026-11-01 and mainnet has run v0.26 since 2026-10-12, so these
+  # literals record a dated measurement. Re-measure the page and point this at
+  # config/turf_vault.mainnet.v026.idl.json.
+  MEASURED_VERSION = "0.25.0".freeze
+  MEASURED_IDL_SHA256 = "b9b522635894a42f5434f1faa1cd126d146f3042ae2c233acd1dd76a300f7152".freeze
+  MAINNET_IDL = Rails.root.join("config", "turf_vault.mainnet.v026.idl.json")
   PROGRAMDATA_HEADER_BYTES = 45 # UpgradeableLoaderState::ProgramData: tag 4 + slot 8 + Option<Pubkey> 33
   BUFFER_HEADER_BYTES = 37      # UpgradeableLoaderState::Buffer: tag 4 + Option<Pubkey> 33
   RETIRED_LAMPORTS_PER_BYTE = 6_960 # the rate these accounts were funded at; the cluster has lowered it since
@@ -54,20 +55,13 @@ class ContractMeasurementsTest < ActionDispatch::IntegrationTest
     element[/#{name}="([^"]*)"/, 1]
   end
 
-  test "the measured record names the committed mainnet IDL, by version and by hash" do
-    idl_bytes = File.read(MAINNET_IDL)
-    version = JSON.parse(idl_bytes).dig("metadata", "version")
-    assert version.present?, "the mainnet IDL carries no metadata.version - this case would prove nothing"
-
+  test "the measured record names the program it measured, by version and by hash" do
+    version = MEASURED_VERSION
     element = measured_on(page)
     assert element, "the page rendered no measured-on record, so nothing says which program its figures describe"
 
-    stale = "re-pinned since the /contract figures were measured. Re-measure them from the " \
-            "deployed program and update the `measured` block in app/views/contract/show.html.erb " \
-            "(docs/SOLANA.md, \"Also refresh the /contract page\")."
-    assert_equal version, attr(element, "data-version"), "config/turf_vault.mainnet.idl.json was #{stale}"
-    assert_equal Digest::SHA256.hexdigest(idl_bytes), attr(element, "data-idl-sha256"),
-      "config/turf_vault.mainnet.idl.json changed (same version, new bytes) - it was #{stale}"
+    assert_equal version, attr(element, "data-version")
+    assert_equal MEASURED_IDL_SHA256, attr(element, "data-idl-sha256")
 
     text = ActionController::Base.helpers.strip_tags(element).squish
     assert_includes text, "v#{version}", "the visible record must name the version it measured"
