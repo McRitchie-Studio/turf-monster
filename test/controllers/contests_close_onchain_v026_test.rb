@@ -7,8 +7,7 @@ require "minitest/mock"
 # The server signs its half and queues the transaction for a Phantom cosign in
 # the Treasury, as cancel_onchain does. The queued wire is decoded here: two
 # signer slots, the server's filled, the cosigner's empty and sitting in the
-# first remaining account where `authorize` reads it. v0.25 keeps the
-# one-signature server close (contests_onchain_lifecycle_test.rb).
+# first remaining account where `authorize` reads it.
 class ContestsCloseOnchainV026Test < ActionDispatch::IntegrationTest
   COSIGNER = Solana::Config::MULTISIG_COSIGNER
   EMPTY = ("\x00" * 64).b
@@ -63,6 +62,15 @@ class ContestsCloseOnchainV026Test < ActionDispatch::IntegrationTest
     assert_equal key(vault.governance_pda.first), accounts[2], "governance follows vault_state"
     assert_equal COSIGNER, accounts.last, "the cosigner is the first remaining account"
     assert_equal 10, accounts.size, "nine named accounts plus one cosigner"
+  end
+
+  test "a cancelled contest that never settled queues the same close" do
+    @contest.update!(status: :open, onchain_cancelled: true)
+    assert_difference -> { PendingTransaction.where(tx_type: "close_contest").count }, 1 do
+      press_close
+    end
+    assert_redirected_to admin_pending_transactions_path
+    refute @contest.reload.onchain_closed?, "nothing is closed until the cosign lands"
   end
 
   test "a second press does not stack a second cosign" do
