@@ -56,7 +56,7 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
     # and BEFORE it writes. Claiming the row before the request instead is a
     # different test — it trips the guard at the top of the action and never
     # reaches the UPDATE that carried the defect.
-    def initialize(signers: [SYSTEM, ALEX, MASON], governance: nil, broadcast_raises: nil,
+    def initialize(signers: [SYSTEM, ALEX, MASON], governance: { thresholds: Array.new(32, 0) }, broadcast_raises: nil,
                    read_back: nil, signature_statuses: {}, on_build: nil, account_infos: {})
       @signers = signers
       @governance = governance
@@ -135,6 +135,16 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
     def client = @client ||= FakeSolanaClient.new(@signature_statuses || {}, account_infos: @account_infos)
   end
 
+  # THE CLAIM, BROADCAST AND RECOVERY RULES ARE WHAT THIS FILE PINS, on a rotation
+  # two keys can sign, so `update_signers` is held at two here. Its real threshold
+  # of three, and what it forces, is test/services/solana/signer_plan_test.rb
+  # and signer_rotation_test.rb.
+  def run(...)
+    real = Solana::Governance.method(:required_signatures)
+    two = ->(action, **kw) { action == "update_signers" ? (@update_signers_required || 2) : real.call(action, **kw) }
+    Solana::Governance.stub(:required_signatures, two) { super }
+  end
+
   setup do
     @admin = users(:alex)
     log_in_as(@admin)
@@ -150,7 +160,7 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
   # console creates rows only at the click that signs them.
   def arm(vault, signers:, authorizers:, server_held: [])
     rotation = Solana::SignerRotation.for_chain(current_signers: vault.signers, proposed: signers,
-                                                authorizers: authorizers, governance: false).validate!
+                                                authorizers: authorizers, governance: true).validate!
     lead = rotation.authorizers.first
     plan = rotation.to_plan.merge(lead_signer: lead, server_leads: lead == Solana::CosignPlan.admin_address,
                                   server_held: server_held, armed_at: Time.current.iso8601)
@@ -278,9 +288,10 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "plan refuses an intent the deployed program cannot express, and says why" do
-    body = plan_json(StubVault.new(signers: [server, ALEX, MASON]), intent: "add", add: [ALEX2])
+    body = plan_json(StubVault.new(signers: [server, ALEX, MASON, ALEX2, ALEX3]),
+                     intent: "add", add: [Solana::Keypair.generate.to_base58])
     assert_equal "intent_not_allowed", body["code"]
-    assert_match(/no empty slot/, body["message"])
+    assert_match(/All 5 slots are filled/, body["message"])
   end
 
   test "plan names the chain rule and its code when the set breaks one" do
@@ -404,6 +415,7 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
   # ── SERVER-HELD COSIGNERS ─────────────────────────────────────────────────
 
   test "a server-held cosigner signs on the server and is never queued, echoed or logged" do
+    @update_signers_required = 3
     held = Solana::Keypair.generate
     secret = Solana::Keypair.encode_base58(held.to_bytes)
     vault = StubVault.new(signers: [server, ALEX, held.to_base58, MASON, ALEX3],
@@ -455,8 +467,8 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
     end
     body = JSON.parse(response.body)
     assert body["ok"]
-    assert_equal "v0.25", body["rules"]["shape"]
-    assert_equal 3, body["rules"]["max_slots"]
+    assert_equal "v0.26", body["rules"]["shape"]
+    assert_equal 5, body["rules"]["max_slots"]
     assert body["labels"][unknown]["unknown"]
     assert body["labels"][ALEX]["connected"]
     assert_equal "Alex, Phantom account 1", body["labels"][ALEX]["name"]

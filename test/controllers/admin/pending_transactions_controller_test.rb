@@ -47,8 +47,9 @@ class Admin::PendingTransactionsControllerTest < ActionDispatch::IntegrationTest
     Solana::Config.stub(:governance?, on, &block)
   end
 
-  def spare_signer
-    (Solana::CosignPlan.eligible_cosigners - [Solana::Config::MULTISIG_COSIGNER]).first
+  # A vault action past the two named signers wants one extra (v0.26).
+  def spare_signer(*taken)
+    (Solana::CosignPlan.eligible_cosigners - [Solana::Config::MULTISIG_COSIGNER, Solana::Config::MULTISIG_SIGNERS.first, *taken]).first
   end
 
   # THE REGRESSION. Against the code this change replaces, `extra_cosigners`
@@ -180,7 +181,7 @@ class Admin::PendingTransactionsControllerTest < ActionDispatch::IntegrationTest
     tx = ptx("cancel_contest", { creator: "Creator11111111111111111111111111111111111" }, target: @contest)
     vault = FakeVault.new
     Solana::Vault.stub :new, vault do
-      post rebuild_admin_pending_transaction_path(slug: tx.slug)
+      post rebuild_admin_pending_transaction_path(slug: tx.slug), params: { extra_cosigners: [spare_signer] }
     end
     assert_equal 1, vault.cancel_calls.length
     assert_match(/FAKE_TX_cancel/, tx.reload.serialized_tx)
@@ -191,7 +192,7 @@ class Admin::PendingTransactionsControllerTest < ActionDispatch::IntegrationTest
     tx = ptx("register_currency", { mint: USDC, kind: 0, op_rev_ata: "oprev" })
     vault = FakeVault.new
     Solana::Vault.stub :new, vault do
-      post rebuild_admin_pending_transaction_path(slug: tx.slug)
+      post rebuild_admin_pending_transaction_path(slug: tx.slug), params: { extra_cosigners: [spare_signer] }
     end
     assert_equal USDC, vault.register_calls.first[:mint]
     assert_match(/FAKE_TX_register/, tx.reload.serialized_tx)
@@ -202,7 +203,7 @@ class Admin::PendingTransactionsControllerTest < ActionDispatch::IntegrationTest
     tx = ptx("deactivate_currency", { currency_idx: 2 })
     vault = FakeVault.new
     Solana::Vault.stub :new, vault do
-      post rebuild_admin_pending_transaction_path(slug: tx.slug)
+      post rebuild_admin_pending_transaction_path(slug: tx.slug), params: { extra_cosigners: [spare_signer] }
     end
     assert_equal 2, vault.deactivate_calls.first[:currency_idx]
   end
@@ -212,7 +213,7 @@ class Admin::PendingTransactionsControllerTest < ActionDispatch::IntegrationTest
     tx = ptx("sweep_operator_revenue", { currency_mint: USDC, treasury_ata: "t", amount: 0 })
     vault = FakeVault.new
     Solana::Vault.stub :new, vault do
-      post rebuild_admin_pending_transaction_path(slug: tx.slug)
+      post rebuild_admin_pending_transaction_path(slug: tx.slug), params: { extra_cosigners: [spare_signer] }
     end
     assert_equal USDC, vault.sweep_calls.first[:currency_mint]
   end
@@ -228,7 +229,7 @@ class Admin::PendingTransactionsControllerTest < ActionDispatch::IntegrationTest
       Solana::Keypair.stub :encode_base58, ->(s) { s.is_a?(String) ? s : s.to_s } do
         Solana::TxVerifier.stub :verify!, true do
           post confirm_admin_pending_transaction_path(slug: tx.slug),
-            params: { cosigner_address: cosigner, tx_signature: "sig_cancel" }, as: :json
+            params: { extra_cosigners: [spare_signer], cosigner_address: cosigner, tx_signature: "sig_cancel" }, as: :json
         end
       end
     end
@@ -247,7 +248,7 @@ class Admin::PendingTransactionsControllerTest < ActionDispatch::IntegrationTest
       Solana::Keypair.stub :encode_base58, ->(s) { s.is_a?(String) ? s : s.to_s } do
         Solana::TxVerifier.stub :verify!, true do
           post confirm_admin_pending_transaction_path(slug: tx.slug),
-            params: { cosigner_address: cosigner, tx_signature: "sig_reg" }, as: :json
+            params: { extra_cosigners: [spare_signer], cosigner_address: cosigner, tx_signature: "sig_reg" }, as: :json
         end
       end
     end
@@ -264,7 +265,7 @@ class Admin::PendingTransactionsControllerTest < ActionDispatch::IntegrationTest
       Solana::Keypair.stub :encode_base58, ->(s) { s.is_a?(String) ? s : s.to_s } do
         Solana::TxVerifier.stub :verify!, true do
           post confirm_admin_pending_transaction_path(slug: tx.slug),
-            params: { cosigner_address: cosigner, tx_signature: "sig_settle" }, as: :json
+            params: { extra_cosigners: [spare_signer], cosigner_address: cosigner, tx_signature: "sig_settle" }, as: :json
         end
       end
     end
@@ -288,7 +289,7 @@ class Admin::PendingTransactionsControllerTest < ActionDispatch::IntegrationTest
         Solana::TxVerifier.stub :verify!, true do
           assert_enqueued_jobs 1, only: WinnerNotificationJob do
             post confirm_admin_pending_transaction_path(slug: tx.slug),
-              params: { cosigner_address: cosigner, tx_signature: "sig_settle_notify" }, as: :json
+              params: { extra_cosigners: [spare_signer], cosigner_address: cosigner, tx_signature: "sig_settle_notify" }, as: :json
           end
         end
       end
@@ -644,7 +645,7 @@ class Admin::PendingTransactionsControllerTest < ActionDispatch::IntegrationTest
       Solana::Keypair.stub :encode_base58, ->(s) { s.is_a?(String) ? s : s.to_s } do
         Solana::TxVerifier.stub :verify!, true do
           post broadcast_admin_pending_transaction_path(slug: tx.slug),
-            params: { cosigner_address: cosigner, signed_tx: "SIGNED_WIRE" }, as: :json
+            params: { extra_cosigners: [spare_signer], cosigner_address: cosigner, signed_tx: "SIGNED_WIRE" }, as: :json
         end
       end
     end
@@ -666,7 +667,7 @@ class Admin::PendingTransactionsControllerTest < ActionDispatch::IntegrationTest
         Solana::TxVerifier.stub :verify!, true do
           assert_enqueued_jobs 1, only: WinnerNotificationJob do
             post broadcast_admin_pending_transaction_path(slug: tx.slug),
-              params: { cosigner_address: cosigner, signed_tx: "SIGNED_WIRE" }, as: :json
+              params: { extra_cosigners: [spare_signer], cosigner_address: cosigner, signed_tx: "SIGNED_WIRE" }, as: :json
           end
         end
       end
@@ -728,7 +729,7 @@ class Admin::PendingTransactionsControllerTest < ActionDispatch::IntegrationTest
 
     Solana::Vault.stub :new, vault do
       post broadcast_admin_pending_transaction_path(slug: tx.slug),
-        params: { cosigner_address: Solana::Config::MULTISIG_SIGNERS.first, signed_tx: "SIGNED_WIRE" }, as: :json
+        params: { extra_cosigners: [spare_signer], cosigner_address: Solana::Config::MULTISIG_SIGNERS.first, signed_tx: "SIGNED_WIRE" }, as: :json
     end
 
     assert_response :unprocessable_entity
@@ -745,7 +746,7 @@ class Admin::PendingTransactionsControllerTest < ActionDispatch::IntegrationTest
     tx = ptx("cancel_contest", { creator: "Creator11111111111111111111111111111111111" }, target: @contest)
 
     Solana::Vault.stub :new, FakeVault.new do
-      post rebuild_admin_pending_transaction_path(slug: tx.slug), as: :json
+      post rebuild_admin_pending_transaction_path(slug: tx.slug), params: { extra_cosigners: [spare_signer] }, as: :json
     end
 
     assert_response :success

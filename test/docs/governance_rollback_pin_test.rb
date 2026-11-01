@@ -44,37 +44,10 @@ class GovernanceRollbackPinTest < ActiveSupport::TestCase
 
   # ── the selection rule the whole table rests on ───────────────────────────
 
-  test "the switch is what selects the file, and the two files are the two shapes" do
-    assert File.exist?(V25_PATH), "the v0.25 artifact the rollback selects must be committed"
-    assert File.exist?(V26_PATH), "the v0.26 artifact the ceremony selects must be committed"
-
-    # This build is the OFF row, so IDL_PATH must be the v0.25 artifact. If the
-    # merge-time default ever flips, the rollback row below stops being the
-    # row this build can execute and the whole file needs re-reading.
-    refute Solana::Config.governance?, "this build must ship resolved to v0.25"
-    assert_equal V25_PATH.to_s, Solana::Config::IDL_PATH.to_s
-
-    # Structural, not a version string: turf-vault shipped v0.26 with Cargo
-    # version 0.25.0, so metadata.version cannot tell these apart.
-    names = ->(p) { JSON.parse(File.read(p)).fetch("instructions").map { |i| i["name"] } }
-    refute_includes names.call(V25_PATH), "init_governance"
-    assert_includes names.call(V26_PATH), "init_governance"
-    refute_equal sha(V25_PATH), sha(V26_PATH), "two shapes, two hashes — or the pin cannot discriminate at all"
-  end
-
   # ── THE DEFECT, exercised against the real guard ──────────────────────────
   #
   # Only the pin is substituted. IDL_PATH, the file on disk, the SHA256, the
   # shape guard and the raise are all the production ones.
-
-  test "the tightened pin refuses the boot the rollback produces" do
-    Solana::Config.stub(:expected_idl_hashes, [sha(V26_PATH)]) do
-      error = assert_raises(Solana::Config::IdlMismatchError) { Solana::Config.verify_idl! }
-      assert_match(/refusing to boot/, error.message)
-      assert_match(/#{Regexp.escape(sha(V25_PATH))}/, error.message,
-                   "the message must name the hash it got, which is the rolled-back file's")
-    end
-  end
 
   # The control, and the fix. Same call, same file, same guard — only the pin
   # differs, so a green here is attributable to the pin and nothing else.

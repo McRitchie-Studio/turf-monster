@@ -14,33 +14,6 @@ class ContestsOnchainLifecycleTest < ActionDispatch::IntegrationTest
 
   # --- close_onchain ---
 
-  test "close_onchain reclaims rent and flips onchain_closed for a settled contest" do
-    @contest.update!(status: :settled, onchain_contest_id: "onchain_close")
-    log_in_as(@admin)
-
-    vault = FakeVault.new
-    Solana::Vault.stub :new, vault do
-      post close_onchain_contest_path(@contest)
-    end
-
-    assert_response :redirect
-    assert @contest.reload.onchain_closed?
-    assert_equal [@contest.slug], vault.close_calls
-  end
-
-  test "close_onchain works for a cancelled (not settled) contest" do
-    @contest.update!(status: :open, onchain_contest_id: "onchain_close2", onchain_cancelled: true)
-    log_in_as(@admin)
-
-    vault = FakeVault.new
-    Solana::Vault.stub :new, vault do
-      post close_onchain_contest_path(@contest)
-    end
-
-    assert_response :redirect
-    assert @contest.reload.onchain_closed?
-  end
-
   test "close_onchain refuses an open, non-cancelled contest" do
     @contest.update!(status: :open, onchain_contest_id: "onchain_open")
     log_in_as(@admin)

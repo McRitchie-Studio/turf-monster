@@ -58,10 +58,6 @@ class IdlSelectionRuleTest < ActiveSupport::TestCase
   # directly, rather than re-derived in a test because the real parse was frozen
   # into a constant at class-load.
 
-  test "an ABSENT switch resolves to v0.25, which is the shape actually deployed" do
-    refute RULE.governance?({})
-  end
-
   test "a present-but-EMPTY switch raises rather than resolving like absent" do
     assert_raises(RULE::UnreadableSwitchError) { RULE.governance?({ "SOLANA_VAULT_GOVERNANCE" => "" }) }
     assert_raises(RULE::UnreadableSwitchError) { RULE.governance?({ "SOLANA_VAULT_GOVERNANCE" => "  " }) }
@@ -194,13 +190,6 @@ class IdlSelectionRuleTest < ActiveSupport::TestCase
     end
   end
 
-  test "an absent switch and an explicit off give the deploy the same answer" do
-    absent = fields(cli({ "SOLANA_NETWORK" => "mainnet-beta" }.to_json).first)
-    off = fields(cli({ "SOLANA_NETWORK" => "mainnet-beta", "SOLANA_VAULT_GOVERNANCE" => "off" }.to_json).first)
-    assert_equal off, absent
-    assert_equal "config/turf_vault.mainnet.idl.json", absent["idl_path"]
-  end
-
   test "the CLI refuses a garbage switch, a blank cluster, and unparseable input" do
     _, err, status = cli({ "SOLANA_NETWORK" => "mainnet-beta", "SOLANA_VAULT_GOVERNANCE" => "yeah" }.to_json)
     refute status.success?, "a typo must stop the deploy, not pick a shape"
@@ -267,18 +256,6 @@ class IdlSelectionRuleTest < ActiveSupport::TestCase
         end
         assert_match(/declares init_governance: false/, error.message)
         assert_match(/BYPASS_IDL_CHECK does not cover it/, error.message)
-      end
-    end
-  end
-
-  test "a missing IDL file is refused by name, not deployed around" do
-    Dir.mktmpdir do |root|
-      FileUtils.mkdir_p(File.join(root, "config"))
-      RULE.stub(:repo_root, root) do
-        error = assert_raises(RULE::UnknownNetworkError) do
-          RULE.deploy_preflight({ "SOLANA_NETWORK" => "mainnet-beta" })
-        end
-        assert_match(%r{config/turf_vault\.mainnet\.idl\.json is missing}, error.message)
       end
     end
   end

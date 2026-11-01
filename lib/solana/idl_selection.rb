@@ -67,7 +67,7 @@ module Solana
     # last one is the point: absent-vs-empty is directly exercisable without
     # mutating the process environment or re-loading a frozen constant.
     def governance?(env)
-      return false unless env.key?(GOVERNANCE_ENV_VAR)
+      return true unless env.key?(GOVERNANCE_ENV_VAR)
 
       parse_governance(env[GOVERNANCE_ENV_VAR])
     end
@@ -86,7 +86,7 @@ module Solana
         silently wrong on exactly the day someone meant to change it.
 
         Accepted (case-insensitive): #{(GOVERNANCE_TRUE + GOVERNANCE_FALSE).join(" ")}
-        Unset the variable entirely for the v0.25 (pre-governance) shape.
+        Unset the variable entirely for the default, the v0.26 governance shape.
       MSG
     end
 

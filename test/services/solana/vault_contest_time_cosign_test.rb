@@ -45,6 +45,9 @@ class Solana::VaultContestTimeCosignTest < ActiveSupport::TestCase
       @blockhash
     end
 
+    # The contest account: absent, so a time change reads as a first set.
+    def get_account_info(*_args, **_opts) = { "value" => nil }
+
     def get_block_height(commitment: nil)
       @journal << :get_block_height
       1

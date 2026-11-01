@@ -116,32 +116,10 @@ class DeployIdlDanceTest < ActiveSupport::TestCase
   # The same property in the direction that is live TODAY: the switch is unset,
   # so the v0.25 file is selected and the v0.26 hash is the one kept — which is
   # what makes the ceremony's forward flip a config write rather than a deploy.
-  test "with the switch unset the v0.25 IDL is selected and v0.26 is kept" do
-    result = deploy(governance: nil, pin: STALE)
-    tighten = result[:config_sets].last.split(",")
-
-    assert_equal V025, tighten.first
-    assert_includes tighten, V026
-    assert_match(%r{config/turf_vault\.mainnet\.idl\.json}, result[:stdout])
-  end
-
   # TODAY'S REAL STATE (read 2026-10-12): both apps pin the v0.25 hash ALONE
   # and the switch is unset. The live file is pinned, so the pre-fix script saw
   # no bump, wrote nothing, and the v0.26 hash never reached the allow-list —
   # the forward flip would then have refused to boot. A deploy must add it.
-  test "a v0.25-only pin gains the v0.26 hash without losing its own" do
-    result = deploy(governance: nil, pin: V025)
-
-    assert_equal 0, result[:status], result[:stderr]
-    assert_equal 2, result[:config_sets].length, "widen, then tighten"
-    result[:config_sets].each do |set|
-      hashes = set.split(",")
-      assert_includes hashes, V025, "the switch-off app boots on the v0.25 file at every step"
-      assert_includes hashes, V026, "the forward flip needs the v0.26 hash allow-listed"
-    end
-    assert_equal [V025, V026], result[:config_sets].last.split(",")
-  end
-
   # ── REFUSALS HAPPEN BEFORE ANYTHING IS WRITTEN ────────────────────────────
 
   test "a garbage switch stops the deploy before the widen and before the push" do

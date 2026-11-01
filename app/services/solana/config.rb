@@ -691,17 +691,14 @@ module Solana
     # So the app is VERSION-AWARE: four IDL artifacts (two clusters x two
     # program versions), and one config var decides which pair is live.
     #
-    #   SOLANA_VAULT_GOVERNANCE unset / "off" / "0" / "false"
+    #   SOLANA_VAULT_GOVERNANCE "off" / "0" / "false"
     #     -> v0.25 shape. config/turf_vault{,.mainnet}.idl.json.
-    #   SOLANA_VAULT_GOVERNANCE "on" / "1" / "true"
+    #   SOLANA_VAULT_GOVERNANCE unset / "on" / "1" / "true"
     #     -> v0.26 shape. config/turf_vault{,.mainnet}.v026.idl.json.
     #
-    # THE DEFAULT IS OFF BECAUSE OFF IS WHAT IS DEPLOYED. Both clusters run
-    # v0.25, so an absent var resolves to the shape the chain actually speaks.
-    # This is the opposite of the SOLANA_NETWORK footgun documented above: that
-    # var's silent default pointed at the WRONG cluster, whereas this one's
-    # points at the CURRENT program, and the day it becomes wrong is a day an
-    # operator deliberately upgraded the program.
+    # THE DEFAULT IS ON BECAUSE ON IS WHAT IS DEPLOYED: both clusters have run
+    # v0.26 since 2026-10-12 (programdata hashes in turf-vault
+    # docs/CURRENT_DEPLOYMENT.md, re-read 2026-11-01).
     #
     # PRESENT-BUT-GARBAGE RAISES, and so does present-but-empty. `ENV.key?` —
     # not `ENV.fetch(k, default)` — is what tells "absent" apart from "set to

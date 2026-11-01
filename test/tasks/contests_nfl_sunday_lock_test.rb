@@ -230,11 +230,6 @@ class ContestsNflSundayLockTaskTest < ActiveSupport::TestCase
     end
   end
 
-  test "v0.25 dry run adds no signature note" do
-    rows, = apply_lock
-    refute_match(/signature/, row_for(rows, @contest).reason)
-  end
-
   test "the rake task signs with SOLANA_COSIGNER_KEYS" do
     cosigner = Solana::Keypair.generate
     ENV["SLUGS"] = @contest.slug

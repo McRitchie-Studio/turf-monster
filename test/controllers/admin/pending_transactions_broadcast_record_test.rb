@@ -26,6 +26,11 @@ require "minitest/mock"
 # A verification failure then becomes an ALERT ON A RECORDED TRANSACTION rather
 # than the absence of a record.
 class Admin::PendingTransactionsBroadcastRecordTest < ActionDispatch::IntegrationTest
+  # A vault action past the two named signers wants one extra (v0.26).
+  def spare_signer(*taken)
+    (Solana::CosignPlan.eligible_cosigners - [Solana::Config::MULTISIG_COSIGNER, Solana::Config::MULTISIG_SIGNERS.first, *taken]).first
+  end
+
   setup do
     @admin   = users(:alex)
     @contest = contests(:one)
@@ -56,7 +61,7 @@ class Admin::PendingTransactionsBroadcastRecordTest < ActionDispatch::Integratio
 
   def broadcast(tx, wire: "SIGNED_WIRE")
     post broadcast_admin_pending_transaction_path(slug: tx.slug),
-         params: { cosigner_address: cosigner, signed_tx: wire }, as: :json
+         params: { cosigner_address: cosigner, signed_tx: wire, extra_cosigners: [spare_signer] }, as: :json
   end
 
   # ══════════════════════════════════════════════════════════════════════════
@@ -187,7 +192,7 @@ class Admin::PendingTransactionsBroadcastRecordTest < ActionDispatch::Integratio
 
     with_vault(FakeVault.new, verifier: ->(**) { true }) do
       post confirm_admin_pending_transaction_path(slug: tx.slug),
-           params: { cosigner_address: cosigner, tx_signature: "FOUND_ON_CHAIN" }, as: :json
+           params: { extra_cosigners: [spare_signer], cosigner_address: cosigner, tx_signature: "FOUND_ON_CHAIN" }, as: :json
     end
 
     assert_response :success

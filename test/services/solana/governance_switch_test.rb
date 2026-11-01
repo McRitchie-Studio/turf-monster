@@ -28,17 +28,6 @@ class Solana::GovernanceSwitchTest < ActiveSupport::TestCase
 
   # ── THE DEFAULT IS THE DEPLOYED SHAPE ─────────────────────────────────────
 
-  test "an ABSENT switch resolves to the v0.25 shape, which is what is deployed" do
-    refute resolve(nil, present: false),
-           "the default must match the program actually on chain, or this PR is an outage on its own"
-  end
-
-  test "this build ships resolved to v0.25" do
-    refute Solana::Config.governance?,
-           "the merge-time default must stay v0.25 until the Squads upgrade lands"
-    assert_equal "v0.25", Solana::Config.vault_shape
-  end
-
   test "the affirmative vocabulary turns the v0.26 shape on" do
     %w[on 1 true yes enabled ON True YES].each do |v|
       assert resolve(v), "#{v.inspect} should select v0.26"
@@ -66,7 +55,7 @@ class Solana::GovernanceSwitchTest < ActiveSupport::TestCase
   test "a present-but-EMPTY value raises rather than resolving like absent" do
     assert_raises(Solana::IdlSelection::UnreadableSwitchError) { resolve("") }
     assert_raises(Solana::IdlSelection::UnreadableSwitchError) { resolve("   ") }
-    refute resolve("", present: false), "absent is still the documented default"
+    assert resolve("", present: false), "absent is the documented default: v0.26"
   end
 
   # The read moved to lib/solana/idl_selection.rb with the rest of the selection
@@ -171,21 +160,6 @@ class Solana::GovernanceSwitchTest < ActiveSupport::TestCase
   # copy, a half-applied revert, or a hand-edited IDL — every one of which ends
   # with Rails assembling account lists for a program shape other than the one
   # this slug believes is deployed.
-
-  test "a switch that disagrees with the pinned IDL refuses, naming both sides" do
-    # This build is resolved to v0.25; pretend the selected file is the v0.26 one.
-    Solana::Config.stub(:idl_declares_governance?, true) do
-      error = assert_raises(Solana::Config::GovernanceMismatchError) do
-        Solana::Config.verify_governance_alignment!
-      end
-
-      assert_match(/SOLANA_VAULT_GOVERNANCE/, error.message)
-      assert_match(/declares init_governance: true/, error.message)
-      assert_match(/turf_vault\.idl\.json/, error.message, "the message must name the file it read")
-      assert_match(/Do NOT set\s+BYPASS_IDL_CHECK/m, error.message,
-                   "the hash bypass is not an escape hatch for a wrong SHAPE")
-    end
-  end
 
   test "an agreeing pair passes silently" do
     assert_nil Solana::Config.verify_governance_alignment!

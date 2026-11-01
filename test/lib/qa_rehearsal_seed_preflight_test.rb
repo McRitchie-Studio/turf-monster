@@ -39,7 +39,10 @@ class QaRehearsalSeedPreflightTest < ActiveSupport::TestCase
 
     def vault
       state = seated && { active_signers: seated }
-      Object.new.tap { |v| v.define_singleton_method(:read_vault_state) { state } }
+      Object.new.tap do |v|
+        v.define_singleton_method(:read_vault_state) { state }
+        v.define_singleton_method(:required_signatures) { |_action| 2 }
+      end
     end
 
     def call(source)
