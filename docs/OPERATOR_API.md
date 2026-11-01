@@ -8,7 +8,7 @@ mcritchie-studio `docs/agents/system/agent-message-loop.md`, "Operations".
 | Route | What it does | Writes |
 |-------|--------------|--------|
 | `GET /_operator/contests?scope=open\|all&limit=1-25` | Recent contests: slug, name, status, cancelled, cancel queued, weeks, format, lock, entries, paid entries | nothing |
-| `POST /_operator/contests/:slug/cancel` (`paid_entries` none\|refund\|credit, `requested_by`, `request_ref`) | `Contest#queue_cancel_cosign!`, the admin button's path: a `cancel_contest` PendingTransaction for a cosign in the Treasury | one PendingTransaction, or none when one is already waiting |
+| `POST /_operator/contests/:slug/cancel` (`paid_entries` none\|refund\|credit, `requested_by`, `request_ref`) | `Contests::CancelQueue`, the admin button's own build (`ContestsController#cancel_onchain`): a `cancel_contest` PendingTransaction for a cosign in the Treasury | one PendingTransaction, or none when one is already waiting |
 | `POST /_operator/contests/prepare` (`week` 1-22, `weeks` 1-3, `season` regular\|preseason, `contest_type`) | Checks every week of the span has a weekly NFL slate and returns the pre-filled `/contests/new` link | nothing |
 
 **Auth.** `Authorization: Bearer $TURF_OPERATOR_TOKEN`, compared in constant time.

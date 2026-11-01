@@ -51,6 +51,8 @@ class Operator::ContestOpsTest < ActiveSupport::TestCase
     assert_equal "proposal-7", meta["request_ref"]
     assert_equal "Alex McRitchie (go in Slack)", meta["requested_by"]
     assert meta["creator"].present?
+    assert_nil meta["platform_cosigner"], "no platform cosign is asked for: that stays the Treasury checkbox"
+    assert_empty Array(@vault.cancel_calls.first[:extra_cosigners]), "the build adds no extra cosigner"
     assert_equal 1, @vault.cancel_calls.size
     assert_empty Array(@vault.broadcast_calls)
   end

@@ -9,7 +9,7 @@ module Operator
   #
   #   list     a read: recent contests with their state, entry and paid-entry
   #            counts, and whether a cancel is already waiting.
-  #   cancel   Contest#queue_cancel_cosign!, the admin button's own path: a
+  #   cancel   Contests::CancelQueue, the admin button's own build: a
   #            cancel_contest PendingTransaction for a cosign in the Treasury.
   #            Nothing is broadcast; the owner's wallet signs it there
   #            (AGENTS.md First Rule 10). With paid entries it refuses until
@@ -58,7 +58,7 @@ module Operator
       entries = Entry.where(contest_id: ids, status: %w[active complete]).group(:contest_id).count
       paid = Contest.paid_entries.where(contest_id: ids).distinct.group(:contest_id).count(:id)
       queued = PendingTransaction.where(target_type: "Contest", target_id: ids, tx_type: "cancel_contest",
-                                        status: Contest::CANCEL_IN_FLIGHT).distinct.pluck(:target_id)
+                                        status: Contests::CancelQueue::IN_FLIGHT).distinct.pluck(:target_id)
       contests.map do |contest|
         { "slug" => contest.slug, "name" => contest.name, "status" => contest.status,
           "cancelled" => contest.onchain_cancelled?, "cancel_queued" => queued.include?(contest.id),
@@ -86,12 +86,12 @@ module Operator
 
       metadata = { "source" => "operator", "requested_by" => plain(requested_by), "request_ref" => plain(request_ref),
                    "paid_entries" => paid, "paid_entries_choice" => (choice unless choice == "none") }.compact
-      pending, created = contest.queue_cancel_cosign!(vault: @vault_factory.call, metadata: metadata)
+      pending, created = Contests::CancelQueue.new(contest, vault: @vault_factory.call).call(metadata: metadata)
       recorded = pending.parsed_metadata
       { "state" => created ? "queued" : "already_queued", "slug" => contest.slug, "name" => contest.name,
         "pending_transaction_id" => pending.id, "entries" => contest.active_entry_count, "paid_entries" => paid,
         "paid_entries_choice" => recorded["paid_entries_choice"], "treasury_path" => TREASURY_PATH }.compact
-    rescue Contest::CancelRefused => e
+    rescue Contests::CancelQueue::Refused => e
       raise Refused.new("not_cancellable", e.message)
     end
 

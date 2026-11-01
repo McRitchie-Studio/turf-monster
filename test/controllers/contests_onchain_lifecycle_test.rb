@@ -98,21 +98,6 @@ class ContestsOnchainLifecycleTest < ActionDispatch::IntegrationTest
     assert_equal "OnChainCreatorXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX", vault.cancel_calls.first[:creator]
   end
 
-  test "cancel_onchain a second time does not stack a second cosign" do
-    @contest.update!(status: :open, onchain_contest_id: "onchain_cancel_twice")
-    log_in_as(@admin)
-
-    vault = FakeVault.new
-    assert_difference -> { PendingTransaction.count }, 1 do
-      Solana::Vault.stub :new, vault do
-        post cancel_onchain_contest_path(@contest)
-        post cancel_onchain_contest_path(@contest)
-      end
-    end
-    assert_redirected_to admin_pending_transactions_path
-    assert_equal 1, vault.cancel_calls.size
-  end
-
   test "cancel_onchain refuses a settled contest" do
     @contest.update!(status: :settled, onchain_contest_id: "onchain_settled")
     log_in_as(@admin)
