@@ -77,10 +77,9 @@ IDL bumps are handled automatically: EXPECTED_IDL_HASH is a comma allow-list, so
 the script widens it to {old,new}, pushes, then tightens to the hashes this slug
 ships for the target's cluster — the live and incoming slugs both verify across
 the release, with no BYPASS / unverified window. Which IDL is "live" is decided
-by the target's SOLANA_NETWORK *and* SOLANA_VAULT_GOVERNANCE, read through
-lib/solana/idl_selection.rb — the same rule Solana::Config applies at boot.
-The tighten keeps the OTHER switch position's hash so `heroku config:unset
-SOLANA_VAULT_GOVERNANCE` still boots (the v0.26 one-command rollback).
+by the target's SOLANA_NETWORK, read through lib/solana/idl_selection.rb — the
+same rule Solana::Config applies at boot. No config var rolls the program shape
+back: that is a code revert (docs/SOLANA.md, "One shape, one IDL per cluster").
 
 One-time mainnet first deploy: follow MAINNET_LAUNCH.md instead.
 USAGE
@@ -104,8 +103,8 @@ git remote get-url "$REMOTE" >/dev/null 2>&1 \
 
 BRANCH=$(git rev-parse --abbrev-ref HEAD)   # computed BEFORE the skip-checks gate
 
-# Defined under set -u even when checks are skipped. IDL_FILE/SIBLING_IDL_FILE
-# stay EMPTY rather than guessing a file: which IDL this target boots against is
+# Defined under set -u even when checks are skipped. IDL_FILE
+# stays EMPTY rather than guessing a file: which IDL this target boots against is
 # resolved from the target's own config vars below, never assumed here.
 LOCAL_HASH=""; REMOTE_HASHES=""; IDL_BUMP=0; IDL_FILE=""
 
