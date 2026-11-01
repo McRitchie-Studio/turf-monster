@@ -11,7 +11,7 @@ mcritchie-studio `docs/agents/system/agent-message-loop.md`, "Operations".
 | `POST /_operator/contests/:slug/cancel` (`paid_entries` none\|refund\|credit, `requested_by`, `request_ref`) | `Contests::CancelQueue`, the admin button's own build (`ContestsController#cancel_onchain`): a `cancel_contest` PendingTransaction for a cosign in the Treasury | one PendingTransaction, or none when one is already waiting |
 | `POST /_operator/contests/prepare` (`week` 1-22, `weeks` 1-3, `season` regular\|preseason, `contest_type`) | Checks every week of the span has a weekly NFL slate and returns the pre-filled `/contests/new` link | nothing |
 
-**Auth.** `Authorization: Bearer $TURF_OPERATOR_TOKEN`, compared in constant time.
+**Auth.** A bearer token, the value of `TURF_OPERATOR_TOKEN`, compared in constant time.
 With the variable unset every request is a bare 404. The hub holds the same value
 as `OPERATOR_TOKEN_TURF_MONSTER`. It is its own token, never the read-only
 `STUDIO_HEALTH_TOKEN`. 1Password: `turf.operator.token` (Steffon files it,
