@@ -49,7 +49,8 @@ class FrozenAccountWriteInventoryTest < ActiveSupport::TestCase
     "action_mailbox/"         => "inbound email ingress: authenticated by the provider's password, no session",
     "rails/conductor/"        => "Rails' development-only inbound email conductor, not routed in production",
     "active_storage/"         => "a blob upload attached to nothing; the attach is a guarded write (avatar, banner)",
-    "csp_reports"             => "a browser's CSP violation report: no session, writes only an ErrorLog row"
+    "csp_reports"             => "a browser's CSP violation report: no session, writes only an ErrorLog row",
+    "operator/"               => "the hub's server-to-server operator endpoint: a bearer token, no session and no player to freeze"
   }.freeze
 
   # Mounted Rack apps: no controller, no callback chain. Assets are not one:
