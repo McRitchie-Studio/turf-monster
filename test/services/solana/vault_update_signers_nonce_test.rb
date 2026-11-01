@@ -18,11 +18,9 @@ class Solana::VaultUpdateSignersNonceTest < ActiveSupport::TestCase
 
   def build(value, lead:, authority: admin)
     phantom = Solana::Keypair.generate.to_base58
-    Solana::Config.stub(:governance?, false) do
-      vault(value).build_update_signers(new_signers: [admin, phantom, Solana::Keypair.generate.to_base58],
-                                        lead_signer: lead, cosigner_pubkey: phantom,
-                                        durable_nonce: { pubkey: NONCE, authority: authority })
-    end
+    vault(value).build_update_signers(new_signers: [admin, phantom, Solana::Keypair.generate.to_base58],
+                                      lead_signer: lead, cosigner_pubkey: phantom,
+                                      durable_nonce: { pubkey: NONCE, authority: authority })
   end
 
   test "a server-led build advances the nonce first and anchors on its value, server already signed" do
@@ -41,7 +39,7 @@ class Solana::VaultUpdateSignersNonceTest < ActiveSupport::TestCase
 
   test "without a nonce the build carries no advance and reports none" do
     phantom = Solana::Keypair.generate.to_base58
-    result = Solana::Config.stub(:governance?, false) do
+    result = begin
       vault(Solana::Keypair.generate.to_base58)
         .build_update_signers(new_signers: [admin, phantom, Solana::Keypair.generate.to_base58],
                               lead_signer: admin, cosigner_pubkey: phantom)

@@ -43,7 +43,7 @@ Separate project at `/Users/alex/projects/turf-vault/`. Current deployment ident
 - The two are DIFFERENT programs, and the admin deployment-state card (`app/views/contract/_section_admin_state.html.erb`) must say so. Its Program ID caption read "Same on devnet + mainnet builds" from the page's first commit until card-claims-program-invariance; it now names the cluster this build runs on, off the same `Solana::Config::NETWORK` read the Upgrade authority caption uses. Guarded by a RENDERED assertion in `test/views/contract_program_id_caption_test.rb`, which drives the real page under both cluster configurations and requires the two captions to differ — a source grep would pass on a card that stopped emitting the caption at all.
 - Superseded/orphaned devnet programs include `Dx8uGU5w7B9NytDSsW4kseGZuqdVVRq1KY1mGXN2GaCT` and `7Hy8GmJWPMdt6bx3VG4BLFnpNX9TBwkPt87W6bkHgr2J`; never use them for live verification.
 - `VaultState` PDA `[b"vault"]` is a **zero-copy singleton** (~1515 bytes) holding the signer set, threshold, `paused` flag, the pinned `payout_mint` (USDC), the pinned `treasury_authority` (Squads vault PDA), and the 16-slot `accepted_currencies` registry. It holds **no pooled token balance**. Rails decodes it via hardcoded byte offsets in `vault.rb#read_vault_state`.
-- IDL: committed at `config/turf_vault.idl.json` for devnet and `config/turf_vault.mainnet.idl.json` for mainnet, SHA256-pinned via `EXPECTED_IDL_HASH` (`Solana::Config.verify_idl!`). Current source-tree hashes: devnet `f11446facec1043cb15b169929aaff3da9e955e05f3c462e86c7b584706246e9`; mainnet `b9b522635894a42f5434f1faa1cd126d146f3042ae2c233acd1dd76a300f7152`. Live Heroku truth is the configured `EXPECTED_IDL_HASH` allow-list; a committed IDL can be staged before a mainnet upgrade is accepted.
+- IDL: committed at `config/turf_vault.v026.idl.json` for devnet and `config/turf_vault.mainnet.v026.idl.json` for mainnet, SHA256-pinned via `EXPECTED_IDL_HASH` (`Solana::Config.verify_idl!`). Current source-tree hashes: devnet `f11446facec1043cb15b169929aaff3da9e955e05f3c462e86c7b584706246e9`; mainnet `b9b522635894a42f5434f1faa1cd126d146f3042ae2c233acd1dd76a300f7152`. Live Heroku truth is the configured `EXPECTED_IDL_HASH` allow-list; a committed IDL can be staged before a mainnet upgrade is accepted.
 - USDC Mint (devnet test): `222Dcu2RgAXE3T8A4mGSG3kQyXaNjqePx7vva1RdWBN9` — registry **slot 0** (= `payout_mint`, the immutable settlement currency).
 - USDT Mint (devnet test): `9mxkN8KaVA8FFgDE2LEsn2UbYLPG8Xg9bf4V9MYYi8Ne` — registry **slot 1**. (Mainnet builds pin Circle USDC `EPjFWdd5…Dt1v` + Tether USDT `Es9vMFr…wNYB`.) All amounts are `u64` at 6 decimals (1 USDC = 1_000_000). Money units: Rails holds integer cents; the chain holds integer base units; one cent is 10_000 base units (`Solana::Config::BASE_UNITS_PER_CENT`). Every amount that goes to the chain, or is compared with it, is converted by `Solana::Config.cents_to_base_units`, which takes only an Integer. Display reads base units back with `Solana::Config.base_units_to_dollars`, an exact BigDecimal. A dollar amount a person types becomes cents through `Cents.from_dollars` (BigDecimal, floored). No Float touches a chain amount: `cents / 100.0 * 10**6` truncated one unit short for about one cent value in fifty (201 cents gave 2_009_999). `test/services/solana/money_integer_guard_test.rb` fails on new float money math outside the pinned display lines.
 
@@ -108,57 +108,51 @@ Signers (`VaultState` slots) on **mainnet**, read 2026-10-14 at 11:10 MDT by tur
 - **The devnet signal is the `contest-rehearsal` gauntlet**, run per release against QA (`docs/qa-contest-rehearsal.md`). No CI workflow runs the `@devnet` Playwright specs: Devnet Nightly skipped 161 of its 162 runs (it needed the repo variable `DEVNET_NIGHTLY_ENABLED` plus the secrets `SOLANA_BOT_KEY` and `MACK_DEVNET_KEY`), nothing read its output, and it was deleted on 2026-10-24. The specs run by hand (`e2e/DEVNET_RUNBOOK.md`).
 - The filed copies live in `config/mainnet_vault_signers.yml`, `config/solana_signers.yml` and `config/signer_roster.yml`.
 
-### turf-vault v0.26 — governance-as-data, and how Rails carries TWO program shapes
+### turf-vault v0.26 — governance-as-data
 
-v0.26 is on turf-vault's `accepted` branch and **is not deployed** — mainnet and
-devnet both still run v0.25. It rewrites the auth model: up to five signer
-slots, per-action signature thresholds stored in a `GovernanceConfig` PDA rather
-than baked into the instruction shape, a per-window cap on free-entry minting,
-and an on-chain username registry.
+Both clusters run v0.26 since 2026-10-12 (`turf-vault/docs/CURRENT_DEPLOYMENT.md`
+holds each program's SHA256; both matched the chain on 2026-11-01). It rewrites
+the auth model: up to five signer slots, per-action signature thresholds stored
+in a `GovernanceConfig` PDA rather than baked into the instruction shape, a
+per-window cap on free-entry minting, and an on-chain username registry.
 
-For Rails the consequence is narrow and severe: **every vault-authorized
-instruction gains a `governance` account**, plus `treasury` on `close_contest`,
-`window_index` + `mint_window` on `mint_entry_token`, `invitee_user_account` on
-`grant_seeds`, and `username_record` on the two username paths. Anchor account
-lists are POSITIONAL, so the two shapes are mutually unintelligible: a v0.26
-wire sent to the live v0.25 program is rejected, and a v0.25 wire sent to an
-upgraded program is rejected too.
+**Every vault-authorized instruction carries a `governance` account**, plus
+`treasury` on `close_contest`, `window_index` + `mint_window` on
+`mint_entry_token`, `invitee_user_account` on `grant_seeds`, and
+`username_record` on the two username paths. Anchor account lists are
+POSITIONAL, so a wire of any other shape is rejected.
 
-#### Why this app is version-aware rather than upgraded in lockstep
+#### One shape, one IDL per cluster
 
-"Update Rails before the deploy" and "upgrade the program before Rails" are the
-same outage in opposite directions. Shipping the new account set while v0.25 is
-live breaks the entire on-chain surface exactly as surely as upgrading the
-program first would.
+The app carried both v0.25 and v0.26 through the upgrade, picked by
+`SOLANA_VAULT_GOVERNANCE`. The v0.25 shape was retired on 2026-11-01, by Mr.
+McRitchie's ruling: **rolling the program back to v0.25 is now a code revert
+deploy** (restore the v0.25 IDLs and branches from git) plus the program rollback
+in `CURRENT_DEPLOYMENT.md`. No config var does it.
 
-So the slug carries BOTH shapes and picks one at boot:
+| `SOLANA_NETWORK` | IDL |
+|---|---|
+| `mainnet-beta` | `config/turf_vault.mainnet.v026.idl.json` |
+| anything else | `config/turf_vault.v026.idl.json` |
 
-| `SOLANA_VAULT_GOVERNANCE` | shape | IDL selected (by cluster) |
-|---|---|---|
-| unset (the default), `off`, `0`, `false`, `no`, `disabled` | v0.25 | `config/turf_vault.idl.json` · `config/turf_vault.mainnet.idl.json` |
-| `on`, `1`, `true`, `yes`, `enabled` | v0.26 | `config/turf_vault.v026.idl.json` · `config/turf_vault.mainnet.v026.idl.json` |
-| present but anything else, **including empty** | — | **refuses to boot**, naming the variable |
+`SOLANA_VAULT_GOVERNANCE` no longer selects anything:
 
-- **The default is OFF because OFF is what is deployed.** An absent variable
-  resolves to the shape the chain actually speaks, so merging and deploying this
-  code changes nothing in production.
-- **Present-but-garbage raises.** `ENV.key?` distinguishes absent from
-  set-to-nonsense — the precise hole that `empty-solana-network-fails-open`
-  closed for `SOLANA_NETWORK`. A typo must not silently mean "off" on the one day
-  someone meant to turn it on.
-- **The switch can pick a VERSION, never a CLUSTER.** `IDL_PATH`'s basename is
-  still decided by `SOLANA_NETWORK` alone; the switch only appends a suffix.
-  Pinned by `test/services/solana/config_network_required_test.rb`.
-- **`Solana::Config.verify_governance_alignment!` refuses a boot where the
-  switch and the pinned IDL disagree**, and is deliberately NOT covered by
-  `BYPASS_IDL_CHECK` — that hatch exists for hash SKEW, where the shape is right
-  and only the pin is stale. A wrong shape has no legitimate override.
+| value | boot |
+|---|---|
+| unset, `on`, `1`, `true`, `yes`, `enabled` | boots |
+| `off`, `0`, `false`, `no`, `disabled` | **refuses**: it expects a shape this slug does not speak |
+| present but anything else, **including empty** | **refuses to boot**, naming the variable |
+
+`lib/solana/idl_selection.rb` owns the rule: `Solana::Config` applies it to ENV at
+boot, `bin/deploy` to the target's config vars. **`Solana::Config.verify_governance_alignment!`
+refuses a boot on an IDL that does not declare `init_governance`**, and is
+deliberately NOT covered by `BYPASS_IDL_CHECK`: that hatch exists for hash SKEW,
+where the shape is right and only the pin is stale.
 
 #### The version string is not the discriminator
 
-The v0.26 IDLs read `metadata.version` `0.26.0` and the v0.25 IDLs read
-`0.25.0`, but the first v0.26 build shipped still reading `0.25.0`, so the
-string is a label, not a shape. `Solana::Config.idl_declares_governance?` probes
+The v0.26 IDLs read `metadata.version` `0.26.0`, but the first v0.26 build
+shipped still reading `0.25.0`, so the string is a label, not a shape. `Solana::Config.idl_declares_governance?` probes
 STRUCTURALLY, for an `init_governance` instruction, which exists only in v0.26
 and which nobody hand-maintains. Do not reintroduce a version-string check.
 
@@ -178,8 +172,6 @@ fetch returns the OLD one and the pin would certify the wrong shape.
 
 | file | SHA256 |
 |---|---|
-| `config/turf_vault.idl.json` (v0.25 devnet, **unchanged**) | `f11446facec1043cb15b169929aaff3da9e955e05f3c462e86c7b584706246e9` |
-| `config/turf_vault.mainnet.idl.json` (v0.25 mainnet, **unchanged**) | `b9b522635894a42f5434f1faa1cd126d146f3042ae2c233acd1dd76a300f7152` |
 | `config/turf_vault.v026.idl.json` (devnet) | `2d9f71517600221859029d0ddb9b7e5d126f8d5cc5a4cf1b4bd5d9392c6ab2c0` |
 | `config/turf_vault.mainnet.v026.idl.json` (mainnet) | `1499f4cf9fd6f161e227965d1ca357a8a919c9f031928573e6607a9d71889f4e` |
 
@@ -194,7 +186,7 @@ count goes 22 -> 28: eight added, and `admin_create_user_account` +
 Thresholds are DATA (`GovernanceConfig`), retunable by one `set_action_threshold`
 transaction, some with immovable floors. What changes for Rails:
 
-| action | today | v0.26 | Rails supplies | consequence |
+| action | v0.25 | v0.26 | Rails supplies | consequence |
 |---|---|---|---|---|
 | `create_season` | 1 | **3** | admin + 2 in `remaining_accounts` | admin UI cannot create a season alone |
 | `close_contest` | 1 | **2** | admin + 1 | the admin "Reclaim rent" button queues a Treasury cosign (one Phantom signature) instead of closing server-signed |
@@ -207,13 +199,13 @@ transaction, some with immovable floors. What changes for Rails:
 | `mint_entry_token` above the cap (250/day) | — | **3** | admin + 2 | a mint spike asks for three humans |
 | `grant_seeds` · `create_contest` · `enter_contest{,_with_token}` | 1 | **1** | unchanged | the player-facing paths are untouched |
 
-**Rails reads the numbers from the chain.** On a v0.26 boot,
+**Rails reads the numbers from the chain.**
 `Solana::Vault#required_signatures` applies `GovernanceConfig::threshold_for` to
 the stored table (`cached_governance`, one minute), so a retune reaches the
 unattended builders without a deploy. An unreadable account falls back to the
 defaults above, which fail closed if wrong. The re-open and amend branches are
 picked from the contest ACCOUNT (`Vault#contest_time_action`), never the row.
-v0.25 reads nothing. The operator cosign paths (`Solana::CosignPlan`) read the
+The operator cosign paths (`Solana::CosignPlan`) read the
 same stored table (one read per plan) and judge cosigner membership against
 VaultState's seated slots, all five on v0.26, falling back to the defaults and
 `SOLANA_MULTISIG_SIGNERS` when the chain cannot be read.
@@ -380,8 +372,8 @@ signatures, and his wallet (7ZDJ, 3Qj4 or 9gAC) is always the third and final.
   purpose (`ContestsController#update`).
 - **The invariant.** `CosignPlan#platform_cosign?` holds only while
   `extra_cosigners_needed` is positive, so the platform never fills an extra
-  slot and never signs where two signatures would complete the action (a v0.25
-  boot, or a settle retuned to two; devnet's settle threshold is 2, so a QA
+  slot and never signs where two signatures would complete the action (a settle
+  retuned to two; devnet's settle threshold is 2, so a QA
   settle keeps the server plus one wallet). A nonce-anchored settle never takes
   it.
 
@@ -475,10 +467,6 @@ Two consequences worth knowing before the ceremony:
   paid fulfilment. A level it defers is paid on the next pass; a purchase
   refused after the charge is not.
 
-Both behave correctly with `SOLANA_VAULT_GOVERNANCE` off, which is the
-production default today: in the v0.25 shape there is no cap, and the guard
-issues no RPC at all.
-
 #### THE 3-OF-3 GAP — what breaks between the upgrade and the signer rotation
 
 At deploy, `VaultState.signers` is still **three** keys, so every action raised
@@ -506,144 +494,20 @@ lost key. Specifically:
   "The mint cap is the one threshold that moves during the day" above. Watch
   `remaining` on a heavy grant day.
 
-#### Upgrade ordering — UNFORGIVING
-
-Four steps, and the numbers are the order. **Tightening `EXPECTED_IDL_HASH` is
-NOT one of them** — it is a separate, later act that ends the cheap rollback, and
-it has its own preconditions under "Tightening the pin — the one-way door" below.
+#### Upgrade ordering, for the next program that adds an account
 
 1. **Squads upgrade** (`turf-vault/scripts/squad-upgrade.js`). The script reads
    the multisig's live members, masks and threshold and refuses BEFORE it spends
-   a lamport if the keys in hand cannot both approve and execute — a run that
-   dies at the approve step has already paid for `ExtendProgram` and stranded a
-   buffer. On **devnet it runs unattended**; on **mainnet it stops at a handoff**
-   for Mr. McRitchie's approvals. Which one you get is decided by the membership
-   recorded under "Program Upgrades — Squads multisig" below; read it there
-   rather than assuming, and re-derive it from chain on the day.
-2. **`init_governance` IMMEDIATELY.** Every vault-authorized instruction requires
-   that PDA — `pause` INCLUDED — so between the upgrade and this call the platform
-   has NO BRAKE. `turf-vault/scripts/init-governance.js`; `--cluster` is required
-   and has no default. It takes NO arguments, which is what makes its
-   2-signature bootstrap safe: it can only write the shipped defaults.
-3. `heroku config:set EXPECTED_IDL_HASH="<v0.25>,<v0.26>" SOLANA_VAULT_GOVERNANCE=on`
-   and restart. (`bin/deploy` now adds the other switch position's hash on any
-   deploy where it is missing, so after one deploy of this slug the pair is
-   already pinned; read 2026-10-12, both apps pinned the v0.25 hash alone.) Widening the allow-list first means no unverified window across
-   the flip — and **leaving it widened is what keeps the rollback one command.**
-4. **`update_signers` to widen the set to five** — this is what closes the 3-of-3
-   gap. **It cannot be pulled earlier than step 1.** v0.25's `VaultState` holds
-   THREE signer slots, and a five-key `update_signers` sent to the deployed
-   v0.25 binary SUCCEEDS: it silently truncates to the first three, under a
-   green simulation. Nothing fails at send time, and the two keys you believe
-   you added are simply absent the next time an action needs them.
+   a lamport if the keys in hand cannot both approve and execute. On **devnet it
+   runs unattended**; on **mainnet it stops at a handoff** for Mr. McRitchie's
+   approvals.
+2. **Any new account's initialization, IMMEDIATELY.** v0.26's `init_governance`
+   was this step: every vault-authorized instruction requires that PDA, `pause`
+   included, so between the upgrade and the call the platform has no brake.
 
-**Rollback is `heroku config:unset SOLANA_VAULT_GOVERNANCE` plus a restart** —
-seconds, no deploy, no second ceremony. It returns Rails to the v0.25 shape —
-which after step 1 means a booting app, not a working one; read "What the
-rollback actually buys" below before you rely on it.
-Step 1 is the point of no easy return: rolling the PROGRAM back is a second
-Squads act. **Steps 2-4 are reversible from the Rails side alone for exactly as
-long as `EXPECTED_IDL_HASH` still accepts the v0.25 hash** — which is why the
-tighten is not in the list above.
-
-#### What the rollback actually buys — a BOOT, not a working app
-
-Say this part plainly, because "one-command rollback" invites the wrong reading.
-**Before** the program upgrade, unsetting the switch is a true rollback: Rails
-returns to the shape the chain is still speaking, and everything works.
-**After** step 1, it is not. It buys a booting app that cannot transact.
-
-Anchor account lists are POSITIONAL, so a v0.25-shaped wire sent to a v0.26
-program is rejected. Measured from the two committed IDLs: the shapes share
-**20 instructions, and 19 of them have a different account list in v0.26** — 17
-by gaining `governance`, plus `create_user_account` (`+username_record`) and
-`set_username`. The only shared instruction whose account list is unchanged is
-`initialize`, a one-time bootstrap. There is no meaningful subset that survives.
-
-The read side survives almost intact, and that is the trap rather than the
-consolation. Of the seven account types both shapes declare, five are
-byte-identical. The two that changed do not grow: they **spend trailing
-`_reserved` padding**, so every pre-existing field keeps its byte offset and a
-v0.25 decoder reads the new field as padding it already ignores.
-`UserAccount` takes one byte of its 32 for `username_registered` (32 -> 31);
-`VaultState` takes all 64 of its reserve for `signers_ext`, two more pubkeys
-(64 -> 0). So a rolled-back app renders pages and shows balances while every
-entry, settle, mint, pause and season write fails on chain.
-
-`VaultState` is worth pausing on, because it is the same fact as the step-4
-warning above: the base `signers` array is THREE slots in BOTH shapes, and
-v0.26's extra two live in `signers_ext` — a field the deployed v0.25 binary
-does not have. That is why a five-key `update_signers` against it writes three
-and drops two instead of failing.
-
-**So the boot-level rollback is worth having and is not a retreat.** It is the
-difference between an app that crash-loops with no `/up`, no admin, and no way
-to read state, and an app you can log into while you decide what to do —
-including proposing the second Squads act that rolls the PROGRAM back. Keep it.
-Just do not plan around it as though it restored service.
-
-#### Tightening the pin — the one-way door
-
-Tightening `EXPECTED_IDL_HASH` to the v0.26 hash alone **forfeits the
-one-command rollback.** This is measured, not reasoned: the switch picks the IDL
-file, the allow-list then judges whatever file the switch picked, and a pin that
-names only v0.26 refuses the v0.25 file the rollback selects.
-
-| `EXPECTED_IDL_HASH` | `SOLANA_VAULT_GOVERNANCE` | IDL selected | boot |
-|---|---|---|---|
-| `<v0.25>,<v0.26>` | `on` | v0.26 IDL | boots |
-| `<v0.25>,<v0.26>` | unset | v0.25 IDL | **boots — this is the rollback** |
-| `<v0.26>` | `on` | v0.26 IDL | boots |
-| `<v0.26>` | unset | v0.25 IDL | **`IdlMismatchError` — release phase and every web dyno refuse to boot** |
-| `<v0.25>` | `on` | v0.26 IDL | **`IdlMismatchError` — the same brick, mirrored** |
-
-Measured 2026-09-15 against this tree; `test/docs/governance_rollback_pin_test.rb`
-re-derives every row from the real guard and the real IDL files, so a future
-change that breaks one reddens there rather than on a dyno.
-
-**So why tighten at all?** Because the widened pin cannot tell a deliberate
-retreat from an accidental `config:unset`. Both produce byte-identical state:
-the v0.25 file selected, its hash allow-listed, and
-`verify_governance_alignment!` satisfied — because the switch and the file agree
-with EACH OTHER even though neither agrees with the upgraded program. Nothing
-refuses that boot, and what follows is the 19-of-20 failure described above: an
-app that looks healthy and cannot write. Tightening is how you finally say "we
-are not going back", and it converts that silent misconfiguration into a loud
-boot refusal. It buys strictness at the exact moment you would most want the
-boot, so it is worth its cost only once retreating is off the table.
-
-**What tightening does NOT buy is tamper-detection** — the pair pin costs
-nothing there, which is worth stating because it is the intuitive objection.
-`verify_governance_alignment!` reads the selected file's CONTENTS, runs ahead of
-the `BYPASS_IDL_CHECK` return, and never consults the allow-list at all, so it
-already pins which of the two files each switch position may select. A two-hash
-set therefore admits exactly ONE file per switch position, the same as a
-one-hash set; what the second hash admits is the other position, which is the
-whole point. Do not weaken that guard to make a rollback work — it is the one
-thing standing between a wrong shape and a dyno that accepts traffic.
-
-**Tighten when all of these hold, and not before:**
-
-- Step 4 (`update_signers`) has landed, so the v0.26 shape is fully operable.
-- The v0.26 shape has carried real traffic — at minimum one contest through
-  `close_contest` and one `settle_contest` — on the cluster being tightened.
-- You have decided you will not retreat. If you would still consider it, the
-  widened pin is the correct state and costs you one allow-listed hash.
-- **You accept that `bin/deploy` will undo it at the next IDL bump.** The script
-  agrees with this section and says so in its own comment: its automated tighten
-  writes the hashes this slug ships for the target cluster — **both switch
-  positions** — precisely so an `unset` still boots. It asks
-  `lib/solana/idl_selection.rb` which file the TARGET boots against, the same
-  rule `Solana::Config` applies to its own ENV at boot, so there is no second
-  implementation to drift. A routine deploy with no IDL bump rewrites nothing
-  and leaves a manual tighten standing; the next deploy that DOES bump the IDL
-  widens, pushes, and then re-pins both shapes of the new pair. A hand-tightened
-  pin is therefore a temporary state with an expiry you do not control — which
-  is the strongest argument that the dual pin, not the single one, is this
-  system's resting state.
-
-Tighten as its own change, with its own restart, and confirm the app boots
-before walking away.
+A new wire format needs Rails and the program to change together, so plan the
+carry before the upgrade. git holds how v0.26 did it (`SOLANA_VAULT_GOVERNANCE`,
+retired 2026-11-01).
 
 ### Program Upgrades — Squads multisig (OPSEC-002, 2026-05-19+)
 
@@ -773,35 +637,29 @@ Use `turf-vault/scripts/squad-upgrade.js` — it builds a buffer, sets the buffe
 **Post-deploy IDL re-pin (mandatory)**: After every Squad upgrade, turf-monster MUST re-pin `EXPECTED_IDL_HASH` from the **freshly built** IDL — NOT `anchor idl fetch`. Squad upgrades run only the BPF `upgrade` instruction; they do NOT update the on-chain IDL account. `anchor idl fetch` therefore returns the stale pre-upgrade IDL.
 
 ```bash
-# After deploying turf-vault, re-pin the IDL file of the CLUSTER YOU UPGRADED —
-# and of the program VERSION you upgraded to. FOUR artifacts, cluster x version;
-# cluster files differ only in `address`, and SOLANA_VAULT_GOVERNANCE picks the
-# version half:
-#   mainnet v0.25 -> config/turf_vault.mainnet.idl.json       (--features mainnet)
-#   mainnet v0.26 -> config/turf_vault.mainnet.v026.idl.json  (--features mainnet)
-#   devnet  v0.25 -> config/turf_vault.idl.json               (default build)
-#   devnet  v0.26 -> config/turf_vault.v026.idl.json          (default build)
+# After deploying turf-vault, re-pin the IDL file of the CLUSTER YOU UPGRADED.
+# Two artifacts; they differ only in `address`:
+#   mainnet -> config/turf_vault.mainnet.v026.idl.json  (--features mainnet)
+#   devnet  -> config/turf_vault.v026.idl.json          (default build)
 # lib/solana/idl_selection.rb owns that choice: Solana::Config applies it to ENV
 # at boot, bin/deploy applies it to the TARGET app's config vars.
 cp /Users/alex/projects/turf-vault/target/idl/turf_vault.json \
-   /Users/alex/projects/turf-monster/config/turf_vault.mainnet.idl.json
+   /Users/alex/projects/turf-monster/config/turf_vault.mainnet.v026.idl.json
 cd /Users/alex/projects/turf-monster
-jq -r .address config/turf_vault.mainnet.idl.json   # must be that cluster's program ID
-shasum -a 256 config/turf_vault.mainnet.idl.json    # → the new EXPECTED_IDL_HASH
+jq -r .address config/turf_vault.mainnet.v026.idl.json   # must be that cluster's program ID
+shasum -a 256 config/turf_vault.mainnet.v026.idl.json    # → the new EXPECTED_IDL_HASH
 
 # Commit, then deploy. bin/deploy asks that same rule which file the TARGET boots
-# against — SOLANA_NETWORK *and* SOLANA_VAULT_GOVERNANCE — widens
-# EXPECTED_IDL_HASH to {old,new}, pushes, then tightens to the hashes this slug
-# ships for that cluster: both switch positions, so a `heroku config:unset
-# SOLANA_VAULT_GOVERNANCE` rollback still boots. No manual heroku config:set.
-git add config/turf_vault.mainnet.idl.json
+# against, widens EXPECTED_IDL_HASH to {old,new}, pushes, then tightens to the
+# hash this slug ships for that cluster. No manual heroku config:set.
+git add config/turf_vault.mainnet.v026.idl.json
 git commit -m "Re-pin IDL after turf-vault vX.Y.Z deploy"
 bin/deploy
 ```
 
 `Solana::Config.verify_idl!` will refuse to boot — and to precompile assets — in production when the file's SHA256 ≠ `EXPECTED_IDL_HASH`. Running prod against a drifted IDL silently corrupts every Borsh decode.
 
-**Also refresh the `/contract` page — after every mainnet upgrade.** `app/views/contract/show.html.erb` (the public `/contract` transparency page) hand-maintains figures a new binary changes. Its version pill, cluster pill, and instruction and error counts read the committed IDL and `NETWORK`, so they track the re-pin; the figures below do not. `test/views/contract_measurements_test.rb` pins the page's `measured` record to `config/turf_vault.mainnet.idl.json` by version **and** sha256, so re-pinning that file turns it red until you redo step 1.
+**Also refresh the `/contract` page — after every mainnet upgrade.** `app/views/contract/show.html.erb` (the public `/contract` transparency page) hand-maintains figures a new binary changes. Its version pill, cluster pill, and instruction and error counts read the committed IDL and `NETWORK`, so they track the re-pin; the figures below do not. `test/views/contract_measurements_test.rb` pins the page's `measured` record by version **and** sha256. That record still describes the v0.25 program (2026-09-10): the page owes a re-measure from step 1, and the test then points at `config/turf_vault.mainnet.v026.idl.json`.
 
 1. **Binary, ELF sections, rent — from the deployed program, not a local build.** Anchor builds are not byte-reproducible, so measure the bytes that are executing. Public RPC, no credential:
 
@@ -1090,19 +948,17 @@ Which shape a row takes is decided on the server, from the armed plan's
 that is not a 32-byte base58 key, after stripping whitespace, and names the
 value.
 
-**The shapes the two live programs accept are different, and the chain decides.**
-`Admin::AuthoritiesController#vault_shape!` refuses to build when
-`SOLANA_VAULT_GOVERNANCE` disagrees with whether the `GovernanceConfig` PDA
-exists, in both directions.
+**The program decides the shape.** `Admin::AuthoritiesController#vault_shape!`
+refuses to build when the `GovernanceConfig` PDA does not exist.
 
-| | deployed v0.25 (devnet + mainnet today) | v0.26 (turf-vault `accepted`) |
-|---|---|---|
-| argument | `[Pubkey; 3]` | `[Pubkey; 5]`, left-packed |
-| signatures | exactly 2 (`validate_multisig`) | `UPDATE_SIGNERS`, default 3, **floor 3** |
-| empty slots | refused outright (6017) | allowed as a SUFFIX only |
-| reduced set | **not expressible** | yes — this is what the page is for |
+| | v0.26 |
+|---|---|
+| argument | `[Pubkey; 5]`, left-packed |
+| signatures | `UPDATE_SIGNERS`, default 3, **floor 3** |
+| empty slots | allowed as a SUFFIX only |
+| reduced set | yes — this is what the page is for |
 
-`Solana::SignerRotation` mirrors both guard sets **in the program's own order**,
+`Solana::SignerRotation` mirrors the guards **in the program's own order**,
 because Anchor returns the FIRST failing constraint and stops: a validator that
 checked them in a different order would name a different problem than the chain
 would. Every refusal carries the program's error code.
@@ -1111,7 +967,7 @@ would. Every refusal carries the program's error code.
 |---|---|---|
 | `Unauthorized` | 6000 | an authorizer is not in the on-chain set |
 | `DuplicateSigner` | 6014 | a key repeats, in the set or among the authorizers |
-| `SignerContinuityRequired` | 6017 | too few authorizers survive; or (v0.25) any zeroed slot |
+| `SignerContinuityRequired` | 6017 | too few authorizers survive |
 | `InsufficientSigners` | 6046 | fewer signatures named than the threshold |
 | `SignerSetTooSmall` | 6052 | a gap; or below `required` / `max_live_threshold` / above 5 |
 

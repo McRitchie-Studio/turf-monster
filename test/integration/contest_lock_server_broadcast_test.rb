@@ -28,6 +28,7 @@ class ContestLockServerBroadcastTest < ActionDispatch::IntegrationTest
     end
 
     def get_latest_blockhash(**_opts) = @blockhash
+    def get_account_info(*_args, **_opts) = { "value" => nil } # no contest yet: a first set
     def get_block_height(**_opts) = 1
     def simulate_transaction(_wire, **_opts) = { "err" => nil, "logs" => [] }
 

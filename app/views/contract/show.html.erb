@@ -69,9 +69,8 @@
   #   solana rent 545973 --url <rpc>   # or getMinimumBalanceForRentExemption
   # The version is v0.25.0 by the discriminator probe in CURRENT_DEPLOYMENT.md
   # (admin_create_user_account PRESENT, burn_entry_token absent), rerun on this dump.
-  # test/views/contract_measurements_test.rb pins version and idl_sha256 to
-  # config/turf_vault.mainnet.idl.json: re-pinning that IDL after a deploy turns it
-  # red until this block is re-measured.
+  # test/views/contract_measurements_test.rb pins version and idl_sha256 to this
+  # measurement. Mainnet has since moved to v0.26, so it is owed a re-measure.
   measured = {
     version:        "0.25.0",
     cluster:        "mainnet-beta",

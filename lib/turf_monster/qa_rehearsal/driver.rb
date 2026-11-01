@@ -88,12 +88,6 @@ module TurfMonster
       # CosignPlan's extras, TxVerifier per signer, then mark_settled! and the
       # row — through `heroku run`, the access every other step already uses.
       #
-      # IT IS v0.26-ONLY. On v0.25 the settle is the fixed 2-of-3 whose second
-      # seat is Mr. McRitchie's or a mainnet signer's, so there is no devnet-only
-      # agent to co-sign with; the step refuses rather than guess.
-      AGENT_COSIGN_NEEDS_V026 = "--cosign agent needs turf-vault v0.26 on devnet (SOLANA_VAULT_GOVERNANCE on " \
-                                "turf-monster-qa): only v0.26 seats a devnet-only agent key. Nothing was " \
-                                "sent. Run `bin/qa-contest-rehearsal conclude --cosign link` and co-sign in Phantom."
 
       # Mack and turf, and the exclusions are not preferences:
       #
@@ -562,17 +556,12 @@ module TurfMonster
         say "  contest locked: #{locked['locked']} · live page: #{locked['live'] ? 'open' : 'closed'}"
       end
 
-      # v0.25: the server sets the lock alone, as it always has. v0.26: with
-      # no cosigners it answers what the lock needs; with enough, it answers
+      # With no cosigners it answers what the lock needs; with enough, it answers
       # a server-signed wire for them to sign.
       def lock_script(slug, cosigners: [])
         <<~RUBY
           contest = Contest.find_by!(slug: #{slug.inspect})
-          if contest.locked? || !Solana::Config.governance?
-            unless contest.locked?
-              Solana::Vault.new.set_contest_lock_time(contest.slug, Time.current.to_i)
-              contest.update!(starts_at: Time.current)
-            end
+          if contest.locked?
             emit(locked: contest.reload.locked?, live: contest.live?)
           else
             vault = Solana::Vault.new
@@ -584,7 +573,7 @@ module TurfMonster
         RUBY
       end
 
-      # `answer` is the v0.26 lock script's first reply: a cosign request, or
+      # `answer` is the lock script's first reply: a cosign request, or
       # a finished wire when the chain needs no agent.
       def agent_cosigned_lock(slug, answer)
         agents = answer["cosign"] ? pick_agents(answer["cosign"]) : []
@@ -823,15 +812,9 @@ module TurfMonster
         slug = data.fetch("contest_slug")
         say "Step 4 · conclude #{slug}"
 
-        # Before the lock, the grade or any broadcast: the unattended path is
-        # v0.26-only, so a v0.25 dyno is refused while nothing has moved.
-        if cosign == :agent && !remote.call("emit(governance: Solana::Config.governance?)")["governance"]
-          raise StepError, AGENT_COSIGN_NEEDS_V026
-        end
-
         graded = remote.call(grade_script(slug))
         if graded["cosign"]
-          # v0.26: the lock needs an agent signature, so it lands first and the
+          # The lock needs an agent signature, so it lands first and the
           # grade runs again on a locked contest.
           agent_cosigned_lock(slug, graded)
           graded = remote.call(grade_script(slug))
@@ -863,19 +846,12 @@ module TurfMonster
           raise "\#{contest.slug} was cancelled on chain; it cannot be graded" if contest.cancelled?
           vault = Solana::Vault.new
 
-          # v0.26: the lock needs an agent signature the dyno does not hold, so
-          # ask for it and stop; conclude lands the lock and runs this again.
-          if !contest.locked? && Solana::Config.governance?
+          # The lock needs an agent signature the dyno does not hold, so ask
+          # for it and stop; conclude lands the lock and runs this again.
+          unless contest.locked?
             action = vault.governed_time_action("set_contest_lock_time", contest.slug)
             #{cosign_request_ruby(named: 1)}
             exit
-          end
-
-          # Move the lock to NOW, on-chain first (the chain is master) and then
-          # mirror it in the DB, exactly as confirm_lock_time does.
-          unless contest.locked?
-            vault.set_contest_lock_time(contest.slug, Time.current.to_i)
-            contest.update!(starts_at: Time.current)
           end
 
           # grade! raises on an already-settled contest, and a settle that was
@@ -924,18 +900,7 @@ module TurfMonster
                    "Broadcast · unreconciled. Run close again once the row reads Confirmed.")
           end
           out = { already_closed: contest.onchain_closed }
-          if contest.onchain_closed? || !Solana::Config.governance?
-            unless contest.onchain_closed?
-              sig = Solana::Vault.new.close_contest(contest.slug)
-              signature = sig.is_a?(Hash) ? sig[:signature] : sig
-              # Only stamp the flag on a signature we actually got back. Setting
-              # it unconditionally makes the DB claim a close that never landed,
-              # and the rent stays unreclaimed with nothing left to say so.
-              raise "close_contest returned no signature" if signature.to_s.empty?
-
-              contest.update!(onchain_closed: true)
-              out[:signature] = signature
-            end
+          if contest.onchain_closed?
             emit(**out)
           else
             vault = Solana::Vault.new
@@ -1083,7 +1048,7 @@ module TurfMonster
           vault = Solana::Vault.new
           action = "settle_contest"
           extras = #{extras.inspect}
-          needed = Solana::Config.governance? ? vault.required_signatures(action) - 2 : 0
+          needed = vault.required_signatures(action) - 2
           if extras.size < needed
             #{cosign_request_ruby(named: 2)}
           else

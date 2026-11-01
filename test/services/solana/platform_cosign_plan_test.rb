@@ -11,36 +11,27 @@ class Solana::PlatformCosignPlanTest < ActiveSupport::TestCase
 
   Platform = FakePlatformCosigner
 
-  def with_governance(on = true, &block)
-    Solana::Config.stub(:governance?, on) do
-      Solana::Vault.stub(:cached_vault_state, nil, &block)
-    end
+  def with_chain(&block)
+    Solana::Vault.stub(:cached_vault_state, nil, &block)
   end
 
   def plan(tx_type) = Solana::CosignPlan.new(tx_type: tx_type)
 
   test "a settle takes the platform's signature automatically on a three-signature chain" do
-    with_governance do
+    with_chain do
       assert plan("settle_contest").platform_cosign?(platform: Platform.new)
     end
   end
 
-  test "never when no extra slot is left for Alex: a v0.25 boot is two signatures in all" do
-    with_governance(false) do
-      refute plan("settle_contest").platform_cosign?(platform: Platform.new),
-             "two platform signatures would complete a v0.25 settle with no wallet of his"
-    end
-  end
-
   test "never when absent, refused, or not seated" do
-    with_governance do
+    with_chain do
       refute plan("settle_contest").platform_cosign?(platform: Platform.new(configured: false))
       refute plan("settle_contest").platform_cosign?(platform: Platform.new("NotSeated11111111111111111111111111111111111"))
     end
   end
 
   test "the other three-signature actions only when the operator asks" do
-    with_governance do
+    with_chain do
       %w[cancel_contest sweep_operator_revenue register_currency deactivate_currency update_signers].each do |type|
         refute plan(type).platform_cosign?(platform: Platform.new), "#{type} must not cosign by default"
         assert plan(type).platform_cosign?(requested: "true", platform: Platform.new), "#{type} cosigns on request"
@@ -49,19 +40,16 @@ class Solana::PlatformCosignPlanTest < ActiveSupport::TestCase
   end
 
   test "unpause has no platform path: lifting the brake keeps two of his wallets" do
-    with_governance do
+    with_chain do
       refute plan("unpause").platform_cosign?(requested: "true", platform: Platform.new)
     end
   end
 
   test "a two-signature close may be completed by the server and the platform alone" do
-    with_governance do
+    with_chain do
       assert plan("close_contest").platform_completes?(platform: Platform.new)
       refute plan("settle_contest").platform_completes?(platform: Platform.new), "three signatures never complete alone"
       refute plan("close_contest").platform_completes?(platform: Platform.new(configured: false))
-    end
-    with_governance(false) do
-      refute plan("close_contest").platform_completes?(platform: Platform.new), "v0.25 has no two-signature table"
     end
   end
 
@@ -70,7 +58,7 @@ class Solana::PlatformCosignPlanTest < ActiveSupport::TestCase
   test "grade time builds the settle with the platform in the named slot and Alex's wallet in the extra" do
     vault = FakeVault.new
     platform = Platform.new
-    result = with_governance do
+    result = with_chain do
       Solana::PlatformCosign.build_settle(vault: vault, slug: "c1", settlements: [], platform: platform, nonce: nil)
     end
 
@@ -83,7 +71,7 @@ class Solana::PlatformCosignPlanTest < ActiveSupport::TestCase
 
   test "absent config builds exactly today's settle" do
     vault = FakeVault.new
-    result = with_governance do
+    result = with_chain do
       Solana::PlatformCosign.build_settle(vault: vault, slug: "c1", settlements: [],
                                           platform: Platform.new(configured: false), nonce: nil)
     end
@@ -96,7 +84,7 @@ class Solana::PlatformCosignPlanTest < ActiveSupport::TestCase
   end
 
   test "the roster names the platform row as automatic and his wallet as the final signature" do
-    rows = with_governance do
+    rows = with_chain do
       plan("settle_contest").roster(extras: [ALEX_7ZDJ], platform_cosigner: GOV_3LTL)
     end
     platform_row = rows.find { |r| r[:role] == "platform" }

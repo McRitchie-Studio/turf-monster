@@ -23,31 +23,20 @@ class Solana::GovernanceSwitchTest < ActiveSupport::TestCase
   # "absent" is a Hash without the key and every case below now runs the real
   # code. The vocabulary lists ARE the contract.
   def resolve(value, present: true)
-    Solana::IdlSelection.governance?(present ? { Solana::Config::GOVERNANCE_ENV_VAR => value } : {})
+    Solana::IdlSelection.assert_switch!(present ? { Solana::Config::GOVERNANCE_ENV_VAR => value } : {})
   end
 
   # ── THE DEFAULT IS THE DEPLOYED SHAPE ─────────────────────────────────────
 
-  test "an ABSENT switch resolves to the v0.25 shape, which is what is deployed" do
-    refute resolve(nil, present: false),
-           "the default must match the program actually on chain, or this PR is an outage on its own"
-  end
-
-  test "this build ships resolved to v0.25" do
-    refute Solana::Config.governance?,
-           "the merge-time default must stay v0.25 until the Squads upgrade lands"
-    assert_equal "v0.25", Solana::Config.vault_shape
-  end
-
-  test "the affirmative vocabulary turns the v0.26 shape on" do
+  test "the affirmative vocabulary boots" do
     %w[on 1 true yes enabled ON True YES].each do |v|
-      assert resolve(v), "#{v.inspect} should select v0.26"
+      assert_nil resolve(v), "#{v.inspect} should boot"
     end
   end
 
-  test "the negative vocabulary keeps the v0.25 shape" do
+  test "the negative vocabulary refuses: this slug has no v0.25 shape" do
     %w[off 0 false no disabled OFF False].each do |v|
-      refute resolve(v), "#{v.inspect} should select v0.25"
+      assert_raises(Solana::IdlSelection::UnreadableSwitchError) { resolve(v) }
     end
   end
 
@@ -66,7 +55,7 @@ class Solana::GovernanceSwitchTest < ActiveSupport::TestCase
   test "a present-but-EMPTY value raises rather than resolving like absent" do
     assert_raises(Solana::IdlSelection::UnreadableSwitchError) { resolve("") }
     assert_raises(Solana::IdlSelection::UnreadableSwitchError) { resolve("   ") }
-    refute resolve("", present: false), "absent is still the documented default"
+    assert_nil resolve("", present: false), "absent boots"
   end
 
   # The read moved to lib/solana/idl_selection.rb with the rest of the selection
@@ -78,36 +67,18 @@ class Solana::GovernanceSwitchTest < ActiveSupport::TestCase
     assert_match(/env\.key\?\(GOVERNANCE_ENV_VAR\)/,
                  Rails.root.join("lib", "solana", "idl_selection.rb").read,
                  "ENV.fetch with a default cannot distinguish absent from set-but-empty")
-    assert_match(/IdlSelection\.governance\?\(ENV\)/, CONFIG_RB.read,
+    assert_match(/IdlSelection\.assert_switch!\(ENV\)/, CONFIG_RB.read,
                  "Config must apply that rule, not restate it")
   end
 
   # ── WHAT THE SWITCH SELECTS ───────────────────────────────────────────────
 
-  test "all four IDL artifacts exist and differ only as cluster x version" do
-    devnet_25 = JSON.parse(File.read(Rails.root.join("config", "turf_vault.idl.json")))
-    devnet_26 = JSON.parse(File.read(Rails.root.join("config", "turf_vault.v026.idl.json")))
-    mainnet_25 = JSON.parse(File.read(Rails.root.join("config", "turf_vault.mainnet.idl.json")))
-    mainnet_26 = JSON.parse(File.read(Rails.root.join("config", "turf_vault.mainnet.v026.idl.json")))
+  test "the two IDL artifacts differ only by cluster" do
+    devnet = JSON.parse(File.read(Rails.root.join("config", "turf_vault.v026.idl.json")))
+    mainnet = JSON.parse(File.read(Rails.root.join("config", "turf_vault.mainnet.v026.idl.json")))
 
-    assert_equal devnet_25["address"], devnet_26["address"], "both devnet artifacts pin the devnet program"
-    assert_equal mainnet_25["address"], mainnet_26["address"], "both mainnet artifacts pin the mainnet program"
-    refute_equal devnet_25["address"], mainnet_25["address"], "the clusters run SEPARATE program IDs"
-
-    # Cluster pairs must be identical apart from the address, which is the
-    # property that makes "two files per version" honest rather than a fork.
-    assert_equal devnet_26.except("address"), mainnet_26.except("address")
-    assert_equal devnet_25.except("address"), mainnet_25.except("address")
-  end
-
-  test "the v0.25 IDLs are untouched by this change, so today's boot is unaffected" do
-    # Pinned hashes. If a future change edits these files, the production
-    # EXPECTED_IDL_HASH stops matching and the app refuses to boot — so the
-    # numbers belong in a test, not only in a runbook.
-    assert_equal "f11446facec1043cb15b169929aaff3da9e955e05f3c462e86c7b584706246e9",
-                 Digest::SHA256.hexdigest(File.read(Rails.root.join("config", "turf_vault.idl.json")))
-    assert_equal "b9b522635894a42f5434f1faa1cd126d146f3042ae2c233acd1dd76a300f7152",
-                 Digest::SHA256.hexdigest(File.read(Rails.root.join("config", "turf_vault.mainnet.idl.json")))
+    refute_equal devnet["address"], mainnet["address"], "the clusters run SEPARATE program IDs"
+    assert_equal devnet.except("address"), mainnet.except("address")
   end
 
   # The values an operator pastes into `heroku config:set` during the upgrade
@@ -130,26 +101,12 @@ class Solana::GovernanceSwitchTest < ActiveSupport::TestCase
   # 8a9fa715). The selection still keys on `init_governance`, never on this
   # string: the first v0.26 build shipped reading 0.25.0, and the version is a
   # label, not a shape.
-  test "metadata.version labels each shape" do
-    v25 = JSON.parse(File.read(Rails.root.join("config", "turf_vault.idl.json"))).dig("metadata", "version")
-    v26 = JSON.parse(File.read(Rails.root.join("config", "turf_vault.v026.idl.json"))).dig("metadata", "version")
-
-    assert_equal "0.25.0", v25
-    assert_equal "0.26.0", v26, "the v0.26 IDL must be the build from the bumped crate"
+  test "metadata.version labels the shape" do
+    assert_equal "0.26.0", JSON.parse(File.read(Rails.root.join("config", "turf_vault.v026.idl.json"))).dig("metadata", "version")
   end
 
-  test "the structural probe tells the two IDLs apart" do
-    v25 = JSON.parse(File.read(Rails.root.join("config", "turf_vault.idl.json")))
-                .fetch("instructions").map { |i| i["name"] }
-    v26 = JSON.parse(File.read(Rails.root.join("config", "turf_vault.v026.idl.json")))
-                .fetch("instructions").map { |i| i["name"] }
-
-    refute_includes v25, "init_governance"
-    assert_includes v26, "init_governance"
-
-    # And the app's own probe reads the file it actually selected.
-    assert_equal Solana::Config.governance?, Solana::Config.idl_declares_governance?,
-                 "the switch and the pinned IDL must agree, or verify_governance_alignment! refuses the boot"
+  test "the app's own probe reads the file it selected" do
+    assert Solana::Config.idl_declares_governance?, "or verify_governance_alignment! refuses the boot"
   end
 
   test "the v0.26 IDL carries the full 6000-6067 error range and the new accounts" do
@@ -167,28 +124,22 @@ class Solana::GovernanceSwitchTest < ActiveSupport::TestCase
 
   # ── THE ALIGNMENT GUARD ───────────────────────────────────────────────────
   #
-  # The switch says one shape, the file on disk is the other. Reachable by a bad
-  # copy, a half-applied revert, or a hand-edited IDL — every one of which ends
+  # The file on disk is not the shape this slug speaks. Reachable by a bad copy, a half-applied revert, or a hand-edited IDL — every one of which ends
   # with Rails assembling account lists for a program shape other than the one
   # this slug believes is deployed.
 
-  test "a switch that disagrees with the pinned IDL refuses, naming both sides" do
-    # This build is resolved to v0.25; pretend the selected file is the v0.26 one.
-    Solana::Config.stub(:idl_declares_governance?, true) do
-      error = assert_raises(Solana::Config::GovernanceMismatchError) do
-        Solana::Config.verify_governance_alignment!
-      end
-
-      assert_match(/SOLANA_VAULT_GOVERNANCE/, error.message)
-      assert_match(/declares init_governance: true/, error.message)
-      assert_match(/turf_vault\.idl\.json/, error.message, "the message must name the file it read")
-      assert_match(/Do NOT set\s+BYPASS_IDL_CHECK/m, error.message,
-                   "the hash bypass is not an escape hatch for a wrong SHAPE")
-    end
+  test "the pinned governance IDL passes silently" do
+    assert_nil Solana::Config.verify_governance_alignment!
   end
 
-  test "an agreeing pair passes silently" do
-    assert_nil Solana::Config.verify_governance_alignment!
+  test "an IDL of another shape refuses the boot, naming the file" do
+    Solana::Config.stub(:idl_declares_governance?, false) do
+      error = assert_raises(Solana::Config::GovernanceMismatchError) { Solana::Config.verify_governance_alignment! }
+
+      assert_match(/declares init_governance: false/, error.message)
+      assert_match(/turf_vault(\.mainnet)?\.v026\.idl\.json/, error.message, "the message must name the file it read")
+      assert_match(/Do NOT set\s+BYPASS_IDL_CHECK/m, error.message)
+    end
   end
 
   # A missing or corrupt IDL is verify_idl!'s failure to report, not this one's —
@@ -335,36 +286,22 @@ class Solana::GovernanceSwitchTest < ActiveSupport::TestCase
   # threshold, nor the fix, after the fee is already spent.
   test "an unattended action it cannot sign for refuses locally, naming the numbers" do
     v = vault
-    Solana::Config.stub(:governance?, true) do
-      error = assert_raises(Solana::Vault::ThresholdUnreachableError) do
-        v.send(:unattended_extra_signer_metas, "settle_contest", required: 3, signers: [])
-      end
-      assert_match(/settle_contest needs 3 vault signatures/, error.message)
-      assert_match(/can produce 1/, error.message)
-      assert_match(/extra_signers:/, error.message, "the message must name the remedy")
+    error = assert_raises(Solana::Vault::ThresholdUnreachableError) do
+      v.send(:unattended_extra_signer_metas, "settle_contest", required: 3, signers: [])
     end
+    assert_match(/settle_contest needs 3 vault signatures/, error.message)
+    assert_match(/can produce 1/, error.message)
+    assert_match(/extra_signers:/, error.message, "the message must name the remedy")
   end
 
   test "supplying enough signers satisfies the refusal and lands them as signer metas" do
     v = vault
     kp = Solana::Keypair.from_bytes(Digest::SHA256.digest("switch-test signer"))
-    Solana::Config.stub(:governance?, true) do
-      metas = v.send(:unattended_extra_signer_metas, "close_contest", required: 2, signers: [kp])
-      assert_equal 1, metas.length
-      assert_equal kp.public_key_bytes, metas.first[:pubkey]
-      assert metas.first[:is_signer], "a remaining account that does not sign is read as CosignerDidNotSign"
-      refute metas.first[:is_writable]
-    end
-  end
-
-  # The control. On the v0.25 branch the same call must be inert — no refusal,
-  # no metas — or this guard would break every unattended path the moment it
-  # merged, which is the outage the whole design exists to avoid.
-  test "the refusal is INERT in the v0.25 shape" do
-    v = vault
-    Solana::Config.stub(:governance?, false) do
-      assert_equal [], v.send(:unattended_extra_signer_metas, "settle_contest", required: 3, signers: [])
-    end
+    metas = v.send(:unattended_extra_signer_metas, "close_contest", required: 2, signers: [kp])
+    assert_equal 1, metas.length
+    assert_equal kp.public_key_bytes, metas.first[:pubkey]
+    assert metas.first[:is_signer], "a remaining account that does not sign is read as CosignerDidNotSign"
+    refute metas.first[:is_writable]
   end
 
   # ── WHAT THE GUARD IS COUNTING ────────────────────────────────────────────
@@ -381,13 +318,11 @@ class Solana::GovernanceSwitchTest < ActiveSupport::TestCase
   test "a second NAMED signer counts, so admin + cosigner + one extra reaches three" do
     v = vault
     cosigner = spare("named cosigner")
-    Solana::Config.stub(:governance?, true) do
-      metas = v.send(:unattended_extra_signer_metas, "settle_contest", required: 3,
-                     signers: [spare("third")],
-                     named: [Solana::Keypair.admin.public_key_bytes, cosigner.public_key_bytes])
-      assert_equal 1, metas.length,
-                   "exactly required - named.count metas ride in remaining_accounts"
-    end
+    metas = v.send(:unattended_extra_signer_metas, "settle_contest", required: 3,
+                   signers: [spare("third")],
+                   named: [Solana::Keypair.admin.public_key_bytes, cosigner.public_key_bytes])
+    assert_equal 1, metas.length,
+                 "exactly required - named.count metas ride in remaining_accounts"
   end
 
   # The same call the old accounting REFUSED: it computed 2 for a caller holding
@@ -398,19 +333,17 @@ class Solana::GovernanceSwitchTest < ActiveSupport::TestCase
     v = vault
     v.define_singleton_method(:build_tx) { |*_args, **_kwargs| raise reached }
 
-    Solana::Config.stub(:governance?, true) do
-      # Two named (admin + a distinct cosigner) plus one extra is three — the
-      # guard must let this through to the builder.
-      assert_raises(reached) do
-        v.settle_contest("slug-a", [], cosigner_keypair: spare("settle cosigner"),
-                                       extra_signers: [spare("settle third")])
-      end
+    # Two named (admin + a distinct cosigner) plus one extra is three — the
+    # guard must let this through to the builder.
+    assert_raises(reached) do
+      v.settle_contest("slug-a", [], cosigner_keypair: spare("settle cosigner"),
+                                     extra_signers: [spare("settle third")])
+    end
 
-      # ...and one fewer must still be refused, or the fix would just be a
-      # disabled guard.
-      assert_raises(Solana::Vault::ThresholdUnreachableError) do
-        v.settle_contest("slug-a", [], cosigner_keypair: spare("settle cosigner"))
-      end
+    # ...and one fewer must still be refused, or the fix would just be a
+    # disabled guard.
+    assert_raises(Solana::Vault::ThresholdUnreachableError) do
+      v.settle_contest("slug-a", [], cosigner_keypair: spare("settle cosigner"))
     end
   end
 
@@ -420,13 +353,11 @@ class Solana::GovernanceSwitchTest < ActiveSupport::TestCase
   # key are one signature.
   test "the same signer in two slots is one signature, and is refused by name" do
     v = vault
-    Solana::Config.stub(:governance?, true) do
-      error = assert_raises(Solana::Vault::ThresholdUnreachableError) do
-        v.settle_contest("slug-a", [], extra_signers: [spare("a"), spare("b")])
-      end
-      assert_match(/same vault signer more than once/, error.message)
-      assert_match(/DuplicateSigner/, error.message, "the message must name the on-chain error it prevents")
+    error = assert_raises(Solana::Vault::ThresholdUnreachableError) do
+      v.settle_contest("slug-a", [], extra_signers: [spare("a"), spare("b")])
     end
+    assert_match(/same vault signer more than once/, error.message)
+    assert_match(/DuplicateSigner/, error.message, "the message must name the on-chain error it prevents")
   end
 
   # The form test/services/solana/vault_account_layout_test.rb used to pass to
@@ -435,24 +366,20 @@ class Solana::GovernanceSwitchTest < ActiveSupport::TestCase
   test "a keypair passed twice is refused rather than counted twice" do
     v = vault
     kp = spare("repeated")
-    Solana::Config.stub(:governance?, true) do
-      error = assert_raises(Solana::Vault::ThresholdUnreachableError) do
-        v.send(:unattended_extra_signer_metas, "create_season", required: 3, signers: [kp, kp])
-      end
-      assert_match(/3 keys that are only 2 different ones/, error.message)
+    error = assert_raises(Solana::Vault::ThresholdUnreachableError) do
+      v.send(:unattended_extra_signer_metas, "create_season", required: 3, signers: [kp, kp])
     end
+    assert_match(/3 keys that are only 2 different ones/, error.message)
   end
 
   # The control: one named slot is still the default, so the five builders that
   # declare only `admin` need no change and keep their old verdicts exactly.
   test "the default naming is the admin alone, unchanged for every other builder" do
     v = vault
-    Solana::Config.stub(:governance?, true) do
-      assert_equal 1, v.send(:unattended_extra_signer_metas, "close_contest", required: 2,
-                             signers: [spare("one")]).length
-      assert_raises(Solana::Vault::ThresholdUnreachableError) do
-        v.send(:unattended_extra_signer_metas, "close_contest", required: 2, signers: [])
-      end
+    assert_equal 1, v.send(:unattended_extra_signer_metas, "close_contest", required: 2,
+                           signers: [spare("one")]).length
+    assert_raises(Solana::Vault::ThresholdUnreachableError) do
+      v.send(:unattended_extra_signer_metas, "close_contest", required: 2, signers: [])
     end
   end
 end

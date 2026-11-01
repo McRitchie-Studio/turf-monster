@@ -31,8 +31,6 @@ class Admin::VaultStateConfirmValidationTest < ActionDispatch::IntegrationTest
     log_in_as(@admin)
   end
 
-  def with_governance(on = true, &block) = Solana::Config.stub(:governance?, on, &block)
-
   def spare_signer
     (Solana::CosignPlan.eligible_cosigners - [Solana::Config::MULTISIG_COSIGNER]).first
   end
@@ -52,19 +50,15 @@ class Admin::VaultStateConfirmValidationTest < ActionDispatch::IntegrationTest
   # THE REGRESSION. Against the code this replaces this returns 200 — one
   # proven signature recorded as a confirmed three-signature unpause.
   test "unpause confirmation refuses a claim that names too few signers" do
-    with_governance do
-      confirm(cosigner_pubkey: Solana::Config::MULTISIG_COSIGNER, extra_cosigners: [])
-    end
+    confirm(cosigner_pubkey: Solana::Config::MULTISIG_COSIGNER, extra_cosigners: [])
 
     assert_response :unprocessable_entity
     assert_match(/needs 3 vault signatures/, error_body)
   end
 
   test "unpause confirmation refuses an extra signer outside the vault set" do
-    with_governance do
-      confirm(cosigner_pubkey: Solana::Config::MULTISIG_COSIGNER,
-              extra_cosigners: ["NotAVaultSigner1111111111111111111111111111"])
-    end
+    confirm(cosigner_pubkey: Solana::Config::MULTISIG_COSIGNER,
+            extra_cosigners: ["NotAVaultSigner1111111111111111111111111111"])
 
     assert_response :unprocessable_entity
     assert_match(/not in the vault signer set/, error_body)
@@ -82,9 +76,7 @@ class Admin::VaultStateConfirmValidationTest < ActionDispatch::IntegrationTest
       true
     end
 
-    with_governance do
-      confirm(verifier: recorder, cosigner_pubkey: primary, extra_cosigners: [spare])
-    end
+    confirm(verifier: recorder, cosigner_pubkey: primary, extra_cosigners: [spare])
 
     assert_response :success
     assert_equal [primary, spare], verified,
@@ -98,9 +90,7 @@ class Admin::VaultStateConfirmValidationTest < ActionDispatch::IntegrationTest
     outsider = "222Dcu2RgAXE3T8A4mGSG3kQyXaNjqePx7vva1RdWBN9" # a mint, not a signer
     assert_not_includes Solana::Config::MULTISIG_SIGNERS, outsider
 
-    with_governance do
-      confirm(cosigner_pubkey: outsider, extra_cosigners: [])
-    end
+    confirm(cosigner_pubkey: outsider, extra_cosigners: [])
 
     assert_response :unprocessable_entity
     assert_match(/not in multisig set/, error_body)
@@ -112,30 +102,15 @@ class Admin::VaultStateConfirmValidationTest < ActionDispatch::IntegrationTest
   test "a pause confirmation that names extra signers is refused, not ignored" do
     skip "needs a spare vault signer" if spare_signer.blank?
 
-    with_governance do
-      confirm(instruction: "pause", cosigner_pubkey: Solana::Config::MULTISIG_COSIGNER,
-              extra_cosigners: [spare_signer])
-    end
+    confirm(instruction: "pause", cosigner_pubkey: Solana::Config::MULTISIG_COSIGNER,
+            extra_cosigners: [spare_signer])
 
     assert_response :unprocessable_entity
     assert_match(/reserves no extra cosigner slots/, error_body)
   end
 
   test "a pause confirmation with no extras still confirms" do
-    with_governance do
-      confirm(instruction: "pause", cosigner_pubkey: Solana::Config::MULTISIG_COSIGNER)
-    end
-
-    assert_response :success
-  end
-
-  # The v0.25 shape is untouched: no extra slot, no new refusal. `pause` is 2
-  # and `unpause` 3 only once governance is on, and the deployed clusters are
-  # still v0.25 — a change that refused there would break the live page.
-  test "governance off still confirms an unpause on two signatures" do
-    with_governance(false) do
-      confirm(cosigner_pubkey: Solana::Config::MULTISIG_COSIGNER)
-    end
+    confirm(instruction: "pause", cosigner_pubkey: Solana::Config::MULTISIG_COSIGNER)
 
     assert_response :success
   end

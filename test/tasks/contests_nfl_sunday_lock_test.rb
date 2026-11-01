@@ -220,19 +220,12 @@ class ContestsNflSundayLockTaskTest < ActiveSupport::TestCase
   end
 
   test "v0.26 dry run says how many signatures the move needs and how many the run holds" do
-    Solana::Config.stub(:governance?, true) do
-      rows, out = apply_lock
-      assert_match(/needs 2 signature\(s\), this run holds 1 — SHORT/, row_for(rows, @contest).reason)
-      assert_includes out, "SOLANA_COSIGNER_KEYS"
+    rows, out = apply_lock
+    assert_match(/needs 2 signature\(s\), this run holds 1 — SHORT/, row_for(rows, @contest).reason)
+    assert_includes out, "SOLANA_COSIGNER_KEYS"
 
-      rows, = apply_lock(cosigners: [Solana::Keypair.generate])
-      assert_match(/needs 2 signature\(s\), this run holds 2\z/, row_for(rows, @contest).reason)
-    end
-  end
-
-  test "v0.25 dry run adds no signature note" do
-    rows, = apply_lock
-    refute_match(/signature/, row_for(rows, @contest).reason)
+    rows, = apply_lock(cosigners: [Solana::Keypair.generate])
+    assert_match(/needs 2 signature\(s\), this run holds 2\z/, row_for(rows, @contest).reason)
   end
 
   test "the rake task signs with SOLANA_COSIGNER_KEYS" do

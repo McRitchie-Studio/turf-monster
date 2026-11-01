@@ -110,7 +110,6 @@ module Admin
       # program's version in front of an operator mid-incident.
       @governance_readable = @governance_read_ok
       @governance_pda = Solana::Keypair.encode_base58(vault.governance_pda.first)
-      @config_governance = Solana::Config.governance?
 
       # (3) THE SQUADS UPGRADE MULTISIG. Never blocks the page.
       @squads = Solana::Squads.read
@@ -125,7 +124,7 @@ module Admin
       @chain_governance_known = !chain_governance?.nil?
       @eligible_signers = @vault ? @vault[:active_signers] : Solana::Config::MULTISIG_SIGNERS
       @required_signatures = required_signatures_for_chain
-      @max_slots = chain_governance? ? Solana::Vault::MAX_SIGNERS : Solana::SignerRotation::MAX_SLOTS_V025
+      @max_slots = Solana::Vault::MAX_SIGNERS
 
       @rotation = live_rotation
       @rotation_stranded = @rotation&.submitted?
@@ -265,7 +264,6 @@ module Admin
         network: @network,
         chain_set: state&.dig(:active_signers),
         chain_governance: chain_governance?,
-        config_governance: Solana::Config.governance?,
         server: @server_address,
         server_held: server_held_addresses,
         fee_payer: @server_address && vault.fee_payer_status(required_signatures: required_signatures_for_chain,
@@ -661,15 +659,13 @@ module Admin
       raise "Vault state could not be read; refusing to plan a rotation blind." if state.nil?
 
       governance = chain_governance!
-      if governance != Solana::Config.governance?
-        raise Solana::SignerPlan::Refusal.new(shape_disagreement_message(governance), code: "shape_mismatch")
-      end
+      raise Solana::SignerPlan::Refusal.new(missing_governance_message, code: "shape_mismatch") unless governance
 
       Solana::SignerPlan.new(
         network: Solana::Config::NETWORK,
         governance: governance,
         current: state[:active_signers],
-        required: governance ? Solana::Governance.required_signatures("update_signers") : Solana::SignerRotation::REQUIRED_V025,
+        required: Solana::Governance.required_signatures("update_signers"),
         max_live_threshold: max_live_threshold,
         server: Solana::CosignPlan.admin_address,
         server_held: server_held_addresses(platform: params[:platform_cosign]),
@@ -678,14 +674,11 @@ module Admin
       )
     end
 
-    def shape_disagreement_message(chain)
-      if chain
-        "The chain runs turf-vault v0.26 (GovernanceConfig exists) but this app is configured for v0.25. " \
-          "Set #{Solana::Config::GOVERNANCE_ENV_VAR}=on and restart before rotating signers."
-      else
-        "This app is configured for turf-vault v0.26 but the GovernanceConfig PDA does not exist on " \
-          "#{Solana::Config::NETWORK}. Run init_governance after the upgrade, or unset the switch."
-      end
+    def missing_governance_message
+      "This app speaks turf-vault v0.26 but the GovernanceConfig PDA " \
+        "#{Solana::Keypair.encode_base58(vault.governance_pda.first)} does not exist on " \
+        "#{Solana::Config::NETWORK}. Run init_governance after the upgrade; do not sign a v0.26-shaped " \
+        "transaction against that program."
     end
 
     # PUBLIC addresses of SOLANA_COSIGNER_KEYS. A malformed list is reported
@@ -1111,50 +1104,27 @@ module Admin
       end
     end
 
-    # REFUSE WHEN THE ENV SWITCH AND THE CHAIN DISAGREE.
-    #
-    # The builders route their shape through `Config.governance?` (one switch,
-    # seventeen builders — see `Vault#governance_metas`), and that switch is an
-    # env var. When it disagrees with the chain, every build is the wrong shape
-    # and the failure arrives as an opaque deserialization error after a fee.
-    # This names it first, in both directions, and says which lever to move.
+    # REFUSE WHEN THE CHAIN HAS NO GOVERNANCE ACCOUNT. Every builder speaks
+    # v0.26, so against any other program the failure would arrive as an opaque
+    # deserialization error after a fee. This names it first.
     def vault_shape!
-      chain = chain_governance!
-      config = Solana::Config.governance?
-      return chain ? "v0.26" : "v0.25" if chain == config
+      raise missing_governance_message unless chain_governance!
 
-      if config && !chain
-        raise "This app is configured for turf-vault v0.26 (#{Solana::Config::GOVERNANCE_ENV_VAR}) " \
-              "but the GovernanceConfig PDA #{Solana::Keypair.encode_base58(vault.governance_pda.first)} " \
-              "does not exist on #{Solana::Config::NETWORK}. Run init_governance after the upgrade, " \
-              "or unset the switch — do not sign a v0.26-shaped transaction against a v0.25 program."
-      end
-
-      raise "The chain is running turf-vault v0.26 (GovernanceConfig exists) but this app is " \
-            "configured for v0.25. Set #{Solana::Config::GOVERNANCE_ENV_VAR}=on and restart before " \
-            "rotating signers — a three-slot argument cannot express the deployed set."
+      Solana::Config.vault_shape
     end
 
-    # WHAT THE PAGE SHOWS WHEN THE PROBE CAME BACK NIL. The DEPLOYED shape, not
-    # the newer one: both clusters run v0.25 today, and a page that guessed high
-    # would tell the operator he needs three signatures to evict when the chain
-    # will take two — which is a worse error than the reverse, because he would
-    # go looking for a third wallet he does not need mid-incident.
     def required_signatures_for_chain
-      chain_governance? ? Solana::Governance.required_signatures("update_signers")
-                        : Solana::SignerRotation::REQUIRED_V025
+      Solana::Governance.required_signatures("update_signers")
     end
 
     # Every governance action with the number of signatures it ACTUALLY needs,
     # and where that number came from.
     #
     # THE `source` COLUMN IS THE POINT. A reader must be able to tell a value
-    # the CHAIN stores from one this app is assuming, because on a pre-v0.26
-    # cluster the whole table is an assumption — the GovernanceConfig PDA does
-    # not exist and the deployed binary enforces a structural two through
-    # `validate_multisig`, which never reads a threshold at all. A table that
-    # rendered identically in both cases would be the exact conflation this
-    # page was built to end.
+    # the CHAIN stores from one this app is assuming: with no GovernanceConfig
+    # account the whole table is an assumption. A table that rendered
+    # identically in both cases would be the exact conflation this page was
+    # built to end.
     #
     # `floor` is applied on READ by the program itself, so a stored value below
     # a floor is raised here too — otherwise this page would report a number

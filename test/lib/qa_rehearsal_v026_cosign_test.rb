@@ -79,7 +79,7 @@ class QaRehearsalV026CosignTest < ActiveSupport::TestCase
       v.define_singleton_method(:cached_governance) { { thresholds: thresholds } }
       v.define_singleton_method(:read_contest) { |_slug, **| { lock_timestamp: 2_000_000_000, conclusion_timestamp: 0 } }
       v.define_singleton_method(:set_contest_lock_time) { |slug, _ts, **| server_locks << slug }
-      v.define_singleton_method(:close_contest) { |_slug, **| raise "v0.26 must not close server-signed" }
+      v.define_singleton_method(:close_contest) { |_slug, **| raise "the close must not be server-signed" }
     end
   end
 
@@ -94,11 +94,9 @@ class QaRehearsalV026CosignTest < ActiveSupport::TestCase
     @driver.instance_variable_set(:@keys, @keys)
   end
 
-  def run_step(governance:, vault:, &step)
-    Solana::Config.stub(:governance?, governance) do
-      Solana::Config.stub(:client, @broadcasts) do
-        Solana::Vault.stub(:new, vault, &step)
-      end
+  def run_step(vault:, &step)
+    Solana::Config.stub(:client, @broadcasts) do
+      Solana::Vault.stub(:new, vault, &step)
     end
   end
 
@@ -116,18 +114,9 @@ class QaRehearsalV026CosignTest < ActiveSupport::TestCase
 
   # ── lock ─────────────────────────────────────────────────────────────────
 
-  test "v0.25 locks server-signed in one script and loads no agent key" do
-    run_step(governance: false, vault: chain_vault(seated: [admin])) { @driver.lock_contest(@contest.slug) }
-
-    assert_equal 1, @dyno.scripts.size
-    assert_equal [@contest.slug], @server_locks
-    assert_empty @keys.loaded
-    assert_empty @broadcasts.wires
-  end
-
   test "v0.26 lock is signed by the server and one seated agent" do
     vault = chain_vault(seated: [admin, mack])
-    run_step(governance: true, vault: vault) { @driver.lock_contest(@contest.slug) }
+    run_step(vault: vault) { @driver.lock_contest(@contest.slug) }
 
     assert_equal 3, @dyno.scripts.size, "request, build, record"
     assert_empty @server_locks
@@ -142,7 +131,7 @@ class QaRehearsalV026CosignTest < ActiveSupport::TestCase
     vault = chain_vault(seated: [admin, mack], thresholds: Array.new(32, 0).tap { |t| t[ID["set_contest_lock_time"]] = 3 })
 
     error = assert_raises(Driver::StepError) do
-      run_step(governance: true, vault: vault) { @driver.lock_contest(@contest.slug) }
+      run_step(vault: vault) { @driver.lock_contest(@contest.slug) }
     end
     assert_match(/set_contest_lock_time needs 2 agent signature/, error.message)
     assert_empty @broadcasts.wires
@@ -160,7 +149,7 @@ class QaRehearsalV026CosignTest < ActiveSupport::TestCase
     # extras path is what this test proves, not the roster.
     @driver.define_singleton_method(:vault_agents) { %w[mack mason] }
 
-    run_step(governance: true, vault: vault) { @driver.close_contest }
+    run_step(vault: vault) { @driver.close_contest }
 
     signers, signatures = signer_keys(@broadcasts.wires.first)
     assert_equal [admin, mack, mason], signers
@@ -172,7 +161,7 @@ class QaRehearsalV026CosignTest < ActiveSupport::TestCase
 
   test "v0.26 settle build asks for the extra signer before it builds" do
     vault = chain_vault(seated: [admin, mason, mack])
-    answer = run_step(governance: true, vault: vault) do
+    answer = run_step(vault: vault) do
       @dyno.call(@driver.send(:settle_build_script, @contest.slug, mack))
     end
 
@@ -184,14 +173,5 @@ class QaRehearsalV026CosignTest < ActiveSupport::TestCase
 
   test "the shipped roster files Mack alone: Mason is a mainnet signer" do
     assert_equal %w[mack], Driver::VAULT_AGENTS
-  end
-
-  test "v0.25 settle build is the two-signer wire it always was" do
-    answer = run_step(governance: false, vault: chain_vault(seated: [admin])) do
-      @dyno.call(@driver.send(:settle_build_script, @contest.slug, mack))
-    end
-
-    signers, = signer_keys(answer.fetch("serialized_tx"))
-    assert_equal [admin, mack], signers
   end
 end

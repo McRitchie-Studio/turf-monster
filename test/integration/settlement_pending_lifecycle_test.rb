@@ -13,6 +13,11 @@ class SettlementPendingLifecycleTest < ActionDispatch::IntegrationTest
   include SettlementScenario
   include ActiveJob::TestHelper
 
+  # A vault action past the two named signers wants one extra (v0.26).
+  def spare_signer(*taken)
+    (Solana::CosignPlan.eligible_cosigners - [Solana::Config::MULTISIG_COSIGNER, Solana::Config::MULTISIG_SIGNERS.first, *taken]).first
+  end
+
   setup do
     @admin = users(:alex)
     @contest = settlement_contest(name: "Lifecycle")
@@ -79,7 +84,7 @@ class SettlementPendingLifecycleTest < ActionDispatch::IntegrationTest
     rebuilt = Object.new
     rebuilt.define_singleton_method(:build_settle_contest) { |*_a, **_k| { serialized_tx: "REBUILT_WIRE" } }
     Solana::Vault.stub(:new, rebuilt) do
-      post rebuild_admin_pending_transaction_path(slug: tx.slug), as: :json
+      post rebuild_admin_pending_transaction_path(slug: tx.slug), params: { extra_cosigners: [spare_signer] }, as: :json
     end
     assert_response :success
     assert_equal "REBUILT_WIRE", tx.reload.serialized_tx
@@ -95,7 +100,7 @@ class SettlementPendingLifecycleTest < ActionDispatch::IntegrationTest
         Solana::Keypair.stub(:encode_base58, ->(k) { k.is_a?(String) ? k : k.to_s }) do
           Solana::TxVerifier.stub(:verify!, true) do
             post broadcast_admin_pending_transaction_path(slug: tx.slug),
-                 params: { cosigner_address: Solana::Config::MULTISIG_SIGNERS.first, signed_tx: "SIGNED_WIRE" }, as: :json
+                 params: { extra_cosigners: [spare_signer], cosigner_address: Solana::Config::MULTISIG_SIGNERS.first, signed_tx: "SIGNED_WIRE" }, as: :json
           end
         end
       end
@@ -122,7 +127,7 @@ class SettlementPendingLifecycleTest < ActionDispatch::IntegrationTest
       Solana::Keypair.stub(:encode_base58, ->(k) { k.is_a?(String) ? k : k.to_s }) do
         Solana::TxVerifier.stub(:verify!, refusing) do
           post broadcast_admin_pending_transaction_path(slug: tx.slug),
-               params: { cosigner_address: Solana::Config::MULTISIG_SIGNERS.first, signed_tx: "SIGNED_WIRE" }, as: :json
+               params: { extra_cosigners: [spare_signer], cosigner_address: Solana::Config::MULTISIG_SIGNERS.first, signed_tx: "SIGNED_WIRE" }, as: :json
         end
       end
     end

@@ -105,8 +105,8 @@ class SettleNonceTest < ActiveSupport::TestCase
 
   # ── offline cosign ───────────────────────────────────────────────────────
 
-  def nonce_wire(governance: false)
-    build(governance: governance, nonce: true)[:serialized_tx]
+  def nonce_wire
+    build(nonce: true, third: false)[:serialized_tx]
   end
 
   test "sign fills the CLI keypair's slot with a valid signature over the unchanged message" do

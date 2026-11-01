@@ -39,8 +39,8 @@ require "test_helper"
 class TransparencyProgramIdTest < ActionDispatch::IntegrationTest
   VIEW = "app/views/transparency/show.html.erb"
 
-  MAINNET_PROGRAM = JSON.parse(Rails.root.join("config/turf_vault.mainnet.idl.json").read).fetch("address")
-  DEVNET_PROGRAM  = JSON.parse(Rails.root.join("config/turf_vault.idl.json").read).fetch("address")
+  MAINNET_PROGRAM = JSON.parse(Rails.root.join("config/turf_vault.mainnet.v026.idl.json").read).fetch("address")
+  DEVNET_PROGRAM  = JSON.parse(Rails.root.join("config/turf_vault.v026.idl.json").read).fetch("address")
 
   # The one <code> under test, by its data-test hook. The page also carries a
   # navbar, a footer and meta tags; a body-wide match reads all of them. Returns

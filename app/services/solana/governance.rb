@@ -25,8 +25,7 @@ module Solana
   # reads as the default, and nothing reads below its floor. Pass the stored
   # table (`Vault#read_governance[:thresholds]`) as `thresholds:` and the answer
   # follows a `set_action_threshold` retune; omit it and the answer is the
-  # shipped default. `Vault#required_signatures` passes the chain table on a
-  # v0.26 boot and nothing on v0.25, so v0.25 never makes the read.
+  # shipped default. `Vault#required_signatures` passes the chain table.
   #
   # A wrong count fails closed either way:
   #   * TOO FEW  → the chain refuses (6046 InsufficientSigners, or 6047

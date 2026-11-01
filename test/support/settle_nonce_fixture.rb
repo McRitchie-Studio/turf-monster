@@ -53,16 +53,15 @@ module SettleNonceFixture
     { pubkey: NONCE_ACCOUNT, authority: authority }
   end
 
-  def build(governance: false, nonce: nil, authority: COSIGNER.to_base58)
-    with_fixed_admin { build_unpinned(governance: governance, nonce: nonce, authority: authority) }
+  # `third: false` is a settle retuned to two, devnet's threshold.
+  def build(nonce: nil, authority: COSIGNER.to_base58, third: true)
+    with_fixed_admin { build_unpinned(nonce: nonce, authority: authority, third: third) }
   end
 
-  def build_unpinned(governance:, nonce:, authority:)
-    Solana::Config.stub(:governance?, governance) do
-      kwargs = { cosigner_pubkey: COSIGNER.to_base58, extra_cosigners: governance ? [THIRD.to_base58] : [] }
-      kwargs[:durable_nonce] = durable_nonce(authority) if nonce
-      vault.build_settle_contest("settle-nonce-contest", SETTLEMENTS, **kwargs)
-    end
+  def build_unpinned(nonce:, authority:, third:)
+    kwargs = { cosigner_pubkey: COSIGNER.to_base58, extra_cosigners: third ? [THIRD.to_base58] : [] }
+    kwargs[:durable_nonce] = durable_nonce(authority) if nonce
+    vault.build_settle_contest("settle-nonce-contest", SETTLEMENTS, **kwargs)
   end
 
   def parse(result)

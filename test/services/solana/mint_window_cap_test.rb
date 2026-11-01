@@ -83,15 +83,13 @@ class Solana::MintWindowCapTest < ActiveSupport::TestCase
   # minted nothing reads on chain.
   def vault_with(minted:, &blk)
     client = nil
-    Solana::Config.stub(:governance?, true) do
-      index = Time.current.to_i.div(Solana::Vault::DEFAULT_MINT_WINDOW_SECONDS)
-      probe = CapturingVault.new(client: RecordingClient.new)
-      pda, _ = probe.mint_window_pda(index)
-      accounts = minted.nil? ? {} : { Solana::Keypair.encode_base58(pda) => mint_window_account(index, minted) }
-      client = RecordingClient.new(accounts)
-      v = CapturingVault.new(client: client)
-      v.stub(:cached_governance, governance) { blk.call(v, client, index) }
-    end
+    index = Time.current.to_i.div(Solana::Vault::DEFAULT_MINT_WINDOW_SECONDS)
+    probe = CapturingVault.new(client: RecordingClient.new)
+    pda, _ = probe.mint_window_pda(index)
+    accounts = minted.nil? ? {} : { Solana::Keypair.encode_base58(pda) => mint_window_account(index, minted) }
+    client = RecordingClient.new(accounts)
+    v = CapturingVault.new(client: client)
+    v.stub(:cached_governance, governance) { blk.call(v, client, index) }
   end
 
   def mint(vault, **opts)
@@ -185,36 +183,20 @@ class Solana::MintWindowCapTest < ActiveSupport::TestCase
     reserve = Solana::Vault::UNATTENDED_MINT_WINDOW_RESERVE   # 25, larger than the cap
     assert_operator reserve, :>, tiny, "this test is only meaningful while the reserve exceeds the cap"
 
-    Solana::Config.stub(:governance?, true) do
-      index = Time.current.to_i.div(Solana::Vault::DEFAULT_MINT_WINDOW_SECONDS)
-      probe = CapturingVault.new(client: RecordingClient.new)
-      pda, _ = probe.mint_window_pda(index)
-      client = RecordingClient.new(Solana::Keypair.encode_base58(pda) => mint_window_account(index, 0))
-      v = CapturingVault.new(client: client)
+    index = Time.current.to_i.div(Solana::Vault::DEFAULT_MINT_WINDOW_SECONDS)
+    probe = CapturingVault.new(client: RecordingClient.new)
+    pda, _ = probe.mint_window_pda(index)
+    client = RecordingClient.new(Solana::Keypair.encode_base58(pda) => mint_window_account(index, 0))
+    v = CapturingVault.new(client: client)
 
-      v.stub(:cached_governance, governance.merge(mint_window_cap: tiny)) do
-        mint(v, reserve: reserve)
-        assert_equal 1, client.broadcasts.length,
-                     "an empty window must serve the grinder even when the reserve exceeds the cap"
-      end
+    v.stub(:cached_governance, governance.merge(mint_window_cap: tiny)) do
+      mint(v, reserve: reserve)
+      assert_equal 1, client.broadcasts.length,
+                   "an empty window must serve the grinder even when the reserve exceeds the cap"
     end
   end
 
   # ── WHAT IT MUST NOT DO ───────────────────────────────────────────────────
-
-  # The v0.25 control. Governance off is the PRODUCTION default today: there is
-  # no GovernanceConfig, no MintWindow and no cap, so the guard must be wholly
-  # inert — and must not spend an RPC asking about an account that cannot exist.
-  test "the guard is inert in the v0.25 shape and reads no window account" do
-    client = RecordingClient.new
-    Solana::Config.stub(:governance?, false) do
-      v = CapturingVault.new(client: client)
-      mint(v)
-    end
-
-    assert_equal 1, client.broadcasts.length
-    assert_empty client.reads, "the v0.25 program has no MintWindow account to ask about"
-  end
 
   # FAILS OPEN, deliberately. The count rides the same RPC the mint itself
   # needs, so a read failure is nearly always a transport problem the mint is
@@ -223,20 +205,18 @@ class Solana::MintWindowCapTest < ActiveSupport::TestCase
   # guard replaces. Proceeding leaves the chain as the authority, exactly as
   # today.
   test "an unreadable count proceeds rather than refusing, and reports itself as unknown" do
-    Solana::Config.stub(:governance?, true) do
-      client = Class.new(RecordingClient) do
-        def get_account_info(_pubkey, **_kwargs) = raise(IOError, "rpc unreachable")
-      end.new
-      v = CapturingVault.new(client: client)
+    client = Class.new(RecordingClient) do
+      def get_account_info(_pubkey, **_kwargs) = raise(IOError, "rpc unreachable")
+    end.new
+    v = CapturingVault.new(client: client)
 
-      v.stub(:cached_governance, governance) do
-        usage = v.mint_window_usage
-        assert_nil usage[:minted],   "an unreadable count is unknown, not zero"
-        assert_nil usage[:remaining], "and must not read as a full budget"
+    v.stub(:cached_governance, governance) do
+      usage = v.mint_window_usage
+      assert_nil usage[:minted],   "an unreadable count is unknown, not zero"
+      assert_nil usage[:remaining], "and must not read as a full budget"
 
-        mint(v)
-        assert_equal 1, client.broadcasts.length, "ignorance must not stop a mint"
-      end
+      mint(v)
+      assert_equal 1, client.broadcasts.length, "ignorance must not stop a mint"
     end
   end
 end

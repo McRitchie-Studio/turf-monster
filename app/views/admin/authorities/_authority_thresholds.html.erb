@@ -1,4 +1,4 @@
-<%# locals: (governance:, governance_pda:, config_governance:, table:, network:, readable:, known:) %>
+<%# locals: (governance:, governance_pda:, table:, network:, readable:, known:) %>
 <%#
   (2) THE PER-ACTION THRESHOLD TABLE — `GovernanceConfig`, seeds [b"governance"].
 
@@ -63,22 +63,14 @@
       `governance.present?` is false for a reason that has nothing to do with the
       switch, and this panel would accuse the operator's config of a mismatch
       that may not exist. %>
-  <% if known && config_governance != governance.present? %>
+  <% if known && governance.blank? %>
     <div class="rounded-lg border border-danger/40 bg-danger/10 p-3 mb-3">
       <p class="text-xs font-bold uppercase tracking-wide text-danger-ink mb-1">
         This app and the chain disagree about the program version
       </p>
       <p class="text-xs text-secondary">
-        <% if config_governance %>
-          <code><%= Solana::Config::GOVERNANCE_ENV_VAR %></code> is on, so every
-          transaction this boot builds carries the v0.26 account list and a
-          five-slot argument — but the chain has no <code>GovernanceConfig</code>.
-          Run <code>init_governance</code> after the upgrade, or unset the switch.
-        <% else %>
-          The chain is running v0.26 but this app builds the v0.25 shape. Set
-          <code><%= Solana::Config::GOVERNANCE_ENV_VAR %>=on</code> and restart.
-          A three-slot argument cannot express the deployed signer set.
-        <% end %>
+        Every transaction this app builds carries the v0.26 account list and a
+        five-slot argument, but the chain has no <code>GovernanceConfig</code>.
         The eviction console refuses to build anything while this is true.
       </p>
     </div>

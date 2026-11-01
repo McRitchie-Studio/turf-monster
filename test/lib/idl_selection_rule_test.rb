@@ -2,18 +2,10 @@ require "test_helper"
 require "open3"
 require "tmpdir"
 
-# ONE rule, TWO callers — and the day they were two rules (task
-# make-deploy-governance-aware).
-#
-# `wire-rails-to-governance` made Solana::Config::IDL_PATH governance-aware:
-# four artifacts, two clusters x two program versions, selected at boot by
-# SOLANA_VAULT_GOVERNANCE. `bin/deploy` carried its OWN copy of the selection in
-# bash — network only — under a comment claiming it mirrored Config. So after the
-# v0.26 ceremony the deploy would hash the v0.25 IDL, call it a bump, and tighten
-# EXPECTED_IDL_HASH onto a hash the running app does not read. Measured against
-# the pre-fix script in test/lib/deploy_idl_dance_test.rb, which is the end of
-# that story; this file is about the beginning of it — the rule now lives in
-# exactly one place, `lib/solana/idl_selection.rb`, and both callers apply it.
+# ONE rule, TWO callers. `bin/deploy` once carried its own bash copy of the IDL
+# selection, and it drifted. The rule lives in exactly one place,
+# `lib/solana/idl_selection.rb`, and both callers apply it. Since the v0.25
+# retirement it is cluster alone, plus a refusal for a switch expecting otherwise.
 class IdlSelectionRuleTest < ActiveSupport::TestCase
   RULE = Solana::IdlSelection
   SELECTION_RB = Rails.root.join("lib", "solana", "idl_selection.rb")
@@ -21,72 +13,64 @@ class IdlSelectionRuleTest < ActiveSupport::TestCase
   DEPLOY = Rails.root.join("bin", "deploy")
 
   MATRIX = {
-    ["mainnet-beta", true]  => "config/turf_vault.mainnet.v026.idl.json",
-    ["mainnet-beta", false] => "config/turf_vault.mainnet.idl.json",
-    ["devnet", true]        => "config/turf_vault.v026.idl.json",
-    ["devnet", false]       => "config/turf_vault.idl.json"
+    "mainnet-beta" => "config/turf_vault.mainnet.v026.idl.json",
+    "devnet"       => "config/turf_vault.v026.idl.json"
   }.freeze
 
   # ── THE TABLE ─────────────────────────────────────────────────────────────
 
-  test "the four cells of cluster x switch select four distinct committed files" do
-    MATRIX.each do |(network, governance), expected|
-      assert_equal expected, RULE.relative_idl_path(network: network, governance: governance)
+  test "each cluster selects its own committed file" do
+    MATRIX.each do |network, expected|
+      assert_equal expected, RULE.relative_idl_path(network: network)
       assert File.exist?(Rails.root.join(expected)), "#{expected} must be committed"
     end
-
-    assert_equal 4, MATRIX.values.uniq.length, "four cells, four files — no cell may alias another"
   end
 
-  test "an unrecognised cluster takes the devnet files, never mainnet's" do
+  test "an unrecognised cluster takes the devnet file, never mainnet's" do
     %w[localnet testnet mainnet].each do |network|
-      assert_equal "config/turf_vault.idl.json", RULE.relative_idl_path(network: network, governance: false),
+      assert_equal "config/turf_vault.v026.idl.json", RULE.relative_idl_path(network: network),
                    "#{network.inspect} must not resolve to the mainnet artifact"
     end
   end
 
-  test "the sibling is the same cluster with the switch flipped" do
-    assert_equal "config/turf_vault.mainnet.idl.json",
-                 RULE.sibling_relative_idl_path(network: "mainnet-beta", governance: true)
-    assert_equal "config/turf_vault.mainnet.v026.idl.json",
-                 RULE.sibling_relative_idl_path(network: "mainnet-beta", governance: false)
+  test "no retired shape is committed" do
+    assert_empty Dir[Rails.root.join("config/turf_vault*.idl.json")].reject { |f| f.include?(".v026.") }
   end
 
-  # ── PRESENCE BEFORE PARSE ─────────────────────────────────────────────────
-  #
-  # Taking a plain Hash is the point: absent-vs-empty is now exercisable
-  # directly, rather than re-derived in a test because the real parse was frozen
-  # into a constant at class-load.
+  # ── THE SWITCH ONLY REFUSES ───────────────────────────────────────────────
 
-  test "an ABSENT switch resolves to v0.25, which is the shape actually deployed" do
-    refute RULE.governance?({})
+  test "an absent switch and every true value boot" do
+    assert_nil RULE.assert_switch!({})
+    %w[on 1 true yes enabled ON True YES].each do |v|
+      assert_nil RULE.assert_switch!({ "SOLANA_VAULT_GOVERNANCE" => " #{v} " }), "#{v.inspect} boots"
+    end
+  end
+
+  test "a value asking for the retired shape refuses, and names the way back" do
+    %w[off 0 false no disabled OFF False].each do |v|
+      error = assert_raises(RULE::UnreadableSwitchError, "#{v.inspect} must refuse") do
+        RULE.assert_switch!({ "SOLANA_VAULT_GOVERNANCE" => v })
+      end
+      assert_match(/code revert/, error.message)
+    end
   end
 
   test "a present-but-EMPTY switch raises rather than resolving like absent" do
-    assert_raises(RULE::UnreadableSwitchError) { RULE.governance?({ "SOLANA_VAULT_GOVERNANCE" => "" }) }
-    assert_raises(RULE::UnreadableSwitchError) { RULE.governance?({ "SOLANA_VAULT_GOVERNANCE" => "  " }) }
-  end
-
-  test "the vocabularies decide, case and whitespace insensitively" do
-    %w[on 1 true yes enabled ON True YES].each do |v|
-      assert RULE.governance?({ "SOLANA_VAULT_GOVERNANCE" => " #{v} " }), "#{v.inspect} selects v0.26"
-    end
-    %w[off 0 false no disabled OFF False].each do |v|
-      refute RULE.governance?({ "SOLANA_VAULT_GOVERNANCE" => v }), "#{v.inspect} selects v0.25"
-    end
+    assert_raises(RULE::UnreadableSwitchError) { RULE.assert_switch!({ "SOLANA_VAULT_GOVERNANCE" => "" }) }
+    assert_raises(RULE::UnreadableSwitchError) { RULE.assert_switch!({ "SOLANA_VAULT_GOVERNANCE" => "  " }) }
   end
 
   test "a present-but-GARBAGE switch raises, naming the value and the accepted set" do
     error = assert_raises(RULE::UnreadableSwitchError) do
-      RULE.governance?({ "SOLANA_VAULT_GOVERNANCE" => "yeah" })
+      RULE.assert_switch!({ "SOLANA_VAULT_GOVERNANCE" => "yeah" })
     end
     assert_match(/"yeah"/, error.message)
-    assert_match(/Accepted \(case-insensitive\): on 1 true yes enabled off 0 false no disabled/, error.message)
+    assert_match(/Accepted \(case-insensitive\): on 1 true yes enabled, or unset it/, error.message)
   end
 
   test "the presence read is ENV.key?, which is what tells absent from empty" do
     assert_match(/env\.key\?\(GOVERNANCE_ENV_VAR\)/, SELECTION_RB.read,
-                 "`ENV.fetch(k, default)` fires only on ABSENCE and would read `VAR=` as off")
+                 "`ENV.fetch(k, default)` fires only on ABSENCE and would read `VAR=` as unset")
   end
 
   # A blank cluster is also what a FAILED `heroku config` read looks like, and a
@@ -103,13 +87,11 @@ class IdlSelectionRuleTest < ActiveSupport::TestCase
   # keyed on that string would have selected the wrong wire format. The files
   # are now labelled correctly; the rule still reads only the instruction set.
 
-  test "init_governance, not the version string, tells the two shapes apart" do
-    MATRIX.each do |(_network, governance), path|
+  test "every committed IDL declares init_governance and carries its build label" do
+    MATRIX.each_value do |path|
       absolute = Rails.root.join(path)
-      assert_equal governance, RULE.declares_governance?(absolute),
-                   "#{path} must declare init_governance iff it is the v0.26 artifact"
-      assert_equal (governance ? "0.26.0" : "0.25.0"), JSON.parse(File.read(absolute)).dig("metadata", "version"),
-                   "#{path} carries the label of the build it came from"
+      assert RULE.declares_governance?(absolute), "#{path} must declare init_governance"
+      assert_equal "0.26.0", JSON.parse(File.read(absolute)).dig("metadata", "version")
     end
   end
 
@@ -123,12 +105,10 @@ class IdlSelectionRuleTest < ActiveSupport::TestCase
   # ── CALLER 1: THE APP ─────────────────────────────────────────────────────
 
   test "Solana::Config applies the rule rather than restating it" do
-    assert_equal Rails.root.join(RULE.relative_idl_path(network: Solana::Config::NETWORK,
-                                                        governance: Solana::Config::GOVERNANCE)),
-                 Solana::Config::IDL_PATH
-    assert_equal RULE.governance?(ENV), Solana::Config::GOVERNANCE
-    assert_equal RULE.vault_shape(Solana::Config::GOVERNANCE), Solana::Config.vault_shape
+    assert_equal Rails.root.join(RULE.relative_idl_path(network: Solana::Config::NETWORK)), Solana::Config::IDL_PATH
+    assert_equal RULE::VAULT_SHAPE, Solana::Config.vault_shape
     assert_equal RULE.declares_governance?(Solana::Config::IDL_PATH), Solana::Config.idl_declares_governance?
+    assert_match(/IdlSelection\.assert_switch!\(ENV\)/, CONFIG_RB.read, "Config must apply the refusal at boot")
   end
 
   test "config.rb spells no IDL filename of its own" do
@@ -149,7 +129,7 @@ class IdlSelectionRuleTest < ActiveSupport::TestCase
     refute_match(/turf_vault.*\.idl\.json/, code,
                  "an IDL filename in the deploy script is the copy that went stale")
     refute_match(/mainnet-beta/, code,
-                 "selecting on the cluster here is exactly the rule that forgot the governance switch")
+                 "selecting on the cluster here is a second copy of the rule")
   end
 
   # `bin/rails runner` would be the obvious way to ask the app — and it cannot
@@ -161,7 +141,7 @@ class IdlSelectionRuleTest < ActiveSupport::TestCase
   test "the rule loads and answers without Rails" do
     out, err, status = Open3.capture3({ "PATH" => ENV["PATH"] },
                                       RbConfig.ruby, "-r", SELECTION_RB.to_s, "-e",
-                                      'puts Solana::IdlSelection.relative_idl_path(network: "mainnet-beta", governance: true)',
+                                      'puts Solana::IdlSelection.relative_idl_path(network: "mainnet-beta")',
                                       unsetenv_others: true)
     assert status.success?, "the rule must load standalone (no Rails, no bundler): #{err}"
     assert_equal "config/turf_vault.mainnet.v026.idl.json", out.strip
@@ -177,28 +157,20 @@ class IdlSelectionRuleTest < ActiveSupport::TestCase
     stdout.lines.to_h { |l| l.chomp.split("=", 2) }
   end
 
-  test "the CLI answers the same cell of the table the app would boot into" do
-    MATRIX.each do |(network, governance), expected|
-      env = { "SOLANA_NETWORK" => network }
-      env["SOLANA_VAULT_GOVERNANCE"] = governance ? "on" : "off"
-
-      out, err, status = cli(env.to_json)
-      assert status.success?, "#{env.inspect} must resolve: #{err}"
-
-      f = fields(out)
-      assert_equal expected, f["idl_path"]
-      assert_equal governance.to_s, f["declares_governance"],
-                   "the CLI must probe the file it selected, structurally"
-      assert_equal RULE.sibling_relative_idl_path(network: network, governance: governance), f["sibling_idl_path"]
-      assert_equal governance ? "v0.26" : "v0.25", f["vault_shape"]
+  test "the CLI answers the same file the app would boot with" do
+    MATRIX.each do |network, expected|
+      [{}, { "SOLANA_VAULT_GOVERNANCE" => "on" }].each do |switch|
+        out, err, status = cli({ "SOLANA_NETWORK" => network }.merge(switch).to_json)
+        assert status.success?, "#{network} #{switch} must resolve: #{err}"
+        assert_equal({ "network" => network, "vault_shape" => "v0.26", "idl_path" => expected }, fields(out))
+      end
     end
   end
 
-  test "an absent switch and an explicit off give the deploy the same answer" do
-    absent = fields(cli({ "SOLANA_NETWORK" => "mainnet-beta" }.to_json).first)
-    off = fields(cli({ "SOLANA_NETWORK" => "mainnet-beta", "SOLANA_VAULT_GOVERNANCE" => "off" }.to_json).first)
-    assert_equal off, absent
-    assert_equal "config/turf_vault.mainnet.idl.json", absent["idl_path"]
+  test "the CLI refuses a target still set to the retired shape" do
+    _, err, status = cli({ "SOLANA_NETWORK" => "mainnet-beta", "SOLANA_VAULT_GOVERNANCE" => "off" }.to_json)
+    refute status.success?
+    assert_match(/code revert/, err)
   end
 
   test "the CLI refuses a garbage switch, a blank cluster, and unparseable input" do
@@ -238,7 +210,6 @@ class IdlSelectionRuleTest < ActiveSupport::TestCase
                                       unsetenv_others: true)
     assert status.success?, "a LANG-less deploy shell must still read the IDL: #{err}"
     assert_equal "config/turf_vault.mainnet.v026.idl.json", fields(out)["idl_path"]
-    assert_equal "true", fields(out)["declares_governance"], "the structural probe must have parsed the file"
 
     _, err, status = Open3.capture3(bare, RbConfig.ruby, SELECTION_RB.to_s, "--deploy-preflight",
                                     stdin_data: { "SOLANA_NETWORK" => "mainnet-beta",
@@ -250,22 +221,22 @@ class IdlSelectionRuleTest < ActiveSupport::TestCase
 
   # ── THE SHAPE GUARD, READ AHEAD OF THE PUSH ───────────────────────────────
   #
-  # Solana::Config.verify_governance_alignment! refuses a boot whose switch and
-  # IDL disagree, and it sits OUTSIDE BYPASS_IDL_CHECK on purpose. Reading it
+  # Solana::Config.verify_governance_alignment! refuses a boot on an IDL of the
+  # wrong shape, and it sits OUTSIDE BYPASS_IDL_CHECK on purpose. Reading it
   # before the push turns a release-phase crash into a deploy that never starts.
   test "a swapped IDL file is refused before anything is pushed" do
     Dir.mktmpdir do |root|
       FileUtils.mkdir_p(File.join(root, "config"))
-      # The v0.26 NAME carrying the v0.25 BODY — a bad copy, a half-applied
-      # revert, or a hand-edited file all land here.
-      FileUtils.cp(Rails.root.join("config", "turf_vault.mainnet.idl.json"),
-                   File.join(root, "config", "turf_vault.mainnet.v026.idl.json"))
+      # The live NAME carrying a body with no governance instruction — a bad
+      # copy, a half-applied revert, or a hand-edited file all land here.
+      File.write(File.join(root, "config", "turf_vault.mainnet.v026.idl.json"),
+                 { instructions: [{ name: "settle_contest" }] }.to_json)
 
       RULE.stub(:repo_root, root) do
         error = assert_raises(RULE::UnreadableSwitchError) do
           RULE.deploy_preflight({ "SOLANA_NETWORK" => "mainnet-beta", "SOLANA_VAULT_GOVERNANCE" => "on" })
         end
-        assert_match(/declares init_governance: false/, error.message)
+        assert_match(/does not declare init_governance/, error.message)
         assert_match(/BYPASS_IDL_CHECK does not cover it/, error.message)
       end
     end
@@ -275,27 +246,8 @@ class IdlSelectionRuleTest < ActiveSupport::TestCase
     Dir.mktmpdir do |root|
       FileUtils.mkdir_p(File.join(root, "config"))
       RULE.stub(:repo_root, root) do
-        error = assert_raises(RULE::UnknownNetworkError) do
-          RULE.deploy_preflight({ "SOLANA_NETWORK" => "mainnet-beta" })
-        end
-        assert_match(%r{config/turf_vault\.mainnet\.idl\.json is missing}, error.message)
-      end
-    end
-  end
-
-  # A slug that ships only ONE shape is legitimate — the day the v0.25 artifacts
-  # are finally deleted. The sibling then reports empty rather than a path that
-  # does not exist, so bin/deploy pins one hash instead of hashing a ghost.
-  test "a slug shipping one shape reports no sibling" do
-    Dir.mktmpdir do |root|
-      FileUtils.mkdir_p(File.join(root, "config"))
-      FileUtils.cp(Rails.root.join("config", "turf_vault.mainnet.v026.idl.json"),
-                   File.join(root, "config", "turf_vault.mainnet.v026.idl.json"))
-
-      RULE.stub(:repo_root, root) do
-        result = RULE.deploy_preflight({ "SOLANA_NETWORK" => "mainnet-beta", "SOLANA_VAULT_GOVERNANCE" => "on" })
-        assert_equal "", result["sibling_idl_path"]
-        assert_equal "", result["sibling_shape"]
+        error = assert_raises(RULE::UnknownNetworkError) { RULE.deploy_preflight({ "SOLANA_NETWORK" => "mainnet-beta" }) }
+        assert_match(%r{config/turf_vault\.mainnet\.v026\.idl\.json is missing}, error.message)
       end
     end
   end

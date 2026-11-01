@@ -651,7 +651,7 @@ module Solana
     # app's expected program shape and what's actually deployed on-chain.
     # Workflow:
     #   1. Operator runs `bin/rails solana:verify_idl` (or `anchor idl fetch`)
-    #      to download the deployed IDL into config/turf_vault.idl.json
+    #      to download the deployed IDL into config/turf_vault.v026.idl.json
     #   2. Operator runs `bin/rails solana:idl_hash` to print the SHA256
     #   3. Set EXPECTED_IDL_HASH below (or in env) to that value
     #   4. On every boot (production only), the initializer compares the
@@ -665,98 +665,45 @@ module Solana
     # their SHA256 differ. Each cluster therefore commits its own IDL file and
     # pins its own EXPECTED_IDL_HASH per Heroku app. Selection is by NETWORK so
     # a single source tree boots correctly on either cluster:
-    #   - mainnet-beta -> config/turf_vault.mainnet.idl.json (address DaFv…, e13ffd11…)
-    #   - anything else (devnet/localnet) -> config/turf_vault.idl.json (address EQGF…, c2acccaa…)
+    #   - mainnet-beta -> config/turf_vault.mainnet.v026.idl.json (address DaFv…)
+    #   - anything else (devnet/localnet) -> config/turf_vault.v026.idl.json (address EQGF…)
     # (hashes churn per turf-vault rev — `bin/rails solana:idl_hash` for the live value)
-    # The devnet branch is byte-identical to the prior unconditional path, so
-    # the live devnet-prod app's verify_idl!/precompile behavior is unchanged.
     #
-    # ── THE GOVERNANCE SWITCH (turf-vault v0.26) ──────────────────────────
+    # ── THE PROGRAM SHAPE (turf-vault v0.26) ───────────────────────────────
     #
-    # v0.26 adds a `governance` account to EVERY vault-authorized instruction,
-    # a `treasury` to close_contest, `window_index` + `mint_window` to
-    # mint_entry_token, and `invitee_user_account` to grant_seeds. Those are
-    # ACCOUNT-LIST changes, so the two shapes are mutually unintelligible: a
-    # v0.26 wire sent to the live v0.25 program is rejected, and a v0.25 wire
-    # sent to an upgraded program is rejected too.
+    # Two clusters, one shape: config/turf_vault{,.mainnet}.v026.idl.json. The
+    # v0.25 shape is retired from this app, so rolling the program back is a code
+    # revert (docs/SOLANA.md, "One shape, one IDL per cluster").
     #
-    # WHY THIS IS A RUNTIME SWITCH AND NOT A DEPLOY. The naive reading of
-    # "update Rails before the upgrade" is a production outage — shipping the
-    # new account set while v0.25 is live breaks the on-chain surface exactly
-    # as surely as upgrading the program before Rails would. The two have to
-    # change TOGETHER, and the only way to make "together" mean seconds rather
-    # than a deploy window is to carry BOTH shapes in one slug and pick between
-    # them at boot.
+    # SOLANA_VAULT_GOVERNANCE no longer chooses anything. Unset or a true value
+    # boots; "off" and anything unreadable refuse, because whoever set them
+    # expects a shape this slug does not speak.
     #
-    # So the app is VERSION-AWARE: four IDL artifacts (two clusters x two
-    # program versions), and one config var decides which pair is live.
-    #
-    #   SOLANA_VAULT_GOVERNANCE unset / "off" / "0" / "false"
-    #     -> v0.25 shape. config/turf_vault{,.mainnet}.idl.json.
-    #   SOLANA_VAULT_GOVERNANCE "on" / "1" / "true"
-    #     -> v0.26 shape. config/turf_vault{,.mainnet}.v026.idl.json.
-    #
-    # THE DEFAULT IS OFF BECAUSE OFF IS WHAT IS DEPLOYED. Both clusters run
-    # v0.25, so an absent var resolves to the shape the chain actually speaks.
-    # This is the opposite of the SOLANA_NETWORK footgun documented above: that
-    # var's silent default pointed at the WRONG cluster, whereas this one's
-    # points at the CURRENT program, and the day it becomes wrong is a day an
-    # operator deliberately upgraded the program.
-    #
-    # PRESENT-BUT-GARBAGE RAISES, and so does present-but-empty. `ENV.key?` —
-    # not `ENV.fetch(k, default)` — is what tells "absent" apart from "set to
-    # nonsense", which is the precise hole `empty-solana-network-fails-open`
-    # closed for SOLANA_NETWORK. `SOLANA_VAULT_GOVERNANCE=yes` is a typo, not a
-    # value, and it must not quietly mean "off" on the day of an upgrade.
-    #
-    # WHAT THE FLIP COSTS, AND WHY THAT IS THE WHOLE POINT:
-    #   forward   heroku config:set EXPECTED_IDL_HASH=<v025>,<v026> \
-    #                                SOLANA_VAULT_GOVERNANCE=on
-    #   rollback  heroku config:unset SOLANA_VAULT_GOVERNANCE
-    # Both are a config write plus a dyno restart. No deploy, no rebuild, no
-    # second Squads ceremony — so the program upgrade is reversible from the
-    # Rails side alone, and QA can exercise BOTH shapes against one slug by
-    # flipping the var between rehearsals.
-    #
-    # WHERE THE RULE LIVES: `lib/solana/idl_selection.rb`, not here. The switch
-    # vocabulary, the presence-before-parse read, and the four-artifact path
-    # table are ONE implementation with two callers — this module applies it to
-    # ENV at boot, and `bin/deploy` applies it to the TARGET app's config vars
-    # before it rewrites EXPECTED_IDL_HASH. They were two implementations for
-    # one day (`make-deploy-governance-aware`): the rule changed here, the bash
-    # copy in bin/deploy did not, and the deploy would have pinned production to
-    # the hash of a file the app does not read. Plain Ruby, no Rails, because a
-    # deploy machine cannot boot this app under the target's environment —
-    # SOLANA_NETWORK=mainnet-beta trips OPSEC-039 against the local RPC.
+    # WHERE THE RULE LIVES: `lib/solana/idl_selection.rb`, not here. It has two
+    # callers: this module applies it to ENV at boot, and `bin/deploy` applies
+    # it to the TARGET app's config vars before it rewrites EXPECTED_IDL_HASH.
+    # Plain Ruby, no Rails, because a deploy machine cannot boot this app under
+    # the target's environment — SOLANA_NETWORK=mainnet-beta trips OPSEC-039
+    # against the local RPC.
     GOVERNANCE_ENV_VAR = IdlSelection::GOVERNANCE_ENV_VAR
-    GOVERNANCE_TRUE  = IdlSelection::GOVERNANCE_TRUE
-    GOVERNANCE_FALSE = IdlSelection::GOVERNANCE_FALSE
 
-    GOVERNANCE = IdlSelection.governance?(ENV)
+    IdlSelection.assert_switch!(ENV)
 
-    def self.governance?
-      GOVERNANCE
-    end
-
-    # The turf-vault version whose shape this boot is speaking. Used in log
-    # lines and the health rake; `Config.idl_version` reads the IDL's own
-    # metadata, which is a label, not a shape: the first v0.26 build read
-    # "0.25.0" (see docs/SOLANA.md "The version string is not the discriminator").
+    # The turf-vault version whose shape this boot speaks. Used in log lines and
+    # the health rake; `Config.idl_version` reads the IDL's own metadata, which
+    # is a label, not a shape: the first v0.26 build read "0.25.0" (see
+    # docs/SOLANA.md "The version string is not the discriminator").
     def self.vault_shape
-      IdlSelection.vault_shape(GOVERNANCE)
+      IdlSelection::VAULT_SHAPE
     end
 
-    IDL_PATH = Rails.root.join(IdlSelection.relative_idl_path(network: NETWORK, governance: GOVERNANCE))
+    IDL_PATH = Rails.root.join(IdlSelection.relative_idl_path(network: NETWORK))
 
     # Accepted IDL hash allow-list (audit OPSEC-014), comma-separated. A deploy
     # that bumps the IDL widens this to "<old>,<new>" so BOTH the outgoing and
     # incoming slugs verify across the release boundary, then tightens back to
     # the hashes the NEW slug ships for its cluster — no unverified window
-    # (bin/deploy automates this). That tightened set is normally TWO hashes,
-    # one per switch position, because `heroku config:unset
-    # SOLANA_VAULT_GOVERNANCE` re-resolves IDL_PATH to the other shape's file
-    # and a pin of one hash would refuse that rollback the boot. A single hash
-    # is just a one-element set. Empty string = unset (dev default; required in
+    # (bin/deploy automates this). Empty string = unset (dev default; required in
     # production). Parse via expected_idl_hashes / idl_hash_acceptable?.
     EXPECTED_IDL_HASH = ENV.fetch("EXPECTED_IDL_HASH", "")
 
@@ -891,34 +838,32 @@ module Solana
       idl_instruction_names.include?(IdlSelection::GOVERNANCE_INSTRUCTION)
     end
 
-    # Raised when SOLANA_VAULT_GOVERNANCE disagrees with the IDL it selected.
+    # Raised when the pinned IDL is not the governance shape this slug speaks.
     class GovernanceMismatchError < StandardError; end
 
-    # The switch says one thing, the file on disk says another. Reachable by a
-    # bad copy, a half-applied revert, or a hand-edited IDL — every one of which
+    # The builders speak v0.26 and the file on disk does not. Reachable by a bad
+    # copy, a half-applied revert, or a hand-edited IDL — every one of which
     # ends with Rails building an account list the deployed program rejects.
     #
     # DELIBERATELY NOT COVERED BY BYPASS_IDL_CHECK. That hatch exists for hash
     # SKEW across a release boundary, where the shape is right and only the pin
     # is stale. This is the opposite failure: the shape itself is wrong, and
-    # "carry on anyway" is precisely the outage the switch exists to prevent.
-    # So it runs first, and it runs unconditionally.
+    # "carry on anyway" is precisely the outage. So it runs first, and it runs unconditionally.
     def self.verify_governance_alignment!
       return if idl_instruction_names.empty? # missing/corrupt — verify_idl! reports it
-      return if idl_declares_governance? == GOVERNANCE
+      return if idl_declares_governance?
 
       raise GovernanceMismatchError, <<~MSG
-        turf-vault instruction shape does not match #{GOVERNANCE_ENV_VAR} — refusing to boot.
+        The pinned turf-vault IDL is not the v0.26 governance shape — refusing to boot.
 
-        #{GOVERNANCE_ENV_VAR}: #{GOVERNANCE ? "on (expecting the v0.26 governance shape)" : "unset/off (expecting the v0.25 shape)"}
         Pinned IDL:              #{IDL_PATH}
         That IDL declares init_governance: #{idl_declares_governance?}
 
-        The account lists this app builds are chosen by the switch, so a
-        disagreement here means every vault transaction would be assembled for
-        a program shape other than the one this slug believes is deployed.
+        This app builds v0.26 account lists, so a different IDL means every
+        vault transaction would be assembled for a program this slug does not
+        speak.
 
-        Fix the switch, or restore the IDL file this build expects. Do NOT set
+        Restore the IDL file this build expects. Do NOT set
         BYPASS_IDL_CHECK — it covers hash skew, not a wrong shape.
       MSG
     end

@@ -26,10 +26,6 @@ class Admin::VaultStateUnpauseThresholdTest < ActionDispatch::IntegrationTest
     @admin = users(:alex)
   end
 
-  def with_governance(on = true, &block)
-    Solana::Config.stub(:governance?, on, &block)
-  end
-
   def spare_signer
     (Solana::CosignPlan.eligible_cosigners - [Solana::Config::MULTISIG_COSIGNER]).first
   end
@@ -61,11 +57,9 @@ class Admin::VaultStateUnpauseThresholdTest < ActionDispatch::IntegrationTest
     spare = spare_signer
     primary = Solana::Config::MULTISIG_COSIGNER
 
-    with_governance do
-      Solana::Vault.stub :new, vault do
-        post admin_unpause_vault_state_path,
-             params: { cosigner_pubkey: primary, extra_cosigners: [spare] }, as: :json
-      end
+    Solana::Vault.stub :new, vault do
+      post admin_unpause_vault_state_path,
+           params: { cosigner_pubkey: primary, extra_cosigners: [spare] }, as: :json
     end
 
     assert_response :success
@@ -80,12 +74,10 @@ class Admin::VaultStateUnpauseThresholdTest < ActionDispatch::IntegrationTest
   test "unpause refuses to build with no third signer named" do
     log_in_as(@admin)
 
-    with_governance do
-      Solana::Vault.stub :new, PausedVault.new do
-        post admin_unpause_vault_state_path,
-             params: { cosigner_pubkey: Solana::Config::MULTISIG_COSIGNER,
-                       extra_cosigners: [] }, as: :json
-      end
+    Solana::Vault.stub :new, PausedVault.new do
+      post admin_unpause_vault_state_path,
+           params: { cosigner_pubkey: Solana::Config::MULTISIG_COSIGNER,
+                     extra_cosigners: [] }, as: :json
     end
 
     assert_response :unprocessable_entity
@@ -95,12 +87,10 @@ class Admin::VaultStateUnpauseThresholdTest < ActionDispatch::IntegrationTest
   test "unpause refuses a third signer outside the vault signer set" do
     log_in_as(@admin)
 
-    with_governance do
-      Solana::Vault.stub :new, PausedVault.new do
-        post admin_unpause_vault_state_path,
-             params: { cosigner_pubkey: Solana::Config::MULTISIG_COSIGNER,
-                       extra_cosigners: ["NotAVaultSigner1111111111111111111111111111"] }, as: :json
-      end
+    Solana::Vault.stub :new, PausedVault.new do
+      post admin_unpause_vault_state_path,
+           params: { cosigner_pubkey: Solana::Config::MULTISIG_COSIGNER,
+                     extra_cosigners: ["NotAVaultSigner1111111111111111111111111111"] }, as: :json
     end
 
     assert_response :unprocessable_entity
@@ -113,30 +103,12 @@ class Admin::VaultStateUnpauseThresholdTest < ActionDispatch::IntegrationTest
     assert_equal 2, Solana::CosignPlan.new(tx_type: "unpause").required_signatures - 1,
                  "unpause needs two BROWSER signatures beyond the server's admin key"
 
-    with_governance do
-      assert_equal 1, Solana::CosignPlan.new(tx_type: "unpause").extra_cosigners_needed
-    end
+    assert_equal 1, Solana::CosignPlan.new(tx_type: "unpause").extra_cosigners_needed
 
     # `pause` is not a cosign-queue tx_type at all — it never rose, so it has no
     # plan and reserves nothing. Asserted through the mirror instead.
     assert_equal 2, Solana::Governance.required_signatures("pause")
     assert_operator Solana::Governance.required_signatures("pause"), :<,
                     Solana::Governance.required_signatures("unpause")
-  end
-
-  # The v0.25 shape is untouched: no extra slot, no new refusal.
-  test "governance off still unpauses on two signatures" do
-    log_in_as(@admin)
-    vault = PausedVault.new
-
-    with_governance(false) do
-      Solana::Vault.stub :new, vault do
-        post admin_unpause_vault_state_path,
-             params: { cosigner_pubkey: Solana::Config::MULTISIG_COSIGNER }, as: :json
-      end
-    end
-
-    assert_response :success
-    assert_equal [], vault.unpause_calls.first[:extra_cosigners]
   end
 end

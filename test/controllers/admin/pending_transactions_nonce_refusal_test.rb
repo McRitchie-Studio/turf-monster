@@ -7,6 +7,11 @@ require "minitest/mock"
 # Co-sign and Rebuild refuse a nonce row before any vault call, and name
 # bin/settle-nonce. A blockhash row is the control.
 class Admin::PendingTransactionsNonceRefusalTest < ActionDispatch::IntegrationTest
+  # A vault action past the two named signers wants one extra (v0.26).
+  def spare_signer(*taken)
+    (Solana::CosignPlan.eligible_cosigners - [Solana::Config::MULTISIG_COSIGNER, Solana::Config::MULTISIG_SIGNERS.first, *taken]).first
+  end
+
   setup do
     @contest = contests(:one)
     @contest.update_columns(onchain_contest_id: "onchain_nonce_refusal", status: "settlement_pending")
@@ -56,7 +61,7 @@ class Admin::PendingTransactionsNonceRefusalTest < ActionDispatch::IntegrationTe
     vault.define_singleton_method(:build_settle_contest) { |*_a, **_k| reached = true; { serialized_tx: "REBUILT" } }
 
     Solana::Vault.stub(:new, vault) do
-      post rebuild_admin_pending_transaction_path(slug: tx.slug), as: :json
+      post rebuild_admin_pending_transaction_path(slug: tx.slug), params: { extra_cosigners: [spare_signer] }, as: :json
     end
 
     assert reached

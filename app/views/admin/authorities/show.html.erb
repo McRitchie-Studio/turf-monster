@@ -46,7 +46,6 @@
 
   <%= render "authority_thresholds", governance: @governance,
                                      governance_pda: @governance_pda,
-                                     config_governance: @config_governance,
                                      table: @threshold_table,
                                      network: @network,
                                      readable: @governance_readable,
@@ -110,7 +109,6 @@
       vault_pda: @vault && @vault[:pda],
       governance_pda: @governance_pda,
       governance_on_chain: @governance_readable ? @governance.present? : "unread",
-      governance_configured: @config_governance,
       squads_multisig: @squads_address,
       squads_threshold: @squads && "#{@squads[:threshold]} of #{@squads[:members].length}",
       squads_vault_pda: @squads && @squads[:vault_pda],

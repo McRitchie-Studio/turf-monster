@@ -547,7 +547,7 @@ class TokensController < ApplicationController # fiat actions parked: FiatRailsP
   #
   # FAILS OPEN. An unreadable count must not stop sales — the count rides the
   # same RPC everything else does, and a blip here is not evidence the cap was
-  # reached. nil in the v0.25 shape too, where no cap exists at all.
+  # reached.
   def mint_budget_refusal(pack_id)
     quantity = StripePurchase.pack_quantity(pack_id).to_i
     return nil unless quantity.positive?

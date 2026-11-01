@@ -26,12 +26,11 @@ module Solana
     # Every input is a READ the caller made (or nil when it failed), so this
     # class does no I/O of its own beyond the database counts and is testable
     # with plain values.
-    def initialize(network:, chain_set:, chain_governance:, config_governance:, server:, server_held:,
+    def initialize(network:, chain_set:, chain_governance:, server:, server_held:,
                    fee_payer: nil, steps: nil, roster: SignerRoster.default, outstanding_wires: 0)
       @network = network.to_s
       @chain_set = chain_set
       @chain_governance = chain_governance
-      @config_governance = config_governance
       @server = server
       @server_held = Array(server_held)
       @fee_payer = fee_payer
@@ -89,10 +88,13 @@ module Solana
         Check.new(id: "chain_set", label: "The chain's set is this step's starting set", level: :hard,
                   ok: same_set?(@chain_set, step["start"]) == true,
                   detail: @chain_set.nil? ? "The vault could not be read." : "Chain holds #{@chain_set.length} keys."),
-        Check.new(id: "shape", label: "Program shape and the app's switch agree", level: :hard,
-                  ok: !@chain_governance.nil? && @chain_governance == @config_governance,
-                  detail: @chain_governance.nil? ? "GovernanceConfig could not be read." :
-                          "Chain #{@chain_governance ? 'v0.26' : 'v0.25'}; app #{@config_governance ? 'v0.26' : 'v0.25'}."),
+        Check.new(id: "shape", label: "The chain runs the program shape this app speaks", level: :hard,
+                  ok: @chain_governance == true,
+                  detail: if @chain_governance.nil?
+                            "GovernanceConfig could not be read."
+                          else
+                            @chain_governance ? "GovernanceConfig exists." : "GovernanceConfig does not exist on this cluster."
+                          end),
         Check.new(id: "server", label: "This server signs as #{name_for(step['server'])}", level: :hard,
                   ok: @server.present? && @server == step["server"],
                   detail: @server.present? ? "Server key: #{@server}" : "This process holds no admin key."),

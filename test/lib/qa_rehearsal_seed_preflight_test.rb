@@ -39,7 +39,10 @@ class QaRehearsalSeedPreflightTest < ActiveSupport::TestCase
 
     def vault
       state = seated && { active_signers: seated }
-      Object.new.tap { |v| v.define_singleton_method(:read_vault_state) { state } }
+      Object.new.tap do |v|
+        v.define_singleton_method(:read_vault_state) { state }
+        v.define_singleton_method(:required_signatures) { |_action| 2 }
+      end
     end
 
     def call(source)
@@ -355,17 +358,5 @@ class QaRehearsalSeedPreflightTest < ActiveSupport::TestCase
     assert_includes error.message, "has not settled on chain"
     assert_includes error.message, "press Co-sign on a Pending row, or Reconcile on a row that reads Broadcast"
     refute contest.reload.onchain_closed
-  end
-
-  test "close goes on to the vault once the contest has settled" do
-    contest = contests(:one)
-    contest.update_columns(onchain_settled: true, onchain_closed: false)
-    vault = Struct.new(:closed) { def close_contest(slug) = (self.closed = slug) && "sig-close" }.new
-
-    answer = Solana::Vault.stub(:new, vault) { @dyno.call(@driver.close_script(contest.slug)) }
-
-    assert_equal contest.slug, vault.closed
-    assert_equal "sig-close", answer["signature"]
-    assert contest.reload.onchain_closed
   end
 end

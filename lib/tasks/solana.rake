@@ -362,13 +362,11 @@ namespace :solana do
   task idl_hash: :environment do
     hash = Solana::Config.idl_hash
     if hash
-      # NAME THE FILE. Since v0.26 there are FOUR committed IDLs (two clusters x
-      # two program shapes) and SOLANA_NETWORK + SOLANA_VAULT_GOVERNANCE together
-      # decide which one this process hashed. A bare "SHA256: …" was already
-      # ambiguous across clusters; it is now ambiguous two ways, and pinning the
-      # wrong one refuses the next boot.
+      # NAME THE FILE. There are two committed IDLs, one per cluster, and
+      # SOLANA_NETWORK decides which one this process hashed. Pinning the wrong
+      # one refuses the next boot.
       puts "File:   #{Solana::Config::IDL_PATH}"
-      puts "Shape:  #{Solana::Config.vault_shape} (SOLANA_VAULT_GOVERNANCE=#{ENV.fetch('SOLANA_VAULT_GOVERNANCE', '<unset>')})"
+      puts "Shape:  #{Solana::Config.vault_shape}"
       puts "SHA256: #{hash}"
       puts ""
       puts "To pin this hash on prod:"
@@ -495,17 +493,14 @@ namespace :solana do
       end
     end
 
-    # 3b. WHICH PROGRAM SHAPE THIS PROCESS SPEAKS. The most useful line in the
-    # whole check during a v0.26 upgrade window: it says, without inference,
-    # whether this dyno is building v0.25 or v0.26 account lists — and the
-    # alignment call re-runs the boot guard, so a mismatch between the switch
-    # and the pinned IDL is reported here instead of only at the next restart.
+    # 3b. WHICH PROGRAM SHAPE THIS PROCESS SPEAKS. The alignment call re-runs the
+    # boot guard, so a pinned IDL of the wrong shape is reported here instead of
+    # only at the next restart.
     puts "  · turf-vault shape: #{Solana::Config.vault_shape} " \
-         "(SOLANA_VAULT_GOVERNANCE=#{ENV.fetch('SOLANA_VAULT_GOVERNANCE', '<unset>')}, " \
-         "IDL #{File.basename(Solana::Config::IDL_PATH)})"
+         "(IDL #{File.basename(Solana::Config::IDL_PATH)})"
     begin
       Solana::Config.verify_governance_alignment!
-      pass.("Governance switch agrees with the pinned IDL")
+      pass.("Pinned IDL is the governance shape")
     rescue Solana::Config::GovernanceMismatchError => e
       fail.(e.message.lines.first.to_s.strip)
     end

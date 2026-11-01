@@ -9,7 +9,7 @@ class ContestSettleNonceTest < ActiveSupport::TestCase
 
   # #content_sha256 of the queued row's serialized_tx, and its metadata, from
   # this fixture on origin/accepted 013595f8.
-  DEFAULT_ROW_CONTENT = "94413a932492673646392f6b1acc92744330ca19bb08f8a31238fd7013a917f7".freeze
+  DEFAULT_ROW_CONTENT = "e09414285c57abbef9a64e7eebcf33994df0ec35a677bdcb5eaa1cc209cf093f".freeze
   DEFAULT_METADATA = { settlements: SettleNonceFixture::SETTLEMENTS }.to_json.freeze
 
   setup do
@@ -24,10 +24,8 @@ class ContestSettleNonceTest < ActiveSupport::TestCase
 
   def queue_settle(settings: nil)
     with_fixed_admin do
-      Solana::Config.stub(:governance?, false) do
-        Solana::Vault.stub(:new, vault) do
-          Solana::SettleNonce.stub(:current, settings) { @contest.settle_onchain! }
-        end
+      Solana::Vault.stub(:new, vault) do
+        Solana::SettleNonce.stub(:current, settings) { @contest.settle_onchain! }
       end
     end
     PendingTransaction.where(target: @contest, tx_type: "settle_contest").sole

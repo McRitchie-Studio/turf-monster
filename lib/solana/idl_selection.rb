@@ -3,12 +3,9 @@ require "json"
 module Solana
   # WHICH turf-vault IDL does a given environment speak to?
   #
-  # ONE implementation, TWO callers, because the two answering that question
-  # separately is a production outage:
+  # ONE implementation, TWO callers:
   #
-  #   * `Solana::Config` applies it to THIS process's ENV at boot. IDL_PATH,
-  #     GOVERNANCE and the structural probe are all thin applications of what
-  #     lives here.
+  #   * `Solana::Config` applies it to THIS process's ENV at boot.
   #   * `bin/deploy` applies it to the TARGET Heroku app's config vars, before
   #     it touches EXPECTED_IDL_HASH. It runs this file directly (see the CLI at
   #     the bottom) — no Rails boot, because a deploy machine cannot boot the
@@ -16,24 +13,17 @@ module Solana
   #     `config/initializers/solana_network_alignment.rb` (OPSEC-039) against
   #     the LOCAL RPC and refuses.
   #
-  # THE BUG THAT PUT THE RULE HERE (make-deploy-governance-aware). The rule used
-  # to live in Config with a hand-written bash MIRROR of it in bin/deploy,
-  # carrying a comment that said so. `wire-rails-to-governance` then taught
-  # Config to append `.v026` when the governance switch is on; the bash mirror
-  # kept selecting on SOLANA_NETWORK alone. After the v0.26 ceremony the next
-  # ordinary deploy would have hashed the v0.25 IDL, called it a bump, and
-  # TIGHTENED `EXPECTED_IDL_HASH` onto a hash the running app does not read —
-  # after which no dyno boots, because `verify_governance_alignment!` sits
-  # outside `BYPASS_IDL_CHECK` by design. A mirror is only ever as good as the
-  # last person who remembered it existed.
+  # ONE SHAPE. v0.25 is retired. The IDL is chosen by cluster
+  # alone, and SOLANA_VAULT_GOVERNANCE only refuses a value that expects
+  # something else.
   #
   # PLAIN RUBY ON PURPOSE. No Rails, no ActiveSupport, no gems — `ruby
   # lib/solana/idl_selection.rb` has to work in a deploy shell in ~100ms. Keep
   # it that way: `.presence` and `blank?` do not exist here.
   module IdlSelection
     GOVERNANCE_ENV_VAR = "SOLANA_VAULT_GOVERNANCE".freeze
-    GOVERNANCE_TRUE  = %w[on 1 true yes enabled].freeze
-    GOVERNANCE_FALSE = %w[off 0 false no disabled].freeze
+    GOVERNANCE_TRUE = %w[on 1 true yes enabled].freeze
+    VAULT_SHAPE = "v0.26".freeze
 
     NETWORK_ENV_VAR = "SOLANA_NETWORK".freeze
     MAINNET = "mainnet-beta".freeze
@@ -57,36 +47,25 @@ module Solana
     module_function
 
     # Presence, then parse — in that order, because `ENV.fetch(k, default)`
-    # fires only on ABSENCE and would read `SOLANA_VAULT_GOVERNANCE=` as "off".
+    # fires only on ABSENCE and would read `SOLANA_VAULT_GOVERNANCE=` as unset.
     # That is the precise hole `empty-solana-network-fails-open` closed for
-    # SOLANA_NETWORK, and a typo must not quietly mean "off" on the one day
-    # someone meant to turn governance on.
+    # SOLANA_NETWORK.
     #
     # `env` is any object answering key?/[] — ENV in the app, a parsed
-    # `heroku config --json` hash in bin/deploy, a plain Hash in tests. That
-    # last one is the point: absent-vs-empty is directly exercisable without
-    # mutating the process environment or re-loading a frozen constant.
-    def governance?(env)
-      return false unless env.key?(GOVERNANCE_ENV_VAR)
+    # `heroku config --json` hash in bin/deploy, a plain Hash in tests.
+    def assert_switch!(env)
+      return unless env.key?(GOVERNANCE_ENV_VAR)
 
-      parse_governance(env[GOVERNANCE_ENV_VAR])
-    end
-
-    def parse_governance(value)
-      raw = value.to_s.strip.downcase
-      return true if GOVERNANCE_TRUE.include?(raw)
-      return false if GOVERNANCE_FALSE.include?(raw)
+      value = env[GOVERNANCE_ENV_VAR]
+      return if GOVERNANCE_TRUE.include?(value.to_s.strip.downcase)
 
       raise UnreadableSwitchError, <<~MSG
         #{GOVERNANCE_ENV_VAR} is set to #{value.inspect} — refusing to boot.
 
-        It selects which turf-vault instruction shape this app builds, and
-        the two shapes are mutually unintelligible on-chain. An unreadable
-        value must not resolve to a default, because the default would be
-        silently wrong on exactly the day someone meant to change it.
+        This slug speaks turf-vault v0.26 only. The v0.25 shape is retired, so
+        rolling the program back is a code revert, not this variable.
 
-        Accepted (case-insensitive): #{(GOVERNANCE_TRUE + GOVERNANCE_FALSE).join(" ")}
-        Unset the variable entirely for the v0.25 (pre-governance) shape.
+        Accepted (case-insensitive): #{GOVERNANCE_TRUE.join(" ")}, or unset it.
       MSG
     end
 
@@ -111,27 +90,13 @@ module Solana
     end
 
     # Repo-relative, so the same string reads correctly in a bash `[ -f ]`, in a
-    # Heroku slug, and in an error message. Four artifacts: two clusters x two
-    # program versions.
-    def idl_basename(network:, governance:)
-      base = mainnet?(network) ? "turf_vault.mainnet" : "turf_vault"
-      "#{base}#{governance ? ".v026" : ""}.idl.json"
+    # Heroku slug, and in an error message.
+    def idl_basename(network:)
+      "#{mainnet?(network) ? "turf_vault.mainnet" : "turf_vault"}.v026.idl.json"
     end
 
-    def relative_idl_path(network:, governance:)
-      File.join("config", idl_basename(network: network, governance: governance))
-    end
-
-    # The file the OTHER switch position would select on the same cluster. It is
-    # not a curiosity: it is the artifact a `heroku config:unset
-    # SOLANA_VAULT_GOVERNANCE` rollback boots against, so bin/deploy keeps its
-    # hash in EXPECTED_IDL_HASH rather than tightening the rollback away.
-    def sibling_relative_idl_path(network:, governance:)
-      relative_idl_path(network: network, governance: !governance)
-    end
-
-    def vault_shape(governance)
-      governance ? "v0.26" : "v0.25"
+    def relative_idl_path(network:)
+      File.join("config", idl_basename(network: network))
     end
 
     # `[]` when the file is missing or unparseable — the CALLERS own those
@@ -163,28 +128,21 @@ module Solana
       File.expand_path("../..", __dir__)
     end
 
-    # Everything bin/deploy needs about the target, in one pass: the shape it
-    # will boot in, the file it will hash, and the sibling whose hash keeps the
-    # one-command rollback alive. Raises rather than returning a shrug.
+    # Everything bin/deploy needs about the target, in one pass: the file it
+    # will hash. Raises rather than returning a shrug.
     def deploy_preflight(env)
+      assert_switch!(env)
       network = network_from(env)
-      governance = governance?(env)
-      relative = relative_idl_path(network: network, governance: governance)
+      relative = relative_idl_path(network: network)
       absolute = File.join(repo_root, relative)
 
       unless File.exist?(absolute)
-        raise UnknownNetworkError, "#{relative} is missing from this checkout (target: #{network}, " \
-                                   "#{GOVERNANCE_ENV_VAR} #{governance ? "on" : "off"}) — re-pin per MAINNET_LAUNCH.md."
+        raise UnknownNetworkError, "#{relative} is missing from this checkout (target: #{network})."
       end
 
-      declares = declares_governance?(absolute)
-      if declares != governance
+      unless declares_governance?(absolute)
         raise UnreadableSwitchError, <<~MSG
-          The target's #{GOVERNANCE_ENV_VAR} and the IDL it selects disagree — refusing to deploy.
-
-          #{GOVERNANCE_ENV_VAR}: #{governance ? "on (expecting the v0.26 governance shape)" : "unset/off (expecting the v0.25 shape)"}
-          Selected IDL:            #{relative}
-          That IDL declares #{GOVERNANCE_INSTRUCTION}: #{declares}
+          #{relative} does not declare #{GOVERNANCE_INSTRUCTION} — refusing to deploy.
 
           This is Solana::Config.verify_governance_alignment! read ahead of the
           push. Deploying anyway means the release phase refuses to boot, and
@@ -193,18 +151,7 @@ module Solana
         MSG
       end
 
-      sibling = sibling_relative_idl_path(network: network, governance: governance)
-      sibling = "" unless File.exist?(File.join(repo_root, sibling))
-
-      {
-        "network" => network,
-        "governance" => governance ? "on" : "off",
-        "vault_shape" => vault_shape(governance),
-        "idl_path" => relative,
-        "declares_governance" => declares.to_s,
-        "sibling_idl_path" => sibling,
-        "sibling_shape" => sibling.empty? ? "" : vault_shape(!governance)
-      }
+      { "network" => network, "vault_shape" => VAULT_SHAPE, "idl_path" => relative }
     end
   end
 end

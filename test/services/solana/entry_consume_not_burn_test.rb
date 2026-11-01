@@ -7,7 +7,7 @@ require "test_helper"
 #   * `enter_contest_with_token` — the entry path. The on-chain handler sets
 #     `entry_token.consumed = true` + `consumed_at`, guarded by `!entry_token.consumed`
 #     (VaultError::EntryTokenAlreadyConsumed). It never sets the burn tombstone.
-#   * `burn_entry_token` — the operator claw-back, a 1-of-3 vault-signer instruction
+#   * `burn_entry_token` — the operator claw-back, a 3-of-5 vault-signer instruction
 #     the holder never signs. It ALSO sets `consumed = true` (that is what blocks the
 #     spend) and additionally sets the burned flag in the `source` high bit.
 #
@@ -76,7 +76,8 @@ class Solana::EntryConsumeNotBurnTest < ActiveSupport::TestCase
     vault = Solana::Vault.new(client: client)
 
     vault.burn_entry_token(wallet_address: Solana::Keypair.encode_base58(Solana::Keypair.generate.public_key_bytes),
-                           source_ref: "operator:consume-not-burn:1")
+                           source_ref: "operator:consume-not-burn:1",
+                           extra_signers: [Solana::Keypair.generate, Solana::Keypair.generate])
 
     wire = Base64.decode64(sink.first)
     assert_includes wire, Solana::Transaction.anchor_discriminator("burn_entry_token"),

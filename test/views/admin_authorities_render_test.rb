@@ -86,7 +86,7 @@ class AdminAuthoritiesRenderTest < ActionDispatch::IntegrationTest
     assert_response :success
   end
 
-  # A rotation row as #create_rotation records it (operator-led, v0.25).
+  # A rotation row as #create_rotation records it (operator-led).
   def arm_a_rotation
     vault = RenderVault.new
     rotation = Solana::SignerRotation.for_chain(current_signers: [SYSTEM, ALEX, MASON], proposed: [ALEX, MASON, ALEX2],
@@ -217,15 +217,6 @@ class AdminAuthoritiesRenderTest < ActionDispatch::IntegrationTest
     assert_equal 5, response.body.scan(/class="mt-0\.5 w-8 shrink-0/).length,
                  "every slot gets a row, occupied or not"
     assert_equal 2, response.body.scan(/>\s*Empty/).length
-  end
-
-  test "the slots beyond the deployed program's width are marked unreachable" do
-    # On the DEPLOYED v0.25 binary there are only three slots. Rendering five
-    # without saying so would invite an operator to plan a rotation the live
-    # program cannot execute.
-    render_page
-
-    assert_match(/unreachable on the deployed program, which has only 3 slots/, response.body)
   end
 
   test "the legacy threshold field is labelled as decorative" do

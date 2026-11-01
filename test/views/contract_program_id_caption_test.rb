@@ -9,8 +9,8 @@ require "test_helper"
 # SOLANA_PROGRAM_ID." The two clusters run DIFFERENT programs, measured on the
 # app's own committed IDLs:
 #
-#   config/turf_vault.idl.json          -> EQGFJAcABtDb6VXtiijTjZ6cE2UqdvhnqJvoharJbpMJ  (devnet)
-#   config/turf_vault.mainnet.idl.json  -> DaFv83yokwTz8msP9CzJ13eazSGk15NuUTxjkfzJzxMM  (mainnet)
+#   config/turf_vault.v026.idl.json          -> EQGFJAcABtDb6VXtiijTjZ6cE2UqdvhnqJvoharJbpMJ  (devnet)
+#   config/turf_vault.mainnet.v026.idl.json  -> DaFv83yokwTz8msP9CzJ13eazSGk15NuUTxjkfzJzxMM  (mainnet)
 #
 # Solana::Config::IDL_PATH is keyed on NETWORK precisely BECAUSE they differ.
 # This is the admin card an operator consults BEFORE proposing a program
@@ -86,7 +86,7 @@ class ContractProgramIdCaptionTest < ActionDispatch::IntegrationTest
 
     assert_not_equal devnet, mainnet,
       "the Program ID caption renders identically on both clusters. devnet and mainnet run " \
-      "DIFFERENT programs (config/turf_vault.idl.json vs config/turf_vault.mainnet.idl.json), " \
+      "DIFFERENT programs (config/turf_vault.v026.idl.json vs config/turf_vault.mainnet.v026.idl.json), " \
       "so a caption that cannot tell them apart is stating a false invariance on the page an " \
       "operator reads before proposing an upgrade."
   end

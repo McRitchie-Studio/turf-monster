@@ -21,6 +21,9 @@ require "test_helper"
 # that forgets to mask turns a burned Stripe token (1 | 0x80 = 129) into a source
 # no lookup table has.
 class Solana::EntryTokenBurnTest < ActiveSupport::TestCase
+  # BURN_ENTRY_TOKEN is 3 on v0.26; the server signs the first.
+  TWO_MORE = [Solana::Keypair.generate, Solana::Keypair.generate].freeze
+
   # No RPC. burn needs a blockhash to build and a send that swallows the wire.
   def fake_client(sink)
     client = Object.new
@@ -68,7 +71,7 @@ class Solana::EntryTokenBurnTest < ActiveSupport::TestCase
     vault, sink = vault_with_sink
     ref = "operator:burn-me:1"
 
-    vault.burn_entry_token(wallet_address: Solana::Keypair.generate.to_base58, source_ref: ref)
+    vault.burn_entry_token(wallet_address: Solana::Keypair.generate.to_base58, source_ref: ref, extra_signers: TWO_MORE)
 
     assert_equal 1, sink.length, "burn must send exactly one transaction"
     wire = Base64.decode64(sink.first)
@@ -92,7 +95,7 @@ class Solana::EntryTokenBurnTest < ActiveSupport::TestCase
     vault, sink = vault_with_sink
     ref = "stripe:cs_test_burn:0"
 
-    vault.burn_entry_token(wallet_address: Solana::Keypair.generate.to_base58, source_ref: ref)
+    vault.burn_entry_token(wallet_address: Solana::Keypair.generate.to_base58, source_ref: ref, extra_signers: TWO_MORE)
 
     pda, _ = vault.send(:entry_token_pda, ref)
     assert_includes Base64.decode64(sink.first), pda,
@@ -106,7 +109,7 @@ class Solana::EntryTokenBurnTest < ActiveSupport::TestCase
     # burn would aim at the PDA of a DIFFERENT, shorter ref — destroying the
     # wrong token — so this must fail before it sends anything.
     assert_raises(ArgumentError) do
-      vault.burn_entry_token(wallet_address: Solana::Keypair.generate.to_base58, source_ref: "x" * 65)
+      vault.burn_entry_token(wallet_address: Solana::Keypair.generate.to_base58, source_ref: "x" * 65, extra_signers: TWO_MORE)
     end
     assert_empty sink, "nothing may be broadcast for a ref that cannot be encoded"
   end
@@ -117,7 +120,7 @@ class Solana::EntryTokenBurnTest < ActiveSupport::TestCase
     key = Solana::Vault.entry_tokens_cache_key(address)
 
     Rails.cache.write(key, [{ consumed: false }])
-    vault.burn_entry_token(wallet_address: address, source_ref: "operator:cache:1")
+    vault.burn_entry_token(wallet_address: address, source_ref: "operator:cache:1", extra_signers: TWO_MORE)
 
     assert_nil Rails.cache.read(key),
       "a stale list would keep offering a Burn on a token that is already gone"

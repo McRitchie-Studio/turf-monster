@@ -23,10 +23,9 @@ class DeploySignerIsolationTest < ActiveSupport::TestCase
   COPIED = %w[
     lib/solana/idl_selection.rb
     lib/solana/signer_isolation.rb
-    config/turf_vault.idl.json config/turf_vault.v026.idl.json
-    config/turf_vault.mainnet.idl.json config/turf_vault.mainnet.v026.idl.json
+    config/turf_vault.v026.idl.json config/turf_vault.mainnet.v026.idl.json
   ].freeze
-  V025 = Digest::SHA256.hexdigest(File.read(Rails.root.join("config", "turf_vault.mainnet.idl.json")))
+  V026 = Digest::SHA256.hexdigest(File.read(Rails.root.join("config", "turf_vault.mainnet.v026.idl.json")))
   CHILD_PATH_TAIL = "/usr/bin:/bin:/usr/sbin:/sbin".freeze
   APPS = %w[turf-monster-mainnet turf-monster-qa].freeze
 
@@ -179,7 +178,7 @@ class DeploySignerIsolationTest < ActiveSupport::TestCase
                        registry_body: registry_body, crash_guard: crash_guard, noisy_guard: noisy_guard)
       build_shims(shims, log)
       FileUtils.mkdir_p(store)
-      mainnet = { "EXPECTED_IDL_HASH" => V025, "STRIPE_SECRET_KEY" => "sk_live_fake",
+      mainnet = { "EXPECTED_IDL_HASH" => V026, "STRIPE_SECRET_KEY" => "sk_live_fake",
                   "SOLANA_NETWORK" => "mainnet-beta", "SOLANA_ADMIN_KEY" => PROD_SECRET }.merge(mainnet_extra)
       File.write(File.join(store, "turf-monster-mainnet.json"), mainnet.to_json)
       if qa_key

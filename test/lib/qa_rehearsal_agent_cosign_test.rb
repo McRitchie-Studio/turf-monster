@@ -36,24 +36,6 @@ class QaRehearsalAgentCosignTest < ActiveSupport::TestCase
     assert_equal :agent, TurfMonster::QaRehearsal::Options.parse(%w[conclude]).last[:cosign]
   end
 
-  test "on a v0.25 dyno the agent co-sign refuses before it grades or locks anything" do
-    d = Driver.new(io: StringIO.new)
-    d.define_singleton_method(:guard!) { true }
-    d.instance_variable_set(:@manifest, Struct.new(:x) { def read = { "contest_slug" => "c" } }.new(nil))
-    calls = []
-    remote = Object.new
-    remote.define_singleton_method(:call) do |src|
-      calls << src
-      { "governance" => false }
-    end
-    d.instance_variable_set(:@remote, remote)
-
-    error = assert_raises(Driver::StepError) { d.conclude(cosign: :agent) }
-
-    assert_match(/needs turf-vault v0.26/, error.message)
-    assert_equal 1, calls.size, "only the governance probe ran"
-  end
-
   test "no admin actor is filed or driven" do
     refute TurfMonster::QaRehearsal::KeyStore::ITEMS.keys.any? { |k| k.include?("admin") }
     refute_includes Rails.root.join("lib/turf_monster/qa_rehearsal/driver.rb").read, "admin_session"
