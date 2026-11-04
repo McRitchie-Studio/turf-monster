@@ -336,6 +336,15 @@ something calls `showWalletTopup`, or some other opener passes that prop.
 
 Sticky, scroll-responsive. The non-preview header is `nav-shell vt-pinned-header sticky top-0 z-[var(--z-nav)] bg-page transition-shadow duration-300` — `--z-nav` deliberately sits below the shared modal host backdrop at `--z-modal`, so every modal covers persistent navigation chrome. Both come from the shared layer scale (see **Layer scale** below); the header also carries a z-index, which makes it a stacking context, so the environment bars render as a SIBLING above it rather than inside it.
 
+### Page transitions
+
+Turf moves its pages **right** (`config.page_transition_direction = :right`, engine 0.124.0, the gem's `docs/PAGE_TRANSITIONS.md`; `/tasks/turf-adopts-page-transitions`). A change of path between two pages that are not signing pages draws `fade-right` or `unfold-left`. Same-path visits and Turbo Stream broadcasts play nothing. Reduced motion plays nothing.
+
+- **What holds still:** the header (`vt-pinned-header`) and the bar stack (`.studio-bar-stack`). The impersonation and frozen-account bars ride inside the pinned header, so they hold too.
+- **What moves:** on the landing layout the frozen banner sits outside any header, so it moves with the page. That layout has no navbar, and this is the accepted look.
+- **A signing page never moves.** `SigningCsp::PAGES` (the contest page, the live board of a contest, `/wallet`, `/account`, contest create) are entered and left by a full load, so no Turbo render runs on them and their `turbo:load` is not delayed.
+- **On a moving page,** `turbo:load` fires about 700ms after the swap, and a click during those 700ms does nothing. Bind what must run sooner to `turbo:render`. Coverage: `e2e/page_transitions.spec.js`.
+
 ### The collapse is scroll-LINKED, not a threshold plus a clock
 
 The header carries `x-data="navCollapse()"` (factory in `shared/_alpine_factories.html.erb`). It publishes **one number, `--nav-p`** — collapse progress, `0` expanded to `1` collapsed — on the `<header>` itself, once per animation frame, from `window.scrollY`. `application.css` derives every collapsing dimension from it with `calc()`: row padding, logo size, title size, "Totals" size, balance size, username size. `--nav-p` is registered with `@property` as a `<number>`, which is what makes the `calc()`s legal, gives an untouched page a real `0`, and lets `/admin/navbar` transition it directly.

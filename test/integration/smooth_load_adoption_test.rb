@@ -24,6 +24,14 @@ class SmoothLoadAdoptionTest < ActionDispatch::IntegrationTest
     assert_select "header.vt-pinned-header", count: 1
   end
 
+  test "[integration] a page names the direction and loads the transition module" do
+    get signin_path
+    assert_response :success
+
+    assert_select %q(meta[name="page-transition-direction"][content="right"]), count: 1
+    assert_includes response.body, "studio/page_transitions"
+  end
+
   test "[integration] admin navbar-review page keeps exactly one pinned header despite preview copies" do
     log_in_as(users(:alex))
     get admin_navbar_path

@@ -93,6 +93,18 @@
 // Deliberately NOT fixed with `turbo-cache-control: no-cache`: that strands the
 // guest completely -- no snapshot to restore from, and nothing on the server either.
 //
+// WITH A PAGE TRANSITION (config.page_transition_direction, engine 0.124). The engine
+// binds turbo:before-render in capture and takes Turbo's resume first, so under motion
+// on a change of path the setTimeout(resume, 0) below calls a resume that does nothing,
+// and the engine's pause, which waits at least one tick, is the hold. Under reduced
+// motion, and on a same-path visit, the engine holds nothing and this module is the
+// only hold, exactly as before. The comment above that says the engine is not involved
+// speaks of its reduced-motion CSS rule.
+//
+// A SIGNING PAGE NEVER REACHES THIS MODULE. The contest page is one (SigningCsp), so it
+// is left by a full load and its cart rides sessionStorage. This hold now guards the
+// pages that still move by Turbo.
+//
 // Covered by e2e/cart_survives_turbo_restore.spec.js (Back and Forward, under the
 // lane's real reduced-motion default) and test/lib/turbo_snapshot_cache_wiring_test.rb.
 
