@@ -258,7 +258,10 @@ async function recordAcrossLoads(page, random = 0) {
       setTimeout(() => { Math.random = real; }, 0);
       log(`pageswap ${event.viewTransition ? "transition" : "plain"}`);
     }, { capture: true });
-    window.addEventListener("pagereveal", (event) => log(`pagereveal ${event.viewTransition ? "transition" : "plain"}`));
+    window.addEventListener("pagereveal", (event) => {
+      window.__revealed = true;
+      log(`pagereveal ${event.viewTransition ? "transition" : "plain"}`);
+    });
     document.addEventListener("securitypolicyviolation", (event) => {
       log(`violation ${event.disposition} ${event.effectiveDirective} ${event.blockedURI} ${(event.sample || "").slice(0, 80)}`);
     });
@@ -284,9 +287,11 @@ const ONE_FADE = [`::view-transition-new(root) ${FADE_IN}`, `::view-transition-o
 
 // Turbo flips the URL before a reload answers, so the URL proves nothing here. The mark lives on
 // the document, and only a new document has none. Past the whole motion when this returns.
+// pagereveal comes at the first render, and a busy machine can finish the load event before it,
+// so "complete" alone can read a page whose motion has not started.
 const markDocument = (page) => page.evaluate(() => { window.__documentMark = true; });
 async function landed(page, path) {
-  await page.waitForFunction((target) => !window.__documentMark && window.location.pathname === target
+  await page.waitForFunction((target) => !window.__documentMark && window.__revealed && window.location.pathname === target
     && document.readyState === "complete"
     && document.documentElement.dataset.pageTransition === undefined
     && !document.getAnimations().some((a) => (a.effect?.pseudoElement || "").startsWith("::view-transition")), path);
@@ -376,7 +381,9 @@ test.describe("money pages", () => {
   });
 
   // Playwright turns the back/forward cache off, so each Back here is a fresh back_forward load.
-  // The restored page is the gem's unit test, and the task's checks record a by-hand reading.
+  // That is also what an ordinary session gets today: the session channel's message on the next
+  // page's load evicts the page held in the cache. The restored page is the gem's unit test,
+  // and the task's checks record a reading with no debugger attached.
   test("Back into a signing page and Back out of one each play one move", async ({ page }) => {
     await openLobby(page);
     await leaveBy(page, contestLink(page), CONTEST);
@@ -456,6 +463,20 @@ test.describe("money pages", () => {
         await page.waitForLoadState("networkidle");
         const settled = await logged(page);
         expect(violations(settled).filter((line) => !pendingDeepLink.test(line)), path).toEqual([]);
+        const out = await leaveBy(page, await linkTo(page, LOBBY), LOBBY);
+        expect(rootMotion(out), `out of ${path}\n${out.join("\n")}`).toEqual(ONE_FADE);
+      }
+    });
+
+    test("the live board and the cosign queue play one move with no violation of their own", async ({ page }) => {
+      await loginAdmin(page);
+      await openLobby(page);
+      for (const path of [`${CONTEST}/live`, "/admin/pending_transactions"]) {
+        const into = await leaveBy(page, await linkTo(page, path), path);
+        expect(rootMotion(into), `into ${path}\n${into.join("\n")}`).toEqual(ONE_FADE);
+        await expect(page.locator('meta[name="signing-csp"]'), path).toHaveCount(1);
+        await page.waitForLoadState("networkidle");
+        expect(violations(await logged(page)).filter((line) => !pendingDeepLink.test(line)), path).toEqual([]);
         const out = await leaveBy(page, await linkTo(page, LOBBY), LOBBY);
         expect(rootMotion(out), `out of ${path}\n${out.join("\n")}`).toEqual(ONE_FADE);
       }
