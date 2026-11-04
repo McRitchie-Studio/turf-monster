@@ -17,10 +17,11 @@
 // body was rendered for, and a record for anyone else is deleted unread. Act as changes the user,
 // so it changes the key. Logout clears sessionStorage (session_wipe.js).
 //
-// CLASSIC AND SYNCHRONOUS ON PURPOSE. The layout loads it by src straight after the navbar, so
-// the parser paints the figures before the first frame can show the navbar without them. A module
-// is deferred, so it can be too late. It is a named file so it adds no inline script, and 'self'
-// and the request's nonce both cover it under the strict policy.
+// CLASSIC, BLOCKING, IN THE HEAD, ON PURPOSE. A plain load paints as it parses, and a script tag
+// after the navbar is a pause the browser can paint in: measured, one frame of an empty pill. So
+// this runs ahead of the body and watches it arrive. A mutation callback runs before any frame
+// can show what was inserted. A module is deferred, so it can be too late. It is a named file so
+// it adds no inline script, and 'self' and the request's nonce both cover it under the strict policy.
 (function () {
   var KEY = "tm:nav-figures";
   // A spend that may navigate is settling (solana_utils.js): the pre-spend figure must not come back.
@@ -85,7 +86,7 @@
     if (!record.amount) return;
     var free = record.tokens > 0 && record.amount === "$0";
     eachPill(root, function (el, label) {
-      el.textContent = record.amount;
+      if (el.textContent !== record.amount) el.textContent = record.amount;
       el.classList.toggle("hidden", free);
       if (label) label.classList.toggle("is-active", free);
     });
@@ -94,7 +95,7 @@
   // The hold a settling spend asks for. A snapshot must not show the pre-spend figure either.
   function blankAmount(root) {
     eachPill(root, function (el, label) {
-      el.textContent = "";
+      if (el.textContent !== "") el.textContent = "";
       el.classList.add("hidden");
       if (label) label.classList.remove("is-active");
     });
@@ -116,7 +117,10 @@
       bar.dataset.initialToward = record.toward;
       var fill = bar.querySelector(".seeds-bar-continuous");
       if (fill) fill.style.setProperty("--bar-progress", record.toward);
-      bar.querySelectorAll("[data-seeds-level]").forEach(function (el) { el.textContent = "Level " + record.level; });
+      bar.querySelectorAll("[data-seeds-level]").forEach(function (el) {
+        var level = "Level " + record.level;
+        if (el.textContent !== level) el.textContent = level;
+      });
       bar.querySelectorAll("[data-seeds-text-fill]").forEach(function (el) {
         el.style.clipPath = "inset(0 " + (100 - record.toward) + "% 0 0)";
       });
@@ -143,10 +147,7 @@
     return !!(record && record.amount);
   }
 
-  if (window.TurfNavFigures) {
-    // Turbo ran this tag again after a swap: the listener below already painted that body.
-    return;
-  }
+  if (window.TurfNavFigures) return;
   window.TurfNavFigures = {
     who: function () { return who(document.body); },
     remember: remember,
@@ -160,5 +161,13 @@
     if (body) paint(body, body);
   }, { capture: true });
 
-  paint(document, document.body);
+  // Each batch paints again, because the parser can add a warm render's own text after a paint.
+  var watcher = new MutationObserver(function () {
+    if (document.body) paint(document, document.body);
+  });
+  watcher.observe(document.documentElement, { childList: true, subtree: true });
+  document.addEventListener("DOMContentLoaded", function () {
+    watcher.disconnect();
+    paint(document, document.body);
+  }, { once: true });
 })();

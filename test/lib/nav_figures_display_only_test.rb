@@ -55,7 +55,11 @@ class NavFiguresDisplayOnlyTest < ActiveSupport::TestCase
       const document = { body, addEventListener: (n, f) => { listeners[n] = f; },
         querySelectorAll: (sel) => (sel === "[data-balance-display]" ? [pill] : []) };
       const window = { sessionStorage };
-      vm.runInNewContext(source, { window, document, JSON, Object, parseInt });
+      document.documentElement = {};
+      let watch;
+      const MutationObserver = function (run) { watch = run; this.observe = () => {}; this.disconnect = () => {}; };
+      vm.runInNewContext(source, { window, document, JSON, Object, parseInt, MutationObserver });
+      watch();
       return { pill, api: window.TurfNavFigures, listeners };
     }
     const A = { userId: "1", walletAddress: "AAA", solanaCluster: "devnet" };

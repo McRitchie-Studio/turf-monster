@@ -120,9 +120,11 @@ function expectHeld(lines, amount) {
     expect(frame.amount, `a frame with another figure\n${said}`).toBe(amount);
     expect(frame.shown, `a frame with the pill hidden\n${said}`).toBe(true);
     expect(frame.spinning, `a frame with the spinner showing\n${said}`).toBe(false);
-    expect(frame.segments, `a frame with no seeds segments\n${said}`).toBe(5);
-    expect(frame.progress, `a frame with the seeds bar moved\n${said}`).toBe(60);
-    expect(frame.level, `a frame with another level\n${said}`).toBe("Level 5");
+    // A plain load can paint mid-navbar, so the seeds bar counts once its row has parsed.
+    if (frame.segments === 5) {
+      expect(frame.progress, `a frame with the seeds bar moved\n${said}`).toBe(60);
+      if (frame.level !== null) expect(frame.level, `a frame with another level\n${said}`).toBe("Level 5");
+    }
   }
 }
 
@@ -138,7 +140,10 @@ async function walk(page) {
 }
 
 function expectWalkHeld(lines, amount, { held }) {
-  expectHeld(lines.filter((line) => !line.reveal), amount);
+  const seen = lines.filter((line) => !line.reveal);
+  expectHeld(seen, amount);
+  if (held) expect(seen.every((f) => f.segments === 5), JSON.stringify(seen)).toBe(true);
+  expect(seen[seen.length - 1].level).toBe("Level 5");
   // A full load has its figure before the first render, wherever the navbar has arrived by then.
   // A planned move holds that render to the end of parsing, so the navbar is always there. With
   // reduced motion nothing holds it, and the browser may render before the navbar has parsed.

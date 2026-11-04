@@ -46,7 +46,7 @@
 
 ### 1. Admin logs in via Phantom (SIWS)
 
-1. **Click "Connect Wallet"** — the multi-wallet picker modal (solana-studio's `solana_studio/modals/_wallet_connect`, mounted from `app/views/layouts/application.html.erb` with `wallet_connect_modal_locals`) invokes the inline `window.solanaConnectAndVerify` SIWS helper (`app/views/layouts/application.html.erb:341`). Alpine `x-data` factory functions must be inline because `importmap` modules load *after* Alpine processes `x-data` (`app/views/layouts/application.html.erb:1582-1584`).
+1. **Click "Connect Wallet"** — the multi-wallet picker modal (solana-studio's `solana_studio/modals/_wallet_connect`, mounted from `app/views/layouts/application.html.erb` with `wallet_connect_modal_locals`) invokes the inline `window.solanaConnectAndVerify` SIWS helper (`app/views/layouts/application.html.erb:341`). Alpine `x-data` factory functions must be inline because `importmap` modules load *after* Alpine processes `x-data` (`app/views/layouts/application.html.erb:1585-1587`).
 2. **`GET /auth/solana/nonce`** — `SolanaSessionsController#nonce` (`app/controllers/solana_sessions_controller.rb:5-9`). Stores `session[:solana_nonce]` + `session[:solana_nonce_at]`.
    - Route: `solana_sessions#nonce` (`config/routes.rb:213`).
 3. **Client builds the SIWS message** and calls `provider.signMessage(...)` — `app/views/layouts/application.html.erb:545-546`. The helper prefers the wallet's own `signIn` and falls back to `connect` + `signMessage`, announcing the fallback with a `console.warn` at `:520`. The message body begins `wants you to sign in with your Solana account` (`:545`), and the nonce echoed back is checked against `nonceData.nonce` (`:485`).
