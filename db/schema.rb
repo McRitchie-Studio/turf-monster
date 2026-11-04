@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_01_145522) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_04_002700) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -1026,6 +1026,17 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_01_145522) do
     t.index ["survey_slug", "session_token"], name: "index_studio_survey_responses_one_open_per_session", unique: true, where: "((completed_at IS NULL) AND (session_token IS NOT NULL))"
     t.index ["survey_slug", "user_id"], name: "index_studio_survey_responses_one_open_per_user", unique: true, where: "((completed_at IS NULL) AND (user_id IS NOT NULL))"
     t.index ["user_id"], name: "index_studio_survey_responses_on_user_id"
+  end
+
+  create_table "studio_user_sessions", force: :cascade do |t|
+    t.boolean "admin", default: false, null: false
+    t.datetime "created_at", null: false
+    t.datetime "last_seen_at", null: false
+    t.datetime "started_at", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["last_seen_at"], name: "index_studio_user_sessions_on_last_seen_at"
+    t.index ["user_id"], name: "index_studio_user_sessions_on_user_id"
   end
 
   create_table "survivor_picks", force: :cascade do |t|
