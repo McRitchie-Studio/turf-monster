@@ -188,6 +188,7 @@ window.pollConfirmation = pollConfirmation;
 // server-side caches as a side effect. Every field is guarded — a flaked RPC
 // yields null and we leave the prior value in place.
 export function refreshBalance() {
+  var figuresFor = window.TurfNavFigures && window.TurfNavFigures.who();
   return lockedFetch('balance', '/admin/usdc_balance', {
     headers: { 'Accept': 'application/json' }, cache: 'no-store'
   })
@@ -206,6 +207,7 @@ export function refreshBalance() {
         // Which face the slot shows ($ amount vs "✨ Free Entry") is one rule,
         // shared with updateNavTokens and the server render.
         applyBalanceSlotRule();
+        rememberNavFigures({ amount: formatted }, figuresFor);
       }
 
       // (b) Seeds bar — dispatch the same event the entry-confirm flow uses
@@ -224,6 +226,7 @@ export function refreshBalance() {
             detail: { levelUp: false, level: data.level, progress: data.progress }
           }));
         } catch (_) {}
+        rememberNavFigures({ seeds: data.seeds, level: data.level, toward: data.toward_next }, figuresFor);
       }
 
       // (c) $store.session cents — so the synchronous eligibilityBlocker sees
@@ -240,6 +243,12 @@ export function refreshBalance() {
       updateWalletTiles(data);
     })
     .catch(function() {});
+}
+
+// The navbar's last known figures (nav_figures.js). A display value only, so it writes
+// here and nothing in this file reads it back. figuresFor is who the read was made for.
+function rememberNavFigures(fields, figuresFor) {
+  if (window.TurfNavFigures) window.TurfNavFigures.remember(fields, figuresFor);
 }
 
 // ── THE ON-CHAIN SETTLE SEAM ────────────────────────────────────────────────
@@ -347,10 +356,13 @@ function paintBalanceRestore() {
       if (_pillBeforeLoading.hidden) el.classList.add("hidden");
       else el.classList.remove("hidden");
     });
+    rememberNavFigures({ amount: _pillBeforeLoading.text });
   } catch (_) {}
 }
 
 function paintBalanceLoading() {
+  // The figure on show is the pre-spend one, so no later page may bring it back.
+  if (window.TurfNavFigures) window.TurfNavFigures.forget();
   try {
     var first = document.querySelector("[data-balance-display]");
     _pillBeforeLoading = first
@@ -544,6 +556,7 @@ export function refreshBalanceDelayed(ms) {
 // Returns a Promise so callers can chain a spinner around it.
 export function refreshSession(opts) {
   var lockKey = (opts && opts.lockKey) || 'session';
+  var figuresFor = window.TurfNavFigures && window.TurfNavFigures.who();
   return lockedFetch(lockKey, '/account/session_refresh', {
     headers: { 'Accept': 'application/json' }, cache: 'no-store'
   })
@@ -590,12 +603,14 @@ export function refreshSession(opts) {
             if (isZero && hasTokens) el.classList.add('hidden');
             else                     el.classList.remove('hidden');
           });
+          rememberNavFigures({ amount: formatted }, figuresFor);
         }
       } catch (_) {}
 
       // ✨ token badge — reuse updateNavTokens for the visibility
       // toggle + data-token-count + 'entry-tokens-updated' broadcast.
       try { updateNavTokens(data.tokens); } catch (_) {}
+      if (data.tokens != null) rememberNavFigures({ tokens: parseInt(data.tokens, 10) || 0 }, figuresFor);
 
       // Seeds bar — write the canonical localStorage payload the
       // _seeds_bar Alpine factory reads on level-up animations, then
@@ -605,8 +620,12 @@ export function refreshSession(opts) {
       // THE GUARD: a level-up animation owns the bar while it plays. A delayed
       // full reload landing mid-animation would snap the bar back to a value
       // the animation is still travelling toward, or re-fire the milestone.
+      // A FAILED READ IS NOT ZERO SEEDS. The endpoint says when its seeds read flaked, and the bar
+      // keeps what it shows rather than emptying.
       try {
         if (seedsAnimating()) throw new Error("seeds animating — skip repaint");
+        if (data.seeds_read === false) throw new Error("seeds read flaked — keep the bar");
+        rememberNavFigures({ seeds: data.seeds, level: data.level, toward: data.toward_next }, figuresFor);
         localStorage.setItem('seedsNavbar', JSON.stringify({
           seeds_total: data.seeds,
           level:       data.level,
@@ -854,6 +873,7 @@ window.confirmSolanaNetworkIntent = confirmSolanaNetworkIntent;
 window.refreshBalance = refreshBalance;
 window.refreshBalanceDelayed = refreshBalanceDelayed;
 window.onchainSettled = onchainSettled;
+window.settlePending = settlePending;
 window.pendingOnchainSettleMs = pendingOnchainSettleMs;
 window.settleOnLoadIfPending = settleOnLoadIfPending;
 window.markSeedsAnimating = markSeedsAnimating;

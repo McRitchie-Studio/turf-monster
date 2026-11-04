@@ -21,7 +21,8 @@
     server no longer blocks the render on the balance RPC. HIDE the whole
     balance link (the "$" too) while loading so there is no lone "$"; the
     client's refreshBalance() then sets [data-balance-display] AND removes
-    .hidden, so the full "$112" appears at once. %>
+    .hidden, so the full "$112" appears at once. Once a figure is known,
+    nav_figures.js paints it over this render before the first frame. %>
 <% balance_loading = display_balance.nil? %>
 <% balance_dollars = display_balance.to_f %>
 <% balance_zero    = !balance_loading && balance_dollars.zero? %>

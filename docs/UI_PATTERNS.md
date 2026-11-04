@@ -336,6 +336,27 @@ something calls `showWalletTopup`, or some other opener passes that prop.
 
 Sticky, scroll-responsive. The non-preview header is `nav-shell vt-pinned-header sticky top-0 z-[var(--z-nav)] bg-page transition-shadow duration-300` — `--z-nav` deliberately sits below the shared modal host backdrop at `--z-modal`, so every modal covers persistent navigation chrome. Both come from the shared layer scale (see **Layer scale** below); the header also carries a z-index, which makes it a stacking context, so the environment bars render as a SIBLING above it rather than inside it.
 
+### Page transitions
+
+Turf moves its pages **right** (`config.page_transition_direction = :right`, engine 0.125.0, the gem's `docs/PAGE_TRANSITIONS.md`; `/tasks/turf-adopts-page-transitions`). A change of path draws `fade-right` or `unfold-left`, on Back and Forward too. Same-path visits, reloads and Turbo Stream broadcasts play nothing. Reduced motion plays nothing.
+
+- **What holds still:** the header (`vt-pinned-header`) and the bar stack (`.studio-bar-stack`). The impersonation and frozen-account bars ride inside the pinned header, so they hold too.
+- **What moves:** on the landing layout the frozen banner sits outside any header, so it moves with the page. That layout has no navbar, and this is the accepted look.
+- **A signing page moves by a full load.** `SigningCsp::PAGES` (the contest page, the live board of a contest, `/wallet`, `/account`, the key export, the cosign pages, contest create) stay their own documents under the strict policy, so they are entered and left by a full load. The browser's cross-document view transition plays the same move (engine 0.125.0). It adds no source to the policy: the sheet is `'self'` and the script takes the request's nonce. No Turbo render runs on these pages, so their `turbo:load` is not delayed.
+- **What a full load cannot do.** An image that is not ready loads in during the motion. Each click into a signing page fetches it twice, as it did before: Turbo's fetch, then the reload.
+- **A secret does not stay in the leaving picture.** The old page's picture is taken as it leaves, and it can last through the move and a slow next page. So `signing_document.js` drops every `data-turbo-temporary` element at `pageswap`, ahead of that picture: the API-key reveal on `/account`, and the key on the export page. The export page carries `data-no-leaving-picture`, so leaving it plays no transition at all.
+- **A click during the arrival move is lost, on a signing page too.** The browser's overlay takes it for the 700ms. That includes the Lock button: a lost tap, never a double submit.
+- **On a moving page,** `turbo:load` fires about 700ms after the swap, and a click during those 700ms does nothing. Bind what must run sooner to `turbo:render`. Coverage: `e2e/page_transitions.spec.js`.
+
+### The navbar figures hold across a page change
+
+The server reads the balance from a cache only, so a cold render has no figure. `app/javascript/nav_figures.js` keeps the last known amount, token badge, level and seeds fill in `sessionStorage`, and paints them before the first frame: into the incoming body at `turbo:before-render`, and on a full load by a classic script in the head, which watches the navbar arrive. The fresh read then runs silently, and a figure changes only when its value changes. The memory overwrites what the body says, because a Turbo snapshot holds the figure from when the page was left and a warm render one up to 60 seconds old. With no memory, a warm render shows its own figure. Coverage: `e2e/nav_figures_hold.spec.js`.
+
+- **A display value only.** Entry, funding and signing read `$store.session` and the server. `test/lib/nav_figures_display_only_test.rb` holds the readers.
+- **Keyed to user, wallet address and cluster.** A record for anyone else is deleted unread. Act as changes the user, so it shows no admin figure. Logout clears it (`session_wipe.js`).
+- **A settling spend forgets the amount and the tokens**, so the pre-spend figure cannot return, from a snapshot either. That hold still blanks the pill on purpose until the settle read lands.
+- **A failed read keeps the last figure**, with no error shown, until a read lands or the tab closes. A new tab with no copied session starts from the normal loading state and the spinner.
+
 ### The collapse is scroll-LINKED, not a threshold plus a clock
 
 The header carries `x-data="navCollapse()"` (factory in `shared/_alpine_factories.html.erb`). It publishes **one number, `--nav-p`** — collapse progress, `0` expanded to `1` collapsed — on the `<header>` itself, once per animation frame, from `window.scrollY`. `application.css` derives every collapsing dimension from it with `calc()`: row padding, logo size, title size, "Totals" size, balance size, username size. `--nav-p` is registered with `@property` as a `<number>`, which is what makes the `calc()`s legal, gives an untouched page a real `0`, and lets `/admin/navbar` transition it directly.

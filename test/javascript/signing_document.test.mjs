@@ -2,7 +2,7 @@ import { test } from "node:test"
 import assert from "node:assert/strict"
 import { loadTurfModule } from "./support/load.mjs"
 
-const { SIGNING_DOCUMENT_HEADER, dropTemporary, isStrictDocument, stripScripts } = await loadTurfModule("signing_document")
+const { SIGNING_DOCUMENT_HEADER, dropTemporary, isStrictDocument, leaveWithoutPicture, stripScripts } = await loadTurfModule("signing_document")
 
 test("only the signing-csp marker reading strict makes a strict document", () => {
   assert.equal(isStrictDocument({ content: "strict" }), true)
@@ -35,4 +35,29 @@ test("the strict document's fetch header is the one SigningCsp reads", async () 
   const concern = readFileSync(new URL("../../app/controllers/concerns/signing_csp.rb", import.meta.url), "utf8")
   assert.equal(SIGNING_DOCUMENT_HEADER, "X-Signing-Document")
   assert.match(concern, /DOCUMENT_HEADER = "X-Signing-Document"/)
+})
+
+function leavingRoot({ marked }) {
+  const removed = []
+  return {
+    removed,
+    querySelector: (selector) => (selector === "[data-no-leaving-picture]" && marked ? {} : null),
+    querySelectorAll: () => [{ remove: () => removed.push("key") }],
+  }
+}
+
+test("leaving a page drops what is temporary, and a marked page plays no transition", () => {
+  let skips = 0
+  const transition = { skipTransition: () => { skips += 1 } }
+
+  const account = leavingRoot({ marked: false })
+  assert.deepEqual(leaveWithoutPicture(account, transition), { dropped: 1, skipped: false })
+  assert.equal(skips, 0)
+
+  const keyPage = leavingRoot({ marked: true })
+  assert.deepEqual(leaveWithoutPicture(keyPage, transition), { dropped: 1, skipped: true })
+  assert.equal(skips, 1)
+  assert.deepEqual(keyPage.removed, ["key"])
+
+  assert.deepEqual(leaveWithoutPicture(leavingRoot({ marked: true }), null), { dropped: 1, skipped: false })
 })

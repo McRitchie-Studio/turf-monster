@@ -904,6 +904,32 @@ class TestController < ApplicationController
   # like #warm_entry_tokens' swap; #reseed puts the boot value back.
   SIGNING_CSP_ENFORCED_AT_BOOT = Rails.configuration.x.signing_csp_enforced
 
+  # The warm navbar path: a figure in the cache the render reads, as production has for 60 seconds.
+  # The same store swap as #warm_entry_tokens, undone by #reseed.
+  def warm_balance
+    return head :forbidden unless Rails.env.test? || Rails.env.development?
+    return render json: { error: "not logged in" }, status: :unauthorized unless current_user
+
+    Rails.cache = ActiveSupport::Cache::MemoryStore.new unless Rails.cache.is_a?(ActiveSupport::Cache::MemoryStore)
+    Rails.cache.write(NavbarCacheKeys.usdc(current_user), params.fetch(:usdc).to_f)
+    Rails.cache.write(NavbarCacheKeys.usdt(current_user), 0.0)
+    render json: { ok: true }
+  end
+
+  # The key export page's address, as the email carries it, for the signed-in test user. It skips
+  # the email, so it carries the same hard-gate as #magic_link_token.
+  def wallet_export_link
+    return head :forbidden unless Rails.env.test? || Rails.env.development?
+    return render json: { error: "not logged in" }, status: :unauthorized unless current_user
+
+    current_user.update!(export_initiated_at: Time.current)
+    token = Rails.application.message_verifier(AccountsController::WALLET_EXPORT_TOKEN_KEY).generate(
+      { user_id: current_user.id, email: current_user.email, initiated_at: current_user.export_initiated_at.to_i },
+      expires_in: 30.minutes
+    )
+    render json: { path: wallet_export_path(token: token) }
+  end
+
   def set_signing_csp
     Rails.configuration.x.signing_csp_enforced = params[:enforced].to_s == "true"
     # pending: the gem fixes still open in the locked gems (SigningCsp::PENDING_GEM_FIXES),

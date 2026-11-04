@@ -153,8 +153,12 @@ test("the restored cart carries the picks themselves, not just the count", async
 // (turbo.js `prefersViewTransitions`), and it was their ~30ms of setup that had
 // been hiding the race; the engine's ::view-transition-* rule never enters into it.
 //
-// DO NOT reintroduce allowMotion(page) here. Motion-on is the configuration in
-// which this bug is invisible, so a green run under it proves nothing.
+// DO NOT reintroduce allowMotion(page) on THIS test. Motion-on is the configuration
+// in which this bug is invisible, so a green run under it says nothing about the
+// bug. The motion-on TWIN at the bottom of this file proves a different claim: that
+// Turf's page transition (config.page_transition_direction, whose render pause
+// widens the window for a Back press) does not cost a guest the cart. Each leg
+// proves its own claim, and neither stands in for the other.
 //
 // The forward-then-back leg at the bottom covers a SECOND, separate failure --
 // Turbo filing the outgoing DOM under the wrong URL when a history traversal
@@ -218,7 +222,7 @@ test("the restored cart carries the picks themselves, not just the count", async
 //   honest -- reproduce it: run this file against an isolated test-env stack with
 //             a CDP CPU throttle applied (Emulation.setCPUThrottlingRate rate 4).
 //             Red at 4x and green unthrottled is this hazard, not a broken diff.
-test("a signed-out visitor's picks survive the same journey", async ({ page }) => {
+async function guestCartJourney(page) {
   await pickSix(page);
 
   await leaveAndComeBack(page);
@@ -286,4 +290,39 @@ test("a signed-out visitor's picks survive the same journey", async ({ page }) =
 
   await expect(page.locator("body")).toContainText("6 / 6");
   await expect(page.locator(SLOTS)).toHaveCount(6);
+}
+
+test("a signed-out visitor's picks survive the same journey", async ({ page }) => {
+  await guestCartJourney(page);
+});
+
+// THE TWIN, WITH MOTION ON (/tasks/turf-adopts-page-transitions). The gem's
+// docs/PAGE_TRANSITIONS.md flags this journey: its render pause widens the window for
+// a Back press inside a render. The contest page is a signing page (SigningCsp), so
+// it is left by a full load, no Turbo render runs on its side of the journey, and the
+// cart rides sessionStorage. The document mark below holds that fact: if a change ever
+// puts this page back on Turbo visits, the mark survives and this goes red, and the
+// window the gem warns of is open again.
+test.describe("with motion on", () => {
+  test.use({ contextOptions: { reducedMotion: "no-preference" } });
+
+  test("a signed-out visitor's picks survive, and the page is left by a full load", async ({ page }) => {
+    await page.goto(CONTEST);
+    await page.evaluate(() => { window.__sameDocument = true; });
+    await page.getByRole("link", { name: "Rules" }).first().click();
+    await page.waitForURL((u) => !u.pathname.startsWith("/contests"));
+    await page.waitForLoadState("load");
+    expect(await page.evaluate(() => window.__sameDocument)).toBeUndefined();
+
+    await guestCartJourney(page);
+  });
+
+  test("a signed-in cart survives the same journey", async ({ page }) => {
+    await loginAdmin(page);
+    await pickSix(page);
+    await leaveAndComeBack(page);
+    await expect(page.locator("body")).toContainText("6 / 6");
+    await expect(page.locator(SLOTS)).toHaveCount(6);
+    await expect(page.locator(`${SLOTS} >> text=Pick 1`)).toHaveCount(0);
+  });
 });

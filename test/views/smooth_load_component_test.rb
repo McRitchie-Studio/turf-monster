@@ -25,6 +25,12 @@ class SmoothLoadComponentTest < ActiveSupport::TestCase
       "config/initializers/studio.rb must set config.smooth_load = true"
   end
 
+  # /tasks/turf-adopts-page-transitions: each app moves one way, and Turf moves right.
+  test "[component] Turf moves its pages right" do
+    assert_equal :right, Studio.page_transition_direction,
+      "config/initializers/studio.rb must set config.page_transition_direction = :right"
+  end
+
   test "[component] nav spinner display floor is 300ms per smooth-load guidance" do
     assert_equal 300, Studio.nav_spinner_min_ms,
       "nav_spinner_min_ms is a minimum DISPLAY floor (remaining = max(0, min_ms - elapsed)) — " \

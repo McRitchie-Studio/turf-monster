@@ -27,6 +27,17 @@ export function dropTemporary(root) {
   return temporary.length
 }
 
+// The last moment on the old document, ahead of the browser's picture of it for a page
+// transition. What Turbo would leave out of a snapshot stays out of that picture too. A page
+// marked data-no-leaving-picture (the key export) plays no transition at all when it is left:
+// the picture would hold it through the move and through a slow next page. Returns what it did.
+export function leaveWithoutPicture(root, transition) {
+  const dropped = dropTemporary(root)
+  const skipped = !!(transition && root && root.querySelector("[data-no-leaving-picture]"))
+  if (skipped) transition.skipTransition()
+  return { dropped, skipped }
+}
+
 // Removes every script under root; returns how many.
 export function stripScripts(root) {
   if (!root) return 0

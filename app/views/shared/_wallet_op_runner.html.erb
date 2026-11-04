@@ -144,9 +144,9 @@
   // prepare is still running and will navigate — which is why the way back is
   // armed in start() and not beside the pagehide listener.
   //
-  //   pageshow, persisted  the page came back out of the bfcache: it was left
-  //                        (pagehide) and restored, e.g. a swipe back from the
-  //                        wallet's web page or from a callback in this tab.
+  //   pageshow, persisted  the page came back out of the bfcache: e.g. a swipe
+  //                        back from the wallet's cross-site page. A same-site
+  //                        next page evicts it, so Back from a callback is fresh.
   //   visible after hidden the page was never unloaded at all. A universal link
   //                        can open the wallet app with this document merely
   //                        hidden behind it, and then nothing is restored, so
