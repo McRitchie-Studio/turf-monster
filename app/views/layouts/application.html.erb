@@ -161,7 +161,7 @@
           // every Turbo nav). It is THE one page-load hydrate: pill + token
           // badge + seeds bar + $store.session cents + any data-wallet-tile
           // spans on the page (/account's balance tiles) all converge from
-          // this single call. The nav spinner spins until it lands. A write
+          // this single call. With no known figure the nav spinner spins until it lands. A write
           // success path (entry confirm / token consume) still calls
           // refreshSession() directly for its own refresh.
           (function() {
@@ -189,7 +189,9 @@
                 return;
               }
               _navHydrating = true;
-              if (window.showNavSpinner) window.showNavSpinner();
+              // A fresh read of figures already on show is silent. The spinner is for no figure.
+              var figuresKnown = window.TurfNavFigures && window.TurfNavFigures.known();
+              if (window.showNavSpinner && !figuresKnown) window.showNavSpinner();
               refreshSession().finally(function() {
                 if (window.hideNavSpinner) window.hideNavSpinner();
                 _navHydrating = false;
@@ -1911,6 +1913,9 @@
         config/initializers/studio.rb). %>
     <%= render "studio/banners/stack", devnet: Solana::Config.devnet? %>
     <%= render "layouts/navbar", **turf_navbar_slots %>
+    <%# Right after the navbar, classic and blocking, so the last known figures are in place
+        before the first frame (nav_figures.js). A display value only. %>
+    <%= javascript_include_tag "nav_figures", nonce: content_security_policy_nonce if logged_in? %>
     <%= render "components/gear_sidebar" if logged_in? %>
     <%= render "shared/landed_entry_prompt" if logged_in? %>
 

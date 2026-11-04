@@ -344,7 +344,16 @@ Turf moves its pages **right** (`config.page_transition_direction = :right`, eng
 - **What moves:** on the landing layout the frozen banner sits outside any header, so it moves with the page. That layout has no navbar, and this is the accepted look.
 - **A signing page moves by a full load.** `SigningCsp::PAGES` (the contest page, the live board of a contest, `/wallet`, `/account`, the key export, the cosign pages, contest create) stay their own documents under the strict policy, so they are entered and left by a full load. The browser's cross-document view transition plays the same move (engine 0.125.0). It adds no source to the policy: the sheet is `'self'` and the script takes the request's nonce. No Turbo render runs on these pages, so their `turbo:load` is not delayed.
 - **What a full load cannot do.** The old page's picture is taken as it leaves, so a revealed key stays in the fading picture for up to 700ms (`dropTemporary` runs at `pagehide`, after that picture). An image that is not ready loads in during the motion. Each click into a signing page fetches it twice, as it did before: Turbo's fetch, then the reload.
-- **On a moving page,** `turbo:load` fires about 700ms after the swap, and a click during those 700ms does nothing. Bind what must run sooner to `turbo:render`. The balance pills stay blank about 700ms longer for this reason. Coverage: `e2e/page_transitions.spec.js`.
+- **On a moving page,** `turbo:load` fires about 700ms after the swap, and a click during those 700ms does nothing. Bind what must run sooner to `turbo:render`. Coverage: `e2e/page_transitions.spec.js`.
+
+### The navbar figures hold across a page change
+
+The server reads the balance from a cache only, so a cold render has no figure. `app/javascript/nav_figures.js` keeps the last known amount, token badge, level and seeds fill in `sessionStorage`, and paints them before the first frame: into the incoming body at `turbo:before-render`, and by a classic script straight after the navbar on a full load. The fresh read then runs silently, and a figure changes only when its value changes. A warm server render wins over the memory. Coverage: `e2e/nav_figures_hold.spec.js`.
+
+- **A display value only.** Entry, funding and signing read `$store.session` and the server. `test/lib/nav_figures_display_only_test.rb` holds the readers.
+- **Keyed to user, wallet address and cluster.** A record for anyone else is deleted unread. Act as changes the user, so it shows no admin figure. Logout clears it (`session_wipe.js`).
+- **A settling spend forgets it**, so the pre-spend figure cannot return. That hold still blanks the pill on purpose until the settle read lands.
+- **A failed read keeps the last figure**, with no error shown, until a read lands or the tab closes. A new tab with no copied session starts from the normal loading state and the spinner.
 
 ### The collapse is scroll-LINKED, not a threshold plus a clock
 

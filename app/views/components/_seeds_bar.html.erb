@@ -135,6 +135,13 @@
           } catch (_) {}
         }
 
+        // The navbar's bar holds its figure across a page change, so it does not refill from
+        // empty on each one. A card elsewhere still fills as it opens.
+        if (this.$root.dataset.seedsHold === "true") {
+          this.displaySeeds = this.finalToward;
+          return;
+        }
+
         this.displaySeeds = 0;
         var self = this;
         this._schedule(function () { self.displaySeeds = self.finalToward; }, 150);
@@ -241,33 +248,30 @@
      data-initial-toward="<%= toward_next %>"
      data-initial-level="<%= lvl %>"
      data-initial-seeds-total="<%= server_total_seeds %>"
+     data-seeds-hold="<%= compact %>"
      @navbar-replay-level.window="replay()"
      @navbar-seeds-update.window="handleSeedsUpdate($event.detail)">
 
   <% if compact %>
     <%# ── Navbar variant: 14px bar with text overlay (the navbar's second row, components/_nav_seeds_row) ── %>
     <div class="dm-orange relative overflow-hidden rounded" style="height: 14px;">
-      <%# 5-segment bar (continuous fill via --bar-progress) %>
-      <div class="absolute inset-0 seeds-bar-continuous flex gap-1" :style="{ '--bar-progress': displaySeeds }">
-        <template x-for="i in 5" :key="i">
+      <%# 5-segment bar (continuous fill via --bar-progress). Rendered by the server, not x-for, so
+          the first frame of a full load has its segments and its fill, ahead of Alpine. %>
+      <div class="absolute inset-0 seeds-bar-continuous flex gap-1" style="--bar-progress: <%= toward_next %>;" :style="{ '--bar-progress': displaySeeds }">
+        <% 5.times do |i| %>
           <div class="flex-1 relative overflow-hidden rounded-md"
                style="background: rgb(var(--color-primary-500-rgb) / 0.06);">
             <%# Bar-wide gradient: bg image is 500% of segment (= bar width), bg-position shows this segment's 1/5 slice. Clip-path animates via --bar-progress to reveal only the fill area. %>
             <div class="absolute inset-0 pointer-events-none"
-                 :style="{
-                   backgroundPosition: ((i - 1) * 25) + '% 0',
-                   clipPath: 'inset(0 calc(100% - clamp(0%, calc((var(--bar-progress) - ' + ((i - 1) * 20) + ') * 5%), 100%)) 0 0)'
-                 }"
-                 style="background-image: linear-gradient(90deg, color-mix(in srgb, var(--color-cta) 30%, transparent), color-mix(in srgb, var(--color-cta) 60%, transparent)); background-size: 500% 100%; background-repeat: no-repeat;"></div>
+                 style="background-image: linear-gradient(90deg, color-mix(in srgb, var(--color-cta) 30%, transparent), color-mix(in srgb, var(--color-cta) 60%, transparent)); background-size: 500% 100%; background-repeat: no-repeat; background-position: <%= i * 25 %>% 0; clip-path: inset(0 calc(100% - clamp(0%, calc((var(--bar-progress) - <%= i * 20 %>) * 5%), 100%)) 0 0);"></div>
             <%# Per-section shimmer — sized to whole bar so all 5 share one continuous wave.
                 Skipped when the bar is nearly empty (toward_next < 9) — a shimmer on a blank bar reads as noise. %>
             <% if toward_next >= 9 %>
               <div class="absolute top-0 bottom-0 pointer-events-none"
-                   :style="{ left: -(i - 1) * 100 + '%', width: '500%' }"
-                   style="background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.45) 50%, transparent 100%); animation: <%= shimmer_anim %>;"></div>
+                   style="left: <%= -i * 100 %>%; width: 500%; background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.45) 50%, transparent 100%); animation: <%= shimmer_anim %>;"></div>
             <% end %>
           </div>
-        </template>
+        <% end %>
       </div>
 
       <%# Text layer 1: muted (visible outside bar fill) — matches existing seeds-text 10px sizing %>
@@ -276,18 +280,19 @@
         <span class="flex items-center gap-1 pointer-events-auto">
           <a href="#" @click.prevent="replay()" x-show="$store.devMode" x-cloak
              class="text-3xs font-bold text-yellow-400 hover:text-yellow-300 transition">Replay</a>
-          <span :class="levelingUp && 'nav-level-pop'" x-text="'Level ' + displayLevel">Level <%= lvl %></span>
+          <span data-seeds-level :class="levelingUp && 'nav-level-pop'" x-text="'Level ' + displayLevel">Level <%= lvl %></span>
         </span>
       </div>
 
       <%# Text layer 2: white (clip-path reveals as bar fills) %>
       <div class="absolute inset-0 flex items-center justify-between px-1.5 font-mono pointer-events-none"
-           style="color: white; font-size: 10px; z-index: 2; clip-path: inset(0 100% 0 0);"
+           data-seeds-text-fill
+           style="color: white; font-size: 10px; z-index: 2; clip-path: inset(0 <%= 100 - toward_next %>% 0 0);"
            :style="{ 'clip-path': 'inset(0 ' + (100 - displaySeeds) + '% 0 0)' }">
         <span><%= label %></span>
         <span class="flex items-center gap-1">
           <span x-show="$store.devMode" x-cloak class="text-3xs font-bold" style="visibility: hidden;">Replay</span>
-          <span :class="levelingUp && 'nav-level-pop'" x-text="'Level ' + displayLevel">Level <%= lvl %></span>
+          <span data-seeds-level :class="levelingUp && 'nav-level-pop'" x-text="'Level ' + displayLevel">Level <%= lvl %></span>
         </span>
       </div>
     </div>

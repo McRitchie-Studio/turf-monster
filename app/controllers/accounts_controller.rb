@@ -76,6 +76,9 @@ class AccountsController < ApplicationController
       level:       User.level_for(seeds),
       toward_next: User.seeds_toward_next_level(seeds),
       progress:    User.seeds_progress_percent(seeds),
+      # False when the seeds read flaked: seeds above is then a 0 that means "unknown", so the
+      # bar keeps what it shows rather than emptying.
+      seeds_read:  !hydrate[:seeds].nil?,
       level_up_token_pending: current_user.present? &&
         current_user.level > current_user.entry_tokens_granted_level
     }
