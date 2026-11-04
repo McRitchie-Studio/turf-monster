@@ -137,27 +137,29 @@ async function walk(page) {
   return logged(page);
 }
 
-function expectWalkHeld(lines, amount) {
+function expectWalkHeld(lines, amount, { held }) {
   expectHeld(lines.filter((line) => !line.reveal), amount);
   // A full load has its figure before the first render, wherever the navbar has arrived by then.
+  // A planned move holds that render to the end of parsing, so the navbar is always there. With
+  // reduced motion nothing holds it, and the browser may render before the navbar has parsed.
   const arrivals = lines.filter((line) => line.reveal && line.amount !== null);
-  expect(arrivals.map((line) => line.reveal)).toContain(CONTEST);
+  if (held) expect(arrivals.map((line) => line.reveal)).toContain(CONTEST);
   for (const arrival of arrivals) expect(arrival.amount, JSON.stringify(arrival)).toBe(amount);
 }
 
-function heldSpecs() {
+function heldSpecs({ held }) {
   test("every frame across a Turbo move and a full load keeps the figure, with no spinner", async ({ page }) => {
     await recordFrames(page);
     await signIn(page, "mason@mcritchie.studio");
     await answerRefresh(page, (route) => route.fulfill(figures("1024.00")));
     await firstFigure(page, "$1024");
-    expectWalkHeld(await walk(page), "$1024");
+    expectWalkHeld(await walk(page), "$1024", { held });
   });
 }
 
 test.describe("with motion on", () => {
   test.use({ contextOptions: { reducedMotion: "no-preference" } });
-  heldSpecs();
+  heldSpecs({ held: true });
 
   // Carl's reading on the head before this: $222, then the snapshot's $111, then the live $333.
   test("Back overwrites the figure in the Turbo snapshot before it shows", async ({ page }) => {
@@ -281,7 +283,7 @@ test.describe("with motion on", () => {
     await firstFigure(page, "$1024");
 
     failing = true;
-    expectWalkHeld(await walk(page), "$1024");
+    expectWalkHeld(await walk(page), "$1024", { held });
   });
 
   test("a logout then a different user shows no old figure", async ({ page }) => {
@@ -372,5 +374,5 @@ test.describe("with motion on", () => {
 // The pills flashed with no motion too: the cause is the cold render, not the transition.
 test.describe("with reduced motion", () => {
   test.use({ contextOptions: { reducedMotion: "reduce" } });
-  heldSpecs();
+  heldSpecs({ held: false });
 });
