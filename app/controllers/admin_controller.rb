@@ -22,6 +22,8 @@ class AdminController < ApplicationController
   # navbar caches (usdc/usdt/seeds), and returns them. `{ balance: }` is kept
   # for back-compat (refreshBalance reads data.balance). current_user only.
   def usdc_balance
+    # A read must not write the cookie (AccountsController#session_refresh says why).
+    request.session_options[:skip] = true
     return render json: { error: "Not logged in" }, status: :unauthorized unless logged_in?
     return render json: { balance: 0, usdc: 0, usdt: 0, seeds: nil } unless current_user.solana_connected?
 

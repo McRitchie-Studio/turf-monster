@@ -55,6 +55,11 @@ class AccountsController < ApplicationController
   # fetches them explicitly and warms the navbar caches so subsequent renders
   # are warm.
   def session_refresh
+    # A READ MUST NOT WRITE THE COOKIE. This takes hundreds of milliseconds, and the session is the
+    # cookie, so a response that lands after a form's would put the session from before that form
+    # back: measured, 1 run in 8, an Act as that had just succeeded was undone by the load-time read.
+    request.session_options[:skip] = true
+
     # fetch_navbar_hydrate does all the (blocking, off-render-path) on-chain
     # reads AND warms the navbar caches — including the entry-tokens cache the
     # navbar reads cache-first — so there's no separate perform_solana_preload

@@ -62,6 +62,18 @@ class SmoothLoadAdoptionTest < ActionDispatch::IntegrationTest
     assert_includes policy, "'nonce-#{script['nonce']}'"
   end
 
+  # The session is the cookie, so a slow read that writes it can undo a form that landed first:
+  # measured on an Act as. The load-time balance reads must leave the cookie alone.
+  test "[integration] the balance reads do not write the session cookie" do
+    log_in_as(users(:alex))
+    [ "/account/session_refresh", "/admin/usdc_balance" ].each do |path|
+      get path, headers: { "Accept" => "application/json" }
+      assert_response :success, path
+      session_cookie = Array(response.headers["Set-Cookie"]).join("\n")
+      assert_no_match(/_session=/, session_cookie, "#{path} wrote the session cookie")
+    end
+  end
+
   test "[integration] admin navbar-review page keeps exactly one pinned header despite preview copies" do
     log_in_as(users(:alex))
     get admin_navbar_path
