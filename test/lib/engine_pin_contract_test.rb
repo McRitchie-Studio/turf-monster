@@ -353,7 +353,13 @@ class EnginePinContractTest < ActiveSupport::TestCase
   #          for its title. DERIVED: the earliest release tag containing the
   #          commit (b0d0d7a, 2026-10-29) is v0.119.1. Guard: the theme toggle
   #          test in test/integration/navbar_polish_test.rb.
-  MINIMUM = Gem::Version.new("0.119.1")
+  # 0.124.0 — config.page_transition_direction, and a BOOT floor like 0.103. The
+  #          initializer sets it to :right (/tasks/turf-adopts-page-transitions), so
+  #          below 0.124.0 the app raises NoMethodError at boot. DERIVED: the
+  #          earliest release tag containing the commit (ea4f26c, 2026-11-03) is
+  #          v0.124.0. Guards: test/views/smooth_load_component_test.rb and
+  #          e2e/page_transitions.spec.js.
+  MINIMUM = Gem::Version.new("0.124.0")
 
   test "the resolved studio-engine is at or above the floor this app depends on" do
     resolved = Gem::Version.new(Studio::VERSION)

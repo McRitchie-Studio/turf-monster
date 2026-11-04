@@ -48,6 +48,13 @@ Studio.configure do |config|
   # turbo-cache-control no-preview metas via the engine layout contract.
   config.smooth_load = true
 
+  # App-to-app page transitions (engine 0.124, docs/PAGE_TRANSITIONS.md in the gem).
+  # Turf moves its pages right: each change of path draws fade-right or unfold-left.
+  # A set direction turns smooth-load on by itself; the line above stays so a reader
+  # of this file sees it. turbo:load now fires about 700ms after the swap under
+  # motion, and clicks do nothing during those 700ms.
+  config.page_transition_direction = :right
+
   # The navbar collapses on the page's scroll timeline from 768px: one header
   # height, the shrink as compositor transforms, no script per frame (engine
   # 0.111, docs/NAVBAR_SETUP.md "Scroll-Driven Collapse"). The impersonation
