@@ -161,6 +161,10 @@
     if (body) paint(body, body);
   }, { capture: true });
 
+  // The watch is for the parser. A Turbo visit can load this file after DOMContentLoaded (a guest
+  // tab that signed in elsewhere), and then nothing would ever stop it.
+  if (document.readyState !== "loading") return;
+
   // Each batch paints again, because the parser can add a warm render's own text after a paint.
   var watcher = new MutationObserver(function () {
     if (document.body) paint(document, document.body);

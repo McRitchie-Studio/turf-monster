@@ -47,20 +47,20 @@ class NavFiguresDisplayOnlyTest < ActiveSupport::TestCase
         classList: { toggle: (n, on) => (on ? set.add(n) : set.delete(n)), add: (n) => set.add(n), remove: (n) => set.delete(n), contains: (n) => set.has(n) },
         closest: () => null, querySelector: () => null, querySelectorAll: () => [] };
     }
-    function load(store, data) {
+    function load(store, data, readyState = "loading") {
       const pill = element("", ["hidden"]);
       const body = { dataset: data };
       const listeners = {};
       const sessionStorage = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = v; }, removeItem: (k) => { delete store[k]; } };
-      const document = { body, addEventListener: (n, f) => { listeners[n] = f; },
+      const document = { body, readyState, addEventListener: (n, f) => { listeners[n] = f; },
         querySelectorAll: (sel) => (sel === "[data-balance-display]" ? [pill] : []) };
       const window = { sessionStorage };
       document.documentElement = {};
       let watch;
       const MutationObserver = function (run) { watch = run; this.observe = () => {}; this.disconnect = () => {}; };
       vm.runInNewContext(source, { window, document, JSON, Object, parseInt, MutationObserver });
-      watch();
-      return { pill, api: window.TurfNavFigures, listeners };
+      if (watch) watch();
+      return { pill, api: window.TurfNavFigures, listeners, watched: !!watch };
     }
     const A = { userId: "1", walletAddress: "AAA", solanaCluster: "devnet" };
     const out = {};
@@ -88,6 +88,7 @@ class NavFiguresDisplayOnlyTest < ActiveSupport::TestCase
     const heldBody = { dataset: A, querySelectorAll: (sel) => (sel === "[data-balance-display]" ? [held] : []) };
     load(store, A).listeners["turbo:before-render"]({ detail: { newBody: heldBody } });
     out.heldSnapshot = held.textContent;
+    out.lateLoadWatches = load({}, A, "complete").watched;
     console.log(JSON.stringify(out));
   JS
 
@@ -107,5 +108,6 @@ class NavFiguresDisplayOnlyTest < ActiveSupport::TestCase
     assert_equal "", out["forgot"]
     assert_equal "$1024", out["snapshot"], "the memory must overwrite a snapshot's figure"
     assert_equal "", out["heldSnapshot"], "a settling spend must blank a snapshot's figure"
+    assert_equal false, out["lateLoadWatches"], "a load after the parser has no DOMContentLoaded to stop the watch"
   end
 end
