@@ -66,6 +66,9 @@ async function record(page, random = 0) {
 }
 
 const seen = (page) => page.evaluate(() => window.__seen);
+// Engine 0.125.0 marks every visit "still" from turbo:visit to turbo:before-render, so a response
+// Turbo will not render draws nothing. That mark is not a move, so these specs read past it.
+const drawnStyles = (page) => page.evaluate(() => window.__styles.filter((style) => style !== "still"));
 const pageMoves = (names) => names.filter((name) => /\(root\) pt-/.test(name));
 
 function nextLoad(page) {
@@ -100,7 +103,7 @@ test.describe("what plays", () => {
     const names = await seen(page);
     expect(names).toContain(`::view-transition-old(root) ${OUT}`);
     expect(names).toContain(`::view-transition-new(root) ${FADE_IN}`);
-    expect(await page.evaluate(() => window.__styles)).toEqual(["fade-right"]);
+    expect(await drawnStyles(page)).toEqual(["fade-right"]);
   });
 
   test("a change of path draws the unfold, moving right", async ({ page }) => {
@@ -109,7 +112,7 @@ test.describe("what plays", () => {
     const names = await seen(page);
     expect(names).toContain(`::view-transition-old(root) ${OUT}`);
     expect(names).toContain(`::view-transition-new(root) ${UNFOLD_IN}`);
-    expect(await page.evaluate(() => window.__styles)).toEqual(["unfold-left"]);
+    expect(await drawnStyles(page)).toEqual(["unfold-left"]);
   });
 
   test("Back and Forward play the same direction", async ({ page }) => {
@@ -514,7 +517,7 @@ test.describe("reduced motion", () => {
     await visit(page, HELP);
 
     expect(await seen(page)).toEqual([]);
-    expect(await page.evaluate(() => window.__styles)).toEqual([]);
+    expect(await drawnStyles(page)).toEqual([]);
     expect(await page.evaluate(() => document.documentElement.dataset.pageTransition)).toBeUndefined();
     expect(await page.evaluate(() => window.__held)).toBe(true);
     // The hold is one tick. The engine's image pause (a cap of 500ms) has no part in it here.
