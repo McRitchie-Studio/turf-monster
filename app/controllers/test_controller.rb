@@ -907,6 +907,7 @@ class TestController < ApplicationController
   # The warm navbar path: a figure in the cache the render reads, as production has for 60 seconds.
   # The same store swap as #warm_entry_tokens, undone by #reseed.
   def warm_balance
+    return head :forbidden unless Rails.env.test? || Rails.env.development?
     return render json: { error: "not logged in" }, status: :unauthorized unless current_user
 
     Rails.cache = ActiveSupport::Cache::MemoryStore.new unless Rails.cache.is_a?(ActiveSupport::Cache::MemoryStore)
@@ -915,8 +916,10 @@ class TestController < ApplicationController
     render json: { ok: true }
   end
 
-  # The key export page's address, as the email carries it, for the signed-in test user.
+  # The key export page's address, as the email carries it, for the signed-in test user. It skips
+  # the email, so it carries the same hard-gate as #magic_link_token.
   def wallet_export_link
+    return head :forbidden unless Rails.env.test? || Rails.env.development?
     return render json: { error: "not logged in" }, status: :unauthorized unless current_user
 
     current_user.update!(export_initiated_at: Time.current)
