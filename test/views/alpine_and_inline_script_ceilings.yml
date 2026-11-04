@@ -63,11 +63,11 @@ marketing:
   x_data: 6
   x_show: 12
   x_if: 30
-  x_for: 2
+  x_for: 1
   x_model: 0
   x_text: 11
   x_html: 0
-  x_bind: 20
+  x_bind: 17
   x_on: 16
   x_init: 1
   x_ref: 3
