@@ -44,7 +44,7 @@ class NavFiguresDisplayOnlyTest < ActiveSupport::TestCase
     function element(text, cls) {
       const set = new Set(cls);
       return { textContent: text, dataset: {}, style: { setProperty() {} },
-        classList: { toggle: (n, on) => (on ? set.add(n) : set.delete(n)), remove: (n) => set.delete(n), contains: (n) => set.has(n) },
+        classList: { toggle: (n, on) => (on ? set.add(n) : set.delete(n)), add: (n) => set.add(n), remove: (n) => set.delete(n), contains: (n) => set.has(n) },
         closest: () => null, querySelector: () => null, querySelectorAll: () => [] };
     }
     function load(store, data) {
