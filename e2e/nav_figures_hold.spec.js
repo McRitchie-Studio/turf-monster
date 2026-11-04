@@ -288,7 +288,7 @@ test.describe("with motion on", () => {
     await firstFigure(page, "$1024");
 
     failing = true;
-    expectWalkHeld(await walk(page), "$1024", { held });
+    expectWalkHeld(await walk(page), "$1024", { held: true });
   });
 
   test("a logout then a different user shows no old figure", async ({ page }) => {
