@@ -34,7 +34,7 @@ test("the schema page filters its tables by name, by mouse and by keyboard", asy
   await expect(clear).toBeHidden();
   await expect(empty).toBeHidden();
 
-  await input.fill("USER");
+  await input.fill("USERS");
   await expect(cards).toHaveCount(1);
   await expect(cards.locator("h3")).toHaveText("users");
   await expect(clear).toBeVisible();
