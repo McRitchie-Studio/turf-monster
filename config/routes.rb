@@ -724,6 +724,8 @@ Rails.application.routes.draw do
     post "test/magic_link_token",         to: "test#magic_link_token"
     get  "test/user_info/:slug",          to: "test#user_info"
     post "test/warm_entry_tokens",        to: "test#warm_entry_tokens"
+    post "test/warm_balance",             to: "test#warm_balance"
+    post "test/wallet_export_link",       to: "test#wallet_export_link"
     post "test/set_age_verified",         to: "test#set_age_verified"
     post "test/set_username",             to: "test#set_username"
     post "test/hold_open_contests",       to: "test#hold_open_contests"

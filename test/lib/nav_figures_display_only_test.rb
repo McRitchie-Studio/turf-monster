@@ -73,10 +73,17 @@ class NavFiguresDisplayOnlyTest < ActiveSupport::TestCase
     store = {}; const late = load(store, A); late.api.remember({ amount: "$9" }, "2|BBB|devnet");
     out.lateAnswer = store["tm:nav-figures"] === undefined;
     store = seed(); load(store, A).api.forget();
-    out.forgot = !("tm:nav-figures" in store);
-    store = seed(); const warm = load(store, A); warm.pill.textContent = "$5";
-    warm.listeners["turbo:before-render"]({ detail: {} });
-    out.warm = warm.pill.textContent;
+    out.forgot = load(store, A).pill.textContent;
+    store = seed();
+    const snapshot = element("$5", []);
+    const body = { dataset: A, querySelectorAll: (sel) => (sel === "[data-balance-display]" ? [snapshot] : []) };
+    load(store, A).listeners["turbo:before-render"]({ detail: { newBody: body } });
+    out.snapshot = snapshot.textContent;
+    store["tm:onchain-settle-until"] = "1:x";
+    const held = element("$5", []);
+    const heldBody = { dataset: A, querySelectorAll: (sel) => (sel === "[data-balance-display]" ? [held] : []) };
+    load(store, A).listeners["turbo:before-render"]({ detail: { newBody: heldBody } });
+    out.heldSnapshot = held.textContent;
     console.log(JSON.stringify(out));
   JS
 
@@ -93,7 +100,8 @@ class NavFiguresDisplayOnlyTest < ActiveSupport::TestCase
     assert_equal "", out["guest"]
     assert_equal "", out["settling"], "a settling spend must not bring the pre-spend figure back"
     assert out["lateAnswer"], "a read made for another identity must not write"
-    assert out["forgot"]
-    assert_equal "$5", out["warm"]
+    assert_equal "", out["forgot"]
+    assert_equal "$1024", out["snapshot"], "the memory must overwrite a snapshot's figure"
+    assert_equal "", out["heldSnapshot"], "a settling spend must blank a snapshot's figure"
   end
 end

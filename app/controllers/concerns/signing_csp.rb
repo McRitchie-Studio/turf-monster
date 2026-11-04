@@ -154,7 +154,9 @@ module SigningCsp
 
   # Writes the headers itself; the middleware then leaves them alone. No
   # no-store: it would keep a signing page out of the back/forward cache,
-  # which the wallet handoff's swipe back relies on.
+  # which the swipe back from a wallet's cross-site page relies on. A same-site
+  # next page evicts it (its session channel message), so Back from one is a
+  # fresh load.
   def apply_signing_csp
     keep_flash_for_the_full_load
     policy = request.content_security_policy or return

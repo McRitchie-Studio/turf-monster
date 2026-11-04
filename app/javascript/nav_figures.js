@@ -9,6 +9,10 @@
 // A DISPLAY VALUE ONLY. Nothing that signs, enters a contest or checks funds may read this. Those
 // read $store.session and the server. test/lib/nav_figures_display_only_test.rb holds the readers.
 //
+// THE MEMORY WINS OVER THE BODY. A Turbo snapshot holds the figure from when the page was left,
+// and a warm render one up to 60 seconds old. The memory holds this tab's last read, so it
+// overwrites both, and the fresh read after the swap corrects it silently if it differs.
+//
 // ONE PERSON, ONE WALLET, ONE CLUSTER. A record carries the user, the address and the cluster the
 // body was rendered for, and a record for anyone else is deleted unread. Act as changes the user,
 // so it changes the key. Logout clears sessionStorage (session_wipe.js).
@@ -19,7 +23,7 @@
 // and the request's nonce both cover it under the strict policy.
 (function () {
   var KEY = "tm:nav-figures";
-  // A spend is settling (solana_utils.js): the pre-spend figure must not come back.
+  // A spend that may navigate is settling (solana_utils.js): the pre-spend figure must not come back.
   var SETTLE_KEY = "tm:onchain-settle-until";
 
   function who(body) {
@@ -28,7 +32,7 @@
     return [data.userId, data.walletAddress, data.solanaCluster || ""].join("|");
   }
 
-  function forget() {
+  function drop() {
     try { window.sessionStorage.removeItem(KEY); } catch (_error) { /* nothing was kept */ }
   }
 
@@ -37,7 +41,7 @@
     try { record = JSON.parse(window.sessionStorage.getItem(KEY) || "null"); } catch (_error) { record = null; }
     if (!record) return null;
     if (record.who !== who(body)) {
-      forget();
+      drop();
       return null;
     }
     return record;
@@ -55,32 +59,58 @@
     try { window.sessionStorage.setItem(KEY, JSON.stringify(record)); } catch (_error) { /* display only */ }
   }
 
+  // A spend moved the amount and maybe the tokens. Seeds only climb, so the bar keeps its figure.
+  function forget() {
+    var record = read(document.body);
+    if (!record) return;
+    delete record.amount;
+    delete record.tokens;
+    try { window.sessionStorage.setItem(KEY, JSON.stringify(record)); } catch (_error) { drop(); }
+  }
+
   function settling() {
+    // Two halves: the in-page window has no marker unless the caller may navigate.
+    if (window.settlePending && window.settlePending()) return true;
     try { return !!window.sessionStorage.getItem(SETTLE_KEY); } catch (_error) { return false; }
+  }
+
+  function eachPill(root, paintOne) {
+    root.querySelectorAll("[data-balance-display]").forEach(function (el) {
+      var slot = el.closest("[data-balance-slot]");
+      paintOne(el, slot && slot.querySelector("[data-free-entry-label]"));
+    });
   }
 
   function paintAmount(root, record) {
     if (!record.amount) return;
-    root.querySelectorAll("[data-balance-display]").forEach(function (el) {
-      if (el.textContent.trim() !== "") return; // A warm render knows better.
-      var free = record.tokens > 0 && record.amount === "$0";
+    var free = record.tokens > 0 && record.amount === "$0";
+    eachPill(root, function (el, label) {
       el.textContent = record.amount;
       el.classList.toggle("hidden", free);
-      var slot = el.closest("[data-balance-slot]");
-      var label = slot && slot.querySelector("[data-free-entry-label]");
       if (label) label.classList.toggle("is-active", free);
     });
   }
 
+  // The hold a settling spend asks for. A snapshot must not show the pre-spend figure either.
+  function blankAmount(root) {
+    eachPill(root, function (el, label) {
+      el.textContent = "";
+      el.classList.add("hidden");
+      if (label) label.classList.remove("is-active");
+    });
+  }
+
   function paintTokens(root, record) {
-    if (!(record.tokens > 0)) return;
-    root.querySelectorAll("[data-free-entry-badge]").forEach(function (el) { el.classList.remove("hidden"); });
+    if (record.tokens === undefined) return;
+    root.querySelectorAll("[data-free-entry-badge]").forEach(function (el) {
+      el.classList.toggle("hidden", !(record.tokens > 0));
+    });
   }
 
   function paintSeeds(root, record) {
     if (record.seeds === undefined || record.level === undefined) return;
     root.querySelectorAll("[data-nav-seeds-row] [data-initial-seeds-total]").forEach(function (bar) {
-      if ((parseInt(bar.dataset.initialSeedsTotal, 10) || 0) >= record.seeds) return;
+      if ((parseInt(bar.dataset.initialSeedsTotal, 10) || 0) > record.seeds) return; // Seeds only climb.
       bar.dataset.initialSeedsTotal = record.seeds;
       bar.dataset.initialLevel = record.level;
       bar.dataset.initialToward = record.toward;
@@ -96,7 +126,12 @@
   // root is the document on a full load and the incoming body on a Turbo visit.
   function paint(root, body) {
     var record = read(body);
-    if (!record || settling()) return false;
+    if (settling() && who(body)) {
+      blankAmount(root);
+      if (record) paintSeeds(root, record);
+      return false;
+    }
+    if (!record) return false;
     paintAmount(root, record);
     paintTokens(root, record);
     paintSeeds(root, record);

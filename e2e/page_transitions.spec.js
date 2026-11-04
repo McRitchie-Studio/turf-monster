@@ -483,6 +483,34 @@ test.describe("money pages", () => {
       }
     });
 
+    // The picture of a leaving page can last through the move and a slow next page, so a key
+    // never goes into one: no transition, and the key is out of the DOM ahead of the picture.
+    test("leaving the key export page plays no move, and no key is left to picture", async ({ page }) => {
+      await login(page, `key-export-${Date.now()}@example.test`);
+      expect((await page.request.post("/test/grant_managed_wallet")).ok()).toBe(true);
+      const { path } = await (await page.request.post("/test/wallet_export_link")).json();
+      await openLobby(page);
+      const into = await leaveBy(page, await linkTo(page, path), path);
+      expect(violations(into).filter((line) => !pendingDeepLink.test(line))).toEqual([]);
+      await page.waitForFunction(() => window.Alpine);
+      await page.getByRole("button", { name: "Reveal" }).first().click();
+      const key = page.locator("code[data-private]").first();
+      await expect(key).toBeVisible();
+      // Bound after the page's own listener, so it reads what the browser's picture would.
+      await page.evaluate(() => {
+        window.addEventListener("pageswap", () => {
+          const lines = JSON.parse(sessionStorage.getItem("pt-log") || "[]");
+          lines.push(`keys at the picture: ${document.querySelectorAll("code[data-private]").length}`);
+          sessionStorage.setItem("pt-log", JSON.stringify(lines));
+        });
+      });
+      const lines = await leaveBy(page, await linkTo(page, LOBBY), LOBBY);
+      expect(lines, lines.join("\n")).toContain("keys at the picture: 0");
+      expect(rootMotion(lines), lines.join("\n")).toEqual([]);
+      expect(lines, lines.join("\n")).toContain("pagereveal plain");
+      await expect(page.locator("code[data-private]")).toHaveCount(0);
+    });
+
     // THE CONTROL: the policy is live on the page that just moved. A script with no nonce is refused.
     test("control: the page that moved does refuse a script with no nonce", async ({ page }) => {
       await openLobby(page);

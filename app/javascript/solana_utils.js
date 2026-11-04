@@ -873,6 +873,7 @@ window.confirmSolanaNetworkIntent = confirmSolanaNetworkIntent;
 window.refreshBalance = refreshBalance;
 window.refreshBalanceDelayed = refreshBalanceDelayed;
 window.onchainSettled = onchainSettled;
+window.settlePending = settlePending;
 window.pendingOnchainSettleMs = pendingOnchainSettleMs;
 window.settleOnLoadIfPending = settleOnLoadIfPending;
 window.markSeedsAnimating = markSeedsAnimating;

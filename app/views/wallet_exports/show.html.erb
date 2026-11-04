@@ -2,7 +2,7 @@
 %>
 <% content_for :page_title, "Export wallet — Turf Monster" %>
 
-<div class="max-w-2xl mx-auto px-4 py-10" x-data="walletExportPage()" x-cloak>
+<div class="max-w-2xl mx-auto px-4 py-10" x-data="walletExportPage()" x-cloak data-no-leaving-picture>
   <%# ── Warning banner ────────────────────────────────────────────── %>
   <div class="rounded-2xl border-2 border-rose-500/60 bg-surface-alt p-6 mb-6">
     <h1 class="text-2xl font-bold text-danger-ink mb-2">Read this carefully</h1>
@@ -40,6 +40,7 @@
           The reveal page also suppresses replay entirely (Lazarus audit #2). %>
       <code class="font-mono text-xs break-all block p-3 bg-surface-alt rounded-lg"
             data-private
+            data-turbo-temporary
             x-show="reveal.b58"
             x-text="$el.textContent"><%= @secret_base58 %></code>
       <div x-show="!reveal.b58"
@@ -57,6 +58,7 @@
       </div>
       <code class="font-mono text-xs break-all block p-3 bg-surface-alt rounded-lg"
             data-private
+            data-turbo-temporary
             x-show="reveal.json"
             x-text="$el.textContent"><%= @secret_json_array %></code>
       <div x-show="!reveal.json"
