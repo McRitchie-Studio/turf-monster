@@ -48,8 +48,9 @@ Studio.configure do |config|
   # turbo-cache-control no-preview metas via the engine layout contract.
   config.smooth_load = true
 
-  # App-to-app page transitions (engine 0.124, docs/PAGE_TRANSITIONS.md in the gem).
-  # Turf moves its pages right: each change of path draws fade-right or unfold-left.
+  # App-to-app page transitions (engine 0.125, docs/PAGE_TRANSITIONS.md in the gem).
+  # Turf moves its pages right: each change of path draws fade-right or unfold-left,
+  # by a Turbo visit or, into and out of a signing page, by a full load.
   # A set direction turns smooth-load on by itself; the line above stays so a reader
   # of this file sees it. turbo:load now fires about 700ms after the swap under
   # motion, and clicks do nothing during those 700ms.
