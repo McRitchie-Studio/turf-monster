@@ -208,7 +208,8 @@ test.describe("what holds still", () => {
     page.on("dialog", (dialog) => dialog.accept());
     await page.getByRole("button", { name: "Act as" }).first().click();
     const out = page.getByRole("button", { name: /Return to/ });
-    await expect(out).toBeVisible();
+    // Act as lands on /account, a signing page: fetched by Turbo, then again by the full load.
+    await expect(out).toBeVisible({ timeout: 20000 });
 
     await open(page, LOBBY, 0);
     await visit(page, HELP);
