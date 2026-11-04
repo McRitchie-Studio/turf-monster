@@ -338,12 +338,13 @@ Sticky, scroll-responsive. The non-preview header is `nav-shell vt-pinned-header
 
 ### Page transitions
 
-Turf moves its pages **right** (`config.page_transition_direction = :right`, engine 0.124.0, the gem's `docs/PAGE_TRANSITIONS.md`; `/tasks/turf-adopts-page-transitions`). A change of path between two pages that are not signing pages draws `fade-right` or `unfold-left`. Same-path visits and Turbo Stream broadcasts play nothing. Reduced motion plays nothing.
+Turf moves its pages **right** (`config.page_transition_direction = :right`, engine 0.125.0, the gem's `docs/PAGE_TRANSITIONS.md`; `/tasks/turf-adopts-page-transitions`). A change of path draws `fade-right` or `unfold-left`, on Back and Forward too. Same-path visits, reloads and Turbo Stream broadcasts play nothing. Reduced motion plays nothing.
 
 - **What holds still:** the header (`vt-pinned-header`) and the bar stack (`.studio-bar-stack`). The impersonation and frozen-account bars ride inside the pinned header, so they hold too.
 - **What moves:** on the landing layout the frozen banner sits outside any header, so it moves with the page. That layout has no navbar, and this is the accepted look.
-- **A signing page never moves.** `SigningCsp::PAGES` (the contest page, the live board of a contest, `/wallet`, `/account`, contest create) are entered and left by a full load, so no Turbo render runs on them and their `turbo:load` is not delayed.
-- **On a moving page,** `turbo:load` fires about 700ms after the swap, and a click during those 700ms does nothing. Bind what must run sooner to `turbo:render`. Coverage: `e2e/page_transitions.spec.js`.
+- **A signing page moves by a full load.** `SigningCsp::PAGES` (the contest page, the live board of a contest, `/wallet`, `/account`, the key export, the cosign pages, contest create) stay their own documents under the strict policy, so they are entered and left by a full load. The browser's cross-document view transition plays the same move (engine 0.125.0). It adds no source to the policy: the sheet is `'self'` and the script takes the request's nonce. No Turbo render runs on these pages, so their `turbo:load` is not delayed.
+- **What a full load cannot do.** The old page's picture is taken as it leaves, so a revealed key stays in the fading picture for up to 700ms (`dropTemporary` runs at `pagehide`, after that picture). An image that is not ready loads in during the motion. Each click into a signing page fetches it twice, as it did before: Turbo's fetch, then the reload.
+- **On a moving page,** `turbo:load` fires about 700ms after the swap, and a click during those 700ms does nothing. Bind what must run sooner to `turbo:render`. The balance pills stay blank about 700ms longer for this reason. Coverage: `e2e/page_transitions.spec.js`.
 
 ### The collapse is scroll-LINKED, not a threshold plus a clock
 
