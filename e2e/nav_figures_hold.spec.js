@@ -43,6 +43,7 @@ async function recordFrames(page) {
           spinning: !!spinner && parseFloat(spinner.style.opacity || "0") > 0,
           free: !!document.querySelector("header [data-free-entry-label].is-active"),
           badge: !!document.querySelector("[data-free-entry-badge]:not(.hidden)"),
+          user: document.body.dataset.userId,
         };
         const key = JSON.stringify(frame);
         if (key !== last) { last = key; line({ path: location.pathname, ...frame }); }
@@ -303,41 +304,68 @@ test.describe("with motion on", () => {
     expect(lines.map((f) => f.amount), JSON.stringify(lines)).not.toContain("$1024");
   });
 
-  test("a sign-in as a different user with no logout shows no old figure", async ({ page }) => {
+  // No guest page between the two: a guest render drops the memory by itself, so only the key
+  // can keep this figure off the second user's page.
+  const userOf = (page) => page.evaluate(() => document.body.dataset.userId);
+
+  test("a sign-in straight from one wallet to another shows no old figure", async ({ page }) => {
     await recordFrames(page);
-    await signIn(page, "mason@mcritchie.studio");
-    let usdc = "1024.00";
+    let usdc = "7.00";
     await answerRefresh(page, (route) => route.fulfill(figures(usdc)));
+    await signIn(page, "mason@mcritchie.studio");
+    await page.goto(LOBBY);
+    const mason = await userOf(page);
+
+    usdc = "1024.00";
+    await signIn(page, `nav-figures-switch-${Date.now()}@example.test`);
     await firstFigure(page, "$1024");
+    const other = await userOf(page);
+    expect(other).not.toBe(mason);
+    await clearFrames(page);
 
     usdc = "7.00";
-    await page.context().clearCookies();
-    await page.goto("/signin");
-    await clearFrames(page);
-    await signIn(page, `nav-figures-switch-${Date.now()}@example.test`);
+    await login(page, "mason@mcritchie.studio");
     await page.goto(LOBBY);
     await expect(pill(page)).toHaveText("$7");
-    expect((await frames(page)).map((f) => f.amount)).not.toContain("$1024");
+    const lines = (await frames(page)).filter((f) => f.user === mason);
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines.map((f) => f.amount), JSON.stringify(lines)).not.toContain("$1024");
   });
 
-  test("Act as shows none of the admin's figure, and neither does the way back", async ({ page }) => {
+  test("Act as shows the target's figure and none of the admin's, and so does the way back", async ({ page }) => {
     await recordFrames(page);
+    let usdc = "7.00";
+    await answerRefresh(page, (route) => route.fulfill(figures(usdc)));
+    await signIn(page, "mason@mcritchie.studio");
+    await page.goto(LOBBY);
+    const mason = await userOf(page);
+
+    usdc = "1024.00";
     await loginAdmin(page);
     await grantManagedWallet(page);
-    let usdc = "1024.00";
-    await answerRefresh(page, (route) => route.fulfill(figures(usdc)));
     await firstFigure(page, "$1024");
+    const admin = await userOf(page);
 
-    usdc = "7.00";
     await page.goto("/admin/users");
     await clearFrames(page);
+    usdc = "7.00";
     page.on("dialog", (dialog) => dialog.accept());
-    await page.getByRole("button", { name: "Act as" }).first().click();
+    await page.locator("tr", { hasText: "mason" }).first().getByRole("button", { name: "Act as" }).click();
     const out = page.getByRole("button", { name: /Return to/ });
     await expect(out).toBeVisible({ timeout: 20000 });
-    await page.waitForTimeout(500);
-    expect((await frames(page)).filter((f) => f.path !== "/admin/users").map((f) => f.amount)).not.toContain("$1024");
     await expect(pill(page)).toHaveText("$7");
+    expect(await userOf(page)).toBe(mason);
+    const acting = (await frames(page)).filter((f) => f.user === mason);
+    expect(acting.length).toBeGreaterThan(0);
+    expect(acting.map((f) => f.amount), JSON.stringify(acting)).not.toContain("$1024");
+
+    await clearFrames(page);
+    usdc = "1024.00";
+    await out.click();
+    await page.waitForFunction((id) => document.body && document.body.dataset.userId === id, admin);
+    await expect(pill(page)).toHaveText("$1024");
+    const back = (await frames(page)).filter((f) => f.user === admin);
+    expect(back.map((f) => f.amount), JSON.stringify(back)).not.toContain("$7");
   });
 });
 
