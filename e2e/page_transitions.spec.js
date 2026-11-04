@@ -8,11 +8,14 @@ const { login, loginAdmin, reseed, setupPhantomMock } = require("./helpers");
 // spelling that reaches the page. A bare `test.use({ reducedMotion })` is silently ignored
 // (playwright.config.js and e2e/reduced_motion.spec.js). The last describe turns it back on.
 //
-// WHERE MOTION PLAYS. Only between two pages that are not signing pages. A signing page
-// (SigningCsp::PAGES: the contest page, the live board, /wallet, /account, contest create)
-// is entered and left by a full load, so no Turbo render runs on either side of it, and its
-// turbo:load does not move. "Money pages" below proves that, because it is why the 700ms
-// delay of turbo:load cannot reach contest entry or wallet connect.
+// TWO PATHS TO ONE LOOK. Between two pages that are not signing pages the move is a Turbo view
+// transition. A signing page (SigningCsp::PAGES: the contest page, the live board, /wallet,
+// /account, contest create) must stay its own document under the strict policy, so it is entered
+// and left by a full load, and the move there is the browser's cross-document view transition
+// (engine 0.125.0, the gem's "Full page loads"). "Money pages" below proves that path on real
+// signing pages. The new document draws that motion, so its recorder logs to sessionStorage,
+// which outlives each document. No Turbo render runs on a signing page, so its turbo:load is
+// not delayed.
 test.use({ contextOptions: { reducedMotion: "no-preference" } });
 
 test.beforeEach(async ({ request }) => await reseed(request));
@@ -236,32 +239,164 @@ test.describe("what holds still", () => {
   });
 });
 
-// A signing page is a document of its own, so a move never touches it. These hold that fact,
-// and the journeys that lean on it. The cart's own motion-on twin is in
-// e2e/cart_survives_turbo_restore.spec.js.
-test.describe("money pages", () => {
-  test("arriving at the contest page from a moving page is a full load, and the board binds", async ({ page }) => {
-    await open(page, LOBBY, 0);
-    await page.evaluate(() => { window.__documentMark = true; });
-    await page.evaluate((href) => {
-      const link = document.createElement("a");
-      link.href = href;
-      link.textContent = "go";
-      link.setAttribute("data-test", "pt-go");
-      link.style.cssText = "position:fixed;left:0;bottom:0;z-index:99999";
-      document.body.appendChild(link);
-    }, CONTEST);
-    await page.locator('[data-test="pt-go"]').click();
-    await page.waitForURL((u) => u.pathname === CONTEST);
-    await page.waitForLoadState("networkidle");
+// A log that outlives each document, so one spec reads both sides of a full load: each root
+// motion, each held group that moved, and each policy violation. __random fixes the style the
+// leaving page draws at pageswap, and only for the pick.
+async function recordAcrossLoads(page, random = 0) {
+  await page.addInitScript((value) => {
+    const log = (line) => {
+      const lines = JSON.parse(sessionStorage.getItem("pt-log") || "[]");
+      lines.push(line);
+      sessionStorage.setItem("pt-log", JSON.stringify(lines));
+    };
+    window.addEventListener("pageswap", (event) => {
+      const real = Math.random;
+      Math.random = () => value;
+      setTimeout(() => { Math.random = real; }, 0);
+      log(`pageswap ${event.viewTransition ? "transition" : "plain"}`);
+    }, { capture: true });
+    window.addEventListener("pagereveal", (event) => log(`pagereveal ${event.viewTransition ? "transition" : "plain"}`));
+    document.addEventListener("securitypolicyviolation", (event) => {
+      log(`violation ${event.disposition} ${event.effectiveDirective} ${event.blockedURI} ${(event.sample || "").slice(0, 80)}`);
+    });
+    const seen = new Set();
+    const tick = () => {
+      for (const animation of document.getAnimations()) {
+        const pseudo = animation.effect && animation.effect.pseudoElement;
+        if (!pseudo || !pseudo.startsWith("::view-transition")) continue;
+        const key = `${pseudo} ${animation.animationName || ""}`;
+        if (!seen.has(key)) { seen.add(key); log(key); }
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }, random);
+}
 
-    expect(await page.evaluate(() => window.__documentMark)).toBeUndefined();
+const logged = (page) => page.evaluate(() => JSON.parse(sessionStorage.getItem("pt-log") || "[]"));
+const clearLog = (page) => page.evaluate(() => sessionStorage.removeItem("pt-log"));
+const rootMotion = (lines) => lines.filter((line) => /-(old|new)\(root\) /.test(line)).sort();
+const violations = (lines) => lines.filter((line) => line.startsWith("violation"));
+const ONE_FADE = [`::view-transition-new(root) ${FADE_IN}`, `::view-transition-old(root) ${OUT}`];
+
+// Turbo flips the URL before a reload answers, so the URL proves nothing here. The mark lives on
+// the document, and only a new document has none. Past the whole motion when this returns.
+const markDocument = (page) => page.evaluate(() => { window.__documentMark = true; });
+async function landed(page, path) {
+  await page.waitForFunction((target) => !window.__documentMark && window.location.pathname === target
+    && document.readyState === "complete"
+    && document.documentElement.dataset.pageTransition === undefined
+    && !document.getAnimations().some((a) => (a.effect?.pseudoElement || "").startsWith("::view-transition")), path);
+}
+
+async function leaveBy(page, link, path) {
+  await markDocument(page);
+  await clearLog(page);
+  await link.click();
+  await landed(page, path);
+  return logged(page);
+}
+
+async function back(page, path) {
+  await markDocument(page);
+  await clearLog(page);
+  await page.goBack();
+  await landed(page, path);
+  return logged(page);
+}
+
+// A real link in the page, for the pages that have none to the place a spec goes.
+function linkTo(page, href) {
+  return page.evaluate((target) => {
+    const link = document.createElement("a");
+    link.href = target;
+    link.textContent = "go";
+    link.setAttribute("data-test", "pt-full");
+    link.style.cssText = "position:fixed;left:0;bottom:0;z-index:99999";
+    document.body.appendChild(link);
+  }, href).then(() => page.locator('[data-test="pt-full"]'));
+}
+
+async function openLobby(page, random = 0) {
+  await recordAcrossLoads(page, random);
+  await page.goto(LOBBY);
+  await page.waitForFunction(() => window.Turbo && document.documentElement.dataset.pageTransitionDirection);
+}
+
+const contestLink = (page) => page.locator(`a[href="${CONTEST}"]`).first();
+
+// A signing page stays a document of its own, and the full-load path is how it moves. The cart's
+// own motion-on twin is in e2e/cart_survives_turbo_restore.spec.js.
+test.describe("money pages", () => {
+  // Alex McRitchie's report: "It works on most but for some reason not when I click the contest."
+  test("clicking a contest in the lobby plays one move, lands on the contest page, and the board binds", async ({ page }) => {
+    await openLobby(page);
+    const lines = await leaveBy(page, contestLink(page), CONTEST);
+    expect(rootMotion(lines), lines.join("\n")).toEqual(ONE_FADE);
     await expect(page.locator('meta[name="signing-csp"]')).toHaveCount(1);
-    expect(pageMoves(await seen(page))).toEqual([]);
+    expect(lines.filter((line) => /group\(studio-header\) pt-/.test(line))).toEqual([]);
 
     const cards = page.locator('[x-data*="selectionBoard"] button[role="checkbox"]:not([disabled])');
     await cards.first().click();
     await expect(page.locator("body")).toContainText("1 / 6");
+  });
+
+  test("the same click can draw the unfold", async ({ page }) => {
+    await openLobby(page, 0.99);
+    const lines = await leaveBy(page, contestLink(page), CONTEST);
+    expect(rootMotion(lines), lines.join("\n")).toEqual([`::view-transition-new(root) ${UNFOLD_IN}`, `::view-transition-old(root) ${OUT}`]);
+  });
+
+  test("leaving the contest page for a Turbo page plays one move", async ({ page }) => {
+    await openLobby(page);
+    await leaveBy(page, contestLink(page), CONTEST);
+    const lines = await leaveBy(page, page.locator(`header a[href="${LOBBY}"]`).first(), LOBBY);
+    expect(rootMotion(lines), lines.join("\n")).toEqual(ONE_FADE);
+    await expect(page.locator('meta[name="signing-csp"]')).toHaveCount(0);
+  });
+
+  test("/wallet and /account play one move in and one move out", async ({ page }) => {
+    await login(page, "mason@mcritchie.studio");
+    const errors = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await openLobby(page);
+    for (const path of ["/wallet", "/account"]) {
+      const into = await leaveBy(page, await linkTo(page, path), path);
+      expect(rootMotion(into), `into ${path}\n${into.join("\n")}`).toEqual(ONE_FADE);
+      await expect(page.locator('meta[name="signing-csp"]'), path).toHaveCount(1);
+      await expect(page.locator("main"), path).toBeVisible();
+
+      const out = await leaveBy(page, await linkTo(page, LOBBY), LOBBY);
+      expect(rootMotion(out), `out of ${path}\n${out.join("\n")}`).toEqual(ONE_FADE);
+    }
+    expect(errors).toEqual([]);
+  });
+
+  // Playwright turns the back/forward cache off, so each Back here is a fresh back_forward load.
+  // The restored page is the gem's unit test, and the task's checks record a by-hand reading.
+  test("Back into a signing page and Back out of one each play one move", async ({ page }) => {
+    await openLobby(page);
+    await leaveBy(page, contestLink(page), CONTEST);
+    const outOf = await back(page, LOBBY);
+    expect(rootMotion(outOf), `Back out\n${outOf.join("\n")}`).toEqual(ONE_FADE);
+
+    await leaveBy(page, contestLink(page), CONTEST);
+    await leaveBy(page, page.locator(`header a[href="${LOBBY}"]`).first(), LOBBY);
+    const intoSigning = await back(page, CONTEST);
+    expect(rootMotion(intoSigning), `Back in\n${intoSigning.join("\n")}`).toEqual(ONE_FADE);
+    await expect(page.locator('meta[name="signing-csp"]')).toHaveCount(1);
+    expect(await page.evaluate(() => performance.getEntriesByType("navigation")[0].type)).toBe("back_forward");
+    await expect(page.locator('[x-data*="selectionBoard"]').first()).toBeVisible();
+  });
+
+  test("a reload of a signing page plays nothing", async ({ page }) => {
+    await openLobby(page);
+    await leaveBy(page, contestLink(page), CONTEST);
+    await markDocument(page);
+    await clearLog(page);
+    await page.reload();
+    await landed(page, CONTEST);
+    expect(rootMotion(await logged(page))).toEqual([]);
   });
 
   test("the wallet picker opens and finds the wallet on a page reached from a moving page", async ({ page }) => {
@@ -282,20 +417,58 @@ test.describe("money pages", () => {
     expect(await page.evaluate(() => JSON.parse(document.getElementById("session-context").textContent).loggedIn)).toBe(true);
   });
 
-  test("/wallet and /account are their own documents and render for a signed-in player", async ({ page }) => {
-    await login(page, "mason@mcritchie.studio");
-    const errors = [];
-    page.on("pageerror", (error) => errors.push(error.message));
-    await open(page, LOBBY, 0);
-    for (const path of ["/wallet", "/account"]) {
-      await page.evaluate((href) => { window.Turbo.visit(href); }, path);
-      await page.waitForURL((u) => u.pathname === path);
+  // The strict policy on. The move must add no refused source: the sheet is 'self', and the
+  // script takes the request's nonce. The solana-studio deep link is refused while its gem fix
+  // is open (e2e/signing_csp.spec.js holds that), and nothing else may be.
+  test.describe("under the enforced strict policy", () => {
+    const pendingDeepLink = /\(function \(\) \{\s*var STATEMENT|window\.startPhantomDeepLink/;
+    test.beforeEach(async ({ request }) => {
+      const response = await request.post("/test/signing_csp", { form: { enforced: "true" } });
+      expect(response.ok()).toBe(true);
+    });
+    test.afterEach(async ({ request }) => {
+      await request.post("/test/signing_csp", { form: { enforced: "false" } });
+    });
+
+    test("a contest plays one move in and out, and Back, with no violation of its own", async ({ page }) => {
+      await openLobby(page);
+      const into = await leaveBy(page, contestLink(page), CONTEST);
+      expect(rootMotion(into), into.join("\n")).toEqual(ONE_FADE);
       await page.waitForLoadState("networkidle");
-      await expect(page.locator('meta[name="signing-csp"]'), path).toHaveCount(1);
-      await expect(page.locator("main"), path).toBeVisible();
-      expect(pageMoves(await seen(page)), path).toEqual([]);
-    }
-    expect(errors).toEqual([]);
+      const out = await leaveBy(page, page.locator(`header a[href="${LOBBY}"]`).first(), LOBBY);
+      expect(rootMotion(out), out.join("\n")).toEqual(ONE_FADE);
+      const backIn = await back(page, CONTEST);
+      expect(rootMotion(backIn), backIn.join("\n")).toEqual(ONE_FADE);
+      await page.waitForLoadState("networkidle");
+      const all = [...into, ...out, ...(await logged(page))];
+      expect(violations(all).filter((line) => !pendingDeepLink.test(line))).toEqual([]);
+    });
+
+    test("/wallet and /account play one move with no violation of their own", async ({ page }) => {
+      await login(page, "mason@mcritchie.studio");
+      await openLobby(page);
+      for (const path of ["/wallet", "/account"]) {
+        const into = await leaveBy(page, await linkTo(page, path), path);
+        expect(rootMotion(into), `into ${path}\n${into.join("\n")}`).toEqual(ONE_FADE);
+        await page.waitForLoadState("networkidle");
+        const settled = await logged(page);
+        expect(violations(settled).filter((line) => !pendingDeepLink.test(line)), path).toEqual([]);
+        const out = await leaveBy(page, await linkTo(page, LOBBY), LOBBY);
+        expect(rootMotion(out), `out of ${path}\n${out.join("\n")}`).toEqual(ONE_FADE);
+      }
+    });
+
+    // THE CONTROL: the policy is live on the page that just moved. A script with no nonce is refused.
+    test("control: the page that moved does refuse a script with no nonce", async ({ page }) => {
+      await openLobby(page);
+      await leaveBy(page, contestLink(page), CONTEST);
+      await page.evaluate(() => {
+        const script = document.createElement("script");
+        script.textContent = "window.__ran = true";
+        document.head.appendChild(script);
+      });
+      expect(await page.evaluate(() => window.__ran)).toBeUndefined();
+    });
   });
 });
 
@@ -347,5 +520,14 @@ test.describe("reduced motion", () => {
     // The hold is one tick. The engine's image pause (a cap of 500ms) has no part in it here.
     const gap = await page.evaluate(() => window.__renderedAt - window.__heldAt);
     expect(gap).toBeLessThan(300);
+  });
+
+  test("a click into a signing page is a plain load", async ({ page }) => {
+    await recordAcrossLoads(page, 0);
+    await page.goto(LOBBY);
+    await page.waitForFunction(() => window.Turbo);
+    const lines = await leaveBy(page, contestLink(page), CONTEST);
+    expect(rootMotion(lines), lines.join("\n")).toEqual([]);
+    await expect(page.locator('meta[name="signing-csp"]')).toHaveCount(1);
   });
 });
