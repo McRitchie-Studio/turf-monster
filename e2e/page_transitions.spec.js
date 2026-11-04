@@ -314,7 +314,9 @@ test.describe("smooth load", () => {
   });
 
   test("the funnel splash renders with a set direction", async ({ page }) => {
-    await page.goto("/tiktok");
+    // An admin may preview the seeded page whether or not it is live.
+    await loginAdmin(page);
+    await page.goto("/lp/tiktok");
     await expect(page.locator('meta[name="page-transition-direction"]')).toHaveAttribute("content", "right");
     await expect(page.locator(".lp-splash h1").first()).toBeVisible();
     await expect(page.locator('[data-test="funnel-how-it-works"]')).toBeVisible();
