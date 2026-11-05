@@ -81,6 +81,8 @@ class SessionReplayLayoutTest < ActionDispatch::IntegrationTest
     results.select { |_url, result| result["body"].nil? }.keys
   end
 
+  # /profile/voice is on purpose: the unanchored pattern matches it, and it carries a
+  # voice's embeddings. Voice profiles are off on Turf today, but the route is drawn.
   CHAT_ROUTES = lambda do |test|
     [ test.studio_agent_chat_messages_path,
       test.studio_agent_chat_turns_path(soul: "turf_monster", limit: 50, after: 12),
@@ -99,7 +101,7 @@ class SessionReplayLayoutTest < ActionDispatch::IntegrationTest
   end
 
   test "the chat's boundaries do not widen to other routes" do
-    urls = [ "/help", "/chat", "/contests", "/profile", "/test/agent_chat_lab", "/voicemail", "/agent_chats", "/contests/voice-of-reason" ]
+    urls = [ "/help", "/chat", "/contests", "/profile", "/test/agent_chat_lab", "/voicemail", "/agent_chats", "/contests/1/messages", "/contests/voice-of-reason" ]
     assert_empty bodies_dropped(:request, urls)
     assert_empty bodies_dropped(:response, urls.map { |path| "#{HOST}#{path}" })
   end
