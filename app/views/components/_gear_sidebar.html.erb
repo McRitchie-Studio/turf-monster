@@ -4,8 +4,13 @@
     animation through .nav-emoji-swap and row-level .group hover. %>
 <% return unless current_user %>
 
-<% link_class  = "group flex items-center gap-3 px-4 py-3 text-sm text-body hover:text-heading hover:bg-surface-alt transition font-medium" %>
-<% muted_class = "group flex items-center gap-3 px-4 py-3 text-sm text-body hover:text-heading hover:bg-surface-alt transition" %>
+<%# Studio.sidebar_style = :glass floats this panel like the hub's link sidebar (engine.css, THE
+    GLASS SIDEBAR). The engine's row rules read nav > [role="group"] > a, so each block of rows is a
+    group, and Log out sits in the panel's foot. Guarded until the release relocks past the floor. %>
+<% glass = Studio.respond_to?(:sidebar_style) && Studio.sidebar_style == :glass %>
+<% focus_class = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-inset" %>
+<% link_class  = "group flex items-center gap-3 px-4 py-3 text-sm text-body hover:text-heading hover:bg-surface-alt #{focus_class} transition font-medium" %>
+<% muted_class = "group flex items-center gap-3 px-4 py-3 text-sm text-body hover:text-heading hover:bg-surface-alt #{focus_class} transition" %>
 <% close_action = "$store.sidebars.gearOpen = false" %>
 
 <% emoji_swap = ->(base, hover) {
@@ -103,6 +108,7 @@
 
 <% body_html = capture do %>
   <nav class="flex-1 min-h-0 overflow-y-auto py-2" aria-label="Settings links">
+    <div role="group" aria-label="Account">
     <%= link_to account_path, class: link_class do %><%= emoji_swap.("🙂", "✏️") %><span>My Profile</span><% end %>
     <%= link_to my_contests_path, class: link_class do %><%= emoji_swap.("🏆", "⚔️") %><span>My Contests</span><% end %>
 
@@ -128,10 +134,11 @@
     <button type="button"
             @click="<%= close_action %>; if (window.showNavSpinner) window.showNavSpinner(); if (window.refreshSession) { window.refreshSession().finally(function() { if (window.hideNavSpinner) window.hideNavSpinner(); }); }"
             class="<%= link_class %> w-full text-left"><%= emoji_swap.("👛", "♻️") %><span>Refresh Wallet</span></button>
+    </div>
 
     <% if current_user.admin? %>
-      <div class="border-t border-subtle my-2"></div>
-      <div class="label-upper font-bold px-4 py-1 text-muted">Admin</div>
+      <div role="group" aria-label="Admin" class="<%= "border-t border-subtle mt-2 pt-2" unless glass %>">
+      <div class="label-upper font-bold px-4 py-1 text-muted" aria-hidden="true" data-sidebar-group-header>Admin</div>
       <%= link_to admin_dashboard_path, class: link_class do %><%= emoji_swap.("💻", "🔬") %><span>Dashboard</span><% end %>
       <%# Signatures — the treasury cosign queue. The count is what the operator
           is actually being asked to sign (PendingTransaction.awaiting_signature),
@@ -161,11 +168,15 @@
       <%= link_to admin_entry_gifts_path, class: link_class do %><%= emoji_swap.("🎁", "✨") %><span>Send Free Entry</span><% end %>
       <%= link_to admin_emails_path, class: link_class do %><%= emoji_swap.("✉️", "📮") %><span>Emails</span><% end %>
       <%= link_to admin_style_path, class: link_class do %><%= emoji_swap.("🎨", "🧩") %><span>Design System</span><% end %>
+      </div>
     <% end %>
-
-    <div class="border-t border-subtle my-2"></div>
-    <%= link_to logout_path, class: muted_class, data: { turbo: false, studio_controller: "session-wipe", studio_action: "session-wipe#wipe" } do %><%= emoji_swap.("👋🏻", "⏏️") %><span>Log out</span><% end %>
   </nav>
+<% end %>
+
+<% foot_html = capture do %>
+  <div class="border-t border-subtle" data-sidebar-glass-foot>
+    <%= link_to logout_path, class: muted_class, data: { turbo: false, studio_controller: "session-wipe", studio_action: "session-wipe#wipe" } do %><%= emoji_swap.("👋🏻", "⏏️") %><span>Log out</span><% end %>
+  </div>
 <% end %>
 
 <%# aria_label IS LOAD-BEARING NOW, not a nicety. The panel's accessible name
@@ -181,6 +192,8 @@
       close_hook: true,
       open: "$store.sidebars.gearOpen",
       body_html: body_html,
+      footer_html: foot_html,
+      glass: glass,
       close_action: close_action,
       outside_action: close_action,
       escape_action: close_action,
@@ -195,6 +208,8 @@
       close_hook: true,
       open: "$store.sidebars.gearOpen",
       body_html: body_html,
+      footer_html: foot_html,
+      glass: glass,
       close_action: close_action,
       outside_action: close_action,
       escape_action: close_action,

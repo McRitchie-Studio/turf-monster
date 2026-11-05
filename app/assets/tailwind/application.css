@@ -288,6 +288,28 @@
   .group:hover .nav-emoji-base, .group:hover .nav-emoji-hover { transform: none; }
 }
 
+/* THE GEAR SIDEBAR ON THE ENGINE'S GLASS PANEL (components/_gear_sidebar, engine.css THE GLASS
+   SIDEBAR). The engine owns the panel, the fill, the blur, the groups and the rows. Three things it
+   cannot know are here: this menu has a <button> row (Refresh Wallet), it draws emoji in
+   .nav-emoji-swap, and the Signatures count is ink of its own. */
+[data-sidebar-glass-shell] nav > [role="group"] > button {
+  height: var(--glass-row-height);
+  gap: var(--glass-icon-gap);
+  padding: 0 0.5rem 0 0.375rem;
+  border-radius: 0.625rem;
+  color: var(--glass-ink);
+  font-size: inherit;
+  font-weight: 500;
+  line-height: 1.125rem;
+}
+[data-sidebar-glass-shell] nav > [role="group"] > button:hover {
+  color: var(--glass-ink);
+  background-color: var(--glass-hover);
+}
+[data-sidebar-glass-shell] nav > [role="group"] > :is(a, button) + :is(a, button) { margin-top: var(--glass-row-gap); }
+[data-sidebar-glass-shell] .nav-emoji-swap { height: var(--glass-icon-size); font-size: calc(var(--glass-icon-size) / 1.25); }
+[data-sidebar-glass-shell] [data-signature-count].text-muted { color: var(--glass-soft-ink); }
+
 @utility text-muted {
   .lp-splash & {
     color: rgba(255, 255, 255, 0.72);

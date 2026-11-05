@@ -58,6 +58,13 @@ Studio.configure do |config|
   # relocks an engine with the setter (/tasks/turf-sets-transition-flip).
   config.page_transition_style = :unfold if config.respond_to?(:page_transition_style=)
 
+  # Liquid glass, as on the hub (engine.css, THE GLASS SURFACES and THE GLASS SIDEBAR): translucent
+  # cards over an ambient page, a blurred navbar, lit buttons. The root carries the attribute through
+  # layouts/application, and the gear sidebar reads sidebar_style. Guarded like the setter above.
+  # (/tasks/turf-adopts-glass-style)
+  config.surface_style = :glass if config.respond_to?(:surface_style=)
+  config.sidebar_style = :glass if config.respond_to?(:sidebar_style=)
+
   # The navbar collapses on the page's scroll timeline from 768px: one header
   # height, the shrink as compositor transforms, no script per frame (engine
   # 0.111, docs/NAVBAR_SETUP.md "Scroll-Driven Collapse"). The impersonation
