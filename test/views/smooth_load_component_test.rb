@@ -31,6 +31,13 @@ class SmoothLoadComponentTest < ActiveSupport::TestCase
       "config/initializers/studio.rb must set config.page_transition_direction = :right"
   end
 
+  # Alex McRitchie's ruling, 2026-11-04: one style per app. The flip for Turf is a proposed default, not his choice.
+  test "[component] Turf declares the flip, the one style its pages play" do
+    initializer = Rails.root.join("config/initializers/studio.rb").read
+    assert_includes initializer, "config.page_transition_style = :unfold if config.respond_to?(:page_transition_style=)"
+    assert_equal :unfold, Studio.page_transition_style if Studio.respond_to?(:page_transition_style)
+  end
+
   test "[component] nav spinner display floor is 300ms per smooth-load guidance" do
     assert_equal 300, Studio.nav_spinner_min_ms,
       "nav_spinner_min_ms is a minimum DISPLAY floor (remaining = max(0, min_ms - elapsed)) — " \

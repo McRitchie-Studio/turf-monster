@@ -24,13 +24,13 @@ const LOBBY = "/contests";
 const HELP = "/help";
 const CONTEST = "/contests/world-cup-2026";
 const OUT = "pt-out-right";
-const FADE_IN = "pt-in-from-left";
 const UNFOLD_IN = "pt-unfold-left";
 
 // A recorder for what a browser played. Animation names exist only in getAnimations().
-// __random fixes the style Math.random draws, and only for the pick: Turbo draws its history
-// ids from Math.random too, and a constant would give every history entry one id.
-async function record(page, random = 0) {
+// Turf's one style is the flip. __random fixes an engine below Studio.page_transition_style to
+// draw the flip too, and only for the pick: Turbo draws its history ids from Math.random too, and
+// a constant would give every history entry one id. It goes when the release relocks the engine.
+async function record(page, random = 0.99) {
   await page.addInitScript((value) => {
     window.__random = value;
     window.addEventListener("turbo:before-render", () => {
@@ -97,15 +97,6 @@ async function open(page, path, random) {
 }
 
 test.describe("what plays", () => {
-  test("a change of path draws the fade, moving right", async ({ page }) => {
-    await open(page, LOBBY, 0);
-    await visit(page, HELP);
-    const names = await seen(page);
-    expect(names).toContain(`::view-transition-old(root) ${OUT}`);
-    expect(names).toContain(`::view-transition-new(root) ${FADE_IN}`);
-    expect(await drawnStyles(page)).toEqual(["fade-right"]);
-  });
-
   test("a change of path draws the unfold, moving right", async ({ page }) => {
     await open(page, LOBBY, 0.99);
     await visit(page, HELP);
@@ -116,7 +107,7 @@ test.describe("what plays", () => {
   });
 
   test("Back and Forward play the same direction", async ({ page }) => {
-    await open(page, LOBBY, 0);
+    await open(page, LOBBY, 0.99);
     await visit(page, HELP);
     for (const travel of ["goBack", "goForward"]) {
       await page.evaluate(() => { window.__seen.length = 0; });
@@ -128,7 +119,7 @@ test.describe("what plays", () => {
   });
 
   test("a refresh of the same page plays nothing", async ({ page }) => {
-    await open(page, LOBBY, 0);
+    await open(page, LOBBY, 0.99);
     const load = nextLoad(page);
     await page.evaluate(() => window.Turbo.visit(window.location.href, { action: "replace" }));
     await load;
@@ -137,7 +128,7 @@ test.describe("what plays", () => {
   });
 
   test("a change of query only plays nothing", async ({ page }) => {
-    await open(page, LOBBY, 0);
+    await open(page, LOBBY, 0.99);
     const load = nextLoad(page);
     await page.evaluate(() => window.Turbo.visit(`${window.location.pathname}?pt=1`));
     await load;
@@ -147,7 +138,7 @@ test.describe("what plays", () => {
   // The live board moves by Turbo Stream broadcasts, not by visits. A broadcast is what a
   // score does to the page, so this one delivers a stream the way the socket hands it over.
   test("a live board broadcast starts no transition", async ({ page }) => {
-    await open(page, "/live", 0);
+    await open(page, "/live", 0.99);
     await page.locator("#nfl_live_scoreboard").waitFor({ state: "attached" });
     const marker = await page.evaluate(async () => {
       window.Turbo.renderStreamMessage(
@@ -164,7 +155,7 @@ test.describe("what plays", () => {
 
 test.describe("what holds still", () => {
   test("the navbar group holds its place and the page moves under it", async ({ page }) => {
-    await open(page, LOBBY, 0);
+    await open(page, LOBBY, 0.99);
     await visit(page, HELP);
     const names = await seen(page);
     // Named groups the engine's rules do not move. The root is what moves.
@@ -175,7 +166,7 @@ test.describe("what holds still", () => {
   });
 
   test("a scrolled page keeps its sticky header through a move and after it", async ({ page }) => {
-    await open(page, LOBBY, 0);
+    await open(page, LOBBY, 0.99);
     await page.evaluate(() => window.scrollTo(0, 300));
     await visit(page, HELP);
     const header = page.locator("header.vt-pinned-header");
@@ -189,7 +180,7 @@ test.describe("what holds still", () => {
     await login(page, "mason@mcritchie.studio");
     await page.request.post("/test/set_frozen", { data: { frozen: "true" } });
     try {
-      await open(page, LOBBY, 0);
+      await open(page, LOBBY, 0.99);
       await expect(page.locator("[data-frozen-banner]")).toBeVisible();
       await visit(page, HELP);
       const tops = await page.evaluate(() => window.__barTops);
@@ -210,7 +201,7 @@ test.describe("what holds still", () => {
     const out = page.getByRole("button", { name: /Return to/ });
     await expect(out).toBeVisible();
 
-    await open(page, LOBBY, 0);
+    await open(page, LOBBY, 0.99);
     await visit(page, HELP);
     await expect(out).toHaveCount(1);
     await expect(out).toBeVisible();
@@ -221,7 +212,7 @@ test.describe("what holds still", () => {
 
   test("the gear sidebar opens and closes after a move, and a move shuts it", async ({ page }) => {
     await login(page, "mason@mcritchie.studio");
-    await open(page, LOBBY, 0);
+    await open(page, LOBBY, 0.99);
     await visit(page, HELP);
 
     const trigger = page.locator("[data-gear-sidebar-trigger]").first();
@@ -245,7 +236,7 @@ test.describe("what holds still", () => {
 // A log that outlives each document, so one spec reads both sides of a full load: each root
 // motion, each held group that moved, and each policy violation. __random fixes the style the
 // leaving page draws at pageswap, and only for the pick.
-async function recordAcrossLoads(page, random = 0) {
+async function recordAcrossLoads(page, random = 0.99) {
   await page.addInitScript((value) => {
     const log = (line) => {
       const lines = JSON.parse(sessionStorage.getItem("pt-log") || "[]");
@@ -283,7 +274,7 @@ const logged = (page) => page.evaluate(() => JSON.parse(sessionStorage.getItem("
 const clearLog = (page) => page.evaluate(() => sessionStorage.removeItem("pt-log"));
 const rootMotion = (lines) => lines.filter((line) => /-(old|new)\(root\) /.test(line)).sort();
 const violations = (lines) => lines.filter((line) => line.startsWith("violation"));
-const ONE_FADE = [`::view-transition-new(root) ${FADE_IN}`, `::view-transition-old(root) ${OUT}`];
+const ONE_MOVE = [`::view-transition-new(root) ${UNFOLD_IN}`, `::view-transition-old(root) ${OUT}`];
 
 // Turbo flips the URL before a reload answers, so the URL proves nothing here. The mark lives on
 // the document, and only a new document has none. Past the whole motion when this returns.
@@ -325,7 +316,7 @@ function linkTo(page, href) {
   }, href).then(() => page.locator('[data-test="pt-full"]'));
 }
 
-async function openLobby(page, random = 0) {
+async function openLobby(page, random = 0.99) {
   await recordAcrossLoads(page, random);
   await page.goto(LOBBY);
   await page.waitForFunction(() => window.Turbo && document.documentElement.dataset.pageTransitionDirection);
@@ -340,7 +331,7 @@ test.describe("money pages", () => {
   test("clicking a contest in the lobby plays one move, lands on the contest page, and the board binds", async ({ page }) => {
     await openLobby(page);
     const lines = await leaveBy(page, contestLink(page), CONTEST);
-    expect(rootMotion(lines), lines.join("\n")).toEqual(ONE_FADE);
+    expect(rootMotion(lines), lines.join("\n")).toEqual(ONE_MOVE);
     await expect(page.locator('meta[name="signing-csp"]')).toHaveCount(1);
     expect(lines.filter((line) => /group\(studio-header\) pt-/.test(line))).toEqual([]);
 
@@ -349,17 +340,11 @@ test.describe("money pages", () => {
     await expect(page.locator("body")).toContainText("1 / 6");
   });
 
-  test("the same click can draw the unfold", async ({ page }) => {
-    await openLobby(page, 0.99);
-    const lines = await leaveBy(page, contestLink(page), CONTEST);
-    expect(rootMotion(lines), lines.join("\n")).toEqual([`::view-transition-new(root) ${UNFOLD_IN}`, `::view-transition-old(root) ${OUT}`]);
-  });
-
   test("leaving the contest page for a Turbo page plays one move", async ({ page }) => {
     await openLobby(page);
     await leaveBy(page, contestLink(page), CONTEST);
     const lines = await leaveBy(page, page.locator(`header a[href="${LOBBY}"]`).first(), LOBBY);
-    expect(rootMotion(lines), lines.join("\n")).toEqual(ONE_FADE);
+    expect(rootMotion(lines), lines.join("\n")).toEqual(ONE_MOVE);
     await expect(page.locator('meta[name="signing-csp"]')).toHaveCount(0);
   });
 
@@ -370,12 +355,12 @@ test.describe("money pages", () => {
     await openLobby(page);
     for (const path of ["/wallet", "/account"]) {
       const into = await leaveBy(page, await linkTo(page, path), path);
-      expect(rootMotion(into), `into ${path}\n${into.join("\n")}`).toEqual(ONE_FADE);
+      expect(rootMotion(into), `into ${path}\n${into.join("\n")}`).toEqual(ONE_MOVE);
       await expect(page.locator('meta[name="signing-csp"]'), path).toHaveCount(1);
       await expect(page.locator("main"), path).toBeVisible();
 
       const out = await leaveBy(page, await linkTo(page, LOBBY), LOBBY);
-      expect(rootMotion(out), `out of ${path}\n${out.join("\n")}`).toEqual(ONE_FADE);
+      expect(rootMotion(out), `out of ${path}\n${out.join("\n")}`).toEqual(ONE_MOVE);
     }
     expect(errors).toEqual([]);
   });
@@ -388,12 +373,12 @@ test.describe("money pages", () => {
     await openLobby(page);
     await leaveBy(page, contestLink(page), CONTEST);
     const outOf = await back(page, LOBBY);
-    expect(rootMotion(outOf), `Back out\n${outOf.join("\n")}`).toEqual(ONE_FADE);
+    expect(rootMotion(outOf), `Back out\n${outOf.join("\n")}`).toEqual(ONE_MOVE);
 
     await leaveBy(page, contestLink(page), CONTEST);
     await leaveBy(page, page.locator(`header a[href="${LOBBY}"]`).first(), LOBBY);
     const intoSigning = await back(page, CONTEST);
-    expect(rootMotion(intoSigning), `Back in\n${intoSigning.join("\n")}`).toEqual(ONE_FADE);
+    expect(rootMotion(intoSigning), `Back in\n${intoSigning.join("\n")}`).toEqual(ONE_MOVE);
     await expect(page.locator('meta[name="signing-csp"]')).toHaveCount(1);
     expect(await page.evaluate(() => performance.getEntriesByType("navigation")[0].type)).toBe("back_forward");
     await expect(page.locator('[x-data*="selectionBoard"]').first()).toBeVisible();
@@ -411,7 +396,7 @@ test.describe("money pages", () => {
 
   test("the wallet picker opens and finds the wallet on a page reached from a moving page", async ({ page }) => {
     await setupPhantomMock(page);
-    await open(page, LOBBY, 0);
+    await open(page, LOBBY, 0.99);
     await visit(page, "/signin");
     expect(pageMoves(await seen(page)).length).toBeGreaterThan(0);
 
@@ -443,12 +428,12 @@ test.describe("money pages", () => {
     test("a contest plays one move in and out, and Back, with no violation of its own", async ({ page }) => {
       await openLobby(page);
       const into = await leaveBy(page, contestLink(page), CONTEST);
-      expect(rootMotion(into), into.join("\n")).toEqual(ONE_FADE);
+      expect(rootMotion(into), into.join("\n")).toEqual(ONE_MOVE);
       await page.waitForLoadState("networkidle");
       const out = await leaveBy(page, page.locator(`header a[href="${LOBBY}"]`).first(), LOBBY);
-      expect(rootMotion(out), out.join("\n")).toEqual(ONE_FADE);
+      expect(rootMotion(out), out.join("\n")).toEqual(ONE_MOVE);
       const backIn = await back(page, CONTEST);
-      expect(rootMotion(backIn), backIn.join("\n")).toEqual(ONE_FADE);
+      expect(rootMotion(backIn), backIn.join("\n")).toEqual(ONE_MOVE);
       await page.waitForLoadState("networkidle");
       const all = [...into, ...out, ...(await logged(page))];
       expect(violations(all).filter((line) => !pendingDeepLink.test(line))).toEqual([]);
@@ -459,12 +444,12 @@ test.describe("money pages", () => {
       await openLobby(page);
       for (const path of ["/wallet", "/account"]) {
         const into = await leaveBy(page, await linkTo(page, path), path);
-        expect(rootMotion(into), `into ${path}\n${into.join("\n")}`).toEqual(ONE_FADE);
+        expect(rootMotion(into), `into ${path}\n${into.join("\n")}`).toEqual(ONE_MOVE);
         await page.waitForLoadState("networkidle");
         const settled = await logged(page);
         expect(violations(settled).filter((line) => !pendingDeepLink.test(line)), path).toEqual([]);
         const out = await leaveBy(page, await linkTo(page, LOBBY), LOBBY);
-        expect(rootMotion(out), `out of ${path}\n${out.join("\n")}`).toEqual(ONE_FADE);
+        expect(rootMotion(out), `out of ${path}\n${out.join("\n")}`).toEqual(ONE_MOVE);
       }
     });
 
@@ -473,12 +458,12 @@ test.describe("money pages", () => {
       await openLobby(page);
       for (const path of [`${CONTEST}/live`, "/admin/pending_transactions"]) {
         const into = await leaveBy(page, await linkTo(page, path), path);
-        expect(rootMotion(into), `into ${path}\n${into.join("\n")}`).toEqual(ONE_FADE);
+        expect(rootMotion(into), `into ${path}\n${into.join("\n")}`).toEqual(ONE_MOVE);
         await expect(page.locator('meta[name="signing-csp"]'), path).toHaveCount(1);
         await page.waitForLoadState("networkidle");
         expect(violations(await logged(page)).filter((line) => !pendingDeepLink.test(line)), path).toEqual([]);
         const out = await leaveBy(page, await linkTo(page, LOBBY), LOBBY);
-        expect(rootMotion(out), `out of ${path}\n${out.join("\n")}`).toEqual(ONE_FADE);
+        expect(rootMotion(out), `out of ${path}\n${out.join("\n")}`).toEqual(ONE_MOVE);
       }
     });
 
@@ -527,7 +512,7 @@ test.describe("money pages", () => {
 test.describe("smooth load", () => {
   // Turf has no searching page: its Play now is a link to the contest page, a full load.
   test("the landing page's Play now reaches a working board", async ({ page }) => {
-    await open(page, "/turf-monster-v2", 0);
+    await open(page, "/turf-monster-v2", 0.99);
     await page.evaluate(() => { window.__documentMark = true; });
     const play = page.locator('[data-test="v2-live"] a').first();
     await play.scrollIntoViewIfNeeded();
@@ -560,7 +545,7 @@ test.describe("reduced motion", () => {
       });
       window.addEventListener("turbo:render", () => { window.__renderedAt = performance.now(); });
     });
-    await record(page, 0);
+    await record(page, 0.99);
     await page.goto(LOBBY);
     await page.waitForFunction(() => window.Turbo);
     await visit(page, HELP);
@@ -575,7 +560,7 @@ test.describe("reduced motion", () => {
   });
 
   test("a click into a signing page is a plain load", async ({ page }) => {
-    await recordAcrossLoads(page, 0);
+    await recordAcrossLoads(page, 0.99);
     await page.goto(LOBBY);
     await page.waitForFunction(() => window.Turbo);
     const lines = await leaveBy(page, contestLink(page), CONTEST);
