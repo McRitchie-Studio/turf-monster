@@ -112,7 +112,7 @@
         // LogRocket records DOM + network in prod. Sanitize before anything leaves the
         // browser (audit LR-1): never ship the CSRF token, an api-keyed RPC URL, or
         // auth/account/wallet request+response bodies (SIWS sigs, emails, tokens) to the
-        // third-party recorder.
+        // third-party recorder, nor a chat's words or a take's transcript (docs/AGENT_CHAT.md).
         //
         // The api-key rule is now DEFENCE IN DEPTH rather than the primary guard: since
         // redact-helius-key-from-browser the client is handed a credential-free endpoint
@@ -120,10 +120,6 @@
         // at all. Keep the rule — it costs nothing and covers any future rail that
         // reintroduces one. Defensive (try/catch) so a field-shape change can
         // only under-record, never throw or break init.
-        //
-        // agent_chat and voice: a chat's words, its answers and a take's returned
-        // transcript stay out (docs/AGENT_CHAT.md). voice also covers /profile/voice.
-        // test/integration/session_replay_layout_test.rb runs this script.
         window.LogRocket && window.LogRocket.init('jodsqq/mcritchie-studio', {
           dom: { inputSanitizer: true },
           network: {
