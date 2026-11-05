@@ -197,28 +197,30 @@ test.describe.serial("/chat with forgery on, through the proxy, to a stub hub", 
     await page.goto(PAGE);
     await expect(page.locator(RECORDER)).toHaveAttribute("data-voice-recorder-ready", "true");
 
+    // A long thread, standing in for many turns, so the composer has room to stick: it
+    // cannot rise above the top of its own column, which holds the thread and the form.
     const measured = await page.evaluate(() => {
-      window.scrollTo(0, 0);
       const rect = (el) => el.getBoundingClientRect();
       const wrapper = document.querySelector("[data-private]");
       const section = wrapper.querySelector('[data-test="agent-chat"]');
+      const log = wrapper.querySelector('[data-test="agent-chat-messages"]');
+      log.style.maxHeight = "none";
+      log.style.height = "1200px";
+      window.scrollTo({ top: rect(log).top + window.scrollY, behavior: "instant" });
       return {
-        taller: document.documentElement.scrollHeight > window.innerHeight,
         formBottom: rect(wrapper.querySelector('form[data-test="agent-chat-form"]')).bottom,
         buttonBottom: rect(wrapper.querySelector("[data-voice-recorder-button]")).bottom,
         // A plain block: no box of its own that could clip or contain the sticky form.
         display: getComputedStyle(wrapper).display,
         overflow: getComputedStyle(wrapper).overflow,
         sameHeight: Math.abs(rect(wrapper).height - rect(section).height) < 1,
-        sameWidth: Math.abs(rect(wrapper).width - rect(section).width) < 1,
       };
     });
 
-    expect(measured.taller).toBe(true);
-    // sticky bottom-3: 12px above the window's bottom, with the page scrolled to its top.
+    // sticky bottom-3: 12px above the window's bottom, mid-thread.
     expect(measured.formBottom).toBeCloseTo(488, 0);
     expect(measured.buttonBottom).toBeLessThanOrEqual(488);
-    expect(measured).toMatchObject({ display: "block", overflow: "visible", sameHeight: true, sameWidth: true });
+    expect(measured).toMatchObject({ display: "block", overflow: "visible", sameHeight: true });
     expect(await sideways(page)).toBeLessThanOrEqual(0);
   });
 

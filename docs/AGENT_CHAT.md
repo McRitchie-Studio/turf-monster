@@ -60,7 +60,7 @@ things keep the chat out of it. Keep both.
 
 `@suppress_session_replay` is not set on this page, and it would not be enough. A Turbo visit
 from the footer keeps a recorder that is already running, so the flag only covers a full
-load. The page after such a load would then start the recorder partway through a visit.
+load.
 
 An app that renders this chat on a page of its own needs both of these. The engine does not
 add them.
