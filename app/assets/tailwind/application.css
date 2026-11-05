@@ -320,7 +320,7 @@
   background-color: var(--glass-hover);
 }
 [data-sidebar-glass-shell] nav > [role="group"] > :is(a, button) + :is(a, button) { margin-top: var(--glass-row-gap); }
-[data-sidebar-glass-shell] .nav-emoji-swap { height: var(--glass-icon-size); font-size: calc(var(--glass-icon-size) / 1.25); }
+[data-sidebar-glass-shell] :is(.nav-emoji-swap) { height: var(--glass-icon-size); font-size: calc(var(--glass-icon-size) / 1.25); }
 [data-sidebar-glass-shell] [data-signature-count].text-muted { color: var(--glass-soft-ink); }
 
 @utility text-muted {
