@@ -64,9 +64,10 @@
         </div>
       <% end %>
 
-      <div class="relative my-6">
-        <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-strong"></div></div>
-        <div class="relative flex justify-center text-sm"><span class="bg-surface px-3 text-secondary">or</span></div>
+      <div class="flex items-center gap-3 my-6 text-sm">
+        <div class="flex-1 border-t border-strong"></div>
+        <span class="text-secondary">or</span>
+        <div class="flex-1 border-t border-strong"></div>
       </div>
 
       <%# 3. Email magic link — no password. Submits to /magic_link via fetch
