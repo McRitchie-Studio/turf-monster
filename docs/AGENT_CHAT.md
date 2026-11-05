@@ -36,6 +36,8 @@ present. Everyone else is an anonymous visitor.
 - **`email_verified_at`.** A magic link stamps it, and so does a Google sign-in that
   creates or links the row. A wallet sign-in does not, and a seeded row reads
   unverified until its first email sign-in. Changing the address clears it.
+  On a roster address, a magic link is refused when the row holds a wallet other than
+  the roster's (`User#accept_mailbox_proof!`); `users:parked_role_audit` lists those.
 - **The hub answers by role** (hub `config/agent_answerers.yml`). Today only the owner
   role is answered on Turf's soul, so a message from the owner's verified address is
   answered, and any other admin's message is stored as `held`, as is an anonymous one.

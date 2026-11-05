@@ -143,12 +143,17 @@ class AgentChatVoiceTest < ActionDispatch::IntegrationTest
     assert_no_match(/#{Regexp.escape(@admin.email)}/, @hub.messages.last.to_json)
   end
 
-  test "a wallet sign-in stamps nothing, so a seeded admin stays anonymous until a magic link" do
-    @admin.update_columns(email_verified_at: nil, web3_solana_address: User::PARKED_IDENTITIES.find { |i| i[:email] == @admin.email }[:wallet])
-    assert_not @admin.unproven_parked_holder?, "the roster's wallet proves the row"
-
-    assert @admin.accept_mailbox_proof!, "a magic link on the roster's wallet row is accepted"
+  # What the owner's account needs: a seeded row reads unverified until its first
+  # email sign-in, and a wallet sign-in stamps nothing.
+  test "a magic link stamps an admin on the roster's wallet, and is refused on any other wallet" do
+    roster = User::PARKED_IDENTITIES.find { |identity| identity[:email] == @admin.email }[:wallet]
+    @admin.update_columns(email_verified_at: nil, web3_solana_address: roster)
+    assert @admin.accept_mailbox_proof!
     assert @admin.reload.email_verified_at.present?
+
+    @admin.update_columns(email_verified_at: nil, web3_solana_address: "Other1111111111111111111111111111111111111")
+    assert_not @admin.accept_mailbox_proof!, "the row is the operator's to resolve (users:parked_role_audit)"
+    assert_nil @admin.reload.email_verified_at
   end
 
   test "changing the address clears the proof, so the admin goes anonymous until it is proven again" do

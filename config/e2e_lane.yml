@@ -1368,7 +1368,10 @@
 # 596 -> 608 (turf-adopts-page-transitions): eleven specs in e2e/nav_figures_hold.spec.js, every
 # frame of the navbar figures across a move, and the key export walk in e2e/page_transitions.spec.js.
 # Chromium, no skip.
-total_specs: 608
+# 608 -> 613 (turf-chat-takes-voice): five specs in e2e/agent_chat_voice.spec.js: hold to talk at
+# 390px in light and dark with forgery on, the footer's link, and a player and a visitor refused
+# before any hub call. Chromium, no skip. Derived with bin/e2e-lane-derive --write.
+total_specs: 613
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need funded devnet wallets: the secrets
 # SOLANA_BOT_KEY and MACK_DEVNET_KEY (never literals; test/lib/committed_secret_key_guard_test.rb).
@@ -1800,7 +1803,7 @@ allowed_skips: 4
 # total_specs above; chromium, no skip.
 # 545 -> 547 (turf-adopts-type-scale): the two type_scale specs beside total_specs above;
 # chromium, no skip.
-executed: 587
+executed: 592
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

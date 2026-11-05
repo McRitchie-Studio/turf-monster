@@ -136,7 +136,8 @@ test.describe.serial("/chat with forgery on, through the proxy, to a stub hub", 
       await expect(page.locator(MIC)).toHaveAttribute("data-agent-chat-voice-state", "sent");
       await expect(page.locator(STATUS)).toHaveText("Sent. Spoken by Someone new.");
       expect(takeTokens).toEqual([await pageToken(page)]);
-      await expect(page.locator('[data-test="agent-chat-messages"]').getByText(`You said: ${MOCK_TEXT}`).last()).toBeVisible();
+      // One answer for each row on this thread, this take's included.
+      await expect(page.locator('[data-test="agent-chat-messages"]').getByText(`You said: ${MOCK_TEXT}`)).toHaveCount(before + 1);
 
       expect(sent).toHaveLength(1);
       expect(Object.keys(sent[0].voice).sort()).toEqual(["check", "duration_ms", "score"]);
@@ -157,6 +158,21 @@ test.describe.serial("/chat with forgery on, through the proxy, to a stub hub", 
       await page.screenshot({ path: testInfo.outputPath(`chat-${theme}.png`), fullPage: true });
     });
   }
+
+  test("an admin reaches the chat from the footer's link, by a Turbo visit", async ({ page }) => {
+    await stubMicrophone(page);
+    await loginAdmin(page);
+    await page.goto("/about");
+
+    const column = page.locator("nav.ftr-col").filter({ has: page.locator(FOOTER_CHAT) });
+    await expect(column.locator(".ftr-heading")).toHaveText("Contact");
+    await page.locator(FOOTER_CHAT).click();
+
+    await expect(page).toHaveURL(/\/chat$/);
+    await expect(page.locator(CHAT)).toHaveAttribute("data-agent-chat-ready", "true");
+    await expect(page.locator(RECORDER)).toHaveAttribute("data-voice-recorder-ready", "true");
+    expect(await pageToken(page)).toBeTruthy();
+  });
 
   test("a player gets no link and a refusal from both calls before any hub call", async ({ page, request }) => {
     await login(page, PLAYER, "password");
