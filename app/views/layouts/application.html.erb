@@ -112,7 +112,7 @@
         // LogRocket records DOM + network in prod. Sanitize before anything leaves the
         // browser (audit LR-1): never ship the CSRF token, an api-keyed RPC URL, or
         // auth/account/wallet request+response bodies (SIWS sigs, emails, tokens) to the
-        // third-party recorder.
+        // third-party recorder, nor a chat's words or a take's transcript (docs/AGENT_CHAT.md).
         //
         // The api-key rule is now DEFENCE IN DEPTH rather than the primary guard: since
         // redact-helius-key-from-browser the client is handed a credential-free endpoint
@@ -127,7 +127,7 @@
               try {
                 var u = request.url || '';
                 if (u.indexOf('api-key=') !== -1) request.url = u.replace(/api-key=[^&]+/gi, 'api-key=REDACTED');
-                if (/\/(auth|account|wallet|magic_link|webhooks)(\/|\?|$)/.test(u)) request.body = undefined;
+                if (/\/(auth|account|wallet|magic_link|webhooks|agent_chat|voice)(\/|\?|$)/.test(u)) request.body = undefined;
                 if (request.headers) { delete request.headers['X-CSRF-Token']; delete request.headers['x-csrf-token']; }
               } catch (e) {}
               return request;
@@ -135,7 +135,7 @@
             responseSanitizer: function (response) {
               try {
                 var u = (response && response.url) || '';
-                if (/\/(auth|account|wallet|magic_link|session_state)(\/|\?|$)/.test(u)) response.body = undefined;
+                if (/\/(auth|account|wallet|magic_link|session_state|agent_chat|voice)(\/|\?|$)/.test(u)) response.body = undefined;
               } catch (e) {}
               return response;
             }

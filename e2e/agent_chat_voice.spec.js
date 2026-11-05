@@ -18,9 +18,12 @@ const { login, loginAdmin, reseed } = require("./helpers");
 //   - render the chat with no `voice: true`: the hold specs fail waiting for the button.
 //   - drop agent_chat_allowed from the initializer: the player spec fails at the 403.
 //   - blank the initializer's site_footer_chat_path: the admin spec fails at the footer.
+//   - take data-private off app/views/agent_chat_pages/show.html.erb: the hold specs and
+//     the Turbo spec fail at PRIVATE_CHAT.
 
 const PAGE = "/chat";
 const CHAT = '[data-test="agent-chat"]';
+const PRIVATE_CHAT = `[data-private] ${CHAT}`;
 const MIC = '[data-test="agent-chat-voice"]';
 const STATUS = '[data-test="agent-chat-voice-status"]';
 const RECORDER = "[data-studio-controller='voice-recorder']";
@@ -141,6 +144,12 @@ test.describe.serial("/chat with forgery on, through the proxy, to a stub hub", 
       // One answer for each row on this thread, this take's included.
       await expect(page.locator('[data-test="agent-chat-messages"]').getByText(`You said: ${MOCK_TEXT}`)).toHaveCount(before + 1);
 
+      // Session replay records nothing inside the wrapper, so all of this must be in it:
+      // the rows the script added, and the line that repeats the transcript.
+      await expect(page.locator(PRIVATE_CHAT)).toHaveCount(1);
+      await expect(page.locator(`[data-private] ${STATUS}`)).toHaveText("Sent. Spoken by Someone new.");
+      await expect(page.locator('[data-private] [data-test="agent-chat-messages"]').getByText(MOCK_TEXT).first()).toBeVisible();
+
       expect(sent).toHaveLength(1);
       expect(Object.keys(sent[0].voice).sort()).toEqual(["check", "duration_ms", "score"]);
 
@@ -165,6 +174,7 @@ test.describe.serial("/chat with forgery on, through the proxy, to a stub hub", 
     await stubMicrophone(page);
     await loginAdmin(page);
     await page.goto("/about");
+    await page.evaluate(() => { window.sameDocument = true; });
 
     const column = page.locator("nav.ftr-col").filter({ has: page.locator('a[href="/chat"]') });
     await expect(column.locator(".ftr-heading")).toHaveText("Contact");
@@ -172,8 +182,46 @@ test.describe.serial("/chat with forgery on, through the proxy, to a stub hub", 
 
     await expect(page).toHaveURL(/\/chat$/);
     await expect(page.locator(CHAT)).toHaveAttribute("data-agent-chat-ready", "true");
+    // The same document means a recorder started on /about is still running here. This
+    // is why the wrapper, and not a flag that stops the recorder loading, protects the chat.
+    expect(await page.evaluate(() => window.sameDocument)).toBe(true);
+    await expect(page.locator(PRIVATE_CHAT)).toHaveCount(1);
     await expect(page.locator(RECORDER)).toHaveAttribute("data-voice-recorder-ready", "true");
     expect(await pageToken(page)).toBeTruthy();
+  });
+
+  test("the private wrapper leaves the composer stuck and the held button on screen", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 500 });
+    await stubMicrophone(page);
+    await loginAdmin(page);
+    await page.goto(PAGE);
+    await expect(page.locator(RECORDER)).toHaveAttribute("data-voice-recorder-ready", "true");
+
+    // A long thread, standing in for many turns, so the composer has room to stick: it
+    // cannot rise above the top of its own column, which holds the thread and the form.
+    const measured = await page.evaluate(() => {
+      const rect = (el) => el.getBoundingClientRect();
+      const wrapper = document.querySelector("[data-private]");
+      const section = wrapper.querySelector('[data-test="agent-chat"]');
+      const log = wrapper.querySelector('[data-test="agent-chat-messages"]');
+      log.style.maxHeight = "none";
+      log.style.height = "1200px";
+      window.scrollTo({ top: rect(log).top + window.scrollY, behavior: "instant" });
+      return {
+        formBottom: rect(wrapper.querySelector('form[data-test="agent-chat-form"]')).bottom,
+        buttonBottom: rect(wrapper.querySelector("[data-voice-recorder-button]")).bottom,
+        // A plain block: no box of its own that could clip or contain the sticky form.
+        display: getComputedStyle(wrapper).display,
+        overflow: getComputedStyle(wrapper).overflow,
+        sameHeight: Math.abs(rect(wrapper).height - rect(section).height) < 1,
+      };
+    });
+
+    // sticky bottom-3: 12px above the window's bottom, mid-thread.
+    expect(measured.formBottom).toBeCloseTo(488, 0);
+    expect(measured.buttonBottom).toBeLessThanOrEqual(488);
+    expect(measured).toMatchObject({ display: "block", overflow: "visible", sameHeight: true });
+    expect(await sideways(page)).toBeLessThanOrEqual(0);
   });
 
   test("a player gets no link and a refusal from both calls before any hub call", async ({ page, request }) => {

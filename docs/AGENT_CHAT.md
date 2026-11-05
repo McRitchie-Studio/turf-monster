@@ -45,6 +45,26 @@ present. Everyone else is an anonymous visitor.
 - **Every chat thread is answered as the public**, even for the owner (hub
   `MemoryBundle#audience_person`): no owner action and no internal context.
 
+## Session replay
+
+LogRocket runs for signed-in production users, so it also runs for an admin on `/chat`. Two
+things keep the chat out of it. Keep both.
+
+- **Network.** The layout's `requestSanitizer` and `responseSanitizer` drop the body of
+  every `/agent_chat/*`, `/voice/*` and `/profile/voice` call. The URLs still reach the vendor. They
+  name nobody: a turns URL holds `soul`, `limit` and `after`, and the proxy adds `person` on
+  the server.
+- **DOM.** `app/views/agent_chat_pages/show.html.erb` wraps the chat in a `data-private`
+  element. The recorder keeps the box's size and records no descendant, including a turn
+  added later and a page that a Turbo visit brings in.
+
+`@suppress_session_replay` is not set on this page, and it would not be enough. A Turbo visit
+from the footer keeps a recorder that is already running, so the flag only covers a full
+load.
+
+An app that renders this chat on a page of its own needs both of these. The engine does not
+add them.
+
 ## Not on
 
 `voice_profile` is off, so no voice is matched and every take says "Someone new".
