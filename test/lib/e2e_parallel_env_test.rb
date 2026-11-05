@@ -14,7 +14,7 @@
 # it to a file named for its subcommand, and exits; lsof, curl, dropdb and npx are
 # stubs on PATH. The run starts from a minimal environment (unsetenv_others) with
 # fake credentials planted, so the operator's real ones never enter the test.
-# 
+#
 # THE WAIT. `bin/rails server` is the one launch the lane backgrounds, and the
 # lane kills it on teardown. So the curl stub stands in for /up: it answers only
 # when the server's dump is in place, or at its bound, so that a lane that never
