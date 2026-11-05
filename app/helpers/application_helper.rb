@@ -147,9 +147,7 @@ module ApplicationHelper
   # (and the user's email via identify()) to a third party (Lazarus audit #2,
   # 2026-05-31). An anonymous visitor loads no LogRocket at all: replay is for
   # diagnosing a player's session, and the recorder is a third-party script
-  # with no integrity pin (turf-vendors-cdn-scripts). This flag cannot cover a
-  # page a Turbo visit reaches, because the recorder keeps running: /chat uses
-  # data-private instead (docs/AGENT_CHAT.md).
+  # with no integrity pin (turf-vendors-cdn-scripts). /chat: see docs/AGENT_CHAT.md.
   def session_replay_active?
     ApplicationHelper.session_replay_environment? && logged_in? && !@suppress_session_replay
   end
