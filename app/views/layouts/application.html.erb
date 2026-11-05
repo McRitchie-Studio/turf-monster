@@ -120,6 +120,10 @@
         // at all. Keep the rule — it costs nothing and covers any future rail that
         // reintroduces one. Defensive (try/catch) so a field-shape change can
         // only under-record, never throw or break init.
+        //
+        // agent_chat and voice: a chat's words, its answers and a take's returned
+        // transcript stay out (docs/AGENT_CHAT.md). voice also covers /profile/voice.
+        // test/integration/session_replay_layout_test.rb runs this script.
         window.LogRocket && window.LogRocket.init('jodsqq/mcritchie-studio', {
           dom: { inputSanitizer: true },
           network: {
@@ -127,7 +131,7 @@
               try {
                 var u = request.url || '';
                 if (u.indexOf('api-key=') !== -1) request.url = u.replace(/api-key=[^&]+/gi, 'api-key=REDACTED');
-                if (/\/(auth|account|wallet|magic_link|webhooks)(\/|\?|$)/.test(u)) request.body = undefined;
+                if (/\/(auth|account|wallet|magic_link|webhooks|agent_chat|voice)(\/|\?|$)/.test(u)) request.body = undefined;
                 if (request.headers) { delete request.headers['X-CSRF-Token']; delete request.headers['x-csrf-token']; }
               } catch (e) {}
               return request;
@@ -135,7 +139,7 @@
             responseSanitizer: function (response) {
               try {
                 var u = (response && response.url) || '';
-                if (/\/(auth|account|wallet|magic_link|session_state)(\/|\?|$)/.test(u)) response.body = undefined;
+                if (/\/(auth|account|wallet|magic_link|session_state|agent_chat|voice)(\/|\?|$)/.test(u)) response.body = undefined;
               } catch (e) {}
               return response;
             }
