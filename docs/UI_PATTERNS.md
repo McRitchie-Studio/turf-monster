@@ -348,6 +348,17 @@ Turf moves its pages **right** (`config.page_transition_direction = :right`, eng
 - **A click during the arrival move is lost, on a signing page too.** The browser's overlay takes it for the 700ms. That includes the Lock button: a lost tap, never a double submit.
 - **On a moving page,** `turbo:load` fires about 700ms after the swap, and a click during those 700ms does nothing. Bind what must run sooner to `turbo:render`. Coverage: `e2e/page_transitions.spec.js`.
 
+### Glass surfaces
+
+Turf wears the engine's glass (`config.surface_style = :glass`, `config.sidebar_style = :glass`; engine.css, THE GLASS SURFACES and THE GLASS SIDEBAR; `/tasks/turf-adopts-glass-style`). `layouts/application` renders `data-surface-style="glass"` on the root, so the rules reach Turf's own layout. The landing layout does not carry it: a funnel page keeps its own animated background.
+
+- **What glass reaches:** `.card`, `.card-hover`, `.empty-state`, `.bg-surface.rounded-xl.border`, the team cards (`tm-team-card`, which reads `--surface-card-fill`), the navbar, full-size lit buttons and the sticky page header.
+- **What stays solid:** anything `.absolute`, `.fixed`, `.sticky` or `.shadow-2xl`, and anything in a `.fixed` scrim or a dialog: every modal, the wallet modals, the entry slip and the phone's docked picks bar.
+- **A dense list gets fill only.** A card has no `backdrop-filter`, so a board of cards costs what it did. Do not add `.surface-glass-blur` to a repeating card.
+- **A new tone goes on the element.** `bg-*`, `border-*` and `ring-*` on a card still win. To change a card's resting fill, set `--surface-card-fill`.
+- **A text knockout shows as a patch on glass.** Do not put `bg-surface` behind text on a card. The `or` dividers are the known exception, owned by `turf-or-divider-clean`.
+- **The gear sidebar** passes `glass:` to the engine's panel. The engine's row rules select `nav > [role="group"] > a`, so each block of rows is a group and Log out is the panel's foot. The Refresh Wallet row is a `<button>`, so `application.css` gives it the same row rules. Coverage: `test/views/glass_surface_adoption_test.rb`, `e2e/glass_surfaces.spec.js`.
+
 ### The navbar figures hold across a page change
 
 The server reads the balance from a cache only, so a cold render has no figure. `app/javascript/nav_figures.js` keeps the last known amount, token badge, level and seeds fill in `sessionStorage`, and paints them before the first frame: into the incoming body at `turbo:before-render`, and on a full load by a classic script in the head, which watches the navbar arrive. The fresh read then runs silently, and a figure changes only when its value changes. The memory overwrites what the body says, because a Turbo snapshot holds the figure from when the page was left and a warm render one up to 60 seconds old. With no memory, a warm render shows its own figure. Coverage: `e2e/nav_figures_hold.spec.js`.

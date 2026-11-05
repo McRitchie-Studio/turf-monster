@@ -22,7 +22,7 @@
 <% content_for :og_image, contest_og_image_url(Contest.featured) %>
 <%= render "shared/pending_cart_handoff" %>
 <div data-studio-controller="settled-filter" data-studio-action="turbo:before-cache@document->settled-filter#reset">
-  <h1 class="text-3xl font-extrabold text-heading mb-6">Contests</h1>
+  <%= render "studio/page_header", title: "Contests", row_class: "-mx-4 px-4 mb-6" %>
 
   <%# ===== The featured rail — open contests first, then coming soon, each
       band newest-first (Contest.featured_order). It carries NO heading: it is
