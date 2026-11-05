@@ -930,6 +930,29 @@ class TestController < ApplicationController
     render json: { path: wallet_export_path(token: token) }
   end
 
+  # POST /test/agent_chat_lab {on: true}: the chat runs end to end for
+  # e2e/agent_chat_voice.spec.js. The proxy talks to a contract stub on a real
+  # socket, and forgery protection is ON for the page and both calls, with the
+  # per-form tokens production runs (the test environment turns it off, which once
+  # hid a take carrying the form's token). {on: false} puts all of it back.
+  # GET answers what the stub received.
+  AGENT_CHAT_LAB_CONTROLLERS = %w[AgentChatPagesController Studio::AgentChatsController Studio::VoiceTakesController].freeze
+
+  def agent_chat_lab
+    return head(:not_found) unless Rails.env.local?
+
+    require Rails.root.join("test/support/agent_chat_contract_hub").to_s
+    lab = Rails.configuration.x
+    hub = lab.agent_chat_lab_hub ||= AgentChatContractHub.start(token: "e2e-agent-chat", answer_after: 0.6)
+    if request.post?
+      on = params[:on].to_s == "true"
+      Studio.agent_chat_hub_url = on ? hub.url : "https://mcritchie.studio"
+      Studio.agent_chat_token = on ? "e2e-agent-chat" : nil
+      AGENT_CHAT_LAB_CONTROLLERS.each { |name| name.constantize.allow_forgery_protection = on }
+    end
+    render json: { requests: hub.requests, messages: hub.messages }
+  end
+
   def set_signing_csp
     Rails.configuration.x.signing_csp_enforced = params[:enforced].to_s == "true"
     # pending: the gem fixes still open in the locked gems (SigningCsp::PENDING_GEM_FIXES),
