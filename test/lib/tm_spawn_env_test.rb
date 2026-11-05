@@ -11,9 +11,8 @@
 #
 # HOW. bash sources the REAL bin/tm (sourced, it defines and dispatches nothing)
 # with fake credentials planted in its environment, then calls the real `spawn`
-# with a stub "server" that writes its environment to a temp name, moves it into
-# place and exits, so a dump that exists is whole. Both spawn paths are driven:
-# screen (when installed) and the nohup fallback.
+# with a stub "server" that moves its environment dump into place and exits, so a
+# dump that exists is whole. Both paths are driven: screen and the nohup fallback.
 #
 # THE CONTROL. The same run with tm_scrub_env replaced by a no-op must hand the
 # stub the credentials; otherwise "the stub saw no secret" could mean the fixture
