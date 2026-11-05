@@ -707,6 +707,12 @@
   }
 }
 
+/* The team card's fill. The fill .card reads, so glass reaches a board of team cards with no blur,
+   and matchup-selected, bg-primary/5 and hover:bg-surface-alt/50 keep winning, as they beat bg-surface. */
+@utility tm-team-card {
+  background-color: var(--surface-card-fill, var(--color-surface));
+}
+
 @utility matchup-selected {
   outline: 3px solid rgb(var(--color-primary-rgb));
   outline-offset: -3px;

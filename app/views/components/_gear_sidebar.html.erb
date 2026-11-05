@@ -83,7 +83,7 @@
          <%= 'style="display: none;"'.html_safe if free_entries.positive? %>
          data-gear-status-fallback="true">
       <% if quest_label %>
-        <% quest_class = "group flex min-w-0 items-center gap-2 text-sm font-bold text-heading hover:text-primary transition" %>
+        <% quest_class = "group flex w-full min-w-0 items-center gap-2 text-sm font-bold text-heading hover:text-primary transition" %>
         <% case nq
            when :username %>
           <button type="button"
