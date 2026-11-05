@@ -479,7 +479,7 @@ Studio.configure do |config|
   # wallet scanners, link unfurlers and payment underwriters judge a new domain
   # by whether it links About, Contact, Terms, Privacy, Responsible Gaming and
   # State Eligibility. Dropping any of those links is a regression with business
-  # consequences; test/integration/site_footer_test.rb pins all sixteen.
+  # consequences; test/integration/site_footer_test.rb pins all sixteen, and the admin-only Chat.
   #
   # NO ADDRESS, NO MAP, NO PHONE, by the operator's instruction.
   # Without `address:` the engine renders no Location band and never requests
@@ -540,7 +540,47 @@ Studio.configure do |config|
   # funnel (layout "landing", kept bare to hold the visitor on its CTA), the
   # magic-link confirm page (layout "loading"), and the layout-false responses.
   config.site_footer_visible = ->(_view) { true }
+
+  # ---- The agent chat and talking by voice (docs/AGENT_CHAT.md, this repo's and
+  # the gem's). Turf's own soul answers on /chat, for admins only while it is
+  # tested. Opening it to players is a separate, later decision.
+  #
+  # THE GATE IS agent_chat_allowed, not the footer link: the engine's /agent_chat
+  # routes skip sign-in, so with AGENT_CHAT_TOKEN set anyone could POST there and
+  # the hub would answer. It must stay in code before that token reaches
+  # production. The page, the footer's Chat link and the microphone all follow it.
+  # The hub must list this app for the soul: config/agent_routes.yml, web: apps:.
+  config.agent_chat_souls = %w[turf_monster]
+  config.agent_chat_allowed = ->(user) { user&.admin? }
+
+  # Draws POST /voice/takes. Without STUDIO_VOICE_OPENAI_API_KEY a take answers
+  # the 503 not_configured line and nothing crashes.
+  config.voice_transcription = true
+
+  # A SHARED counter: per-process memory lets each dyno count alone. In production
+  # this is the Redis cache rack-attack counts in. In test it is a NullStore, which
+  # the engine replaces with a per-process store, so no test needs Redis.
+  config.voice_takes_rate_limit = { to: 20, within: 600, store: Rack::Attack.cache.store }
+
+  # Turf has no column headed Contact (Contact is a link under Company), so the
+  # engine adds a Contact column last, for a viewer agent_chat_allowed lets in.
+  # test/integration/site_footer_test.rb pins both footers.
+  config.site_footer_chat_path = "/chat"
 end
+
+# Which transcriber a take goes to, as a plain module so
+# test/initializers/agent_chat_config_test.rb can ask each case. QA runs
+# RAILS_ENV=production, where the engine's own default is the real, paid
+# transcriber, so QA is the mock in code, and STUDIO_VOICE_TRANSCRIBER can still
+# choose. nil everywhere else leaves it to the engine: that variable, else openai
+# in production and mock elsewhere.
+module TurfVoiceConfig
+  def self.transcriber(qa: Studio.qa_environment?, env: ENV)
+    qa ? (env["STUDIO_VOICE_TRANSCRIBER"].presence || "mock") : nil
+  end
+end
+
+Studio.voice_transcriber = TurfVoiceConfig.transcriber
 
 # The site identity's image service: public-read, like LandingPage#og_image and
 # the retired SiteSetting#default_og_image, so og:image is the bucket's own

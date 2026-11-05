@@ -686,6 +686,10 @@ Rails.application.routes.draw do
   get "agents/guide",    to: "agents#guide",          as: :agents_guide, format: false
   get "llms.txt",        to: "agents#llms",           as: :llms_txt, format: false
 
+  # The agent chat's page (Studio.agent_chat_allowed: admins). The engine draws
+  # the page's two calls, /agent_chat and /voice/takes, in Studio.routes.
+  get "chat", to: "agent_chat_pages#show", as: :agent_chat_page
+
   # Referral link report: clicks (ReferralVisit) to email and account signups
   # per ?reference=. Admin-only. Down here with the agent pages, below every
   # line docs/workflows cites, so no citation moves.
@@ -729,6 +733,7 @@ Rails.application.routes.draw do
     post "test/set_age_verified",         to: "test#set_age_verified"
     post "test/set_username",             to: "test#set_username"
     post "test/hold_open_contests",       to: "test#hold_open_contests"
+    match "test/agent_chat_lab",          to: "test#agent_chat_lab", via: %i[get post]
   end
 
   # The quest walkthrough — a DEV-ONLY page for walking the gear sidebar's

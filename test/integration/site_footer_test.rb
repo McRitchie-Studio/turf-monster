@@ -107,6 +107,40 @@ class SiteFooterTest < ActionDispatch::IntegrationTest
     assert_select "#{FOOTER} a[href=?]", state_eligibility_path
   end
 
+  # /tasks/turf-chat-takes-voice. The sixteen links above are what a visitor and a
+  # player keep. An admin alone gets one more row: Turf has no column headed
+  # Contact, so the engine adds one, last, holding the Chat link.
+  test "an admin alone gets a Contact column with the Chat link" do
+    log_in_as(users(:alex))
+    get about_path
+
+    assert_select FOOTER, count: 1 do
+      columns = css_select("nav.ftr-col")
+      assert_equal expected_columns.keys + [ "Contact" ], columns.map { |nav| nav.at_css(".ftr-heading")&.text&.strip }
+      assert_equal [ [ "Chat", agent_chat_page_path ] ],
+                   columns.last.css("ul.ftr-list a").map { |a| [ a.text.strip, a["href"] ] }
+      columns.first(3).each do |nav|
+        links = nav.css("ul.ftr-list a").map { |a| [ a.text.strip, a["href"] ] }
+        assert_equal expected_columns.fetch(nav.at_css(".ftr-heading").text.strip), links
+      end
+    end
+  end
+
+  test "a player and a signed-out visitor keep the three columns and no Chat link" do
+    assert_not users(:jordan).admin?, "the player here must not be an admin"
+
+    get about_path
+    assert_select "#{FOOTER} a[href=?]", agent_chat_page_path, count: 0
+    assert_equal expected_columns.keys, css_select("nav.ftr-col .ftr-heading").map { |h| h.text.strip }
+
+    log_in_as(users(:jordan))
+    get about_path
+    assert_select FOOTER, count: 1
+    assert_select "#{FOOTER} a[href=?]", agent_chat_page_path, count: 0
+    assert_equal expected_columns.keys, css_select("nav.ftr-col .ftr-heading").map { |h| h.text.strip }
+    assert_equal 16, css_select("nav.ftr-col ul.ftr-list a").size
+  end
+
   test "the landing funnel layout has no site footer" do
     get landing_page_path(landing_pages(:launch))
     assert_response :success

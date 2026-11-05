@@ -22,4 +22,9 @@ Rails.application.config.filter_parameters += [
   :recovery_phrase,
   :mnemonic,
   :private_key,
+
+  # A chat message's words, the JSON wrapper's copy too: this app stores no message
+  # (docs/AGENT_CHAT.md), and production logs parameters at info. Partial, like the
+  # rest: it also masks context, subtext, cta_text and source_text.
+  :text,
 ]

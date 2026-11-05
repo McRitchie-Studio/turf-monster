@@ -20,6 +20,15 @@ modal, never a silent no-op), built so the mechanism can be lifted into
   (magic-link the canonical case). Resends are paced; abuse escalates; every
   state is explained by a modal.
 
+## Voice takes
+
+`POST /voice/takes` is the engine's and limits itself, not through a rack-attack
+rule: 20 takes per user per 10 minutes, counted in `Rack::Attack.cache.store`
+(`config.voice_takes_rate_limit`, config/initializers/studio.rb), so every dyno
+shares one count in Redis. It fails open with the rest of this file if Redis is
+down. Each take is a paid call, so the OpenAI key's own budget alert is the last
+line. docs/AGENT_CHAT.md.
+
 ## Current state (what exists today)
 
 `config/initializers/rack_attack.rb` (OPSEC-019, rack-attack 6.8.0). **31**

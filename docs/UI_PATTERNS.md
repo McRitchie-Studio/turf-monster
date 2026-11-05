@@ -491,6 +491,11 @@ The app owns no footer markup: its content is facts in
   line ("McRitchie Studio. Turf Monster is a game of skill."). The Company
   column is the site-legitimacy set underwriters and wallet scanners look for;
   `test/integration/site_footer_test.rb` pins every link by render.
+- **The Chat link, admins only.** An admin also sees a fourth column, Contact, with
+  one link, Chat, to `/chat` (`config.site_footer_chat_path`; docs/AGENT_CHAT.md).
+  A visitor and a player keep the three columns and sixteen links. The engine adds
+  the column because no column is headed Contact, and the link follows
+  `Studio.agent_chat_allowed`. The same test pins both footers.
 - **What it does not.** No address, no map, no phone, by the operator's
   instruction, so Leaflet is never requested and the CSP needs nothing for it.
   A business mailing address joins as `address:` (no coordinates, so still no

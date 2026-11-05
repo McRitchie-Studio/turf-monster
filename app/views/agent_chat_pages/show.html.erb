@@ -1,0 +1,8 @@
+<% content_for :title, "Chat with Turf — Turf Monster" %>
+
+<%= render "studio/agent_chat/chat",
+           soul: "turf_monster",
+           name: "Turf",
+           role: "The Turf Monster agent",
+           portrait: image_tag("/icon-192.png", alt: "", class: "w-24 h-24 rounded-full object-cover"),
+           voice: true %>

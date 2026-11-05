@@ -25,6 +25,14 @@ class FilterParameterLoggingTest < ActiveSupport::TestCase
     assert_equal "Arm", out["commit"], "an unrelated param still logs"
   end
 
+  # This app stores no message (docs/AGENT_CHAT.md), and production logs parameters
+  # at info. CONTROL: drop `:text` and this test fails with the words in the hash.
+  test "a chat message's words are filtered, the JSON wrapper's copy too" do
+    out = filtered("text" => "words", "agent_chat" => { "text" => "words" }, "soul" => "turf_monster")
+
+    assert_equal({ "text" => "[FILTERED]", "agent_chat" => { "text" => "[FILTERED]" }, "soul" => "turf_monster" }, out)
+  end
+
   test "a param that only names a signer is not swept up" do
     out = filtered("lead_signer_row" => "2", "tx_type" => "update_signers")
 
