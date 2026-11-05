@@ -120,6 +120,8 @@ test.describe.serial("/chat with forgery on, through the proxy, to a stub hub", 
       await expect(page.locator(RECORDER)).toHaveAttribute("data-voice-recorder-ready", "true");
       await expect(page.locator("html")).toHaveClass(new RegExp(theme === "dark" ? "dark" : "^(?!.*dark)"));
       await expect(page.locator('[data-test="agent-chat-voice-privacy"]')).toHaveText(PRIVACY);
+      // The reason /chat does not use require_admin: under 16px, iOS zooms on focus.
+      await expect(page.locator('form[data-test="agent-chat-form"] textarea')).toHaveCSS("font-size", "16px");
       await expect(page.locator(`form[data-test="agent-chat-form"] ${MIC} ${RECORDER}`)).toHaveCount(1);
 
       const takeTokens = [];
@@ -204,6 +206,7 @@ test.describe.serial("/chat with forgery on, through the proxy, to a stub hub", 
 
   test("a signed-out visitor gets no link and a refusal from both calls before any hub call", async ({ page, request }) => {
     await page.goto("/about");
+    await expect(page.locator("footer[data-site-footer]")).toHaveCount(1);
     await expect(page.locator(FOOTER_CHAT)).toHaveCount(0);
     const token = await pageToken(page);
     const before = (await hubLog(request)).requests.length;
