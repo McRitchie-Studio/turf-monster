@@ -31,7 +31,7 @@ class SmoothLoadComponentTest < ActiveSupport::TestCase
       "config/initializers/studio.rb must set config.page_transition_direction = :right"
   end
 
-  # Alex McRitchie's ruling, 2026-11-04: one style per app, and Turf's is the flip.
+  # Alex McRitchie's ruling, 2026-11-04: one style per app. The flip for Turf is a proposed default, not his choice.
   test "[component] Turf declares the flip, the one style its pages play" do
     initializer = Rails.root.join("config/initializers/studio.rb").read
     assert_includes initializer, "config.page_transition_style = :unfold if config.respond_to?(:page_transition_style=)"
