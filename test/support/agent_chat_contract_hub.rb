@@ -31,6 +31,9 @@ class AgentChatContractHub
 
   def self.start(...) = new(...).tap(&:start)
 
+  # One for the process, for a server that asks for it request after request.
+  def self.shared(...) = (@shared ||= start(...))
+
   def initialize(token:, souls: %w[turf_monster], answer_after: 1.0)
     @token = token
     @souls = souls

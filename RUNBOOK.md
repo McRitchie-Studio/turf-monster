@@ -216,6 +216,17 @@ There is no `manifest.js`, no precompile list and no `*= require` directive.
 - Diagnosis: Seed is idempotent but if dev DB schema changed, seed may fail.
 - Fix: `bin/rails db:migrate && ruby e2e/seed.rb`.
 
+## Agent Chat Not Answering (/chat)
+
+**The page says it can't reach Turf**
+- Diagnosis: no `AGENT_CHAT_TOKEN`, the hub refused it, or the hub is down. The cause is in the log, and a failed send is an `ErrorLog` row.
+
+**Your words show and no answer comes**
+- Diagnosis: the hub stored the message as `held`. Only the owner role is answered on Turf's soul, and only with a verified email. Check `email_verified_at` on the row (`users:parked_role_audit`); a magic-link sign-in stamps it. docs/AGENT_CHAT.md.
+
+**A take says voice isn't set up**
+- Diagnosis: no `STUDIO_VOICE_OPENAI_API_KEY`. Nothing is broken; typing still works.
+
 ## Studio Engine Update Issues
 
 **`bundle update studio-engine` fails**

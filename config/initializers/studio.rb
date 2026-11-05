@@ -30,6 +30,18 @@ Studio.draw_link_routes = false
 # autoload_lib ignore list in config/application.rb.
 require_relative "../../lib/gear_sidebar_panels"
 
+# Which transcriber a take goes to, as a plain module so
+# test/initializers/agent_chat_config_test.rb can ask each case. QA runs
+# RAILS_ENV=production, where the engine's own default is the real, paid
+# transcriber, so QA is the mock in code, and STUDIO_VOICE_TRANSCRIBER can still
+# choose. nil everywhere else leaves it to the engine: that variable, else openai
+# in production and mock elsewhere.
+module TurfVoiceConfig
+  def self.transcriber(qa: Studio.qa_environment?, env: ENV)
+    qa ? (env["STUDIO_VOICE_TRANSCRIBER"].presence || "mock") : nil
+  end
+end
+
 Studio.configure do |config|
   # ---- Site identity + link preview (studio-engine docs/LINK_PREVIEW.md) ----
   # The DRAFTED title and description; the operator edits them at
@@ -476,7 +488,8 @@ Studio.configure do |config|
   # wallet scanners, link unfurlers and payment underwriters judge a new domain
   # by whether it links About, Contact, Terms, Privacy, Responsible Gaming and
   # State Eligibility. Dropping any of those links is a regression with business
-  # consequences; test/integration/site_footer_test.rb pins all sixteen.
+  # consequences; test/integration/site_footer_test.rb pins all sixteen,
+  # and the admin-only Contact column site_footer_chat_path adds below.
   #
   # NO ADDRESS, NO MAP, NO PHONE, by the operator's instruction.
   # Without `address:` the engine renders no Location band and never requests
@@ -551,9 +564,9 @@ Studio.configure do |config|
   config.agent_chat_allowed = ->(user) { user&.admin? }
 
   # Draws POST /voice/takes. Without STUDIO_VOICE_OPENAI_API_KEY a take answers
-  # the 503 not_configured line and nothing crashes. QA runs RAILS_ENV=production,
-  # so it needs STUDIO_VOICE_TRANSCRIBER=mock or it would spend the real key.
+  # the 503 not_configured line and nothing crashes.
   config.voice_transcription = true
+  config.voice_transcriber = TurfVoiceConfig.transcriber
 
   # A SHARED counter: per-process memory lets each dyno count alone. In production
   # this is the Redis cache rack-attack counts in. In test it is a NullStore, which

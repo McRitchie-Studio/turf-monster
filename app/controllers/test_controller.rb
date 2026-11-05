@@ -936,14 +936,13 @@ class TestController < ApplicationController
   # per-form tokens production runs (the test environment turns it off, which once
   # hid a take carrying the form's token). {on: false} puts all of it back.
   # GET answers what the stub received.
-  AGENT_CHAT_LAB_CONTROLLERS = %w[AgentChatPagesController Studio::AgentChatsController Studio::VoiceTakesController].freeze
+  AGENT_CHAT_LAB_CONTROLLERS = %w[PagesController AgentChatPagesController Studio::AgentChatsController Studio::VoiceTakesController].freeze
 
   def agent_chat_lab
     return head(:not_found) unless Rails.env.local?
 
     require Rails.root.join("test/support/agent_chat_contract_hub").to_s
-    lab = Rails.configuration.x
-    hub = lab.agent_chat_lab_hub ||= AgentChatContractHub.start(token: "e2e-agent-chat", answer_after: 0.6)
+    hub = AgentChatContractHub.shared(token: "e2e-agent-chat", answer_after: 0.6)
     if request.post?
       on = params[:on].to_s == "true"
       Studio.agent_chat_hub_url = on ? hub.url : "https://mcritchie.studio"

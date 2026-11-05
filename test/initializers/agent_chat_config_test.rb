@@ -21,6 +21,16 @@ class AgentChatConfigTest < ActiveSupport::TestCase
     assert Studio.voice_transcription
   end
 
+  test "QA is the mock transcriber in code, so it never spends the real key" do
+    assert_equal "mock", TurfVoiceConfig.transcriber(qa: true, env: {})
+    assert_equal "openai", TurfVoiceConfig.transcriber(qa: true, env: { "STUDIO_VOICE_TRANSCRIBER" => "openai" })
+  end
+
+  test "outside QA the choice stays the engine's: openai in production, mock elsewhere" do
+    assert_nil TurfVoiceConfig.transcriber(qa: false, env: {})
+    assert_equal "mock", Studio::VoiceTranscription.adapter_name
+  end
+
   test "the voice profile stays off, so this app owes no CSP entries for the embedder" do
     assert_not Studio.voice_profile
   end

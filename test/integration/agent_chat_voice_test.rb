@@ -1,5 +1,6 @@
 require "test_helper"
 require "support/agent_chat_contract_hub"
+require "support/redis_cache_outage"
 
 # [integration] /chat with hold to talk, admins only, through the app's real proxy
 # and the engine's real client to a contract stub on a real socket
@@ -213,6 +214,21 @@ class AgentChatVoiceTest < ActionDispatch::IntegrationTest
     assert_response :too_many_requests
     assert_equal "rate_limited", body["reason"]
     assert response.headers["Retry-After"].present?
+  end
+
+  test "the engine's call works on the store production has, and a Redis outage fails open" do
+    RedisCacheOutage.with_rack_attack do
+      store = Rack::Attack.cache.store
+      assert_instance_of Rack::Attack::StoreProxy::RedisCacheStoreProxy, store
+      assert_nil store.increment("rate-limit:studio/voice_takes:1:1", 1, expires_in: 600)
+
+      Studio.voice_takes_rate_limit = { to: 1, within: 600, store: store }
+      log_in_as(@admin)
+      2.times do
+        post studio_voice_takes_path, params: take_params
+        assert_response :success
+      end
+    end
   end
 
   # ---- No key ----
