@@ -164,7 +164,7 @@ test.describe.serial("/chat with forgery on, through the proxy, to a stub hub", 
     await loginAdmin(page);
     await page.goto("/about");
 
-    const column = page.locator("nav.ftr-col").filter({ has: page.locator(FOOTER_CHAT) });
+    const column = page.locator("nav.ftr-col").filter({ has: page.locator('a[href="/chat"]') });
     await expect(column.locator(".ftr-heading")).toHaveText("Contact");
     await page.locator(FOOTER_CHAT).click();
 
