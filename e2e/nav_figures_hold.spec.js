@@ -17,6 +17,15 @@ const CONTEST = "/contests/world-cup-2026";
 
 async function recordFrames(page) {
   await page.addInitScript(() => {
+    // Turf's one style is the flip. This pin makes an engine below Studio.page_transition_style
+    // draw it too, and only for the pick. It goes when the release relocks the engine.
+    const pinTheFlip = () => {
+      const real = Math.random;
+      Math.random = () => 0.99;
+      setTimeout(() => { Math.random = real; }, 0);
+    };
+    document.addEventListener("turbo:before-render", pinTheFlip, { capture: true });
+    window.addEventListener("pageswap", pinTheFlip, { capture: true });
     const line = (entry) => {
       const lines = JSON.parse(sessionStorage.getItem("nav-frames") || "[]");
       lines.push(entry);

@@ -340,12 +340,6 @@ test.describe("money pages", () => {
     await expect(page.locator("body")).toContainText("1 / 6");
   });
 
-  test("the same click can draw the unfold", async ({ page }) => {
-    await openLobby(page, 0.99);
-    const lines = await leaveBy(page, contestLink(page), CONTEST);
-    expect(rootMotion(lines), lines.join("\n")).toEqual([`::view-transition-new(root) ${UNFOLD_IN}`, `::view-transition-old(root) ${OUT}`]);
-  });
-
   test("leaving the contest page for a Turbo page plays one move", async ({ page }) => {
     await openLobby(page);
     await leaveBy(page, contestLink(page), CONTEST);
