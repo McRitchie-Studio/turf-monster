@@ -54,6 +54,9 @@ Studio.configure do |config|
   # of this file sees it. turbo:load now fires about 700ms after the swap under
   # motion, and clicks do nothing during those 700ms.
   config.page_transition_direction = :right
+  # One style for the whole app, the flip, which suits a game (Alex McRitchie's ruling,
+  # 2026-11-04). Guarded until the release relocks an engine with the setter.
+  config.page_transition_style = :unfold if config.respond_to?(:page_transition_style=)
 
   # The navbar collapses on the page's scroll timeline from 768px: one header
   # height, the shrink as compositor transforms, no script per frame (engine
