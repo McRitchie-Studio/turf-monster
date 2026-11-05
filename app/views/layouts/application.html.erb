@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en"<%= safe_join([" ", tag.attributes(data: { surface_style: Studio.surface_style })]) if Studio.respond_to?(:surface_style) && Studio.surface_style != :default %>>
   <head>
     <%# Title, description and icons. The page's link-preview tags (og:/twitter:)
         come from studio-engine's layouts/studio/_head below, resolved by the

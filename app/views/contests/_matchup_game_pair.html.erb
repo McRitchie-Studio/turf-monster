@@ -5,7 +5,7 @@
        : ''">
   <% [left, right].each_with_index do |matchup, side| %>
     <button @click="toggleSelection('<%= matchup.id %>')"
-            class="relative flex-1 min-w-0 bg-surface p-5 md:p-6 transition-all text-center border-2 <%= side == 0 ? 'rounded-l-2xl' : 'rounded-r-2xl' %>"
+            class="relative flex-1 min-w-0 tm-team-card p-5 md:p-6 transition-all text-center border-2 <%= side == 0 ? 'rounded-l-2xl' : 'rounded-r-2xl' %>"
             :class="{
               'matchup-selected': selections['<%= matchup.id %>'] && !(selections['<%= left.id %>'] && selections['<%= right.id %>']),
               'bg-primary/5': selections['<%= matchup.id %>'] && selections['<%= left.id %>'] && selections['<%= right.id %>'],
@@ -24,8 +24,8 @@
     <% if side == 0 %>
       <div class="flex items-center self-stretch px-3 transition-all"
            :style="selections['<%= left.id %>'] && selections['<%= right.id %>']
-             ? 'background: color-mix(in srgb, var(--color-surface) 85%, var(--color-cta) 15%)'
-             : 'background: color-mix(in srgb, var(--color-surface) 70%, var(--color-page) 30%)'">
+             ? 'background: color-mix(in srgb, var(--surface-card-fill, var(--color-surface)) 85%, var(--color-cta) 15%)'
+             : 'background: color-mix(in srgb, var(--surface-card-fill, var(--color-surface)) 70%, var(--color-page) 30%)'">
         <span class="text-xs font-bold text-muted uppercase">vs</span>
       </div>
     <% end %>

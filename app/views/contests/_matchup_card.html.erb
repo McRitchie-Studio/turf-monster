@@ -1,7 +1,7 @@
 <%# locals: (matchup:) %>
 <% locked = matchup.locked? %>
 <button @click="toggleSelection('<%= matchup.id %>')"
-        class="relative w-full bg-surface p-3 md:p-4 rounded-2xl transition-all text-center border-2 shadow <%= locked ? 'opacity-50' : '' %>"
+        class="relative w-full tm-team-card p-3 md:p-4 rounded-2xl transition-all text-center border-2 shadow <%= locked ? 'opacity-50' : '' %>"
         :class="{
           'matchup-selected': selections['<%= matchup.id %>'],
           'border-subtle hover:bg-surface-alt/50': !selections['<%= matchup.id %>'],

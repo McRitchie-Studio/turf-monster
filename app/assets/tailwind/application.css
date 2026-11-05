@@ -288,6 +288,41 @@
   .group:hover .nav-emoji-base, .group:hover .nav-emoji-hover { transform: none; }
 }
 
+/* THE LIGHT NAVBAR OVER A DARK BANNER. Turf's contest banners are deep green, and the engine's 62%
+   fill measured 2.77:1 for the nav links scrolled over one in the light theme. This fill holds 4.5:1
+   over them. The dark theme measures 7.42:1 on the engine's fill and keeps it. Inside the same
+   @supports as the engine's rule, so a browser with no blur keeps the solid bar. */
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  html[data-surface-style="glass"]:not(.dark) .nav-shell {
+    background-color: color-mix(in srgb, var(--color-page) 90%, transparent);
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    html[data-surface-style="glass"]:not(.dark) .nav-shell { background-color: var(--color-page); }
+  }
+}
+
+/* THE GEAR SIDEBAR ON THE ENGINE'S GLASS PANEL (components/_gear_sidebar, engine.css THE GLASS
+   SIDEBAR). The engine owns the panel, the fill, the blur, the groups and the rows. Three things it
+   cannot know are here: this menu has a <button> row (Refresh Wallet), it draws emoji in
+   .nav-emoji-swap, and the Signatures count is ink of its own. */
+[data-sidebar-glass-shell] nav > [role="group"] > button {
+  height: var(--glass-row-height);
+  gap: var(--glass-icon-gap);
+  padding: 0 0.5rem 0 0.375rem;
+  border-radius: 0.625rem;
+  color: var(--glass-ink);
+  font-size: inherit;
+  font-weight: 500;
+  line-height: 1.125rem;
+}
+[data-sidebar-glass-shell] nav > [role="group"] > button:hover {
+  color: var(--glass-ink);
+  background-color: var(--glass-hover);
+}
+[data-sidebar-glass-shell] nav > [role="group"] > :is(a, button) + :is(a, button) { margin-top: var(--glass-row-gap); }
+[data-sidebar-glass-shell] :is(.nav-emoji-swap) { height: var(--glass-icon-size); font-size: calc(var(--glass-icon-size) / 1.25); }
+[data-sidebar-glass-shell] [data-signature-count].text-muted { color: var(--glass-soft-ink); }
+
 @utility text-muted {
   .lp-splash & {
     color: rgba(255, 255, 255, 0.72);
@@ -683,6 +718,13 @@
   .dev-mode & {
     background: rgba(175, 238, 238, 0.75) !important;
   }
+}
+
+/* The team card's fill: the one .card reads, so glass reaches a board of team cards with no blur. It
+   takes bg-surface's seat in the compiled order, so a picked card keeps its resting fill under
+   matchup-selected's ring and glow, as it did on bg-surface, and hover:bg-surface-alt/50 still wins. */
+@utility tm-team-card {
+  background-color: var(--surface-card-fill, var(--color-surface));
 }
 
 @utility matchup-selected {

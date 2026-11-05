@@ -48,9 +48,20 @@ for (const [theme, { ink }] of Object.entries(THEMES)) {
 
     // Not moved: green TEXT still reads the per-theme ink...
     await expect(page.locator('a.text-primary[href^="mailto:"]').first()).toHaveCSS("color", ink);
-    // ...the primary button still wears the darker fill under its white label...
+    // ...the primary button still wears the darker fill under its white label. Under glass the
+    // paint is a gradient built from --color-cta, and the dark theme's background-color is
+    // transparent (engine.css, LIT FROM ABOVE), so the fill is read off the token it is built from...
     const signIn = page.locator("header a.btn-primary", { hasText: "Sign in" }).first();
-    await expect(signIn).toHaveCSS("background-color", PRIMARY_FILL);
+    const fill = await signIn.evaluate((el) => {
+      const probe = document.createElement("i");
+      probe.style.color = "var(--color-cta)";
+      el.append(probe);
+      const color = getComputedStyle(probe).color;
+      probe.remove();
+      return { token: color, image: getComputedStyle(el).backgroundImage };
+    });
+    expect(fill.token).toBe(PRIMARY_FILL);
+    expect(fill.image).toContain("linear-gradient");
     await expect(signIn).toHaveCSS("color", "rgb(255, 255, 255)");
     // ...and a footer link still hovers to the engine's own primary, which is
     // the variable the accent word would have dragged along had it been set.

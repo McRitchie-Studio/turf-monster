@@ -592,3 +592,11 @@ Studio.voice_transcriber = TurfVoiceConfig.transcriber
 Rails.application.config.to_prepare do
   Studio.link_preview_image_service = OgImageAttachable::PUBLIC_OG_SERVICE
 end
+
+# Liquid glass, as on the hub (engine.css, THE GLASS SURFACES and THE GLASS SIDEBAR): translucent
+# cards over an ambient page, a blurred navbar, lit buttons. The root carries the attribute through
+# layouts/application, and the gear sidebar reads sidebar_style. Guarded until the release relocks
+# past the Gemfile's floor. At the file's end, so the citations into this file hold.
+# (/tasks/turf-adopts-glass-style)
+Studio.surface_style = :glass if Studio.respond_to?(:surface_style=)
+Studio.sidebar_style = :glass if Studio.respond_to?(:sidebar_style=)
