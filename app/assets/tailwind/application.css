@@ -720,8 +720,9 @@
   }
 }
 
-/* The team card's fill. The fill .card reads, so glass reaches a board of team cards with no blur,
-   and matchup-selected, bg-primary/5 and hover:bg-surface-alt/50 keep winning, as they beat bg-surface. */
+/* The team card's fill: the one .card reads, so glass reaches a board of team cards with no blur. It
+   takes bg-surface's seat in the compiled order, so a picked card keeps its resting fill under
+   matchup-selected's ring and glow, as it did on bg-surface, and hover:bg-surface-alt/50 still wins. */
 @utility tm-team-card {
   background-color: var(--surface-card-fill, var(--color-surface));
 }
