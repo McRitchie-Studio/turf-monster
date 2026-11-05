@@ -10,10 +10,17 @@
 # that is how HEROKU_API_KEY reached a transcript.
 #
 # HOW. The REAL bin/e2e-parallel and bin/lib/desk_env.sh are copied into a temp
-# root whose bin/rails is a stub that writes its environment to a file named for
-# its subcommand and exits; lsof, curl, dropdb and npx are stubs on PATH. The run
-# starts from a minimal environment (unsetenv_others) with fake credentials
-# planted, so the operator's real ones never enter the test.
+# root whose bin/rails is a stub that writes its environment to a temp name, moves
+# it to a file named for its subcommand, and exits; lsof, curl, dropdb and npx are
+# stubs on PATH. The run starts from a minimal environment (unsetenv_others) with
+# fake credentials planted, so the operator's real ones never enter the test.
+# 
+# THE WAIT. `bin/rails server` is the one launch the lane backgrounds, and the
+# lane kills it on teardown. So the curl stub stands in for /up: it answers only
+# when the server's dump is in place, or at its bound, so that a lane that never
+# launches the server fails on the missing dump, not on a hung job. It waits inside
+# the stub because the lane's own retry stops once the stub server has exited, and
+# the move means a dump that exists is whole.
 #
 # THE CONTROL. The same run with tm_scrub_env a no-op must hand every stub the
 # planted credentials.
@@ -40,12 +47,15 @@ class E2eParallelEnvTest < Minitest::Test
   # Each Rails invocation the lane makes, by the stub's first argument.
   LAUNCHES = %w[tailwindcss:build db:drop runner server].freeze
 
+  # The curl stub's bound, at 0.05s a poll: about a minute on a starved runner.
+  UP_WAIT_POLLS = 1200
+
   def stub(path, body)
     File.write(path, "#!/bin/sh\n#{body}\n")
     File.chmod(0o755, path)
   end
 
-  def run_lane(control: false)
+  def run_lane(control: false, server_delay: nil)
     Dir.mktmpdir("e2e-parallel-env") do |dir|
       bin = File.join(dir, "bin")
       stubs = File.join(dir, "stubs")
@@ -53,9 +63,10 @@ class E2eParallelEnvTest < Minitest::Test
       FileUtils.cp(File.join(ROOT, "bin/e2e-parallel"), bin)
       FileUtils.cp(File.join(ROOT, "bin/lib/desk_env.sh"), File.join(bin, "lib"))
       File.write(File.join(bin, "lib/desk_env.sh"), "\ntm_scrub_env(){ :; }\n", mode: "a") if control
-      stub(File.join(bin, "rails"), %(env > "#{dir}/env-$1.out"))
+      slow_start = server_delay ? %([ "$1" = server ] && sleep #{server_delay}\n) : ""
+      stub(File.join(bin, "rails"), %(#{slow_start}env > "#{dir}/env-$1.tmp" && mv "#{dir}/env-$1.tmp" "#{dir}/env-$1.out"))
       stub(File.join(stubs, "lsof"), "exit 0")
-      stub(File.join(stubs, "curl"), "exit 0")
+      stub(File.join(stubs, "curl"), %(i=0; while [ ! -e "#{dir}/env-server.out" ] && [ "$i" -lt #{UP_WAIT_POLLS} ]; do sleep 0.05; i=$((i + 1)); done))
       stub(File.join(stubs, "dropdb"), "exit 0")
       stub(File.join(stubs, "npx"), "echo '1 passed'")
 
@@ -91,6 +102,10 @@ class E2eParallelEnvTest < Minitest::Test
 
   def test_the_seed_keeps_its_own_variables
     assert_equal "42", run_lane.fetch("runner")["PLAYWRIGHT_SEED"], "e2e/seed.rb reads PLAYWRIGHT_SEED"
+  end
+
+  def test_the_lane_keeps_a_slow_server_up_until_it_has_answered
+    assert_equal "test", run_lane(server_delay: 2).fetch("server")["RAILS_ENV"]
   end
 
   def test_control_without_the_scrub_every_process_sees_the_secrets
