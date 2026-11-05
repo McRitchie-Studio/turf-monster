@@ -23,7 +23,7 @@
 # the move means a dump that exists is whole.
 #
 # THE CONTROL. The same run with tm_scrub_env a no-op must hand every stub the
-# planted credentials.
+# planted credentials, on the serialized path and on E2E_PARALLEL_SEED=1.
 #
 # Run directly:  ruby -Itest test/lib/e2e_parallel_env_test.rb
 require "minitest/autorun"
@@ -55,7 +55,7 @@ class E2eParallelEnvTest < Minitest::Test
     File.chmod(0o755, path)
   end
 
-  def run_lane(control: false, server_delay: nil)
+  def run_lane(control: false, server_delay: nil, parallel_seed: false, write_delay: nil)
     Dir.mktmpdir("e2e-parallel-env") do |dir|
       bin = File.join(dir, "bin")
       stubs = File.join(dir, "stubs")
@@ -64,7 +64,8 @@ class E2eParallelEnvTest < Minitest::Test
       FileUtils.cp(File.join(ROOT, "bin/lib/desk_env.sh"), File.join(bin, "lib"))
       File.write(File.join(bin, "lib/desk_env.sh"), "\ntm_scrub_env(){ :; }\n", mode: "a") if control
       slow_start = server_delay ? %([ "$1" = server ] && sleep #{server_delay}\n) : ""
-      stub(File.join(bin, "rails"), %(#{slow_start}env > "#{dir}/env-$1.tmp" && mv "#{dir}/env-$1.tmp" "#{dir}/env-$1.out"))
+      slow_write = write_delay ? %([ "$1" = server ] && { echo DUMP_STARTED=1; sleep #{write_delay}; }; ) : ""
+      stub(File.join(bin, "rails"), %(#{slow_start}{ #{slow_write}env; } > "#{dir}/env-$1.tmp" && mv "#{dir}/env-$1.tmp" "#{dir}/env-$1.out"))
       stub(File.join(stubs, "lsof"), "exit 0")
       stub(File.join(stubs, "curl"), %(i=0; while [ ! -e "#{dir}/env-server.out" ] && [ "$i" -lt #{UP_WAIT_POLLS} ]; do sleep 0.05; i=$((i + 1)); done))
       stub(File.join(stubs, "dropdb"), "exit 0")
@@ -75,9 +76,11 @@ class E2eParallelEnvTest < Minitest::Test
         "HOME" => dir, "LANG" => "en_US.UTF-8", "LC_MESSAGES" => "en_US.UTF-8",
         "PLAYWRIGHT_SEED" => "42"
       }.merge(PLANTED)
+      env["E2E_PARALLEL_SEED"] = "1" if parallel_seed
       out, status = Open3.capture2e(env, "bash", File.join(bin, "e2e-parallel"), "1",
                                     unsetenv_others: true, chdir: dir)
       assert status.success?, "bin/e2e-parallel failed:\n#{out}"
+      assert_includes out, (parallel_seed ? "parallel seed" : "serialized"), "the lane took the wrong launch path"
       LAUNCHES.to_h do |cmd|
         file = File.join(dir, "env-#{cmd}.out")
         assert File.size?(file), "bin/e2e-parallel never ran `bin/rails #{cmd}`:\n#{out}"
@@ -86,8 +89,8 @@ class E2eParallelEnvTest < Minitest::Test
     end
   end
 
-  def test_every_rails_process_sees_no_credential_and_keeps_its_stack
-    run_lane.each do |cmd, seen|
+  def assert_scrubbed_stacks(lane)
+    lane.each do |cmd, seen|
       PLANTED.each_key { |name| refute seen.key?(name), "#{name} reached `bin/rails #{cmd}`" }
       refute(seen.values.any? { |v| v.start_with?("fake-") }, "a planted value reached `bin/rails #{cmd}`")
       %w[PATH HOME].each { |name| assert seen.key?(name), "#{name} is missing from `bin/rails #{cmd}`" }
@@ -100,6 +103,10 @@ class E2eParallelEnvTest < Minitest::Test
     end
   end
 
+  def test_every_rails_process_sees_no_credential_and_keeps_its_stack
+    assert_scrubbed_stacks(run_lane)
+  end
+
   def test_the_seed_keeps_its_own_variables
     assert_equal "42", run_lane.fetch("runner")["PLAYWRIGHT_SEED"], "e2e/seed.rb reads PLAYWRIGHT_SEED"
   end
@@ -108,11 +115,31 @@ class E2eParallelEnvTest < Minitest::Test
     assert_equal "test", run_lane(server_delay: 2).fetch("server")["RAILS_ENV"]
   end
 
-  def test_control_without_the_scrub_every_process_sees_the_secrets
-    run_lane(control: true).each do |cmd, seen|
+  def assert_every_process_leaks(lane)
+    lane.each do |cmd, seen|
       assert_equal "fake-heroku-key", seen["HEROKU_API_KEY"],
                    "the control saw no HEROKU_API_KEY in `bin/rails #{cmd}`, so the scrub test proves nothing"
       assert_equal "fake-unlisted-secret", seen["SOME_FUTURE_SECRET"]
     end
+  end
+
+  def test_control_without_the_scrub_every_process_sees_the_secrets
+    assert_every_process_leaks(run_lane(control: true))
+  end
+
+  # E2E_PARALLEL_SEED=1 is its own launch branch with its own tm_scrub_env, so the
+  # serialized tests say nothing about it. Its server dump is written slowly: the
+  # lane kills the server once curl answers, so a dump that was not moved into place
+  # reaches the reader cut short.
+  def parallel_lane(**opts) = run_lane(parallel_seed: true, write_delay: 0.5, **opts)
+
+  def test_parallel_seed_every_rails_process_sees_no_credential_and_keeps_its_stack
+    lane = parallel_lane
+    assert_scrubbed_stacks(lane)
+    assert_equal "42", lane.fetch("runner")["PLAYWRIGHT_SEED"], "e2e/seed.rb reads PLAYWRIGHT_SEED"
+  end
+
+  def test_control_parallel_seed_without_the_scrub_every_process_sees_the_secrets
+    assert_every_process_leaks(parallel_lane(control: true))
   end
 end

@@ -11,8 +11,9 @@
 #
 # HOW. bash sources the REAL bin/tm (sourced, it defines and dispatches nothing)
 # with fake credentials planted in its environment, then calls the real `spawn`
-# with a stub "server" that writes its environment to a file and exits. Both
-# spawn paths are driven: screen (when installed) and the nohup fallback.
+# with a stub "server" that writes its environment to a temp name, moves it into
+# place and exits, so a dump that exists is whole. Both spawn paths are driven:
+# screen (when installed) and the nohup fallback.
 #
 # THE CONTROL. The same run with tm_scrub_env replaced by a no-op must hand the
 # stub the credentials; otherwise "the stub saw no secret" could mean the fixture
@@ -57,21 +58,20 @@ class TmSpawnEnvTest < Minitest::Test
     screen ? %w[screen nohup] : %w[nohup]
   end
 
-  def launch(via, prelude: "")
+  def launch(via, prelude: "", write_delay: nil)
     Dir.mktmpdir("tm-spawn-env") do |dir|
       dump = File.join(dir, "env.out")
       port = (39_000 + rand(900)).to_s
       script = <<~BASH
         source #{TM}
         #{prelude}
-        spawn #{File.join(dir, 'stub.log')} #{File.join(dir, 'stub.pid')} /bin/sh -c "env > #{dump}"
+        spawn #{File.join(dir, 'stub.log')} #{File.join(dir, 'stub.pid')} /bin/sh -c "{ #{write_delay ? "echo DUMP_STARTED=1; sleep #{write_delay}; " : ""}env; } > #{dump}.tmp && mv #{dump}.tmp #{dump}"
       BASH
       env = PLANTED.merge(ALLOWED).merge("TM_PORT" => port, "TM_SPAWN_VIA" => via)
       _out, err, status = Open3.capture3(env, "bash", "-c", script)
       assert status.success?, "sourcing bin/tm and spawning failed (#{via}): #{err}"
       80.times { break if File.size?(dump); sleep 0.1 }
       assert File.size?(dump), "the stub never wrote its environment (#{via}): #{err}"
-      sleep 0.1
       File.readlines(dump, chomp: true).filter_map { |l| l.split("=", 2) if l.include?("=") }.to_h
     end
   end
@@ -100,6 +100,15 @@ class TmSpawnEnvTest < Minitest::Test
       assert_equal "fake-heroku-key", seen["HEROKU_API_KEY"],
                    "the control saw no HEROKU_API_KEY (#{via}), so the scrub test proves nothing"
       assert_equal "fake-unlisted-name", seen["SOME_FUTURE_SECRET"]
+    end
+  end
+
+  def test_a_slow_dump_is_read_only_once_it_is_whole
+    via_paths.each do |via|
+      seen = launch(via, write_delay: 0.5)
+
+      assert seen.key?("PATH"), "a partial dump was read (#{via}; names: #{seen.keys.sort.inspect})"
+      ALLOWED.each { |name, value| assert_equal value, seen[name], "a partial dump was read (#{via})" }
     end
   end
 
