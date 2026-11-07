@@ -128,6 +128,11 @@ There is no `manifest.js`, no precompile list and no `*= require` directive.
 - Diagnosis: `curl -s -o /dev/null -D - -H 'Accept-Encoding: gzip' https://turfmonster.media/turf-monster-v2` should show `content-encoding: gzip` and `vary: ...Accept-Encoding`. Cloudflare is DNS-only for this domain, so the app (Rack::Deflater, `lib/response_compression.rb`) is the only thing that compresses HTML/JSON; assets come pre-gzipped via ActionDispatch::Static, from the `.gz` that `assets:precompress` writes beside each digested `.css`/`.js` at build time (Propshaft writes none itself; `lib/precompressed_assets.rb`). Check one: `curl -s -o /dev/null -D - -H 'Accept-Encoding: gzip' https://turfmonster.media/assets/<tailwind-xxxxxxxx.css>` (the name from the page source) shows `content-encoding: gzip` and `cache-control: ... immutable`. An asset with no `.gz` goes out uncompressed: Static answers before Deflater, so Deflater never sees it. Bodies under 1 KB, streams, files, images, video, archives, PDFs and fonts are skipped on purpose.
 - Fix: If compression breaks a client, turn it off without a deploy: `heroku config:set COMPRESS_RESPONSES=0 --app <app>` (restarts the dynos), then fix the policy in `lib/response_compression.rb`. Unset the var to restore the default.
 
+## Not-Found Page Missing (Plain 404)
+
+- Diagnosis: in QA and production a lost visitor sees the friendly not-found page inside Turf's layout, status 404: `config.exceptions_app = Studio::ExceptionsApp.new` in `config/application.rb` (studio-engine `docs/NOT_FOUND_PAGE.md`). If the page cannot render, `public/404.html` answers instead (still 404, same words, no navbar), and the log says `[studio.not_found] the page fell back to public/404.html: <reason>`. A stale session (OPSEC-045's forced logout) falls back on purpose. JSON keeps `{"status":404,"error":"Not Found"}`; `/api/*` keeps its own `api/v1/errors#not_found` body.
+- Fix: read the reason in the log line. Which global before_actions the page skips, and why, is in `config/initializers/not_found_page.rb`; `test/integration/not_found_page_test.rb` proves each. Preview it on a desk with `ENABLE_ERROR_PAGES=1 bin/rails server`.
+
 ## Solana RPC Errors
 
 **Rate limit (HTTP 429)**
