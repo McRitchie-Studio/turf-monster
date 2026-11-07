@@ -20,8 +20,11 @@ Rails.application.configure do
   # Configure public file server for tests with Cache-Control for performance.
   config.public_file_server.headers = { "Cache-Control" => "public, max-age=#{1.hour.to_i}" }
 
-  # Show full error reports and disable caching.
-  config.consider_all_requests_local = true
+  # Show full error reports and disable caching. ENABLE_ERROR_PAGES=1 (the e2e
+  # server, playwright.config.js and bin/e2e-parallel) shows what a visitor sees
+  # instead: the friendly not-found page for a rescuable 404 (task
+  # turf-adopts-not-found-page, e2e/not_found_page.spec.js).
+  config.consider_all_requests_local = ENV["ENABLE_ERROR_PAGES"].blank?
   config.action_controller.perform_caching = false
   config.cache_store = :null_store
 

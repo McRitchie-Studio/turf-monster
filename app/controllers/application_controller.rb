@@ -372,7 +372,7 @@ class ApplicationController < ActionController::Base
     # responsible-gaming, state-eligibility): pasted into emails, merchant
     # applications, and crawled by underwriters' site scanners — they must
     # never 406 a preview fetcher or an old browser.
-    return true if controller_name == "pages"
+    return true if controller_name == "pages" || controller_path == "studio/not_found" # the not-found page: config/initializers/not_found_page.rb
     controller_name == "contests" && action_name.in?(%w[show index live])
   end
 
