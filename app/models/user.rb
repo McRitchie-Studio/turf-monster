@@ -1,5 +1,9 @@
 class User < ApplicationRecord
   include Sluggable
+  # The birthday lives in birth_day / birth_month / birth_year (see
+  # #birthday_date). These two whole-date columns are read by nothing and are
+  # dropped in a later release, after a second backfill.
+  self.ignored_columns += %w[date_of_birth birth_date]
 
   # The seeded house account's stable identity (db/seeds/users.rb). Usernames
   # can be renamed (and "turf" is itself a reserved prefix), so User.turf keys
@@ -28,8 +32,8 @@ class User < ApplicationRecord
     # The shared team account — the server-side signer, not a person — now on
     # `mcritchie`. Named "Team McRitchie" here and in mcritchie-studio.
     { email: "team@mcritchie.studio",  name: "Team McRitchie",  username: "mcritchie", role: "admin", wallet: "8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd" },
-    { email: "mason@mcritchie.studio", name: "Mason McRitchie", username: "mason",     role: "user",  wallet: "CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR" },
-    { email: "mack@mcritchie.studio",  name: "Mack McRitchie",  username: "mack",      role: "user",  wallet: "8UwJhRiNLr8uiqWyGUjgGDFqNEDY4SNQFfJud3ZSnowW" },
+    { email: "mason@mcritchie.studio", name: "Mason McRitchie", username: "mason",     role: "viewer",  wallet: "CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR" },
+    { email: "mack@mcritchie.studio",  name: "Mack McRitchie",  username: "mack",      role: "viewer",  wallet: "8UwJhRiNLr8uiqWyGUjgGDFqNEDY4SNQFfJud3ZSnowW" },
     # THIS APP'S ADMIN ON ITS OWN DOMAIN — and it is the house account itself now.
     # Every app seeds the shared identities plus an admin on its own domain, so a
     # session can be signed in as "the operator of THIS app" without borrowing
@@ -60,7 +64,7 @@ class User < ApplicationRecord
   # It is demoted, not deleted: the row has entries, purchases and a managed
   # wallet, and destroying a real account is the operator's call, not a seed's.
   RETIRED_IDENTITIES = {
-    "alex@turfmonster.media" => "user"
+    "alex@turfmonster.media" => "viewer"
   }.freeze
 
   # Rails mirror of turf-vault's on-chain reserved-prefix list — keep in sync
@@ -98,7 +102,11 @@ class User < ApplicationRecord
   # so dotless / 1-letter-TLD addresses can't be saved. Scoped to email changes so
   # it never blocks an unrelated save of a grandfathered record.
   validate :email_format, if: :email_changed?
-  validates :web2_solana_address, uniqueness: true, allow_nil: true
+# One list, held in the database too (CHECK users_role_known), the same as
+# every Studio app. Turf once seeded a fourth spelling, "user"; it meant viewer.
+ROLES = %w[viewer admin].freeze
+validates :role, inclusion: { in: ROLES }
+validates :web2_solana_address, uniqueness: true, allow_nil: true
   validates :web3_solana_address, uniqueness: true, allow_nil: true
   validates :username, length: { in: 3..30 }, format: { with: /\A[a-zA-Z0-9_-]+\z/, message: "only letters, numbers, hyphens, and underscores" }, uniqueness: { case_sensitive: false }, allow_nil: true
   # Scoped to username changes so a grandfathered reserved name (e.g. the
@@ -210,7 +218,10 @@ class User < ApplicationRecord
     # proved ownership of this email at some point. Otherwise refuse: the
     # incoming Google identity has proven the email, but the existing
     # account hasn't, so we don't know they're the same human.
-    existing = find_by(email: auth.info.email)
+    # Only a real address: find_by(email: nil) matches ANY account without an
+    # email (wallet sign-ups), and would link this Google identity to a stranger.
+    email = auth.info.email.to_s.strip.downcase.presence
+    existing = email && where("LOWER(email) = ?", email).first
     if existing
       return :requires_verification if existing.email_verified_at.blank?
       # OPSEC-048: a frozen account signs in (the freeze holds actions, not
@@ -238,8 +249,11 @@ class User < ApplicationRecord
       email_verified_at: Time.current
     )
   rescue ActiveRecord::RecordNotUnique
-    # Race condition: another request created the user between our find_by and create
-    find_by(email: auth.info.email) || find_by(provider: auth.provider, uid: auth.uid)
+    # Race condition: another request created the user between our find_by and
+    # create. The pair first (the identity this callback proved); the email only
+    # when it is a real address, for the reason above.
+    email = auth.info.email.to_s.strip.downcase.presence
+    find_by(provider: auth.provider, uid: auth.uid) || (email && where("LOWER(email) = ?", email).first)
   end
 
   def self.from_solana_wallet(address)
@@ -269,9 +283,27 @@ class User < ApplicationRecord
     RESERVED_USERNAME_PREFIXES.any? { |prefix| candidate.start_with?(prefix) }
   end
 
-  def admin?
-    role == "admin"
-  end
+def admin?
+  role == "admin"
+end
+
+# A birthday is stored split (ruling 2026-11-08): birth_month + birth_day, and
+# birth_year apart, so a partial birthday is valid data. This is the whole date
+# only when all three are known, else nil. An age check needs the whole date;
+# a partial birthday never passes one.
+def birthday_date
+  return nil unless birth_year && birth_month && birth_day
+
+  Date.new(birth_year, birth_month, birth_day)
+rescue Date::Error
+  nil
+end
+
+def birthday_date=(date)
+  self.birth_year = date&.year
+  self.birth_month = date&.month
+  self.birth_day = date&.day
+end
 
   def inviter_slug=(slug)
     self.inviter = User.find_by(slug: slug) if slug.present?

@@ -433,4 +433,15 @@ class UserTest < ActiveSupport::TestCase
     user.assign_attributes(web2_solana_address: "wallet_test_xyz", contest_entered: true)
     assert user.can_change_username?
   end
+
+  test "[unit] a Google callback with no email never links to an account without one" do
+    stranger = User.create!(name: "Wallet Stranger", web3_solana_address: "So1anaStrangerAddr1111111111111111111111111",
+                            email_verified_at: Time.current)
+    stranger.update_column(:email, nil)
+    auth = OmniAuth::AuthHash.new(provider: "google_oauth2", uid: "no-email-1", info: { name: "No Email" })
+
+    result = User.from_omniauth(auth, email_verified: true)
+    assert_not_equal stranger, result
+    assert_nil stranger.reload.uid, "the stranger must not be linked"
+  end
 end

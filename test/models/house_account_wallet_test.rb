@@ -61,11 +61,11 @@ class HouseAccountWalletTest < ActiveSupport::TestCase
   # The house row is found by email; a wallet-less identity must not adopt the
   # first row that has no wallet.
   test "the wallet-less house identity adopts no stranger" do
-    stranger = User.create!(email: "stranger@example.com", username: "stranger", role: "user")
+    stranger = User.create!(email: "stranger@example.com", username: "stranger", role: "viewer")
     seed!
 
     assert_equal "stranger@example.com", stranger.reload.email
-    assert_equal "user", stranger.role
+    assert_equal "viewer", stranger.role
     refute_equal stranger.id, User.turf.id
   end
 end

@@ -433,7 +433,7 @@ class TestController < ApplicationController
     verified = params[:verified].to_s != "false"
     current_user.update_columns(
       age_attested_at: verified ? Time.current : nil,
-      date_of_birth: verified ? Date.new(1990, 1, 1) : nil
+      birth_year: (1990 if verified), birth_month: (1 if verified), birth_day: (1 if verified)
     )
     render json: { ok: true, slug: current_user.slug, age_verified: current_user.age_attested_at.present? }
   end

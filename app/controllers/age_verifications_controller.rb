@@ -1,7 +1,8 @@
 # Entry-time age gate (ENABLE_AGE_GATE). The DOB modal in the contest
 # hold-to-confirm flow POSTs here once; we recompute the age SERVER-SIDE
 # against the user's DETECTED state (geo_state — never a client-supplied
-# state), and on success stamp date_of_birth + age_attested_at so every future
+# state), and on success stamp the birthday (birth_day / birth_month / birth_year) +
+# age_attested_at so every future
 # entry passes the gate. Authoritative: the entry controllers re-check
 # age_verification_pending? regardless, so this endpoint is the only writer but
 # not the only guard.
@@ -37,7 +38,7 @@ class AgeVerificationsController < ApplicationController
     end
 
     rescue_and_log(target: current_user) do
-      current_user.update!(date_of_birth: dob, age_attested_at: Time.current)
+      current_user.update!(birthday_date: dob, age_attested_at: Time.current)
       render json: { verified: true }
     end
   rescue StandardError => e

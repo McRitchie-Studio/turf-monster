@@ -86,14 +86,14 @@ class SeedIdentitiesTest < ActiveSupport::TestCase
   # added without one, so drive it with a synthetic identity instead: the roster
   # is no longer the thing under test.
   test "a wallet-less identity adopts nobody" do
-    stranger = User.create!(email: "stranger@example.com", username: "stranger", role: "user",
+    stranger = User.create!(email: "stranger@example.com", username: "stranger", role: "viewer",
                             web2_solana_address: "So11111111111111111111111111111111111111112",
                             encrypted_web2_solana_private_key: "managed-key")
     before = stranger.slice("email", "username", "role")
 
     found = silence_warnings do
       load Rails.root.join("db/seeds/users.rb")
-      find_seed_user({ email: "nobody@example.com", name: "Nobody", username: nil, role: "user", wallet: nil })
+      find_seed_user({ email: "nobody@example.com", name: "Nobody", username: nil, role: "viewer", wallet: nil })
     end
 
     refute found.persisted?, "a wallet-less identity adopted an existing row"
@@ -104,11 +104,11 @@ class SeedIdentitiesTest < ActiveSupport::TestCase
   # The same trap on the OTHER nil-able key. A parked identity with no username
   # would otherwise match the first user who has none.
   test "a username-less identity adopts nobody" do
-    User.create!(email: "nameless@example.com", role: "user").update_column(:username, nil)
+    User.create!(email: "nameless@example.com", role: "viewer").update_column(:username, nil)
 
     found = silence_warnings do
       load Rails.root.join("db/seeds/users.rb")
-      find_seed_user({ email: "other@example.com", name: "Other", username: nil, role: "user", wallet: nil })
+      find_seed_user({ email: "other@example.com", name: "Other", username: nil, role: "viewer", wallet: nil })
     end
 
     refute found.persisted?, "a username-less identity adopted an existing row"
@@ -148,9 +148,9 @@ class SeedIdentitiesTest < ActiveSupport::TestCase
   # matching row at all legitimately ADOPTS the row holding its parked username —
   # that is the idempotency this seed is built on, not the trap.
   test "the seed keeps a username a stranger holds instead of failing the run" do
-    mason = User.create!(email: "mason@mcritchie.studio", name: "Mason McRitchie", role: "user", seeding_parked_identity: true)
+    mason = User.create!(email: "mason@mcritchie.studio", name: "Mason McRitchie", role: "viewer", seeding_parked_identity: true)
     mason.update_column(:username, "mason_existing")
-    stranger = User.create!(email: "stranger@example.com", name: "Stranger", role: "user")
+    stranger = User.create!(email: "stranger@example.com", name: "Stranger", role: "viewer")
     stranger.update_column(:username, "mason")
 
     silence_warnings { load Rails.root.join("db/seeds/users.rb") }
@@ -181,9 +181,9 @@ class SeedIdentitiesTest < ActiveSupport::TestCase
   end
 
   test "a stranger holding a wanted username in another case is reported, not raised" do
-    mason = User.create!(email: "mason@mcritchie.studio", name: "Mason McRitchie", role: "user", seeding_parked_identity: true)
+    mason = User.create!(email: "mason@mcritchie.studio", name: "Mason McRitchie", role: "viewer", seeding_parked_identity: true)
     mason.update_column(:username, "mason_existing")
-    stranger = User.create!(email: "stranger@example.com", name: "Stranger", role: "user")
+    stranger = User.create!(email: "stranger@example.com", name: "Stranger", role: "viewer")
     stranger.update_column(:username, "Mason")
 
     silence_warnings { load Rails.root.join("db/seeds/users.rb") }
