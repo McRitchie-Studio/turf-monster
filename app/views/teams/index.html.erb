@@ -4,8 +4,8 @@
 <section data-studio-controller="card-filter" data-card-filter-selector-value="[data-team-card]" data-card-filter-noun-value="teams"
      data-card-filter-active-class="btn-primary" data-card-filter-inactive-class="btn-outline"
      data-studio-action="turbo:before-cache@document->card-filter#reset">
-  <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-6">
-    <h2 class="text-2xl font-bold text-heading">Teams</h2>
+  <%= render "studio/page_header", title: "Teams", row_class: "-mx-4 px-4 mb-2" %>
+  <div class="flex flex-col sm:flex-row items-start sm:items-center justify-end gap-3 mb-6">
     <div class="flex items-center gap-3 w-full sm:w-auto">
       <input type="text"
              data-card-filter-target="search" data-studio-action="input->card-filter#search"

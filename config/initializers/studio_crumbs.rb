@@ -35,6 +35,7 @@ Rails.application.config.to_prepare do
     page :contest, ->(contest:) { truncate(contest.name, length: 40) }, ->(contest:) { contest_path(contest) },
          parent: :contests
 
+    page :nfl_players,  "NFL Players",  :nfl_players_path
     page :help,         "Help Center",  :help_path
     page :transparency, "Transparency", :transparency_path
   end
