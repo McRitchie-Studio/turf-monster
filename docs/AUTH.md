@@ -323,8 +323,9 @@ ceremony surfaces carry no page-level wallet signal at all", tracked as
 `shared/_wallet_signal`, which reads that same `expectedSwitchAddresses` list and
 so cannot disagree with the card about which switch was asked for: a declared
 wallet is named as the signer the page asked for, and any other wallet is named
-as one nobody did, in different words. The navbar carries the compact half of the
-same component on every page, signed in or not. `app/javascript/wallet_signal.js`
+as one nobody did, in different words. The navbar mounts the compact half of the
+same component on every page, signed in or not, but keeps it visually hidden;
+the progress bar shows the address. `app/javascript/wallet_signal.js`
 holds the states and the words; **Wallet Signal (app-wide)** in
 `docs/UI_PATTERNS.md` holds the rest, including why
 `StudioSession.expectChange` is deliberately never called here — the engine's
