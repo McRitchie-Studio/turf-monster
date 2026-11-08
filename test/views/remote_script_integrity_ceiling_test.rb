@@ -6,17 +6,17 @@ require "yaml"
 # element whose .src is an https:// literal in a view or in app/javascript
 # (RemoteScriptCensus, test/support/remote_script_census.rb). Vendor the file
 # (vendor/javascript, or the engine's copy), or pin it with integrity and
-# crossorigin as studio-engine pins its cropper tag.
+# crossorigin as solana-studio pins its deeplink tweetnacl tag.
 #
 # One exemption, and its condition is measured, not trusted: LogRocket's
 # recorder loader is an unversioned file its vendor updates in place, so no SRI
 # value can pin it. It is excused only while its tag sits inside the layout's
 # session_replay_active? guard (production, signed in, not a secret page).
 #
-# Not counted here: the gems' own views (studio-engine's cropper loads
-# cropper.js from cdnjs without integrity; that fix belongs to the engine), and
-# the PayPal SDK, whose URL is built at run time and which PayPal does not
-# publish an SRI value for.
+# Not counted here: the gems' own views (their pins belong to each gem: the
+# engine's cropper tag carries integrity, and from engine-vendors-cropper-assets
+# it loads from the app's own pipeline), and the PayPal SDK, whose URL is built
+# at run time and which PayPal does not publish an SRI value for.
 class RemoteScriptIntegrityCeilingTest < ActiveSupport::TestCase
   CEILINGS_FILE = Pathname(__dir__).join("remote_script_integrity_ceilings.yml")
   LAYOUT = "app/views/layouts/application.html.erb".freeze
