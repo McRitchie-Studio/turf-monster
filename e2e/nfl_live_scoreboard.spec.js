@@ -21,8 +21,9 @@ test.describe("Live NFL scoreboard", () => {
   test("renders the board without a sign-in", async ({ page }) => {
     await page.goto("/live");
 
-    // Named, not `level: 1` — the navbar brand is also an h1, so an unnamed
-    // level-1 lookup is a strict-mode violation rather than an assertion.
+    // Named, not `level: 1` — the navbar brand is an h1 unless the page carries
+    // its own (the engine's brand_heading rule), so an unnamed level-1 lookup can
+    // be a strict-mode violation rather than an assertion.
     await expect(page.getByRole("heading", { name: /Week 4/ })).toBeVisible();
     // :visible and scoped to the grid — the FIRST tile in the grid's DOM order is
     // the focused game's card, which the board deliberately hides (it is drawn as
