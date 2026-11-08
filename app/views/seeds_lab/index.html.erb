@@ -292,7 +292,7 @@
 
       <div class="bg-inset border border-subtle rounded-lg px-3 py-4">
         <div class="flex items-center justify-center gap-0">
-          <div class="border-2 border-[color:var(--color-cta)] flex gap-1 p-1.5 rounded-md"
+          <div class="border-2 border-(--color-cta) flex gap-1 p-1.5 rounded-md"
                data-seeds-lab-target="pop">
             <% (1..5).each do |i| %>
               <div class="w-8 h-[22px] bg-primary-500/6 relative overflow-hidden rounded-sm">
@@ -302,7 +302,7 @@
               </div>
             <% end %>
           </div>
-          <div class="w-[5px] h-3 bg-[color:var(--color-cta)] rounded-r-[2px] -ml-px"></div>
+          <div class="w-[5px] h-3 bg-(--color-cta) rounded-r-[2px] -ml-px"></div>
         </div>
         <div class="flex items-center justify-between mt-3 font-mono text-xs text-secondary">
           <span data-seeds-lab-target="label" data-label="cells">0 / 5 cells</span>

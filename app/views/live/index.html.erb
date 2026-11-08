@@ -74,7 +74,8 @@
       EDGE (--nav-h is only its height, and the two differ whenever an
       environment bar sits above it), and letting CSS do the unit arithmetic
       beats parsing a rem value out of a computed style in JS. %>
-  <div id="nfl_live_focus" class="scroll-mt-[calc(var(--nav-bottom,var(--nav-h,4rem))+0.75rem)] mb-4">
+  <div id="nfl_live_focus" class="mb-4"
+       style="scroll-margin-top: calc(var(--nav-bottom, var(--nav-h, 4rem)) + 0.75rem)">
     <%= render "live/focus", games: @games, focus_slug: @focus_slug %>
   </div>
 
