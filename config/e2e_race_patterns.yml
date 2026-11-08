@@ -2,8 +2,7 @@
 # each e2e file that held a fixed sleep (`sleep`) or a one-time visibility branch
 # (`branch`) when the lint landed, with its count. A count may only fall, and must equal
 # the file (lower it in the same commit that removes one); a file not listed holds none.
-# Every row is a named debt: wait on the state instead. Task turf-deterministic-ci,
-# 2026-11-07.
+# Every row is a named debt: wait on the state instead. Task turf-deterministic-ci.
 e2e/admin_free_entry_burn_confirm.spec.js:
   sleep: 3
 e2e/agent_api_keys.spec.js:
