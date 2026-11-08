@@ -6,6 +6,7 @@
 <section class="mb-6" data-studio-controller="filter" data-studio-action="turbo:before-cache@document->filter#reset">
   <%= render "studio/page_header", title: "Database Schema", crumbs: studio_crumbs(parent: :admin),
         meta: "#{@tables.size} tables", row_class: "-mx-4 px-4 mb-4" %>
+  <p class="sm:hidden -mt-2 mb-4 text-sm text-muted"><%= @tables.size %> tables</p>
 
   <div class="mb-6 relative">
     <input type="text" placeholder="Filter tables..."
