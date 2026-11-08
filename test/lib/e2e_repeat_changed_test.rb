@@ -22,9 +22,15 @@ class E2eRepeatChangedTest < Minitest::Test
 
   def test_each_pass_is_one_fresh_run_without_a_receipt
     cmd = E2eRepeatChanged.command(["e2e/a.spec.js"])
-    assert_equal %w[npx playwright test e2e/a.spec.js --grep-invert @devnet --reporter=list], cmd
+    assert_equal %w[npx playwright test e2e/a.spec.js --grep-invert @devnet --reporter=list --pass-with-no-tests], cmd
     refute(cmd.any? { |a| a.include?("json") }, "a json reporter would write a second executed-set receipt")
     refute_includes cmd, "--repeat-each", "repeats inside one boot meet the seed already consumed"
+  end
+
+  # A changed spec that is all @devnet (e2e/devnet-smoke.spec.js) filters to no tests;
+  # without the flag Playwright exits 1 on "No tests found" and every shard goes red.
+  def test_a_changed_spec_that_is_all_devnet_is_not_a_red
+    assert_includes E2eRepeatChanged.command(["e2e/devnet-smoke.spec.js"]), "--pass-with-no-tests"
   end
 
   def test_five_passes_dealt_round_robin_over_the_shards

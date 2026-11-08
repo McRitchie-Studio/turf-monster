@@ -57,11 +57,13 @@ module E2eRepeatChanged
   # PURE. One pass's Playwright command, or nil when there are no specs.
   # @devnet stays out exactly as in the suite step (ci.yml): those specs need live
   # devnet and run only by hand (e2e/DEVNET_RUNBOOK.md). The list reporter only, so no
-  # pass writes an executed-set receipt.
+  # pass writes an executed-set receipt. --pass-with-no-tests: a changed spec whose every
+  # test is @devnet (e2e/devnet-smoke.spec.js) leaves nothing to run, and Playwright
+  # exits 1 on "No tests found", a red with no defect behind it.
   def command(specs)
     return nil if specs.empty?
 
-    ["npx", "playwright", "test", *specs, "--grep-invert", "@devnet", "--reporter=list"]
+    ["npx", "playwright", "test", *specs, "--grep-invert", "@devnet", "--reporter=list", "--pass-with-no-tests"]
   end
 
   # The diff the PR brings, read from the merge commit's first parent. A shallow
