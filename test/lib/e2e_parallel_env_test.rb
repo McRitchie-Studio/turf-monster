@@ -15,12 +15,21 @@
 # stubs on PATH. The run starts from a minimal environment (unsetenv_others) with
 # fake credentials planted, so the operator's real ones never enter the test.
 #
-# THE WAIT. `bin/rails server` is the one launch the lane backgrounds, and the
-# lane kills it on teardown. So the curl stub stands in for /up: it answers only
-# when the server's dump is in place, or at its bound, so that a lane that never
-# launches the server fails on the missing dump, not on a hung job. It waits inside
-# the stub because the lane's own retry stops once the stub server has exited, and
-# the move means a dump that exists is whole.
+# THE WAIT IS ON THE STATE, NOT ON A CLOCK. `bin/rails server` is the one launch the
+# lane backgrounds, and the lane kills it on teardown. So the curl stub stands in for
+# /up: it answers once the server's dump is in place, and only then, however long
+# that takes. The dump is written to a temp name and moved, so a dump that exists is
+# whole. It waits inside the stub because the lane's own retry stops once the stub
+# server has exited.
+#
+# WHY (turf-deterministic-ci). The curl stub used to give up at a fixed bound (1,200
+# polls of 0.05s) and answer "up" either way. A starved runner that took longer got
+# an "up" with no dump, and the test went red with "never ran `bin/rails server`"
+# (six reds in CI, 2026-10-26 to 10-28, each green on re-run; refactor-review-
+# 2026-11-06 lane-health 2f). The poll interval is only how often it looks; no
+# outcome depends on a duration. The one clock left is the harness's HANG_DEADLINE,
+# which turns a lane that never starts the server into a red instead of a hung
+# suite; a green run never reaches it.
 #
 # THE CONTROL. The same run with tm_scrub_env a no-op must hand every stub the
 # planted credentials, on the serialized path and on E2E_PARALLEL_SEED=1.
@@ -47,12 +56,35 @@ class E2eParallelEnvTest < Minitest::Test
   # Each Rails invocation the lane makes, by the stub's first argument.
   LAUNCHES = %w[tailwindcss:build db:drop runner server].freeze
 
-  # The curl stub's bound, at 0.05s a poll: about a minute on a starved runner.
-  UP_WAIT_POLLS = 1200
+  # The harness's hang guard (see THE WAIT). A green run finishes in seconds; this
+  # only turns a lane that never starts the server into a red instead of a hang.
+  HANG_DEADLINE = 300
 
   def stub(path, body)
     File.write(path, "#!/bin/sh\n#{body}\n")
     File.chmod(0o755, path)
+  end
+
+  # Runs the lane in its own process group, killed whole at HANG_DEADLINE, so a
+  # curl stub still waiting on a server that never ran cannot outlive the test.
+  def capture_bounded(env, script, dir)
+    Open3.popen2e(env, "bash", script, "1", unsetenv_others: true, chdir: dir, pgroup: true) do |stdin, out, wait|
+      stdin.close
+      reader = Thread.new { out.read }
+      unless wait.join(HANG_DEADLINE)
+        Process.kill("KILL", -wait.pid)
+        flunk "bin/e2e-parallel hung for #{HANG_DEADLINE}s: it never reached its /up check, " \
+              "or never launched `bin/rails server`:\n#{reader.join(5)&.value}"
+      end
+      status = wait.value
+      # Sweep the group: nothing the lane started may outlive the test.
+      begin
+        Process.kill("KILL", -wait.pid)
+      rescue Errno::ESRCH
+        nil
+      end
+      [reader.value, status]
+    end
   end
 
   def run_lane(control: false, server_delay: nil, parallel_seed: false, write_delay: nil)
@@ -67,7 +99,7 @@ class E2eParallelEnvTest < Minitest::Test
       slow_write = write_delay ? %([ "$1" = server ] && { echo DUMP_STARTED=1; sleep #{write_delay}; }; ) : ""
       stub(File.join(bin, "rails"), %(#{slow_start}{ #{slow_write}env; } > "#{dir}/env-$1.tmp" && mv "#{dir}/env-$1.tmp" "#{dir}/env-$1.out"))
       stub(File.join(stubs, "lsof"), "exit 0")
-      stub(File.join(stubs, "curl"), %(i=0; while [ ! -e "#{dir}/env-server.out" ] && [ "$i" -lt #{UP_WAIT_POLLS} ]; do sleep 0.05; i=$((i + 1)); done))
+      stub(File.join(stubs, "curl"), %(while [ ! -e "#{dir}/env-server.out" ]; do sleep 0.05; done))
       stub(File.join(stubs, "dropdb"), "exit 0")
       stub(File.join(stubs, "npx"), "echo '1 passed'")
 
@@ -77,8 +109,7 @@ class E2eParallelEnvTest < Minitest::Test
         "PLAYWRIGHT_SEED" => "42"
       }.merge(PLANTED)
       env["E2E_PARALLEL_SEED"] = "1" if parallel_seed
-      out, status = Open3.capture2e(env, "bash", File.join(bin, "e2e-parallel"), "1",
-                                    unsetenv_others: true, chdir: dir)
+      out, status = capture_bounded(env, File.join(bin, "e2e-parallel"), dir)
       assert status.success?, "bin/e2e-parallel failed:\n#{out}"
       assert_includes out, (parallel_seed ? "parallel seed" : "serialized"), "the lane took the wrong launch path"
       LAUNCHES.to_h do |cmd|

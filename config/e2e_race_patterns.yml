@@ -1,0 +1,87 @@
+# The race-pattern ratchet (bin/lib/e2e_race_patterns.rb, ported from mcritchie-studio):
+# each e2e file that held a fixed sleep (`sleep`) or a one-time visibility branch
+# (`branch`) when the lint landed, with its count. A count may only fall, and must equal
+# the file (lower it in the same commit that removes one); a file not listed holds none.
+# Every row is a named debt: wait on the state instead. Task turf-deterministic-ci.
+e2e/admin_free_entry_burn_confirm.spec.js:
+  sleep: 3
+e2e/agent_api_keys.spec.js:
+  sleep: 1
+e2e/agent_chat_voice.spec.js:
+  sleep: 1
+e2e/audit.spec.js:
+  sleep: 1
+e2e/board_fizz_palette.spec.js:
+  branch: 1
+e2e/board_hold_enters_once.spec.js:
+  sleep: 6
+  branch: 1
+e2e/cart_survives_turbo_restore.spec.js:
+  branch: 1
+e2e/devnet-smoke.spec.js:
+  sleep: 2
+  branch: 1
+e2e/entry_badge_sidebar.spec.js:
+  sleep: 8
+e2e/entry_gift.spec.js:
+  sleep: 2
+e2e/entry_payment_retry.spec.js:
+  sleep: 4
+e2e/free_entry_spend_mirror.spec.js:
+  sleep: 2
+e2e/free_entry_web3.spec.js:
+  sleep: 1
+e2e/geo_hold_validation.spec.js:
+  sleep: 2
+  branch: 2
+e2e/glass_surfaces.spec.js:
+  sleep: 2
+  branch: 2
+e2e/level_up_stacked_modal.spec.js:
+  sleep: 2
+e2e/nav_figures_hold.spec.js:
+  sleep: 3
+e2e/navbar_brand_fit.spec.js:
+  sleep: 1
+e2e/navbar_engine_slots.spec.js:
+  sleep: 1
+e2e/navbar_layout.spec.js:
+  sleep: 9
+e2e/navbar_long_name.spec.js:
+  sleep: 1
+e2e/navbar_polish.spec.js:
+  sleep: 1
+e2e/nfl_live_scoreboard.spec.js:
+  sleep: 10
+e2e/onboarding_chain.spec.js:
+  sleep: 1
+e2e/onchain.spec.js:
+  branch: 1
+e2e/onchain_settled_navbar.spec.js:
+  sleep: 9
+e2e/page_transitions.spec.js:
+  branch: 1
+e2e/phantom_debug_retry.spec.js:
+  sleep: 1
+e2e/pick_slots_turbo_restore.spec.js:
+  branch: 1
+e2e/quest_chat_prompts.spec.js:
+  sleep: 2
+e2e/signer_console.spec.js:
+  sleep: 1
+e2e/signing_csp.spec.js:
+  sleep: 1
+e2e/signing_pages_back.spec.js:
+  branch: 1
+e2e/smoke.spec.js:
+  branch: 4
+e2e/tiktok_funnel_free_entry.spec.js:
+  branch: 1
+e2e/wallet_setup.spec.js:
+  sleep: 2
+e2e/wallet_signal_ceremony.spec.js:
+  sleep: 2
+e2e/wallet_signal_provider_binding.spec.js:
+  sleep: 3
+e2e/web3_step_up.spec.js:
+  sleep: 2
