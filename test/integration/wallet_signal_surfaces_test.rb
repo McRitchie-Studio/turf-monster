@@ -87,6 +87,8 @@ class WalletSignalSurfacesTest < ActionDispatch::IntegrationTest
 
     chips = signal_nodes(variant: "chip")
     refute_empty chips, "the navbar is the one piece of chrome every page gets, and it has no wallet signal"
+    # Mounted, never painted: the progress bar under the balance shows the address.
+    assert chips.all? { |chip| chip.key?("hidden") }, "the navbar chip must be visually hidden signed in"
   end
 
   # THE PRE-AUTH STATE, which is the requirement most easily lost. The ask was
@@ -99,9 +101,10 @@ class WalletSignalSurfacesTest < ActionDispatch::IntegrationTest
     chips = signal_nodes(variant: "chip")
     refute_empty chips, "a signed-out page must still mount the wallet signal"
 
-    # It is hidden until it has something to say, but MOUNTED — x-show, never
-    # absent, so the state resolves and is readable either way.
+    # It is visually hidden in every state (the `hidden` attribute, 2026-11-08),
+    # but MOUNTED, never absent, so the state resolves and is readable either way.
     assert chips.first["x-show"].to_s.include?("walletSignal")
+    assert chips.all? { |chip| chip.key?("hidden") }, "the navbar chip must be visually hidden signed out"
   end
 
   test "the layout ships the identity source the signal is built on" do

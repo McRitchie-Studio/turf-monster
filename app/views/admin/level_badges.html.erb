@@ -24,12 +24,10 @@
 %>
 
 <div class="max-w-5xl mx-auto py-8 px-4 space-y-10">
-  <header>
-    <h1 class="text-heading text-3xl font-extrabold mb-1">Level Badges</h1>
-    <p class="text-secondary text-sm">
-      Progressive visual treatments for Level 1 → 10. Compare the bare badge against an in-context mock of the seeds card header. Higher tiers animate — give them a few seconds.
-    </p>
-  </header>
+  <%= render "studio/page_header", title: "Level Badges", crumbs: studio_crumbs(parent: :admin) %>
+  <p class="-mt-8 text-secondary text-sm">
+    Progressive visual treatments for Level 1 → 10. Compare the bare badge against an in-context mock of the seeds card header. Higher tiers animate — give them a few seconds.
+  </p>
 
 
 
@@ -39,7 +37,7 @@
     <% (1..10).each do |lvl| %>
       <div class="card p-4 flex items-center gap-6">
         <%# Bare badge column %>
-        <div class="flex items-center justify-center flex-shrink-0" style="width:6rem">
+        <div class="w-24 flex items-center justify-center flex-shrink-0">
           <span class="level-badge level-badge-<%= lvl %>">Level <%= lvl %></span>
         </div>
 
@@ -50,7 +48,7 @@
         </div>
 
         <%# In-context: mocks the seeds card header row %>
-        <div class="hidden md:flex items-center justify-between gap-3 px-3 py-2 bg-surface-alt rounded-lg flex-shrink-0" style="width:18rem">
+        <div class="w-72 hidden md:flex items-center justify-between gap-3 px-3 py-2 bg-surface-alt rounded-lg flex-shrink-0">
           <span class="text-heading font-semibold text-sm">Earn a Free Entry</span>
           <span class="level-badge level-badge-<%= lvl %>">Level <%= lvl %></span>
         </div>
@@ -71,7 +69,7 @@
 
   <section>
     <h2 class="label-upper font-bold mb-3">On light background</h2>
-    <div class="rounded-xl p-6" style="background: #f8fafc;">
+    <div class="bg-[#f8fafc] rounded-xl p-6">
       <div class="flex flex-wrap items-center gap-3">
         <% (1..10).each do |lvl| %>
           <span class="level-badge level-badge-<%= lvl %>">Level <%= lvl %></span>
@@ -87,27 +85,27 @@
     <h2 class="label-upper font-bold mb-3">Reference — Classic metal tier (archived)</h2>
     <p class="text-muted text-xs mb-3">Pre-iteration design where L5 was silver and L6 was gold. Kept as <code class="text-xs bg-inset px-1 rounded">.level-badge-classic-5</code> / <code class="text-xs bg-inset px-1 rounded">.level-badge-classic-6</code> in case we want to revive the metal ladder later.</p>
     <div class="card p-4 flex items-center gap-6">
-      <div class="flex items-center justify-center flex-shrink-0" style="width:6rem">
+      <div class="w-24 flex items-center justify-center flex-shrink-0">
         <span class="level-badge level-badge-classic-5">Level 5</span>
       </div>
       <div class="flex-1 min-w-0">
         <p class="text-heading font-semibold text-sm">Level 5 (classic)</p>
         <p class="text-muted text-xs">Silver — diagonal #f5f5f5 → #9a9a9a gradient + soft white halo.</p>
       </div>
-      <div class="hidden md:flex items-center justify-between gap-3 px-3 py-2 bg-surface-alt rounded-lg flex-shrink-0" style="width:18rem">
+      <div class="w-72 hidden md:flex items-center justify-between gap-3 px-3 py-2 bg-surface-alt rounded-lg flex-shrink-0">
         <span class="text-heading font-semibold text-sm">Earn a Free Entry</span>
         <span class="level-badge level-badge-classic-5">Level 5</span>
       </div>
     </div>
     <div class="card p-4 flex items-center gap-6 mt-3">
-      <div class="flex items-center justify-center flex-shrink-0" style="width:6rem">
+      <div class="w-24 flex items-center justify-center flex-shrink-0">
         <span class="level-badge level-badge-classic-6">Level 6</span>
       </div>
       <div class="flex-1 min-w-0">
         <p class="text-heading font-semibold text-sm">Level 6 (classic)</p>
         <p class="text-muted text-xs">Gold — diagonal #FFE34D → #B8860B gradient + amber halo.</p>
       </div>
-      <div class="hidden md:flex items-center justify-between gap-3 px-3 py-2 bg-surface-alt rounded-lg flex-shrink-0" style="width:18rem">
+      <div class="w-72 hidden md:flex items-center justify-between gap-3 px-3 py-2 bg-surface-alt rounded-lg flex-shrink-0">
         <span class="text-heading font-semibold text-sm">Earn a Free Entry</span>
         <span class="level-badge level-badge-classic-6">Level 6</span>
       </div>

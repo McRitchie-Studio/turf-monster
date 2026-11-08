@@ -2,12 +2,10 @@
 <% content_for :meta_description, "Enter your first Turf Monster contest in about ten minutes: download Phantom, create your account, buy $25 of USDC with Apple Pay or a debit card, and play." %>
 
 <div class="max-w-3xl mx-auto py-10 px-2 space-y-12">
-  <header>
-    <h1 class="text-4xl font-extrabold text-heading mb-2">Getting Started</h1>
-    <p class="text-secondary text-sm">
-      Your first contest entry, start to finish, in about ten minutes &mdash; no crypto experience required.
-    </p>
-  </header>
+  <%= render "studio/page_header", title: "Getting Started", row_class: "-mx-2 px-2" %>
+  <p class="-mt-10 text-secondary text-sm">
+    Your first contest entry, start to finish, in about ten minutes &mdash; no crypto experience required.
+  </p>
 
   <%# At-a-glance overview of the five steps below. %>
   <section aria-label="Overview">

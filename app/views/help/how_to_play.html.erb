@@ -1,9 +1,7 @@
 <% content_for :title, "How to Play — Turf Monster" %>
 
 <div class="max-w-3xl mx-auto py-8">
-  <%= link_to "&larr; Help Center".html_safe, help_path, class: "text-secondary hover:text-primary text-sm font-medium transition" %>
-
-  <h1 class="text-3xl font-extrabold text-heading mt-4 mb-2">How to Play</h1>
+  <%= render "studio/page_header", title: "How to Play", crumbs: studio_crumbs(parent: :help), row_class: "-mx-4 px-4 mb-2" %>
 
   <div class="card p-6 mb-8">
     <h2 class="text-heading font-bold text-lg mb-3">30-Second Summary</h2>

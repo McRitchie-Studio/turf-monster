@@ -24,8 +24,7 @@
 
 <div class="max-w-screen-md mx-auto py-8 px-4 space-y-6">
   <div class="min-w-0">
-    <%= link_to "← All weeks", admin_nfl_weeks_path, class: "text-xs text-muted hover:text-heading" %>
-    <h1 class="text-heading text-2xl font-bold mt-1 mb-1"><%= @label %></h1>
+    <%= render "studio/page_header", title: @label, crumbs: studio_crumbs(parent: :admin_nfl_weeks), row_class: "-mx-4 px-4 mb-1" %>
     <p class="text-muted text-sm max-w-2xl">
       Drag to set the order the live board prefers — the top game leads. Each
       drop saves on its own; there is nothing to submit. The list starts in

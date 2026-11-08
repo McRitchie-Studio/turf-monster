@@ -67,8 +67,8 @@
         openable:  true } do %>
     <div class="pointer-events-none w-40 rounded-lg bg-surface border border-subtle shadow p-4 text-center space-y-2">
       <div class="text-2xl leading-none">&#128091;</div>
-      <span class="block h-2 w-24 mx-auto rounded" style="background: var(--color-text); opacity: .18"></span>
-      <span class="block h-8 w-full rounded" style="background: var(--color-text); opacity: .10"></span>
+      <span class="bg-[color:var(--color-text)] opacity-18 block h-2 w-24 mx-auto rounded"></span>
+      <span class="bg-[color:var(--color-text)] opacity-10 block h-8 w-full rounded"></span>
     </div>
   <% end %>
 
@@ -79,8 +79,8 @@
         openable:  true } do %>
     <div class="pointer-events-none w-40 rounded-lg bg-surface border border-subtle shadow p-4 text-center space-y-2">
       <div class="text-2xl leading-none">&#128260;</div>
-      <span class="block h-1.5 w-28 mx-auto rounded" style="background: var(--color-text); opacity: .3"></span>
-      <span class="block h-1.5 w-28 mx-auto rounded" style="background: var(--color-text); opacity: .3"></span>
+      <span class="bg-[color:var(--color-text)] opacity-30 block h-1.5 w-28 mx-auto rounded"></span>
+      <span class="bg-[color:var(--color-text)] opacity-30 block h-1.5 w-28 mx-auto rounded"></span>
     </div>
   <% end %>
 
@@ -90,8 +90,8 @@
         open_expr: "$store.modals.open('buy-entry-token', {})",
         openable:  true } do %>
     <div class="pointer-events-none w-40 rounded-lg bg-surface border border-subtle shadow p-4 space-y-2">
-      <span class="block h-6 w-full rounded" style="background: var(--color-primary); opacity: .35"></span>
-      <span class="block h-6 w-full rounded" style="background: var(--color-text); opacity: .12"></span>
+      <span class="bg-primary opacity-35 block h-6 w-full rounded"></span>
+      <span class="bg-[color:var(--color-text)] opacity-12 block h-6 w-full rounded"></span>
     </div>
   <% end %>
 
@@ -114,8 +114,8 @@
         openable:       cdp_ramp_modal_available? } do %>
     <div class="pointer-events-none w-40 rounded-lg bg-surface border border-subtle shadow p-4 text-center space-y-2">
       <div class="text-2xl leading-none">&#127974;</div>
-      <span class="block h-1.5 w-24 mx-auto rounded" style="background: var(--color-text); opacity: .3"></span>
-      <span class="block h-6 w-full rounded" style="background: var(--color-primary); opacity: .3"></span>
+      <span class="bg-[color:var(--color-text)] opacity-30 block h-1.5 w-24 mx-auto rounded"></span>
+      <span class="bg-primary opacity-30 block h-6 w-full rounded"></span>
     </div>
   <% end %>
 
@@ -126,7 +126,7 @@
         openable:  true } do %>
     <div class="pointer-events-none w-40 rounded-lg bg-surface border border-subtle shadow p-4 text-center space-y-2">
       <div class="text-2xl leading-none">&#128737;&#65039;</div>
-      <span class="block h-1.5 w-28 mx-auto rounded" style="background: var(--color-text); opacity: .3"></span>
+      <span class="bg-[color:var(--color-text)] opacity-30 block h-1.5 w-28 mx-auto rounded"></span>
     </div>
   <% end %>
 
@@ -171,14 +171,14 @@
         openable:  true } do %>
     <div class="pointer-events-none w-40 rounded-lg bg-surface border border-subtle shadow p-4 text-center space-y-2">
       <div class="text-2xl leading-none">&#127793;</div>
-      <span class="block h-2 w-24 mx-auto rounded" style="background: var(--color-text); opacity: .18"></span>
+      <span class="bg-[color:var(--color-text)] opacity-18 block h-2 w-24 mx-auto rounded"></span>
       <%# the seeds bar, which is this card's middle %>
       <span class="flex gap-1">
-        <span class="flex-1 h-2 rounded" style="background: var(--color-primary)"></span>
-        <span class="flex-1 h-2 rounded" style="background: var(--color-primary); opacity: .4"></span>
-        <span class="flex-1 h-2 rounded" style="background: var(--color-primary); opacity: .2"></span>
+        <span class="bg-primary flex-1 h-2 rounded"></span>
+        <span class="bg-primary opacity-40 flex-1 h-2 rounded"></span>
+        <span class="bg-primary opacity-20 flex-1 h-2 rounded"></span>
       </span>
-      <span class="block h-5 w-full rounded" style="background: var(--color-primary); opacity: .35"></span>
+      <span class="bg-primary opacity-35 block h-5 w-full rounded"></span>
     </div>
   <% end %>
 
@@ -189,14 +189,14 @@
         openable:  true } do %>
     <div class="pointer-events-none w-40 rounded-lg bg-surface border border-subtle shadow p-4 text-center space-y-2">
       <div class="text-2xl leading-none">&#127793;</div>
-      <span class="block h-2 w-20 mx-auto rounded" style="background: var(--color-text); opacity: .18"></span>
+      <span class="bg-[color:var(--color-text)] opacity-18 block h-2 w-20 mx-auto rounded"></span>
       <%# the first-join seeds bar, hidden entirely on a re-subscribe %>
       <span class="flex gap-1">
-        <span class="flex-1 h-2 rounded" style="background: var(--color-primary)"></span>
-        <span class="flex-1 h-2 rounded" style="background: var(--color-primary); opacity: .35"></span>
-        <span class="flex-1 h-2 rounded" style="background: var(--color-primary); opacity: .18"></span>
+        <span class="bg-primary flex-1 h-2 rounded"></span>
+        <span class="bg-primary opacity-35 flex-1 h-2 rounded"></span>
+        <span class="bg-primary opacity-18 flex-1 h-2 rounded"></span>
       </span>
-      <span class="block h-5 w-full rounded" style="background: var(--color-primary); opacity: .35"></span>
+      <span class="bg-primary opacity-35 block h-5 w-full rounded"></span>
     </div>
   <% end %>
 
@@ -207,9 +207,9 @@
         openable:  true } do %>
     <div class="pointer-events-none w-40 rounded-lg bg-surface border border-subtle shadow p-4 text-center space-y-2">
       <div class="text-2xl leading-none">&#9996;&#65039;</div>
-      <span class="block h-2 w-24 mx-auto rounded" style="background: var(--color-text); opacity: .18"></span>
-      <span class="block h-1.5 w-28 mx-auto rounded" style="background: var(--color-text); opacity: .18"></span>
-      <span class="block h-5 w-full rounded" style="background: var(--color-primary); opacity: .35"></span>
+      <span class="bg-[color:var(--color-text)] opacity-18 block h-2 w-24 mx-auto rounded"></span>
+      <span class="bg-[color:var(--color-text)] opacity-18 block h-1.5 w-28 mx-auto rounded"></span>
+      <span class="bg-primary opacity-35 block h-5 w-full rounded"></span>
     </div>
   <% end %>
 
@@ -219,8 +219,8 @@
         open_expr: "$store.modals.open('wallet-deposit', { neededCents: 500, usdcCents: 120, usdtCents: 0 })",
         openable:  true } do %>
     <div class="pointer-events-none w-40 rounded-lg bg-surface border border-subtle shadow p-4 space-y-2">
-      <span class="block h-2 w-24 mx-auto rounded" style="background: var(--color-text); opacity: .18"></span>
-      <span class="block h-5 w-full rounded" style="background: var(--color-primary); opacity: .35"></span>
+      <span class="bg-[color:var(--color-text)] opacity-18 block h-2 w-24 mx-auto rounded"></span>
+      <span class="bg-primary opacity-35 block h-5 w-full rounded"></span>
       <span class="block h-5 w-full rounded border border-strong"></span>
     </div>
   <% end %>
@@ -245,15 +245,15 @@
           emoji — a one-glyph drift, and exactly the kind a mini-mock is for. %>
       <div class="text-2xl leading-none font-bold text-heading">!</div>
       <%# the two named facts, then the tick that gates Continue %>
-      <span class="block h-1.5 w-full rounded" style="background: var(--color-text); opacity: .3"></span>
-      <span class="block h-1.5 w-full rounded" style="background: var(--color-text); opacity: .3"></span>
+      <span class="bg-[color:var(--color-text)] opacity-30 block h-1.5 w-full rounded"></span>
+      <span class="bg-[color:var(--color-text)] opacity-30 block h-1.5 w-full rounded"></span>
       <span class="flex items-center gap-1.5">
         <span class="h-3 w-3 rounded border border-strong"></span>
-        <span class="flex-1 h-1.5 rounded" style="background: var(--color-text); opacity: .18"></span>
+        <span class="bg-[color:var(--color-text)] opacity-18 flex-1 h-1.5 rounded"></span>
       </span>
       <span class="grid grid-cols-2 gap-1.5">
         <span class="block h-5 rounded border border-strong"></span>
-        <span class="block h-5 rounded" style="background: var(--color-primary); opacity: .35"></span>
+        <span class="bg-primary opacity-35 block h-5 rounded"></span>
       </span>
     </div>
   <% end %>
@@ -302,9 +302,9 @@
     <div class="pointer-events-none w-40 rounded-lg bg-surface border border-subtle shadow p-4 text-center space-y-2">
       <div class="text-2xl leading-none">&#128236;</div>
       <%# both addresses, current above new — the pair is the card %>
-      <span class="block h-1.5 w-28 mx-auto rounded" style="background: var(--color-text); opacity: .3"></span>
-      <span class="block h-1.5 w-24 mx-auto rounded" style="background: var(--color-text); opacity: .3"></span>
-      <span class="block h-5 w-full rounded" style="background: var(--color-primary); opacity: .35"></span>
+      <span class="bg-[color:var(--color-text)] opacity-30 block h-1.5 w-28 mx-auto rounded"></span>
+      <span class="bg-[color:var(--color-text)] opacity-30 block h-1.5 w-24 mx-auto rounded"></span>
+      <span class="bg-primary opacity-35 block h-5 w-full rounded"></span>
     </div>
   <% end %>
 
@@ -325,11 +325,11 @@
         openable:  true } do %>
     <div class="pointer-events-none w-40 rounded-lg bg-surface border border-subtle shadow p-4 text-center space-y-2">
       <div class="text-2xl leading-none">&#127967;&#65039;</div>
-      <span class="block h-2 w-24 mx-auto rounded" style="background: var(--color-text); opacity: .18"></span>
+      <span class="bg-[color:var(--color-text)] opacity-18 block h-2 w-24 mx-auto rounded"></span>
       <%# the draining CTA, caught partway through its eight seconds %>
       <span class="flex h-5 w-full rounded overflow-hidden">
-        <span class="h-5" style="background: var(--color-primary); opacity: .6; width: 40%"></span>
-        <span class="flex-1 h-5" style="background: var(--color-primary); opacity: .22"></span>
+        <span class="bg-primary opacity-60 w-2/5 h-5"></span>
+        <span class="bg-primary opacity-22 flex-1 h-5"></span>
       </span>
     </div>
   <% end %>
@@ -341,11 +341,11 @@
         openable:  true } do %>
     <div class="pointer-events-none w-40 rounded-lg bg-surface border border-subtle shadow p-4 text-center space-y-2">
       <div class="text-2xl leading-none">&#9995;</div>
-      <span class="block h-1.5 w-28 mx-auto rounded" style="background: var(--color-text); opacity: .3"></span>
+      <span class="bg-[color:var(--color-text)] opacity-30 block h-1.5 w-28 mx-auto rounded"></span>
       <%# the live number, the only part of this card that moves %>
-      <span class="block h-4 w-10 mx-auto rounded" style="background: var(--color-primary); opacity: .45"></span>
+      <span class="bg-primary opacity-45 block h-4 w-10 mx-auto rounded"></span>
       <%# Dismiss is a quiet link rather than a button, because the cap is soft %>
-      <span class="block h-1.5 w-16 mx-auto rounded" style="background: var(--color-text); opacity: .18"></span>
+      <span class="bg-[color:var(--color-text)] opacity-18 block h-1.5 w-16 mx-auto rounded"></span>
     </div>
   <% end %>
 
@@ -363,10 +363,10 @@
         openable:  true } do %>
     <div class="pointer-events-none w-40 rounded-lg bg-surface border border-subtle shadow p-4 text-center space-y-2">
       <div class="text-2xl leading-none">&#128236;</div>
-      <span class="block h-1.5 w-28 mx-auto rounded" style="background: var(--color-text); opacity: .3"></span>
+      <span class="bg-[color:var(--color-text)] opacity-30 block h-1.5 w-28 mx-auto rounded"></span>
       <%# an empty outline, because nothing prefills the field %>
       <span class="block h-5 w-full rounded border border-strong"></span>
-      <span class="block h-5 w-full rounded" style="background: var(--color-primary); opacity: .35"></span>
+      <span class="bg-primary opacity-35 block h-5 w-full rounded"></span>
     </div>
   <% end %>
 
@@ -385,12 +385,12 @@
         openable:  true } do %>
     <div class="pointer-events-none w-40 rounded-lg bg-surface border border-subtle shadow p-4 text-center space-y-2">
       <%# the X the error icon draws, in its red pill %>
-      <div class="text-2xl leading-none font-bold" style="color: var(--color-danger)">&times;</div>
-      <span class="block h-2 w-20 mx-auto rounded" style="background: var(--color-text); opacity: .18"></span>
-      <span class="block h-1.5 w-28 mx-auto rounded" style="background: var(--color-text); opacity: .3"></span>
+      <div class="text-[color:var(--color-danger)] text-2xl leading-none font-bold">&times;</div>
+      <span class="bg-[color:var(--color-text)] opacity-18 block h-2 w-20 mx-auto rounded"></span>
+      <span class="bg-[color:var(--color-text)] opacity-30 block h-1.5 w-28 mx-auto rounded"></span>
       <%# the destructive action, danger-toned, above the quiet never-mind %>
-      <span class="block h-5 w-full rounded" style="background: var(--color-danger); opacity: .45"></span>
-      <span class="block h-1.5 w-12 mx-auto rounded" style="background: var(--color-text); opacity: .18"></span>
+      <span class="bg-[color:var(--color-danger)] opacity-45 block h-5 w-full rounded"></span>
+      <span class="bg-[color:var(--color-text)] opacity-18 block h-1.5 w-12 mx-auto rounded"></span>
     </div>
   <% end %>
 
@@ -400,9 +400,9 @@
         open_expr: "$store.modals.open('auth', { step: 'credentials', submitting: null })",
         openable:  true } do %>
     <div class="pointer-events-none w-40 rounded-lg bg-surface border border-subtle shadow p-4 space-y-2">
-      <span class="block h-2 w-24 mx-auto rounded" style="background: var(--color-text); opacity: .18"></span>
-      <span class="block h-6 w-full rounded" style="background: var(--color-text); opacity: .12"></span>
-      <span class="block h-6 w-full rounded" style="background: var(--color-primary); opacity: .35"></span>
+      <span class="bg-[color:var(--color-text)] opacity-18 block h-2 w-24 mx-auto rounded"></span>
+      <span class="bg-[color:var(--color-text)] opacity-12 block h-6 w-full rounded"></span>
+      <span class="bg-primary opacity-35 block h-6 w-full rounded"></span>
     </div>
   <% end %>
 
@@ -421,9 +421,9 @@
         open_expr: "$store.modals.open('auth', { step: 'tokens-picker', submitting: null })",
         openable:  true } do %>
     <div class="pointer-events-none w-40 rounded-lg bg-surface border border-subtle shadow p-4 space-y-2">
-      <span class="block h-2 w-20 mx-auto rounded" style="background: var(--color-text); opacity: .18"></span>
-      <span class="block h-6 w-full rounded" style="background: var(--color-primary); opacity: .5"></span>
-      <span class="block h-1.5 w-28 mx-auto rounded" style="background: var(--color-text); opacity: .3"></span>
+      <span class="bg-[color:var(--color-text)] opacity-18 block h-2 w-20 mx-auto rounded"></span>
+      <span class="bg-primary opacity-50 block h-6 w-full rounded"></span>
+      <span class="bg-[color:var(--color-text)] opacity-30 block h-1.5 w-28 mx-auto rounded"></span>
     </div>
   <% end %>
 
@@ -433,9 +433,9 @@
         open_expr: "$store.modals.open('onramp-hub', { returnModal: 'wallet-topup' })",
         openable:  true } do %>
     <div class="pointer-events-none w-40 rounded-lg bg-surface border border-subtle shadow p-4 space-y-1.5">
-      <span class="block h-5 w-full rounded" style="background: var(--color-text); opacity: .12"></span>
-      <span class="block h-5 w-full rounded" style="background: var(--color-text); opacity: .12"></span>
-      <span class="block h-5 w-full rounded" style="background: var(--color-text); opacity: .12"></span>
+      <span class="bg-[color:var(--color-text)] opacity-12 block h-5 w-full rounded"></span>
+      <span class="bg-[color:var(--color-text)] opacity-12 block h-5 w-full rounded"></span>
+      <span class="bg-[color:var(--color-text)] opacity-12 block h-5 w-full rounded"></span>
     </div>
   <% end %>
 
@@ -446,8 +446,8 @@
         openable:  true } do %>
     <div class="pointer-events-none w-40 rounded-lg bg-surface border border-subtle shadow p-4 text-center space-y-2">
       <div class="text-2xl leading-none">&#128176;</div>
-      <span class="block h-6 w-full rounded" style="background: var(--color-primary); opacity: .35"></span>
-      <span class="block h-1.5 w-24 mx-auto rounded" style="background: var(--color-text); opacity: .18"></span>
+      <span class="bg-primary opacity-35 block h-6 w-full rounded"></span>
+      <span class="bg-[color:var(--color-text)] opacity-18 block h-1.5 w-24 mx-auto rounded"></span>
     </div>
   <% end %>
 
@@ -484,8 +484,8 @@
         openable:  true } do %>
     <div class="pointer-events-none w-40 rounded-lg bg-surface border border-subtle shadow p-4 text-center space-y-2">
       <div class="loading-dots"><span></span><span></span><span></span></div>
-      <span class="block h-2 w-24 mx-auto rounded" style="background: var(--color-text); opacity: .18"></span>
-      <span class="block h-1.5 w-28 mx-auto rounded" style="background: var(--color-text); opacity: .3"></span>
+      <span class="bg-[color:var(--color-text)] opacity-18 block h-2 w-24 mx-auto rounded"></span>
+      <span class="bg-[color:var(--color-text)] opacity-30 block h-1.5 w-28 mx-auto rounded"></span>
     </div>
   <% end %>
 

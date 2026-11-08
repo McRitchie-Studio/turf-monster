@@ -3,10 +3,8 @@
 <% zero = "11111111111111111111111111111111" %>
 
 <div class="max-w-4xl mx-auto px-4 py-8">
-  <div class="flex items-center justify-between mb-6">
-    <h1 class="text-2xl font-bold text-heading">Currencies</h1>
-    <%= link_to "Treasury", admin_pending_transactions_path, class: "text-primary hover:text-primary-300 text-sm font-medium underline" %>
-  </div>
+  <%= render "studio/page_header", title: "Currencies", crumbs: studio_crumbs(parent: :admin),
+        menu: [{ label: "Treasury", href: admin_pending_transactions_path }], row_class: "-mx-4 px-4 mb-6" %>
 
   <p class="text-secondary text-sm mb-6">
     On-chain <span class="font-mono">accepted_currencies</span> registry.

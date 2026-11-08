@@ -110,14 +110,15 @@ test("signed in: the wordmark is one line or the mascot alone, and it follows a 
   }
 });
 
-test("a wallet chip that hydrates wider at 768 takes the words, never ellipses them", async ({ page }) => {
+test("a nav item that hydrates wider at 768 takes the words, never ellipses them", async ({ page }) => {
   await page.setViewportSize({ width: 768, height: 800 });
   await page.goto("/contests");
   await settle(page);
   // The widest chip label the store can write (wallet_signal.js).
   await page.evaluate((sel) => {
-    // Inside the last item the nav draws (the wallet chip when it shows), as
-    // a hydrate grows an existing item rather than adding one.
+    // Inside the last item the nav draws, as a hydrate grows an existing item
+    // rather than adding one. (This was the wallet chip; the chip is now
+    // visually hidden, so it is whichever item is last and visible.)
     const items = [...document.querySelector(`${sel} .nav-row nav`).children].filter((el) => el.offsetWidth > 0);
     const chip = items[items.length - 1];
     const label = document.createElement("span");

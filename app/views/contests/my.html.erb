@@ -1,4 +1,4 @@
-<h2 class="text-2xl font-bold text-heading mb-6">My Contests</h2>
+<%= render "studio/page_header", title: "My Contests", crumbs: studio_crumbs(parent: :contests), row_class: "-mx-4 px-4 mb-6" %>
 
 <% if !logged_in? %>
   <div class="card shadow p-6 text-center">

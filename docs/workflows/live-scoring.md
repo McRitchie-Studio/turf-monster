@@ -128,7 +128,7 @@ while sixteen others are being played.
 `/admin/nfl/weeks/:slot` — `Admin::Nfl::WeeksController#show`
 (`app/controllers/admin/nfl/weeks_controller.rb:39-45`) — is a single drag-ordered
 column rendered by studio-engine's `studio/board/board` primitive over the vendored
-SortableJS, in its reorder-only shape (`app/views/admin/nfl/weeks/show.html.erb:74-84`):
+SortableJS, in its reorder-only shape (`app/views/admin/nfl/weeks/show.html.erb:73-83`):
 drag a game up, and it is preferred over the ones below it. The visible number is a CSS
 counter over the column, so it is correct the instant a drop lands with nothing
 re-rendered.

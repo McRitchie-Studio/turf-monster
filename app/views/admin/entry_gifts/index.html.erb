@@ -5,14 +5,12 @@
 %>
 
 <div class="max-w-5xl mx-auto py-8 px-4 space-y-6">
-  <div>
-    <h1 class="text-heading text-2xl font-bold mb-1">Gift a Free Entry</h1>
-    <p class="text-muted text-sm">
-      Send someone a paid-for contest entry by email. They click once, their account is
-      created, and the on-chain <code class="font-mono">EntryTokenAccount</code> is minted to it —
-      no card, no deposit, no wallet extension.
-    </p>
-  </div>
+  <%= render "studio/page_header", title: "Gift a Free Entry", crumbs: studio_crumbs(parent: :admin) %>
+  <p class="text-muted text-sm">
+    Send someone a paid-for contest entry by email. They click once, their account is
+    created, and the on-chain <code class="font-mono">EntryTokenAccount</code> is minted to it —
+    no card, no deposit, no wallet extension.
+  </p>
 
   <%# THE ONE CONDITION THAT SILENTLY BREAKS THIS PAGE, said out loud where the
       person about to send a gift will read it. With ENABLE_AGE_ATTESTATION on,
@@ -21,8 +19,8 @@
       stranger's behalf, so a gift link to a brand-new address bounces to /signin
       and the link is spent. Existing accounts are unaffected. %>
   <% if AppFlags.age_attestation? %>
-    <div class="card p-4" style="border-color: var(--color-danger);">
-      <p class="text-sm" style="color: var(--color-danger);">
+    <div class="border-[color:var(--color-danger)] card p-4">
+      <p class="text-[color:var(--color-danger)] text-sm">
         <strong>Legal-age attestation is ON</strong> (<code class="font-mono">ENABLE_AGE_ATTESTATION</code>).
         A gift link cannot create a NEW account while it is — the recipient is sent to /signin to
         request their own link with the box checked, and this gift's link is spent. Gifts to people

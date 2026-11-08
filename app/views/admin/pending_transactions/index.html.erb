@@ -1,10 +1,9 @@
 <div class="max-w-4xl mx-auto px-4 py-8">
-  <div class="flex items-center justify-between mb-6">
-    <h1 class="text-2xl font-bold text-heading">Treasury</h1>
-    <% if @pending_count > 0 %>
-      <span class="bg-primary text-white text-xs font-bold px-2 py-1 rounded-full"><%= @pending_count %> pending</span>
-    <% end %>
-  </div>
+  <%= render "studio/page_header", title: "Treasury", crumbs: studio_crumbs(:admin_pending_transactions),
+        meta: (@pending_count > 0 ? "#{@pending_count} pending" : nil), row_class: "-mx-4 px-4 mb-6" %>
+  <% if @pending_count > 0 %>
+    <p class="sm:hidden -mt-4 mb-6"><span class="bg-primary text-white text-xs font-bold px-2 py-1 rounded-full"><%= @pending_count %> pending</span></p>
+  <% end %>
 
   <%# THE PAGE-LEVEL WALLET SIGNAL. This page is one of three that deliberately
       SUPPRESS the wallet-changed card: a treasury cosign walks the operator

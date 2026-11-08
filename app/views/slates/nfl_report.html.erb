@@ -135,11 +135,7 @@
 <% end %>
 
 <div class="max-w-3xl mx-auto py-8 px-2">
-  <div class="flex items-center justify-between mb-6">
-    <h1 class="text-2xl font-bold text-heading">NFL Points Distribution</h1>
-    <%= link_to "← Slates", slates_path,
-      class: "text-primary hover:text-primary-300 text-sm font-medium underline underline-offset-2" %>
-  </div>
+  <%= render "studio/page_header", title: "NFL Points Distribution", crumbs: studio_crumbs(parent: :slates), row_class: "-mx-2 px-2 mb-6" %>
 
   <%= render "report_tabs", active: :nfl %>
 
@@ -175,8 +171,8 @@
       <% end %>
     </div>
 
-    <div class="bg-surface border border-subtle rounded-lg p-4 mb-6" style="height: 300px;">
-      <canvas id="chart-nfl-dist" style="width: 100%; height: 100%;"></canvas>
+    <div class="h-[300px] bg-surface border border-subtle rounded-lg p-4 mb-6">
+      <canvas id="chart-nfl-dist" class="size-full"></canvas>
     </div>
 
     <div class="bg-surface border border-subtle rounded-lg overflow-hidden">

@@ -417,7 +417,7 @@ dollar amounts for the same wallet.
 - **Client:** the only browser-storage clearing on logout is an inline `onclick`,
   duplicated verbatim in two views —
   `app/views/components/_gear_sidebar.html.erb:84` and
-  `app/views/accounts/show.html.erb:195` —
+  `app/views/accounts/show.html.erb:194` —
   `try{localStorage.removeItem('pendingContestEntry')}catch(e){}`.
   **One key of nineteen.** The gear-sidebar link carries `data: { turbo: false }`;
   the `/account` link does not, so the two logouts do not even take the same

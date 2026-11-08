@@ -40,7 +40,7 @@
      data-studio-action="newsletter-state-changed@window->newsletter-state#update turbo:before-cache@document->newsletter-state#reset">
 
   <%# Subscribed state %>
-  <div data-newsletter-state-target="subscribed" <%= "hidden" unless subscribed %> class="flex items-center justify-between gap-3 flex-wrap" style="min-height: 3rem;">
+  <div data-newsletter-state-target="subscribed" <%= "hidden" unless subscribed %> class="min-h-12 flex items-center justify-between gap-3 flex-wrap">
     <div class="flex items-center gap-2 min-w-0">
       <svg class="w-5 h-5 text-primary flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
@@ -54,7 +54,7 @@
   </div>
 
   <%# Not-subscribed state %>
-  <div data-newsletter-state-target="unsubscribed" <%= "hidden" if subscribed %> class="flex items-center justify-between gap-3 flex-wrap" style="min-height: 3rem;">
+  <div data-newsletter-state-target="unsubscribed" <%= "hidden" if subscribed %> class="min-h-12 flex items-center justify-between gap-3 flex-wrap">
     <p class="text-secondary text-sm min-w-0">
       <% if user.first_newsletter_join? %>
         Join the newsletter for <span class="text-primary font-semibold">25 seeds</span> — sports news and contest updates.

@@ -1378,7 +1378,10 @@
 # 622 -> 623 (turf-adopts-not-found-page): one spec in e2e/not_found_page.spec.js: a lost
 # visitor gets the 404 page and its home button lands on /. Chromium, no skip. Derived with
 # bin/e2e-lane-derive --write.
-total_specs: 625
+# 623 -> 627 (turf-standard-page-headers): four specs in e2e/page_headers.spec.js, the help
+# glossary and /admin/drop_signups on the engine page header at desktop and 390px. Chromium,
+# no skip. Derived with bin/e2e-lane-derive --write.
+total_specs: 629
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need funded devnet wallets: the secrets
 # SOLANA_BOT_KEY and MACK_DEVNET_KEY (never literals; test/lib/committed_secret_key_guard_test.rb).
@@ -1812,7 +1815,9 @@ allowed_skips: 4
 # chromium, no skip.
 # 601 -> 602 (turf-adopts-not-found-page): the not_found_page spec beside total_specs above;
 # chromium, no skip.
-executed: 604
+# 602 -> 606 (turf-standard-page-headers): the four page_headers specs beside total_specs above;
+# chromium, no skip.
+executed: 608
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a
