@@ -41,7 +41,9 @@ class RemoteScriptIntegrityCeilingTest < ActiveSupport::TestCase
 
   test "the census sees the app's remote scripts, pinned and not" do
     loads = RemoteScriptCensus.loads(RemoteScriptCensus.app_files)
-    assert_operator loads.count(&:integrity), :>=, 3, "the layout's web3.js and tweetnacl and wallet_provider's tweetnacl"
+    # web3.js and tweetnacl are vendored (turf-e2e-retry-only-causes), so the pinned
+    # remote script left in this app's own source is the layout's LogRocket.
+    assert_operator loads.count(&:integrity), :>=, 1, "the layout's pinned LogRocket"
     assert loads.any? { |load| self.class.exempt?(load) }, "the LogRocket exemption no longer matches anything; remove it"
   end
 

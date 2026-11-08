@@ -16,7 +16,6 @@ class SigningCspUnitTest < ActiveSupport::TestCase
 
     assert_equal [ "'self'", "'unsafe-eval'", "'report-sample'",
                    "https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js",
-                   "https://unpkg.com/@solana/web3.js@1.98.4/lib/index.iife.min.js",
                    "https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js",
                    "https://cdn.logr-in.com" ], script_src
   end
@@ -31,7 +30,7 @@ class SigningCspUnitTest < ActiveSupport::TestCase
       assert_not_includes script_src, mirror
       assert_not_includes script_src, "#{mirror}/"
     end
-    assert script_src.grep(%r{\Ahttps://(cdn\.jsdelivr\.net|unpkg\.com|cdnjs\.cloudflare\.com)/.+\.js\z}).size == 3
+    assert script_src.grep(%r{\Ahttps://(cdn\.jsdelivr\.net|unpkg\.com|cdnjs\.cloudflare\.com)/.+\.js\z}).size == 2
   end
 
   # Every file the strict list names is one a view or script actually loads,

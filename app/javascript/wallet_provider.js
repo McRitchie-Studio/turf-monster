@@ -194,7 +194,7 @@ var KeypairProvider = {
 
     var self = this;
 
-    // tweetnacl should already be loaded on the page (CDN in head)
+    // tweetnacl should already be loaded on the page (the layout's blocking head tag)
     if (typeof nacl !== 'undefined' && nacl.sign) {
       // secret is the full 64-byte secretKey (seed + pubkey)
       self._keypair = { publicKey: secret.slice(32), secretKey: secret };
@@ -202,12 +202,17 @@ var KeypairProvider = {
       return Promise.resolve(self._keypair);
     }
 
-    // Lazy-load tweetnacl if not present
+    // Lazy-load tweetnacl if not present: the same file the layout's tag loads
+    // (#tweetnacl-script, this app's vendored copy at its digested asset path),
+    // under the same pin, so the file runs only if its bytes match.
     return new Promise(function(resolve, reject) {
+      var tag = document.getElementById('tweetnacl-script');
+      if (!tag || !tag.src) {
+        reject(new Error('tweetnacl: the layout tag #tweetnacl-script is missing'));
+        return;
+      }
       var s = document.createElement('script');
-      s.src = 'https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js';
-      // The layout's pin for this exact URL (openssl dgst -sha384 over the
-      // fetched file): a remote script loads only with its integrity.
+      s.src = tag.src;
       s.integrity = 'sha384-05+sicyRJQ56XpL4U9HJ8YbtSzFDvAg7apPKOGV6A0JsAJKFM68jp5oLnUjG5mEp';
       s.crossOrigin = 'anonymous';
       s.onload = function() {
