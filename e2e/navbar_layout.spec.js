@@ -474,8 +474,10 @@ test("a zero-token ✨ badge holds no box and reports display:none", async ({ pa
   // refreshSession() lands on its own schedule and calls updateNavTokens with
   // the SERVER's count, which is zero for this user. Land after we drive the
   // badge to two and it re-applies `.hidden` underneath the assertions, which
-  // go red for a reason that has nothing to do with the cascade. workers:1 +
-  // retries:2 would most likely bury that on a retry — the bad kind of green.
+  // go red for a reason that has nothing to do with the cascade. The lane's old
+  // retries:2 would most likely have buried that on a retry, the bad kind of green;
+  // with no retries (turf-deterministic-ci) it is a plain red. The sleep below is a
+  // ratcheted debt (config/e2e_race_patterns.yml): wait on the session read instead.
   await page.waitForTimeout(4000);
 
   const measure = () => page.evaluate(() => {
