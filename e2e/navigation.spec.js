@@ -61,8 +61,8 @@ test("turf monster rules page loads @smoke", async ({ page }) => {
   await page.goto("/turf-monster-v1");
   await expect(page.locator("body")).toBeVisible();
   // Title, not getByRole("heading", { level: 1 }) — the navbar wordmark is an
-  // h1 too (studio-engine's layouts/_navbar), so a level-1 heading locator matches TWO nodes
-  // and dies on strict mode. The title is the page's own, and unambiguous.
+  // h1 unless the page carries its own (studio-engine's layouts/_navbar, brand_heading),
+  // so a level-1 heading locator can match TWO nodes and die on strict mode. The title is the page's own, and unambiguous.
   await expect(page).toHaveTitle(/Turf Monster v1/);
 });
 

@@ -57,7 +57,7 @@ function expectOneLineOrHidden(b, label) {
   expect(b.hidden, `${label}: fit, but the words are hidden`).toBe(false);
   expect(b.clipped, `${label}: a word is clipped (an ellipsis)`).toEqual([]);
   // Both words share one line box: their tops agree within a pixel, and the
-  // h1 is no taller than one line of its type.
+  // wordmark is no taller than one line of its type.
   expect(Math.abs(b.wordTops[0] - b.wordTops[1]), `${label}: the words sit on two lines`).toBeLessThanOrEqual(1);
   expect(b.titleHeight, `${label}: the title is taller than one line`).toBeLessThan(b.fontSize * 1.6);
 }
@@ -80,9 +80,14 @@ for (const theme of ["light", "dark"]) {
       expect(b.docOverflow, `${width}px: the page scrolls sideways`).toBeLessThanOrEqual(0);
       seen[width] = b.state;
       // The home link keeps its name whether the words show or not: the
-      // mascot's alt, and the h1 still in the accessibility tree.
+      // mascot's alt, and the wordmark still in the accessibility tree. The
+      // brand is found by its class, not its tag: studio-engine draws it as an
+      // h1 only when the page has no h1 of its own, and /contests carries the
+      // engine page header, whose title is the page's one h1.
       await expect(page.locator(HEADER).getByRole("link", { name: /Turf Monster/ }).first()).toBeVisible();
-      expect(await page.locator(`${HEADER} h1.nav-title`).evaluate((h) => h.textContent.trim()), `${width}px: the page's h1`).toBe("TurfMonster");
+      expect(await page.locator(`${HEADER} .nav-title`).evaluate((h) => h.textContent.trim()), `${width}px: the navbar wordmark`).toBe("TurfMonster");
+      // The page's own h1 is the header's title, on either engine.
+      await expect(page.locator("main .page-header h1.page-header-title"), `${width}px: the page's h1`).toHaveText("Contests");
     }
     // The ends of the range are not in doubt: a 360px phone has no room for
     // the words beside the account column; a laptop has plenty.

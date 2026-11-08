@@ -10,8 +10,8 @@ require "minitest/mock"
 # action), never actions_html. The table names every converted page, its title and
 # the labels of its trail.
 #
-# The navbar's brand is the engine's own h1 (layouts/_navbar, brand_heading), so the
-# one-h1 rule here is main's: the page's own outline has exactly one h1, the header's.
+# The navbar's brand is the engine's h1 unless the page carries its own (layouts/_navbar,
+# brand_heading), so the one-h1 rule here is main's: the page's own outline has exactly one h1, the header's.
 class PageHeadersTest < ActionDispatch::IntegrationTest
   ROW = ".page-header".freeze
   KINDS = %w[page-header-menu page-header-action page-header-tools].freeze
