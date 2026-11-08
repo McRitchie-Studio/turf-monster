@@ -444,4 +444,17 @@ class UserTest < ActiveSupport::TestCase
     assert_not_equal stranger, result
     assert_nil stranger.reload.uid, "the stranger must not be linked"
   end
+
+  test "[unit] the users_role_known check refuses a role outside viewer and admin" do
+    user = User.create!(email: "role-check@example.com", username: "rolecheck", role: "viewer")
+
+    error = assert_raises(ActiveRecord::CheckViolation) do
+      User.transaction(requires_new: true) { user.update_column(:role, "owner") }
+    end
+    assert_match "users_role_known", error.message
+    assert_equal "viewer", user.reload.role
+
+    user.update_column(:role, "admin")
+    assert_equal "admin", user.reload.role
+  end
 end
