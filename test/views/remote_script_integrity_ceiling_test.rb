@@ -43,9 +43,14 @@ class RemoteScriptIntegrityCeilingTest < ActiveSupport::TestCase
     loads = RemoteScriptCensus.loads(RemoteScriptCensus.app_files)
     # web3.js and tweetnacl are vendored (turf-e2e-retry-only-causes), so this app's
     # own source holds no pinned remote script. The detector is checked on the gems'
-    # views instead, whose cropper and deeplink tweetnacl tags are both pinned.
+    # views instead: here it must see at least one pinned remote tag, or it can no
+    # longer tell a pinned tag from an unpinned one. solana-studio's deeplink
+    # tweetnacl tag is that one on every engine. studio-engine's cdnjs cropper tag
+    # is a second only until engine-vendors-cropper-assets, which serves the file
+    # from the app's own pipeline (no remote URL to census); the engine's own
+    # cropper SRI test owns that pin, so the floor here is 1, not 2.
     gem_loads = RemoteScriptCensus.loads(RemoteScriptCensus.gem_files)
-    assert_operator gem_loads.count(&:integrity), :>=, 2, "studio-engine's cropper and solana-studio's tweetnacl"
+    assert_operator gem_loads.count(&:integrity), :>=, 1, "solana-studio's tweetnacl (and studio-engine's cropper while it loads from cdnjs)"
     assert loads.any? { |load| self.class.exempt?(load) }, "the LogRocket exemption no longer matches anything; remove it"
   end
 

@@ -7,7 +7,13 @@ require "test_helper"
 # untouched. And the flip guard: the enforce switch stays off while a gem
 # still renders an un-nonced script on a signing page.
 class SigningCspUnitTest < ActiveSupport::TestCase
+  CDNJS_CROPPER = "https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js".freeze
+
   def app_policy = Rails.application.config.content_security_policy
+
+  def self.engine_vendors_cropper?
+    File.exist?(File.join(Gem.loaded_specs.fetch("studio-engine").full_gem_path, "app/assets/javascripts/studio/cropper-1.6.2.min.js"))
+  end
 
   def directives(policy) = policy.build(nil, nil, []).split("; ").to_h { |d| [ d.split(" ").first, d.split(" ").drop(1) ] }
 
@@ -42,7 +48,17 @@ class SigningCspUnitTest < ActiveSupport::TestCase
       Dir.glob(File.join(Gem.loaded_specs.fetch(gem).full_gem_path, "app/views/**/*.erb")).map { |file| File.read(file) }.join
     }.join
 
-    Rails.configuration.x.signing_csp_script_src.grep(%r{\Ahttps://[^/]+/.+}).each do |url|
+    urls = Rails.configuration.x.signing_csp_script_src.grep(%r{\Ahttps://[^/]+/.+})
+    # studio-engine's cropper: the strict list keeps naming the cdnjs file until
+    # this app takes the engine release that vendors it (engine-vendors-cropper-
+    # assets). From that release the engine ships the file itself and loads it
+    # from 'self', so no view loads the cdnjs URL. Skip it only then, and pin
+    # that it really is gone; drop this skip with the CSP entry after the bump.
+    if self.class.engine_vendors_cropper?
+      assert_not sources.include?(CDNJS_CROPPER), "the engine vendors cropper, yet a view still loads it from cdnjs"
+      urls -= [ CDNJS_CROPPER ]
+    end
+    urls.each do |url|
       assert_includes sources, url
     end
   end
