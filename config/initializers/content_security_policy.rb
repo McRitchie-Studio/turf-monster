@@ -4,7 +4,7 @@
 # loads:
 #   - Phantom wallet from injected window object (no external script)
 #   - YouTube (privacy-mode) player iframe for the wallet-setup explainer video
-#   - Solana web3 and tweetnacl via CDN (named by file in RemoteScriptSources)
+#   - LogRocket session replay from its own CDN (RemoteScriptSources)
 #   - Stripe Checkout redirect (form POST to checkout.stripe.com — needs a form-action entry)
 #   - Google OAuth (OmniAuth google_oauth2 form POST to accounts.google.com — needs a form-action entry)
 #   - PayPal JS SDK when PAYMENT_PROVIDER=paypal (script-src names PayPal's
@@ -25,24 +25,24 @@
 # host. A host missing here blocks its script in production, and QA runs this
 # policy report-only, so QA will not see the block:
 # test/integration/app_script_src_test.rb asserts the header, and its census
-# fails when a view, app/javascript or a locked gem's view names a remote
-# script this list does not.
+# fails when a view, app/javascript or a locked gem's view this app can render
+# names a remote script this list does not.
 #
 # Named by FILE where the host mirrors every npm package (cdn.jsdelivr.net,
 # unpkg.com, cdnjs.cloudflare.com), as signing_script_src below does; a bare
 # host there would admit any package. By host where the vendor serves only its
-# own code. Chart.js, SortableJS and the layout's web3.js and tweetnacl are vendored and load from 'self'.
+# own code. Chart.js, SortableJS, cropper.js and the layout's web3.js and
+# tweetnacl are vendored and load from 'self'.
 module RemoteScriptSources
+  # Gone from this list, and why each stays gone:
+  #   - web3.js and tweetnacl (turf-e2e-retry-only-causes): the layout loads this
+  #     app's vendored copies. solana-studio's solana_studio/_deeplink_assets still
+  #     names jsDelivr's tweetnacl, but this app renders that partial nowhere
+  #     (phantom_deeplink_adoption_test bans it), so the census skips it
+  #     (RemoteScriptCensus::RENDERED_NOWHERE).
+  #   - cropper.js (turf-post-engine-cleanup): studio-engine 0.136.0 serves
+  #     studio/_cropper_assets' files from the app's own pipeline.
   ALWAYS = [
-    # solana-studio's solana_studio/_deeplink_assets names this file. This app
-    # renders that partial nowhere (phantom_deeplink_adoption_test bans it) and
-    # loads its own vendored copy, but the census covers every gem view.
-    "https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js",
-    # web3.js left this list in turf-e2e-retry-only-causes: the layout loads this
-    # app's copy (vendor/javascript), so no remote web3.js is named here.
-    # studio-engine's studio/_cropper_assets: accounts/show, contests/new and
-    # edit, admin/landing_pages/_form.
-    "https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js",
     # LogRocket, layouts/application, signed-in production only. LogRocket.min.js
     # loads its recorder (logger.min.js) from the origin it was itself served
     # from, so the one host covers both.
@@ -112,7 +112,8 @@ Rails.application.configure do
   # and cdnjs.cloudflare.com mirror every npm package, so a bare host would let
   # an injected <script src> load any of them; a path source matches only the
   # one file (each also pinned by SRI where it is loaded). Alpine, confetti,
-  # sortable and leaflet are vendored in studio-engine, web3.js and tweetnacl here; all from 'self'.
+  # sortable, leaflet and cropper are vendored in studio-engine, web3.js and
+  # tweetnacl here; all from 'self'.
   #
   # 'unsafe-eval' stays while Alpine runs on these pages (engine-retires-alpine
   # removes it): Alpine evaluates every x-data, x-on and :binding with new
@@ -128,9 +129,7 @@ Rails.application.configure do
     :self,
     :unsafe_eval,
     :report_sample,               # a report quotes the first 40 characters it blocked
-    "https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js",       # solana-studio deeplink_assets (not rendered here)
-    # web3.js and the layout's tweetnacl are this app's own copies (vendor/javascript), from 'self'.
-    "https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js", # studio/cropper_assets (avatar, contest banner)
+    # web3.js, tweetnacl and studio-engine's cropper are served from 'self'.
     "https://cdn.logr-in.com"     # LogRocket
   ]
   signing_script_src << "https://www.paypal.com" if paypal_provider
