@@ -45,7 +45,9 @@ test("a short link lands on its page and counts one click under its reference", 
   const tab = await visitor.newPage();
   await tab.goto(`/l/${name}`);
   await expect(tab).toHaveURL(`${baseURL}/turf-monster-v2?r=${reference}`);
-  await expect(tab.locator("h1").first()).toBeVisible();
+  // The landing's own headline, inside the page root: a bare h1 could match
+  // the navbar brand, which is the h1 on a page without one of its own.
+  await expect(tab.locator('[data-test="turf-monster-v2"]').getByRole("heading", { level: 1 })).toBeVisible();
   await tab.goto(`/l/${name}`); // the same visitor again: must not count twice
   await expect(tab).toHaveURL(`${baseURL}/turf-monster-v2?r=${reference}`);
   await visitor.close();
