@@ -11,7 +11,7 @@ class LaptopFictionalShowcaseTest < ActiveSupport::TestCase
   # setting behind the navbar's region pill. Neither reads a contest, a game,
   # an entry or a player.
   CHROME_QUERIES = [
-    /\ASELECT "users"\.\* FROM "users" WHERE "users"\."id" IS NULL LIMIT/,
+    /\ASELECT "users"\.(\*|"id", .+?) FROM "users" WHERE "users"\."id" IS NULL LIMIT/, # columns listed: User ignores two
     /\ASELECT "studio_geo_settings"\.\* FROM "studio_geo_settings" WHERE/
   ].freeze
 
