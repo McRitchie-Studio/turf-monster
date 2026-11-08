@@ -91,7 +91,7 @@ class PageHeadersTest < ActionDispatch::IntegrationTest
   # Gets the page with the engine's actions_html deprecation hook armed, and no RPC.
   def get_header(path)
     sites = []
-    Solana::Vault.stub :new, FakeVault.new do
+    Solana::Vault.stub :new, FakeVault.new(seasons: [ { season_id: 1, name: "Season 1" } ]) do
       Studio::PageHeader.stub(:warning_enabled?, true) do
         Studio::PageHeader.stub(:deprecate_actions_html, ->(site: nil, **) { sites << site }) do
           get path

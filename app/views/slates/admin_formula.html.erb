@@ -9,7 +9,7 @@
   <%= form_with url: update_admin_formula_slates_path, method: :patch, local: true do |f| %>
     <div class="space-y-4">
       <!-- DK Score -->
-      <div class="border-l-[3px] border-l-[#15803D] bg-surface border border-subtle rounded-lg p-4">
+      <div class="bg-surface border border-subtle rounded-lg p-4" style="border-left: 3px solid #15803D;">
         <div class="mb-3">
           <span class="text-sm font-bold text-heading">DK Score</span>
           <span class="text-muted text-sm"> = A &times; line<sup>lineExp</sup> &times; prob<sup>probExp</sup></span>
@@ -31,7 +31,7 @@
       </div>
 
       <!-- Multiplier -->
-      <div class="border-l-[3px] border-l-[#8E82FE] bg-surface border border-subtle rounded-lg p-4">
+      <div class="bg-surface border border-subtle rounded-lg p-4" style="border-left: 3px solid #8E82FE;">
         <div class="mb-3">
           <span class="text-sm font-bold text-heading">Multiplier</span>
           <span class="text-muted text-sm"> = base + scale &times; ln(rank) / ln(N)</span>
@@ -51,7 +51,7 @@
       </div>
 
       <!-- Goals Distribution -->
-      <div class="border-l-[3px] border-l-[#B8B0FF] bg-surface border border-subtle rounded-lg p-4">
+      <div class="bg-surface border border-subtle rounded-lg p-4" style="border-left: 3px solid #B8B0FF;">
         <div class="mb-3">
           <span class="text-sm font-bold text-heading">Goals Distribution</span>
           <span class="text-muted text-sm"> = base + scale &times; ln(N/rank) / ln(N)</span>
