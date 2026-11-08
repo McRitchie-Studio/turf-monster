@@ -7,16 +7,11 @@
     the server enforces both (DropAnnouncement#send!), the disabled button is
     only the courtesy. %>
 <div class="max-w-7xl mx-auto py-8 px-4 space-y-6" data-test="admin-drop-announcement">
-  <div class="flex flex-wrap items-end justify-between gap-3">
-    <div>
-      <h1 class="text-heading text-2xl font-bold mb-1">Drop Announcement</h1>
-      <p class="text-secondary text-sm">
-        "<%= NextSlateDrop.display_label %> is live" to the <span class="font-mono"><%= @announcement.slate_key %></span> list.
-        Drops <%= NextSlateDrop.drops_at_label %>. Manual only: nothing sends this but the button below.
-      </p>
-    </div>
-    <%= link_to "Back to the list", admin_drop_signups_path, class: "btn btn-outline btn-sm" %>
-  </div>
+  <%= render "studio/page_header", title: "Drop Announcement", crumbs: studio_crumbs(parent: :admin_drop_signups) %>
+  <p class="text-secondary text-sm">
+    "<%= NextSlateDrop.display_label %> is live" to the <span class="font-mono"><%= @announcement.slate_key %></span> list.
+    Drops <%= NextSlateDrop.drops_at_label %>. Manual only: nothing sends this but the button below.
+  </p>
 
   <div class="grid grid-cols-2 md:grid-cols-6 gap-3">
     <div class="card p-4 col-span-2">

@@ -5,14 +5,12 @@
 %>
 
 <div class="max-w-5xl mx-auto py-8 px-4 space-y-6">
-  <div>
-    <h1 class="text-heading text-2xl font-bold mb-1">Gift a Free Entry</h1>
-    <p class="text-muted text-sm">
-      Send someone a paid-for contest entry by email. They click once, their account is
-      created, and the on-chain <code class="font-mono">EntryTokenAccount</code> is minted to it —
-      no card, no deposit, no wallet extension.
-    </p>
-  </div>
+  <%= render "studio/page_header", title: "Gift a Free Entry", crumbs: studio_crumbs(parent: :admin) %>
+  <p class="text-muted text-sm">
+    Send someone a paid-for contest entry by email. They click once, their account is
+    created, and the on-chain <code class="font-mono">EntryTokenAccount</code> is minted to it —
+    no card, no deposit, no wallet extension.
+  </p>
 
   <%# THE ONE CONDITION THAT SILENTLY BREAKS THIS PAGE, said out loud where the
       person about to send a gift will read it. With ENABLE_AGE_ATTESTATION on,

@@ -1,10 +1,9 @@
 <% content_for :title, "Vault State" %>
 
 <div class="max-w-3xl mx-auto px-4 py-8">
-  <div class="flex items-center justify-between mb-6">
-    <h1 class="text-2xl font-bold text-heading">Vault State</h1>
-    <span class="font-mono text-xs text-muted"><%= @network %></span>
-  </div>
+  <%= render "studio/page_header", title: "Vault State", crumbs: studio_crumbs(parent: :admin),
+        meta: @network, row_class: "-mx-4 px-4 mb-6" %>
+  <p class="sm:hidden font-mono text-xs text-muted -mt-4 mb-6" data-test="network-phone"><%= @network %></p>
 
   <%# THE PAGE-LEVEL WALLET SIGNAL. The unpause flow below declares its signer
       queue to the wallet watcher and suppresses the wallet-changed card for
