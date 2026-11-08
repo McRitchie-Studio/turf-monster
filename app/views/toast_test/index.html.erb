@@ -1,10 +1,8 @@
 <% content_for(:title, "Toast Test — Turf Monster") %>
 
 <div class="max-w-2xl mx-auto py-10 space-y-10" data-studio-controller="toast-demo">
-  <div>
-    <h1 class="text-heading text-2xl font-bold mb-1">Toast Notifications</h1>
-    <p class="text-muted text-sm">Test page for floating toast notifications. Fixed width, auto-dismiss after 4s unless buttons are present.</p>
-  </div>
+  <%= render "studio/page_header", title: "Toast Notifications" %>
+  <p class="-mt-8 text-muted text-sm">Test page for floating toast notifications. Fixed width, auto-dismiss after 4s unless buttons are present.</p>
 
   <%# ── Dismissible (with X) ── %>
   <div class="card p-6 space-y-4">

@@ -30,12 +30,10 @@
 <% copy_button_classes = "shrink-0 [&_code]:hidden [&_button]:min-h-11 [&_button]:min-w-11 [&_button]:rounded-lg [&_button]:border [&_button]:border-strong [&_button]:bg-surface-alt [&_button]:px-4 [&_button]:py-2 [&_button]:text-sm [&_button]:font-semibold [&_button]:text-heading" %>
 
 <div class="max-w-3xl mx-auto py-10 px-2 space-y-12" data-test="agents-page">
-  <header>
-    <h1 class="text-2xl md:text-4xl font-extrabold text-heading mb-3">Play Turf Monster with your AI assistant</h1>
-    <p class="text-body text-base md:text-lg leading-relaxed">
-      Copy the prompt below, give it to your assistant with your API key, and it can read the contests, work out a lineup with you and enter using your free entry.
-    </p>
-  </header>
+  <%= render "studio/page_header", title: "Play Turf Monster with your AI assistant", row_class: "-mx-2 px-2" %>
+  <p class="-mt-10 text-body text-base md:text-lg leading-relaxed">
+    Copy the prompt below, give it to your assistant with your API key, and it can read the contests, work out a lineup with you and enter using your free entry.
+  </p>
 
   <section aria-labelledby="starter-prompt-heading">
     <div class="card p-4 sm:p-6">

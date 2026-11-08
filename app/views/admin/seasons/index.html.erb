@@ -1,13 +1,11 @@
 <% content_for(:title, "Seasons — Admin") %>
 
 <div class="max-w-5xl mx-auto py-8 px-4 space-y-6">
-  <div>
-    <h1 class="text-heading text-2xl font-bold mb-1">Seasons</h1>
-    <p class="text-muted text-sm">
-      On-chain <code class="font-mono">Season</code> PDAs hold the seed schedule used by every entry instruction.
-      Schedule slots map to <span class="font-mono">entry_num.min(4)</span> — slot 4 applies to any entry beyond the 5th.
-    </p>
-  </div>
+  <%= render "studio/page_header", title: "Seasons", crumbs: studio_crumbs(parent: :admin) %>
+  <p class="text-muted text-sm">
+    On-chain <code class="font-mono">Season</code> PDAs hold the seed schedule used by every entry instruction.
+    Schedule slots map to <span class="font-mono">entry_num.min(4)</span> — slot 4 applies to any entry beyond the 5th.
+  </p>
 
   <%# Existing seasons table %>
   <div class="card overflow-x-auto">
@@ -31,7 +29,7 @@
             <td class="px-3 py-3 font-mono text-xs text-muted"><%= Time.at(s[:created_at]).strftime("%Y-%m-%d %H:%M") rescue "—" %></td>
             <td class="px-4 py-3 text-right">
               <% if is_current %>
-                <span class="text-xs font-bold px-2 py-0.5 rounded-full" style="background: rgb(var(--color-primary-500-rgb) / 0.15); color: var(--color-primary-badge-ink); border: 1px solid rgb(var(--color-primary-500-rgb) / 0.4);">CURRENT</span>
+                <span class="bg-primary-500/15 text-[color:var(--color-primary-badge-ink)] border border-primary-500/40 text-xs font-bold px-2 py-0.5 rounded-full">CURRENT</span>
               <% else %>
                 <%= button_to admin_set_current_season_path(season_id: s[:season_id]), class: "btn btn-outline btn-sm" do %>
                   Set Current

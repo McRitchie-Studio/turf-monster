@@ -198,11 +198,10 @@ window.gameCard = function(data) {
 </script>
 
 <div class="max-w-4xl mx-auto px-4 py-6" x-data="{ simAllRunning: false, simAllCurrent: 0, simAllTotal: 0 }">
+  <%= render "studio/page_header", title: "Slate Manager", crumbs: studio_crumbs(parent: :slate, slate: @slate),
+        row_class: "-mx-4 px-4 mb-2" %>
   <div class="flex items-center justify-between mb-6">
-    <div>
-      <h1 class="text-2xl font-extrabold text-heading">Slate Manager</h1>
-      <p class="text-sm text-muted mt-1"><%= @slate.name %></p>
-    </div>
+    <p class="text-sm text-muted"><%= @slate.name %></p>
     <div class="flex items-center gap-2">
       <template x-if="simAllRunning">
         <span class="text-sm font-semibold text-yellow-400">Game <span x-text="simAllCurrent"></span>/<span x-text="simAllTotal"></span></span>
@@ -216,7 +215,6 @@ window.gameCard = function(data) {
         <span x-show="!simAllRunning">Simulate All (10s each)</span>
         <span x-show="simAllRunning">Simulating...</span>
       </button>
-      <%= link_to "Back to Slate", slate_path(@slate), class: "btn btn-outline btn-sm" %>
     </div>
   </div>
 
@@ -225,7 +223,7 @@ window.gameCard = function(data) {
       <div class="card p-4" x-data="gameCard(JSON.parse($el.dataset.game))" data-game="<%= game_card_data(game) %>">
         <!-- Score Header -->
         <div class="flex items-center justify-between mb-3">
-          <table class="text-sm" style="min-width: 16rem;">
+          <table class="min-w-64 text-sm">
             <thead>
               <tr class="text-xs text-muted uppercase tracking-wide">
                 <th class="text-left font-semibold pr-4 pb-1">Team</th>
@@ -315,7 +313,7 @@ window.gameCard = function(data) {
               </div>
 
               <!-- Player Dropdown -->
-              <select x-model="selectedPlayer" class="input-field text-sm py-1.5 flex-1" style="min-width: 10rem;">
+              <select x-model="selectedPlayer" class="min-w-40 input-field text-sm py-1.5 flex-1">
                 <option value="">Player (optional)</option>
                 <template x-for="p in filteredPlayers" :key="p.slug">
                   <option :value="p.slug" x-text="p.name"></option>
@@ -324,7 +322,7 @@ window.gameCard = function(data) {
 
               <!-- Minute -->
               <input type="number" x-model.number="goalMinute" placeholder="Min" min="1" max="120"
-                     class="input-field text-sm py-1.5" style="width: 4.5rem;">
+                     class="w-18 input-field text-sm py-1.5">
 
               <!-- Submit -->
               <button @click="addGoal()" class="btn btn-primary btn-sm" :disabled="!selectedTeam || submitting">

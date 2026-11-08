@@ -2,12 +2,11 @@
     (1200×630). The owning controller's image-save action Turbo-Stream-replaces
     this element by dom_id after an immediate crop save. Used by the
     per-landing-page override; the site-wide default lives at /admin/link_preview. %>
-<div id="<%= dom_id %>" class="rounded-lg overflow-hidden border border-subtle" style="aspect-ratio: 1200 / 630;">
+<div id="<%= dom_id %>" class="aspect-[1200/630] rounded-lg overflow-hidden border border-subtle">
   <% if attachment.attached? %>
     <%= image_tag attachment, class: "w-full h-full object-cover", alt: alt %>
   <% else %>
-    <div class="w-full h-full flex items-center justify-center text-xs text-muted text-center px-4"
-         style="background: linear-gradient(135deg, var(--color-primary-700), var(--color-primary-900))">
+    <div class="bg-linear-135/srgb from-primary-700 to-primary-900 w-full h-full flex items-center justify-center text-xs text-muted text-center px-4">
       <%= fallback %>
     </div>
   <% end %>

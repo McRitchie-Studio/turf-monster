@@ -8,10 +8,9 @@
   shows it done. QA shows the devnet list; production the mainnet one.
 %>
 <div class="max-w-4xl mx-auto px-4 py-8">
-  <div class="flex items-center justify-between mb-2">
-    <h1 class="text-2xl font-bold text-heading">Rotation checklist</h1>
-    <span class="font-mono text-xs text-muted"><%= @network %></span>
-  </div>
+  <%= render "studio/page_header", title: "Rotation checklist", crumbs: studio_crumbs(parent: :admin_authorities),
+        meta: @network, row_class: "-mx-4 px-4 mb-2" %>
+  <p class="sm:hidden font-mono text-xs text-muted mb-2" data-test="network-phone"><%= @network %></p>
   <p class="text-secondary text-sm mb-6">
     Each step's preconditions are read from the chain and this server now.
     <%= link_to "Back to Authorities", admin_authorities_path, class: "text-primary underline" %>

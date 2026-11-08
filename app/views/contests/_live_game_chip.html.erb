@@ -83,8 +83,7 @@
       printed "FRI 11:00 PM" over "8/28 - 7:00 PM EDT" and wrapped. So the
       detail is kept only where it says something the badge cannot — the game
       clock on a live game — and a scheduled game shows its kickoff alone. %>
-  <div class="px-2 py-0.5 bg-surface-alt/60 flex items-center justify-between gap-1 whitespace-nowrap"
-       style="overflow: hidden; border-bottom-left-radius: inherit; border-bottom-right-radius: inherit">
+  <div class="overflow-hidden rounded-b-[inherit] px-2 py-0.5 bg-surface-alt/60 flex items-center justify-between gap-1 whitespace-nowrap">
     <% if game.live? %>
       <span class="inline-flex items-center gap-1 text-3xs font-bold uppercase tracking-wider text-red-400 flex-shrink-0">
         <span class="h-1 w-1 rounded-full bg-red-500 animate-pulse"></span> Live

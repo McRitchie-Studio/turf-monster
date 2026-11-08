@@ -182,7 +182,7 @@ class VioletTextContrastTest < ActiveSupport::TestCase
       [ "app/views/admin/error_logs/index.html.erb", 38 ],
       [ "app/views/admin/error_logs/index.html.erb", 42 ],
       # inside `card p-6` at :51, so this one sits on the CARD
-      [ "app/views/admin/seasons/index.html.erb", 77 ]
+      [ "app/views/admin/seasons/index.html.erb", 75 ]
     ],
     light: []
   }.freeze

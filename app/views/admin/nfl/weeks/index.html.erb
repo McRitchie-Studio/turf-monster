@@ -1,17 +1,15 @@
 <% content_for(:title, "NFL Weeks — Admin") %>
 
 <div class="max-w-screen-lg mx-auto py-8 px-4 space-y-6">
-  <div>
-    <h1 class="text-heading text-2xl font-bold mb-1">NFL Weeks</h1>
-    <p class="text-muted text-sm">
-      Set the order a week's games are preferred in. The
-      <%= link_to "live scoreboard", live_path, class: "text-primary hover:underline" %>
-      leads with the highest game that is actually eligible right now — being
-      played, or about to kick off — so the order is a tiebreak inside that set,
-      never an override of it. A week nobody has dragged sits in kickoff order,
-      which is what the board does anyway.
-    </p>
-  </div>
+  <%= render "studio/page_header", title: "NFL Weeks", crumbs: studio_crumbs(:admin_nfl_weeks) %>
+  <p class="text-muted text-sm">
+    Set the order a week's games are preferred in. The
+    <%= link_to "live scoreboard", live_path, class: "text-primary hover:underline" %>
+    leads with the highest game that is actually eligible right now — being
+    played, or about to kick off — so the order is a tiebreak inside that set,
+    never an override of it. A week nobody has dragged sits in kickoff order,
+    which is what the board does anyway.
+  </p>
 
   <% if @slots.empty? %>
     <div class="card p-8 text-center">

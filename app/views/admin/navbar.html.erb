@@ -146,15 +146,13 @@
          els.forEach(function(el) { el.setAttribute('data-original-name', el.textContent.trim()); });
        }
      }" x-effect="updateNames()">
-  <div>
-    <h1 class="text-2xl font-bold text-heading">Navbar Review</h1>
-    <div class="flex items-center gap-4 mt-1">
-      <p class="text-sm text-muted">Desktop (1200px+) is the live navbar above.</p>
-      <div class="flex items-center gap-2">
-        <label class="text-xs text-muted font-medium">Username:</label>
-        <input type="text" x-model="previewName" placeholder="<%= current_user.display_name %>"
-               class="input-field text-xs !py-1 !px-2 !w-36">
-      </div>
+  <%= render "studio/page_header", title: "Navbar Review", crumbs: studio_crumbs(parent: :admin) %>
+  <div class="-mt-8 flex items-center gap-4">
+    <p class="text-sm text-muted">Desktop (1200px+) is the live navbar above.</p>
+    <div class="flex items-center gap-2">
+      <label class="text-xs text-muted font-medium">Username:</label>
+      <input type="text" x-model="previewName" placeholder="<%= current_user.display_name %>"
+             class="input-field text-xs !py-1 !px-2 !w-36">
     </div>
   </div>
 

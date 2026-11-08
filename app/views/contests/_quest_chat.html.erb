@@ -48,7 +48,7 @@
 
   <%# Row 2 — arrow (LEFT, three states) | prompt (right). %>
   <div class="flex items-center gap-4">
-    <div class="flex-shrink-0 text-primary flex items-center justify-center" style="width: 2.75rem; height: 2.75rem;">
+    <div class="size-11 flex-shrink-0 text-primary flex items-center justify-center">
       <%# idle: clickable southwest arrow -> scroll + focus the chat input %>
       <button x-show="st === 'idle'" type="button"
               @click.stop="focusChat()"

@@ -367,11 +367,7 @@
 </script>
 
 <div class="max-w-3xl mx-auto py-8 px-2">
-  <div class="flex items-center justify-between mb-6">
-    <h1 class="text-2xl font-bold text-heading">DK Score Formula — Iterations</h1>
-    <%= link_to "← Slates", slates_path,
-      class: "text-primary hover:text-primary-300 text-sm font-medium underline underline-offset-2" %>
-  </div>
+  <%= render "studio/page_header", title: "DK Score Formula — Iterations", crumbs: studio_crumbs(parent: :slates), row_class: "-mx-2 px-2 mb-6" %>
 
   <%= render "report_tabs", active: :soccer %>
 

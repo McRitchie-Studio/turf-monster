@@ -1,14 +1,13 @@
 <% content_for(:title, "Edit #{@landing_page.name} — Admin") %>
 
 <div class="max-w-2xl mx-auto py-8 px-4">
-  <div class="mb-6 flex items-start justify-between gap-4">
-    <div>
-      <%= link_to "← Landing Pages", admin_landing_pages_path, class: "text-muted text-xs hover:text-secondary" %>
-      <h1 class="text-heading text-2xl font-bold mt-1">Edit Landing Page</h1>
-    </div>
+  <%= render "studio/page_header", title: "Edit Landing Page", crumbs: studio_crumbs(parent: :admin_landing_pages),
+        crumb_label: @landing_page.name, row_class: "-mx-4 px-4 mb-2" %>
+  <%# A new tab, so the form's unsaved edits survive; the engine's header menu takes no target. %>
+  <p class="mb-6 text-right">
     <%= link_to "View page →", landing_page_path(@landing_page), target: "_blank", rel: "noopener",
           class: "btn btn-outline btn-sm" %>
-  </div>
+  </p>
 
   <%= render "form" %>
 </div>

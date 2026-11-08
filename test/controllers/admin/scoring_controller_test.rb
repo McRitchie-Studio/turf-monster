@@ -22,7 +22,7 @@ class Admin::ScoringControllerTest < ActionDispatch::IntegrationTest
     get admin_scoring_path
 
     assert_response :success
-    assert_select "h2", /Goal Console/
+    assert_select "h1.page-header-title", /Goal Console/
     # The game renders as a game-scorer card carrying its state, with a
     # goal-entry button per side.
     card = css_select('[data-studio-controller="game-scorer"]').sole
