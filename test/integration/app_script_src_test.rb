@@ -15,11 +15,9 @@ class AppScriptSrcTest < ActionDispatch::IntegrationTest
 
   # Written out, not read from RemoteScriptSources, so a change to the list is
   # a change to this test too.
-  REMOTE = %w[
-    https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js
-    https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js
-    https://cdn.logr-in.com
-  ].freeze
+  # LogRocket is the one remote script left: web3.js and tweetnacl are vendored
+  # here, and studio-engine 0.136.0 serves cropper.js from 'self'.
+  REMOTE = %w[https://cdn.logr-in.com].freeze
   PAYPAL = %w[https://*.paypal.com https://*.paypalobjects.com https://*.venmo.com].freeze
   EXPECTED = [ "'self'", *REMOTE, "'unsafe-inline'", "'unsafe-eval'" ].freeze
 
@@ -101,20 +99,28 @@ class AppScriptSrcTest < ActionDispatch::IntegrationTest
   end
 
   test "every remote script the app or its gems' views can load is named in script-src" do
-    loads = RemoteScriptCensus.loads(RemoteScriptCensus.app_files + RemoteScriptCensus.gem_files)
+    loads = RemoteScriptCensus.loads(RemoteScriptCensus.app_files + RemoteScriptCensus.rendered_gem_files)
     urls = loads.map(&:url).uniq
     # The floor is the sanity check that the census sees anything: a census gone
     # blind finds nothing to cover and passes the assertion below vacuously.
-    # web3.js and tweetnacl load from 'self' (turf-e2e-retry-only-causes); the
-    # tweetnacl URL it still sees is solana-studio's unrendered deeplink partial.
-    # Two remote scripts stay whichever engine is installed: LogRocket (the
-    # layout) and that tweetnacl tag. studio-engine's cropper is a third only
-    # while the engine loads it from cdnjs; from engine-vendors-cropper-assets it
-    # is served from 'self' and leaves the census. So the floor is 2, the count
-    # that holds on both engines, and it still fails if the census loses either.
-    assert_operator urls.size, :>=, 2, urls.inspect
+    # One remote script is what is true: LogRocket's loader in the layout.
+    # web3.js and tweetnacl are vendored, studio-engine serves cropper.js from
+    # 'self', and solana-studio's deeplink tweetnacl is in a partial this app
+    # renders nowhere (RemoteScriptCensus::RENDERED_NOWHERE). A new remote script
+    # still fails below until it is named in RemoteScriptSources.
+    assert_operator urls.size, :>=, 1, urls.inspect
+    assert_includes urls, "https://cdn.logr-in.com/LogRocket.min.js", "the census no longer sees the layout's LogRocket tag"
     uncovered = urls.reject { |url| self.class.covered?(RemoteScriptSources.for(paypal: false), url) }
     assert_empty uncovered, "remote scripts the app policy would block; add each to RemoteScriptSources"
+  end
+
+  # A partial the census skips must exist in the locked gem, or the entry is
+  # stale: remove it. The ban on rendering it lives in its own test.
+  test "each gem partial the census skips is still in the locked gem" do
+    RemoteScriptCensus::RENDERED_NOWHERE.each do |name, path|
+      assert File.exist?(RemoteScriptCensus.gem_view(name, path)), "#{name} #{path} is gone; drop it from RENDERED_NOWHERE"
+    end
+    assert_operator RemoteScriptCensus.rendered_gem_files.size, :<, RemoteScriptCensus.gem_files.size
   end
 
   test "the PayPal SDK the tokens page injects is covered only with PayPal as the provider" do
@@ -135,8 +141,9 @@ class AppScriptSrcTest < ActionDispatch::IntegrationTest
     assert self.class.covers?("https://cdn.logr-in.com", "https://cdn.logr-in.com/logger.min.js")
     assert self.class.covers?("https://*.paypal.com", "https://www.paypal.com/sdk/js?client-id=x")
     assert_not self.class.covers?("https://*.paypal.com", "https://paypal.com.evil.test/x.js")
-    assert self.class.covers?(REMOTE.first, REMOTE.first)
-    assert_not self.class.covers?(REMOTE.first, "https://cdn.jsdelivr.net/npm/anything@1/x.js")
+    file = "https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"
+    assert self.class.covers?(file, file)
+    assert_not self.class.covers?(file, "https://cdn.jsdelivr.net/npm/anything@1/x.js")
     assert_not self.class.covers?("https://unpkg.com/a.js", "https://cdn.jsdelivr.net/a.js")
   end
 

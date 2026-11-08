@@ -1055,11 +1055,13 @@
    first load waits for every image and font (/tasks/turf-navbar-stopgap-cleanup);
    so the guess holds only until the page's modules run.
 
-   HIDDEN FOR THE EYE, NOT FOR A SCREEN READER. The words are the page's h1
-   (the engine's brand_heading), so they leave the layout (out of flow, a 1px
+   HIDDEN FOR THE EYE, NOT FOR A SCREEN READER. The words are the brand title:
+   the page's h1 on a page with no h1 of its own, a div with the same classes
+   on a page that has one (the engine's brand_heading, studio_page_has_h1?,
+   engine 0.136.0). Either way they leave the layout (out of flow, a 1px
    clipped box, the sr-only pattern) rather than the accessibility tree; the
    logo keeps its alt, "Turf Monster", and the link its name. Out of flow, the
-   h1 takes no part in the logo link's gap, so the link is the mascot's width
+   title takes no part in the logo link's gap, so the link is the mascot's width
    and the links sit beside it. While the script measures (data-nav-brand-measure,
    set and cleared inside one task, so no frame paints it) the words are back
    in flow and nothing in the row may shrink. Guards:

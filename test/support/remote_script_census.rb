@@ -32,12 +32,30 @@ module RemoteScriptCensus
     Dir.glob(root.join("app/views/**/*.erb").to_s) + Dir.glob(root.join("app/javascript/**/*.js").to_s)
   end
 
-  # The views of the gems whose partials the app renders (studio-engine's
-  # cropper and head, solana-studio's deep-link assets).
+  # Gem partials this app renders nowhere, as [gem, path in the gem]. Each is
+  # kept out of rendered_gem_files, so a remote script only it names needs no
+  # script-src entry. Each entry needs a test that bans rendering it; the
+  # census test in app_script_src_test.rb checks the file still exists, so a
+  # stale entry is removed rather than kept.
+  RENDERED_NOWHERE = [
+    # The async nacl loader, banned by phantom_deeplink_adoption_test ("this
+    # app loads nacl from a blocking tag and renders no async loader").
+    [ "solana-studio", "app/views/solana_studio/_deeplink_assets.html.erb" ]
+  ].freeze
+
+  def self.gem_view(name, path) = File.join(Gem.loaded_specs.fetch(name).full_gem_path, path)
+
+  # Every view of the gems whose partials the app renders (studio-engine's
+  # cropper and head, solana-studio's phantom deeplink).
   def self.gem_files
     %w[studio-engine solana-studio].flat_map do |name|
       Dir.glob(File.join(Gem.loaded_specs.fetch(name).full_gem_path, "app/views/**/*.erb"))
     end
+  end
+
+  # gem_files less RENDERED_NOWHERE: the gem views whose scripts can reach a page.
+  def self.rendered_gem_files
+    gem_files - RENDERED_NOWHERE.map { |name, path| gem_view(name, path) }
   end
 
   def self.scan(source, extension, file = "(source)")

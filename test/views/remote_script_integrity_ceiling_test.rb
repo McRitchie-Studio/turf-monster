@@ -13,10 +13,10 @@ require "yaml"
 # value can pin it. It is excused only while its tag sits inside the layout's
 # session_replay_active? guard (production, signed in, not a secret page).
 #
-# Not counted here: the gems' own views (their pins belong to each gem: the
-# engine's cropper tag carries integrity, and from engine-vendors-cropper-assets
-# it loads from the app's own pipeline), and the PayPal SDK, whose URL is built
-# at run time and which PayPal does not publish an SRI value for.
+# Not counted here: the gems' own views (their pins belong to each gem;
+# studio-engine 0.136.0 serves cropper.js from the app's own pipeline), and the
+# PayPal SDK, whose URL is built at run time and which PayPal does not publish
+# an SRI value for.
 class RemoteScriptIntegrityCeilingTest < ActiveSupport::TestCase
   CEILINGS_FILE = Pathname(__dir__).join("remote_script_integrity_ceilings.yml")
   LAYOUT = "app/views/layouts/application.html.erb".freeze
@@ -44,13 +44,11 @@ class RemoteScriptIntegrityCeilingTest < ActiveSupport::TestCase
     # web3.js and tweetnacl are vendored (turf-e2e-retry-only-causes), so this app's
     # own source holds no pinned remote script. The detector is checked on the gems'
     # views instead: here it must see at least one pinned remote tag, or it can no
-    # longer tell a pinned tag from an unpinned one. solana-studio's deeplink
-    # tweetnacl tag is that one on every engine. studio-engine's cdnjs cropper tag
-    # is a second only until engine-vendors-cropper-assets, which serves the file
-    # from the app's own pipeline (no remote URL to census); the engine's own
-    # cropper SRI test owns that pin, so the floor here is 1, not 2.
+    # longer tell a pinned tag from an unpinned one. One is what is true:
+    # solana-studio's deeplink tweetnacl tag (every gem view, rendered or not;
+    # studio-engine 0.136.0 serves cropper.js from 'self', so no cdnjs tag is left).
     gem_loads = RemoteScriptCensus.loads(RemoteScriptCensus.gem_files)
-    assert_operator gem_loads.count(&:integrity), :>=, 1, "solana-studio's tweetnacl (and studio-engine's cropper while it loads from cdnjs)"
+    assert_operator gem_loads.count(&:integrity), :>=, 1, "solana-studio's deeplink tweetnacl tag"
     assert loads.any? { |load| self.class.exempt?(load) }, "the LogRocket exemption no longer matches anything; remove it"
   end
 

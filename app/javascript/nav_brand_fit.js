@@ -3,8 +3,8 @@
 // The navbar draws "Turf Monster" only where it fits whole on ONE line beside
 // the mascot and the links; anywhere else it draws the mascot alone, never an
 // ellipsis and never a second line (application.css, THE BRAND FITS OR IT IS
-// THE MASCOT, which also hides the words for the eye only: they are the page's
-// h1).
+// THE MASCOT, which also hides the words for the eye only: they are the brand
+// title, the page's h1 unless the page has its own).
 //
 // Only geometry can answer it. The row beside the brand holds the desktop links
 // and the nav items, and the wallet chip alone runs from "Managed wallet" to

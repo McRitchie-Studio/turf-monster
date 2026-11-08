@@ -14,8 +14,8 @@ class SlatesLocalScriptsTest < ActionDispatch::IntegrationTest
 
   def script_srcs = scripts.map { |script| script["src"] }
 
-  # The layout's tweetnacl is a jsDelivr tag too, pinned by integrity; what the
-  # slate pages added was jsDelivr with none.
+  # The layout's tweetnacl now loads from 'self'; what the slate pages added
+  # was a jsDelivr tag with no integrity, and none may come back.
   def unpinned_jsdelivr = scripts.select { |script| script["src"].include?("cdn.jsdelivr.net") && script["integrity"].blank? }.map { |script| script["src"] }
 
   def slate_pages = [ slate_path(@slate), nfl_report_slates_path, formula_report_slates_path ]
