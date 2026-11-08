@@ -42,9 +42,11 @@
 #                                (ApplicationController#public_preview_request?),
 #                                so an old browser or a link-preview fetcher gets
 #                                the page, not a 406 and the static fallback.
-#   verify_session_token         OPSEC-045. A stale session is logged out on any
-#                                request, a 404 included. Its sign-in redirect makes
-#                                the engine serve public/404.html, still status 404.
+#   verify_session_token         OPSEC-045. On a stale session its sign-in redirect
+#                                makes the engine serve public/404.html, still 404,
+#                                so no identity shows. Its logout is not saved here
+#                                (no session middleware); the next real page logs
+#                                the player out.
 #   set_current_context          Request-scoped Current.*; reads only.
 #   touch_last_seen              A signed-in player who hits a 404 is active. One
 #                                write per five minutes at most; it never raises.

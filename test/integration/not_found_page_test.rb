@@ -161,7 +161,7 @@ class NotFoundPageTest < ActionDispatch::IntegrationTest
     assert_friendly_page
   end
 
-  test "a stale session is still logged out on a 404, and the answer stays a 404" do
+  test "a stale session gets the static 404, and the next real page logs it out" do
     user = users(:jordan)
     log_in_as(user)
     user.update_column(:session_token, SecureRandom.hex(32))
@@ -171,6 +171,9 @@ class NotFoundPageTest < ActionDispatch::IntegrationTest
     # verify_session_token's sign-in redirect is thrown away by the exceptions app,
     # which serves the static last resort instead: still a 404, never a redirect.
     assert_friendly_page(engine: false)
+
+    get contests_path, headers: BROWSER.dup
+    assert_redirected_to signin_path
   end
 
   test "a JSON request answers 404 JSON, not the HTML page" do
