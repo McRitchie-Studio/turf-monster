@@ -21,7 +21,7 @@
 #   bin/e2e-parallel                                   # full suite, 4 stacks
 #   bin/e2e-parallel 3                                 # full suite, 3 stacks
 #   bin/e2e-parallel 2 -- theme.spec.js navigation.spec.js   # quick check
-#   bin/e2e-parallel 4 -- --retries=1                  # mirror CI's retry policy
+#   bin/e2e-parallel 4 -- --repeat-each=3              # hunt a race: no retries anywhere
 #
 # Ports BASE_PORT..BASE_PORT+N-1 (default 3101+) and DBs turf_monster_e2e_pw_<i>.
 # Stays clear of :3100 (the canonical dev server) and the shared

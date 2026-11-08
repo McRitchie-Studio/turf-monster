@@ -1,0 +1,53 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# bin/e2e-repeat-changed — run every Playwright spec this PR adds or changes in five
+# fresh passes (each its own server boot and seed), this shard's share of them. The why
+# and the rules: bin/lib/e2e_repeat_changed.rb.
+#
+#   Usage: bin/e2e-repeat-changed [--shard=K/N]
+#
+# Exit 0 when every pass is green or there is nothing to run (said on stdout), else 1.
+require "optparse"
+require_relative "lib/e2e_repeat_changed"
+
+shard = nil
+OptionParser.new do |o|
+  o.banner = "usage: bin/e2e-repeat-changed [--shard=K/N]"
+  o.on("--shard=K/N", %r{\A\d+/\d+\z}, "run this shard's share of the five passes") { |v| shard = v }
+  o.on("-h", "--help", "print this help") do
+    puts o
+    exit 0
+  end
+end.parse!(ARGV)
+abort "bin/e2e-repeat-changed: unexpected argument(s): #{ARGV.join(' ')}" unless ARGV.empty?
+diff = E2eRepeatChanged.name_status
+if diff.nil?
+  puts "e2e-repeat-changed: not a pull request (or its diff is unreadable); nothing to repeat"
+  exit 0
+end
+
+specs = E2eRepeatChanged.changed_specs(diff)
+cmd = E2eRepeatChanged.command(specs)
+if cmd.nil?
+  puts "e2e-repeat-changed: this PR changes no e2e spec; nothing to repeat"
+  exit 0
+end
+
+mine = E2eRepeatChanged.passes(shard)
+puts "e2e-repeat-changed: #{specs.size} changed spec(s), #{E2eRepeatChanged::PASSES} fresh passes in all; " \
+     "this shard runs pass(es) #{mine.join(', ')}:"
+specs.each { |s| puts "  #{s}" }
+red = mine.reject do |pass|
+  puts "::group::pass #{pass} of #{E2eRepeatChanged::PASSES}"
+  ok = system(*cmd)
+  puts "::endgroup::"
+  ok
+end
+if red.empty?
+  puts "e2e-repeat-changed: every pass green"
+  exit 0
+end
+puts "::error::e2e-repeat-changed: pass(es) #{red.join(', ')} of #{E2eRepeatChanged::PASSES} went red. " \
+     "A spec that is red one run in five is a defect with a cause, not a retry."
+exit 1

@@ -112,7 +112,7 @@ class NodeToolingAdoptionTest < ActiveSupport::TestCase
     assert_equal "./e2e", config["testDir"]
     assert_equal 30_000, config["timeout"]
     assert_equal 1, config["workers"]
-    assert_equal 0, config["retries"], "local runs surface flakes"
+    assert_equal 0, config["retries"], "no retries: a red is a defect with a cause"
     assert_equal({ "reducedMotion" => "reduce" }, config.dig("use", "contextOptions"))
     assert_equal "http://127.0.0.1:3100", config.dig("use", "baseURL")
     assert_equal %w[chromium devnet], config["projects"].map { |p| p["name"] }
@@ -126,7 +126,7 @@ class NodeToolingAdoptionTest < ActiveSupport::TestCase
     end
 
     ci = resolved_config("CI" => "1")
-    assert_equal 2, ci["retries"]
+    assert_equal 0, ci["retries"], "no retries in CI either: a red then green is a defect with a cause (turf-deterministic-ci)"
     assert_equal true, ci["forbidOnly"]
     assert_equal false, ci.dig("webServer", "reuseExistingServer")
   end

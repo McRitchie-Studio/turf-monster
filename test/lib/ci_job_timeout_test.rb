@@ -5,7 +5,8 @@
 # WHY. A GitHub job with no `timeout-minutes` inherits the platform default of
 # SIX HOURS. That is not a bound, it is an absence of one, and the difference is
 # not academic — on 2026-08-18 a runner-fleet network incident left jobs sitting
-# on "Install packages" and "Install FFmpeg":
+# on "Install packages" and "Install FFmpeg" (apt steps no Turf job runs since
+# turf-deterministic-ci moved them into the lane image):
 #
 #   mcritchie-studio  test / playwright (3) / island_animator   1h39m
 #   studio-engine     mcritchie_industries suite vs this engine 3h54m

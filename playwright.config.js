@@ -4,7 +4,7 @@ const { defineConfig } = require("@playwright/test");
 // chromium project, forbidOnly in CI, the PW_BASE_URL/E2E_PORT base URL and the
 // Rails webServer shape all come from the engine's Node tooling package
 // (lib/studio/node_tooling/playwright_base.js in the gem, wave 6 of the UI
-// consistency program). This file keeps only what is Turf's: the CI retries, the
+// consistency program). This file keeps only what is Turf's: the
 // trace, reduced motion, the devnet project, the global setup and the seeded boot.
 //
 // WHERE THE PACKAGE IS. `bin/rails studio:node:link` (after `npm ci`) links it at
@@ -60,16 +60,14 @@ process.env.ENABLE_FIAT_RAILS ||= "true";
 
 module.exports = defineConfig(studioPlaywrightConfig({
   defaultPort: "3100",
-  // CI retries: this single-worker e2e suite has documented full-suite
-  // flakiness (cross-spec DB/session state pollution + timing under load).
-  // The dominant "timing under load" source — the test server blocking on
-  // live public-devnet RPC per authenticated page render — is fixed at the
-  // root: CI pins SOLANA_RPC_URL to a black-hole loopback (see the playwright
-  // job in .github/workflows/ci.yml and test/lib/ci_playwright_hermetic_test.rb).
-  // Retry only in CI so a transient flake doesn't fail the whole job; a
-  // genuinely broken test still fails all attempts. Local runs stay at 0 to
-  // surface flakes during development.
-  retries: process.env.CI ? 2 : 0,
+  // NO RETRIES, IN CI OR ANYWHERE (turf-deterministic-ci). Alex McRitchie,
+  // 2026-11-06: a spec that goes red and then green at the same SHA is a defect
+  // with a cause (infra, harness, test or product), never a retry. This file used
+  // to set `retries: process.env.CI ? 2 : 0`, which turned every such race into a
+  // silent "flaky" line in a green run. It now inherits the engine base's
+  // `retries: 0`; test/lib/node_tooling_adoption_test.rb pins 0 for CI too. A red
+  // is diagnosed from its trace (`trace` below) and fixed at its cause; the door
+  // check (bin/e2e-repeat-changed) runs a PR's changed specs five times first.
   // Swap alex's wallet to MOCK_PUBKEY_B58 before tests (so loginViaPhantom
   // resolves to the admin user) and restore it after. Lets the dev seed
   // default to the operator's REAL Phantom wallet without breaking e2e.
@@ -112,11 +110,12 @@ module.exports = defineConfig(studioPlaywrightConfig({
     // that needs a running timeline has to say so — see the glow spec in
     // e2e/navbar_layout.spec.js.
     contextOptions: { reducedMotion: "reduce" },
-    // Capture a Playwright trace + screenshot when a test retries/fails so
-    // CI-only failures (which don't reproduce locally — e.g. geo.spec.js:54)
-    // are diagnosable from the uploaded test-results/ artifact. on-first-retry
-    // keeps green runs cheap (trace only recorded once a test has failed once).
-    trace: "on-first-retry",
+    // Capture a Playwright trace + screenshot when a test fails, so CI-only
+    // failures (which don't reproduce locally — e.g. geo.spec.js:54) are
+    // diagnosable from the uploaded test-results/ artifact. retain-on-failure,
+    // not on-first-retry: with no retries a first retry never comes, so that
+    // setting would record nothing. Green runs keep no trace.
+    trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
   projects: [

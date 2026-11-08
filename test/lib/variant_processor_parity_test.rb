@@ -42,10 +42,13 @@ class VariantProcessorParityTest < ActiveSupport::TestCase
     assert_equal :mini_magick, ActiveStorage.variant_processor
   end
 
-  test "every CI job that renders a variant installs ImageMagick" do
+  # Since turf-deterministic-ci no job runs apt: both jobs run in the hub's lane image,
+  # which carries ImageMagick (and libvips), and each proves it with `convert -version`
+  # before its suite (test/lib/ci_lane_image_test.rb guards the image itself).
+  test "every CI job that renders a variant confirms ImageMagick before it runs" do
     RENDERING_JOBS.each do |job|
-      assert run_commands(job).any? { |cmd| cmd.match?(/\bimagemagick\b/) },
-             "CI job #{job.inspect} renders Active Storage variants but installs no imagemagick — " \
+      assert run_commands(job).any? { |cmd| cmd.match?(/\bconvert -version\b/) },
+             "CI job #{job.inspect} renders Active Storage variants but never confirms ImageMagick — " \
              "variants there die with `executable not found: \"convert\"`"
     end
   end

@@ -11,8 +11,8 @@ require "test_helper"
 # WHERE THIS ACTUALLY RUNS. libvips is a system library, not a gem, and a
 # developer Mac usually does not have it — so ActiveStorage::VIPS_AVAILABLE is
 # false there and the block_untrusted assertions below cannot run. They DO run in
-# CI: .github/workflows/ci.yml installs libvips in the test job — and if that ever
-# stops being true, require_libvips! FAILS there rather than skipping, so the tier
+# CI: the test job runs in the hub's lane image, which carries libvips — and if that
+# ever stops being true, require_libvips! FAILS there rather than skipping, so the tier
 # cannot go uncollected behind a green check. Read a skip below as "this machine
 # cannot answer", never as "this passed".
 #
@@ -41,10 +41,10 @@ class VipsHardeningTest < ActiveSupport::TestCase
   TRUSTED_FORMATS = %w[.png .jpg .webp].freeze
 
   NO_LIBVIPS = "libvips (the C library) is not installed here, so block_untrusted " \
-               "cannot be exercised. CI installs it; this is not a pass."
+               "cannot be exercised. CI's lane image carries it; this is not a pass."
 
-  # Skipping is honest on a developer Mac. In CI it is NOT: .github/workflows/ci.yml
-  # installs libvips in the test job, so an unavailable Vips there does not mean
+  # Skipping is honest on a developer Mac. In CI it is NOT: the test job runs in the
+  # lane image, which carries libvips, so an unavailable Vips there does not mean
   # "cannot check" — it means this tier stopped being collected, while the run still
   # reports green. That is precisely how the e2e lane rotted unnoticed (see the
   # header of config/feature_shapes.yml in mcritchie-studio). Fail loudly there, so
@@ -56,8 +56,8 @@ class VipsHardeningTest < ActiveSupport::TestCase
     if ENV["CI"].present?
       flunk <<~MESSAGE.squish
         libvips is unavailable in CI, so none of the hardening assertions below ran —
-        yet this job would otherwise report green. CI installs libvips in its test
-        job; restore that install rather than deleting this check.
+        yet this job would otherwise report green. CI's lane image carries libvips;
+        restore it there rather than deleting this check.
       MESSAGE
     end
 
