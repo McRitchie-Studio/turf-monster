@@ -24,7 +24,11 @@ class CiServiceImagesTest < Minitest::Test
   # Majors read from production: `heroku pg:info` and `heroku redis:info`.
   PINS = {
     "postgres" => "#{MIRROR}postgres:17",
-    "redis" => "#{MIRROR}redis:8"
+    "redis" => "#{MIRROR}redis:8",
+    # The lane image the `test` and `playwright` jobs run inside (the hub's
+    # .github/ci-image/Dockerfile, built weekly by its mirror-ci-images.yml), pinned
+    # to the Ubuntu release the runners use. test/lib/ci_lane_image_test.rb.
+    "ci-rails" => "#{MIRROR}ci-rails:24.04"
   }.freeze
 
   # The login every service and job container carries: the run's own token.
@@ -104,7 +108,8 @@ class CiServiceImagesTest < Minitest::Test
   end
 
   def test_every_pin_is_a_mirror_image_with_a_numeric_major
-    PINS.each_value { |image| assert_match(%r{\A#{Regexp.escape(MIRROR)}[a-z0-9-]+:\d+\z}, image) }
+    # ci-rails:24.04 is an Ubuntu release, the major's equivalent (as in the hub's guard).
+    PINS.each_value { |image| assert_match(%r{\A#{Regexp.escape(MIRROR)}[a-z0-9-]+:\d+(?:\.\d+)?\z}, image) }
   end
 
   def test_control_the_guard_reads_every_workflow_and_each_pinned_service
