@@ -25,6 +25,11 @@ const HELP = "/help";
 const CONTEST = "/contests/world-cup-2026";
 const OUT = "pt-out-right";
 const UNFOLD_IN = "pt-unfold-left";
+// Back plays the move reversed, in the same style: `:unfold` with `:right` goes back as
+// `unfold-right` (Alex McRitchie's ruling of 2026-11-05, engine 0.131.0, the gem's
+// docs/PAGE_TRANSITIONS.md "Back"). Forward keeps the app's own direction.
+const BACK_OUT = "pt-out-left";
+const BACK_UNFOLD_IN = "pt-unfold-right";
 
 // A recorder for what a browser played. Animation names exist only in getAnimations().
 // Turf's one style is the flip. __random fixes an engine below Studio.page_transition_style to
@@ -106,15 +111,19 @@ test.describe("what plays", () => {
     expect(await drawnStyles(page)).toEqual(["unfold-left"]);
   });
 
-  test("Back and Forward play the same direction", async ({ page }) => {
+  test("Back plays the direction reversed, and Forward the app's own", async ({ page }) => {
     await open(page, LOBBY, 0.99);
     await visit(page, HELP);
-    for (const travel of ["goBack", "goForward"]) {
+    const plays = {
+      goBack: [`::view-transition-new(root) ${BACK_UNFOLD_IN}`, `::view-transition-old(root) ${BACK_OUT}`],
+      goForward: [`::view-transition-new(root) ${UNFOLD_IN}`, `::view-transition-old(root) ${OUT}`],
+    };
+    for (const [travel, move] of Object.entries(plays)) {
       await page.evaluate(() => { window.__seen.length = 0; });
       const load = nextLoad(page);
       await page[travel]();
       await load;
-      expect(await seen(page), travel).toContain(`::view-transition-old(root) ${OUT}`);
+      expect(pageMoves(await seen(page)).sort(), travel).toEqual(move);
     }
   });
 
@@ -275,6 +284,7 @@ const clearLog = (page) => page.evaluate(() => sessionStorage.removeItem("pt-log
 const rootMotion = (lines) => lines.filter((line) => /-(old|new)\(root\) /.test(line)).sort();
 const violations = (lines) => lines.filter((line) => line.startsWith("violation"));
 const ONE_MOVE = [`::view-transition-new(root) ${UNFOLD_IN}`, `::view-transition-old(root) ${OUT}`];
+const ONE_MOVE_BACK = [`::view-transition-new(root) ${BACK_UNFOLD_IN}`, `::view-transition-old(root) ${BACK_OUT}`];
 
 // Turbo flips the URL before a reload answers, so the URL proves nothing here. The mark lives on
 // the document, and only a new document has none. Past the whole motion when this returns.
@@ -373,12 +383,12 @@ test.describe("money pages", () => {
     await openLobby(page);
     await leaveBy(page, contestLink(page), CONTEST);
     const outOf = await back(page, LOBBY);
-    expect(rootMotion(outOf), `Back out\n${outOf.join("\n")}`).toEqual(ONE_MOVE);
+    expect(rootMotion(outOf), `Back out\n${outOf.join("\n")}`).toEqual(ONE_MOVE_BACK);
 
     await leaveBy(page, contestLink(page), CONTEST);
     await leaveBy(page, page.locator(`header a[href="${LOBBY}"]`).first(), LOBBY);
     const intoSigning = await back(page, CONTEST);
-    expect(rootMotion(intoSigning), `Back in\n${intoSigning.join("\n")}`).toEqual(ONE_MOVE);
+    expect(rootMotion(intoSigning), `Back in\n${intoSigning.join("\n")}`).toEqual(ONE_MOVE_BACK);
     await expect(page.locator('meta[name="signing-csp"]')).toHaveCount(1);
     expect(await page.evaluate(() => performance.getEntriesByType("navigation")[0].type)).toBe("back_forward");
     await expect(page.locator('[x-data*="selectionBoard"]').first()).toBeVisible();
@@ -433,7 +443,7 @@ test.describe("money pages", () => {
       const out = await leaveBy(page, page.locator(`header a[href="${LOBBY}"]`).first(), LOBBY);
       expect(rootMotion(out), out.join("\n")).toEqual(ONE_MOVE);
       const backIn = await back(page, CONTEST);
-      expect(rootMotion(backIn), backIn.join("\n")).toEqual(ONE_MOVE);
+      expect(rootMotion(backIn), backIn.join("\n")).toEqual(ONE_MOVE_BACK);
       await page.waitForLoadState("networkidle");
       const all = [...into, ...out, ...(await logged(page))];
       expect(violations(all).filter((line) => !pendingDeepLink.test(line))).toEqual([]);
