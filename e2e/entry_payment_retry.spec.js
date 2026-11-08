@@ -214,9 +214,14 @@ test("a clear the server refuses puts the picks back on screen", async ({ page }
   );
   await b.evaluate((c) => { c.selections = { "101": true, "102": true }; c.selectionOrder = ["101", "102"]; });
 
-  await b.evaluate((c) => c.clearSelections());
+  // The clear is started, not awaited across the protocol: an evaluate that returns
+  // the page's pending promise once failed with "Resulting promise was garbage
+  // collected" (red then green on retry, turf-deterministic-ci). The clear empties
+  // the picks at once and puts them back when the 503 lands, so the poll below waits
+  // on that state and can only pass after the server has answered.
+  await b.evaluate((c) => { c.clearSelections(); });
 
-  expect(await b.evaluate((c) => [Object.keys(c.selections).sort(), c.selectionOrder])).toEqual([["101", "102"], ["101", "102"]]);
+  await expect.poll(() => b.evaluate((c) => [Object.keys(c.selections).sort(), c.selectionOrder])).toEqual([["101", "102"], ["101", "102"]]);
 });
 
 test("a /enter answer that is not JSON (the router's cut) says still confirming, not a wallet error", async ({ page }) => {

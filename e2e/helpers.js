@@ -13,8 +13,16 @@ const { setupOnchainMocks, computeMockTransaction } = require("./rpc-mock");
  * The emailed link's GET is a scanner-safe interstitial that does NOT consume
  * the token on the server; it AUTO-SUBMITS the consume form via JS on load, so a
  * real browser signs in with no manual tap. We just navigate and wait for the
- * redirect off /magic_link (with a button-click fallback for safety).
- * Waits for the URL to leave /signin and /magic_link.
+ * redirect off /magic_link, and for that page's load.
+ *
+ * NO BUTTON-CLICK FALLBACK (turf-deterministic-ci). This used to wait 5s and then
+ * click the hidden "Sign in to Turf Monster" button. On a loaded runner the
+ * auto-submit's POST and redirect can take longer than 5s, so the fallback fired
+ * while that navigation was still in flight: a second POST of a spent token, and
+ * the spec's next page.goto aborted ("net::ERR_ABORTED; maybe frame was
+ * detached?", contest_lock_picker_registration.spec.js:63, red then green on
+ * retry). Playwright always runs the script, so the auto-submit is the one path;
+ * the wait is the test's own timeout, not a guess.
  */
 async function login(page, email, _password) {
   const resp = await page.request.post("/test/magic_link_token", { data: { email } });
@@ -25,13 +33,7 @@ async function login(page, email, _password) {
   await page.goto(url);
   const leftMagicLink = (u) =>
     !u.pathname.startsWith("/signin") && !u.pathname.startsWith("/magic_link");
-  try {
-    await page.waitForURL(leftMagicLink, { timeout: 5000 });
-  } catch (_) {
-    // Auto-submit didn't fire (no-JS fallback) — click the consume button.
-    await page.locator('button:has-text("Sign in to Turf Monster")').click();
-    await page.waitForURL(leftMagicLink);
-  }
+  await page.waitForURL(leftMagicLink);
 }
 
 /**
