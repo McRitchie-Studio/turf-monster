@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_08_203808) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_08_234200) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -870,6 +870,24 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_08_203808) do
     t.index ["slug"], name: "index_stripe_purchases_on_slug", unique: true
     t.index ["stripe_session_id"], name: "index_stripe_purchases_on_stripe_session_id", unique: true
     t.index ["user_id"], name: "index_stripe_purchases_on_user_id"
+  end
+
+  create_table "studio_connections", force: :cascade do |t|
+    t.datetime "access_expires_at"
+    t.text "access_token"
+    t.string "account_key", null: false
+    t.text "account_secret"
+    t.datetime "connected_at", null: false
+    t.string "connected_by"
+    t.datetime "created_at", null: false
+    t.string "label"
+    t.datetime "last_refreshed_at"
+    t.json "metadata", default: {}, null: false
+    t.string "provider", null: false
+    t.datetime "refresh_expires_at"
+    t.text "refresh_token"
+    t.datetime "updated_at", null: false
+    t.index ["provider", "account_key"], name: "index_studio_connections_on_provider_and_account_key", unique: true
   end
 
   create_table "studio_email_deliveries", force: :cascade do |t|
