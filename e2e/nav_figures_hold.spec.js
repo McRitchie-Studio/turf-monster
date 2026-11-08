@@ -199,9 +199,12 @@ test.describe("with motion on", () => {
 
   test("the warm render shows its figure with no memory, and the memory wins over it after", async ({ page }) => {
     await recordFrames(page);
-    await signIn(page, "mason@mcritchie.studio");
+    // The answer goes in BEFORE the sign-in. The sign-in lands on a page whose own read would
+    // otherwise reach the server, and a real read writes the cache. It can land after the warm
+    // write and before the render, and the render then shows the RPC's figure ($0 in CI).
     let usdc = "500.00";
     await answerRefresh(page, (route) => route.fulfill(figures(usdc)));
+    await signIn(page, "mason@mcritchie.studio");
     expect((await page.request.post("/test/warm_balance", { data: { usdc: "500" } })).ok()).toBe(true);
     await clearFrames(page);
     await page.evaluate(() => sessionStorage.removeItem("tm:nav-figures"));
