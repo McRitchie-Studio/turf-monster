@@ -35,7 +35,7 @@ namespace :users do
 
     flagged = User.where("LOWER(BTRIM(email)) IN (?)", by_email.keys).order(:id).filter_map do |user|
       identity = by_email.fetch(user.email.strip.downcase)
-      next unless user.role == identity[:role]
+      next unless user.role == identity[:role] && identity[:role] != User.column_defaults["role"] # the default grants nothing
 
       reasons = []
       reasons << "email unverified" if user.email_verified_at.blank?
