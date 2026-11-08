@@ -20,7 +20,7 @@ class Contests::PendingReconcilerTest < ActiveSupport::TestCase
   setup do
     @slate = slates(:one)
     @creator = User.create!(
-      name: "Strand Creator", username: "strand_creator", role: :user,
+      name: "Strand Creator", username: "strand_creator", role: :viewer,
       email: "strand_creator@mcritchie.studio"
     )
   end

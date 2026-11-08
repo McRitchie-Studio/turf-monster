@@ -67,7 +67,7 @@ class WalletProbeTest < ActionDispatch::IntegrationTest
     # this controller deliberately does not inherit from it. Drive a user the
     # app has real reasons to bounce and prove the probe still answers.
     user = users(:jordan)
-    user.update_columns(first_name: nil, date_of_birth: nil)
+    user.update_columns(first_name: nil, birth_year: nil, birth_month: nil, birth_day: nil)
     log_in_as user
 
     get wallet_probe_path

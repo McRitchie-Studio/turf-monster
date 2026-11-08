@@ -172,7 +172,7 @@ User.update_all(encrypted_web2_solana_private_key: nil)
 # NEW signups are untouched and still walk the gate, which is what
 # e2e/onboarding_chain.spec.js exercises. If a spec ever needs an unverified
 # EXISTING user, clear the column for that one user in the spec.
-User.update_all(age_attested_at: 30.years.ago, date_of_birth: 30.years.ago.to_date)
+User.update_all(age_attested_at: 30.years.ago, birth_year: 30.years.ago.year, birth_month: 1, birth_day: 1)
 
 # Pre-seed a faucet TransactionLog so admin transaction log tests have something to render.
 TransactionLog.create!(

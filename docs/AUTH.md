@@ -1147,7 +1147,10 @@ Edit flow:
 
 ## Admin Authorization
 
-- `role` string column on `users`, default `"viewer"`.
+- `role` string column on `users`, NOT NULL, default `"viewer"`, one of
+  `User::ROLES` (`viewer`, `admin`). The model validates it and CHECK
+  `users_role_known` holds the same list. Turf once seeded a third value,
+  `"user"`; migration `20261108140000` moved those rows to `viewer`.
 - `User#admin?` returns `role == "admin"`.
 - `require_admin` comes from `Studio::ErrorHandling`.
 - Sidekiq Web has an extra local middleware that requires both admin role and a

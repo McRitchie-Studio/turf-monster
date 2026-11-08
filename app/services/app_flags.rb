@@ -115,7 +115,7 @@ module AppFlags
   # model (2026-06-12): the legal-age requirement is tied to the regulated
   # action (entering a paid skill contest), collects a real DOB validated
   # against the user's state minimum age (AgePolicy), stamps age_attested_at +
-  # date_of_birth once, and every later entry passes through. SUPERSEDES the
+  # the split birthday (birth_day / birth_month / birth_year) once, and every later entry passes through. SUPERSEDES the
   # signup checkbox (age_attestation?) — run one or the other, not both. Off by
   # default; set ENABLE_AGE_GATE=true.
   def self.age_gate?

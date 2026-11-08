@@ -34,7 +34,7 @@ class ReconcileTurfParkedIdentities < ActiveRecord::Migration[8.1]
   OLD_EMAIL = "turf@mcritchie.studio"
   NEW_EMAIL = "team@turfmonster.media"
 
-  RETIRED_ROLES = { "alex@turfmonster.media" => "user" }.freeze
+  RETIRED_ROLES = { "alex@turfmonster.media" => "viewer" }.freeze # "user" until roles joined User::ROLES
   PRIOR_ROLES = { "alex@turfmonster.media" => "admin" }.freeze
 
   # Raw SQL, no model: loading `User` here drags in the email-format validation,

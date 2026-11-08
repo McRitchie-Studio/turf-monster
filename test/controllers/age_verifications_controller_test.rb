@@ -2,7 +2,7 @@ require "test_helper"
 
 # Entry-time age gate (ENABLE_AGE_GATE) — the DOB verification endpoint.
 # Recomputes age server-side against the DETECTED state (geo_override here),
-# stamps date_of_birth + age_attested_at on success, never trusts the client.
+# stamps the split birthday + age_attested_at on success, never trusts the client.
 class AgeVerificationsControllerTest < ActionDispatch::IntegrationTest
   setup do
     @user = User.create!(
@@ -17,7 +17,7 @@ class AgeVerificationsControllerTest < ActionDispatch::IntegrationTest
     assert_response :unauthorized
   end
 
-  test "stamps date_of_birth + age_attested_at for an of-age user" do
+  test "[integration] stamps birth_day, birth_month, birth_year + age_attested_at for an of-age user" do
     log_in_as(@user)
     assert_nil @user.reload.age_attested_at
 
@@ -26,7 +26,8 @@ class AgeVerificationsControllerTest < ActionDispatch::IntegrationTest
     assert JSON.parse(response.body)["verified"]
 
     @user.reload
-    assert_equal Date.new(2000, 3, 15), @user.date_of_birth
+    assert_equal [2000, 3, 15], [@user.birth_year, @user.birth_month, @user.birth_day]
+    assert_equal Date.new(2000, 3, 15), @user.birthday_date
     assert @user.age_attested_at.present?
   end
 

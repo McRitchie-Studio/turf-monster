@@ -1200,7 +1200,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_08_203808) do
     t.boolean "payment_risk_flag", default: false, null: false
     t.string "provider"
     t.string "reference"
-    t.string "role", default: "viewer"
+    t.string "role", default: "viewer", null: false
     t.integer "seeds", default: 0, null: false
     t.datetime "self_custodied_at"
     t.string "session_token"
@@ -1236,6 +1236,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_08_203808) do
     t.index ["slug"], name: "index_users_on_slug", unique: true
     t.index ["web2_solana_address"], name: "index_users_on_web2_solana_address", unique: true, where: "(web2_solana_address IS NOT NULL)"
     t.index ["web3_solana_address"], name: "index_users_on_web3_solana_address", unique: true, where: "(web3_solana_address IS NOT NULL)"
+    t.check_constraint "(birth_month IS NULL OR birth_month >= 1 AND birth_month <= 12) AND (birth_day IS NULL OR birth_month IS NOT NULL AND birth_day >= 1 AND birth_day <=\nCASE\n    WHEN birth_month = 2 THEN 29\n    WHEN birth_month = ANY (ARRAY[4, 6, 9, 11]) THEN 30\n    ELSE 31\nEND) AND (birth_year IS NULL OR birth_year >= 1900)", name: "users_birthday_valid"
+    t.check_constraint "role::text = ANY (ARRAY['viewer'::character varying, 'admin'::character varying]::text[])", name: "users_role_known"
   end
 
   add_foreign_key "account_freeze_events", "users"

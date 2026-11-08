@@ -166,7 +166,7 @@ def write_parked_identities!(proven_only:)
       email: data[:email],
       name: data[:name],
       username: username,
-      role: data[:role] || "user"
+      role: data[:role] || "viewer"
     )
 
     # Set the Phantom wallet (real wallets, not managed). An identity that parks

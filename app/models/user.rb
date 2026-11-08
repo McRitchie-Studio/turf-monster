@@ -1,5 +1,5 @@
 class User < ApplicationRecord
-  include Sluggable
+  include Sluggable; include User::AccountRules # roles, split birthday, safe email lookup
 
   # The seeded house account's stable identity (db/seeds/users.rb). Usernames
   # can be renamed (and "turf" is itself a reserved prefix), so User.turf keys
@@ -28,8 +28,8 @@ class User < ApplicationRecord
     # The shared team account — the server-side signer, not a person — now on
     # `mcritchie`. Named "Team McRitchie" here and in mcritchie-studio.
     { email: "team@mcritchie.studio",  name: "Team McRitchie",  username: "mcritchie", role: "admin", wallet: "8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd" },
-    { email: "mason@mcritchie.studio", name: "Mason McRitchie", username: "mason",     role: "user",  wallet: "CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR" },
-    { email: "mack@mcritchie.studio",  name: "Mack McRitchie",  username: "mack",      role: "user",  wallet: "8UwJhRiNLr8uiqWyGUjgGDFqNEDY4SNQFfJud3ZSnowW" },
+    { email: "mason@mcritchie.studio", name: "Mason McRitchie", username: "mason",     role: "viewer",  wallet: "CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR" },
+    { email: "mack@mcritchie.studio",  name: "Mack McRitchie",  username: "mack",      role: "viewer",  wallet: "8UwJhRiNLr8uiqWyGUjgGDFqNEDY4SNQFfJud3ZSnowW" },
     # THIS APP'S ADMIN ON ITS OWN DOMAIN — and it is the house account itself now.
     # Every app seeds the shared identities plus an admin on its own domain, so a
     # session can be signed in as "the operator of THIS app" without borrowing
@@ -60,7 +60,7 @@ class User < ApplicationRecord
   # It is demoted, not deleted: the row has entries, purchases and a managed
   # wallet, and destroying a real account is the operator's call, not a seed's.
   RETIRED_IDENTITIES = {
-    "alex@turfmonster.media" => "user"
+    "alex@turfmonster.media" => "viewer"
   }.freeze
 
   # Rails mirror of turf-vault's on-chain reserved-prefix list — keep in sync
@@ -210,7 +210,7 @@ class User < ApplicationRecord
     # proved ownership of this email at some point. Otherwise refuse: the
     # incoming Google identity has proven the email, but the existing
     # account hasn't, so we don't know they're the same human.
-    existing = find_by(email: auth.info.email)
+    existing = account_for_google_email(auth) # never find_by(email: nil)
     if existing
       return :requires_verification if existing.email_verified_at.blank?
       # OPSEC-048: a frozen account signs in (the freeze holds actions, not
@@ -239,7 +239,7 @@ class User < ApplicationRecord
     )
   rescue ActiveRecord::RecordNotUnique
     # Race condition: another request created the user between our find_by and create
-    find_by(email: auth.info.email) || find_by(provider: auth.provider, uid: auth.uid)
+    find_by(provider: auth.provider, uid: auth.uid) || account_for_google_email(auth)
   end
 
   def self.from_solana_wallet(address)

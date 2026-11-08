@@ -109,7 +109,7 @@ class TurfIdentityMoveTest < ActiveSupport::TestCase
 
     migrate(:up)
 
-    assert_equal "user", seat.reload.role, "the retired seat kept admin"
+    assert_equal "viewer", seat.reload.role, "the retired seat kept admin"
   end
 
   test "the migration does not delete the retired account" do
@@ -161,7 +161,7 @@ class TurfIdentityMoveTest < ActiveSupport::TestCase
 
     run_seed
 
-    assert_equal "user", seat.reload.role
+    assert_equal "viewer", seat.reload.role
     assert User.exists?(seat.id), "the seed destroyed a real account instead of demoting it"
   end
 
@@ -175,7 +175,7 @@ class TurfIdentityMoveTest < ActiveSupport::TestCase
 
     run_seed
 
-    assert_equal "user", seat.reload.role, "a mixed-case address dodged the retirement"
+    assert_equal "viewer", seat.reload.role, "a mixed-case address dodged the retirement"
   end
 
   test "the seed leaves an admin the roster never retired alone" do
