@@ -54,6 +54,17 @@ module TurfMonster
     # decides which processor renders a variant.
     config.active_storage.variant_processor = :mini_magick
 
+    # THE FRIENDLY NOT-FOUND PAGE (studio-engine docs/NOT_FOUND_PAGE.md, task
+    # turf-adopts-not-found-page). A lost visitor, on an unknown address or a
+    # record that is not there, gets Turf's name, mark and a button home inside
+    # Turf's layout, with status 404. A JSON request keeps Rails' 404 JSON, and
+    # /api/* keeps its own api/v1/errors#not_found body (config/routes.rb). If the
+    # page cannot render, public/404.html answers instead. Which of Turf's global
+    # before_actions the page skips, and why: config/initializers/not_found_page.rb.
+    # Guarded so it switches on only with an engine that has it; public/404.html
+    # answers until then.
+    config.exceptions_app = Studio::ExceptionsApp.new if defined?(Studio::ExceptionsApp)
+
     # Configuration for the application, engines, and railties goes here.
     #
     # These settings can be overridden in specific environments using the files

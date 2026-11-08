@@ -184,7 +184,11 @@ module.exports = defineConfig(studioPlaywrightConfig({
       // seed-inert — e2e/seed.rb reads neither.
       ENABLE_COINFLOW: "true",
       ENABLE_AEROPAY: "true",
-      ENABLE_FIAT_RAILS: "true"
+      ENABLE_FIAT_RAILS: "true",
+      // A lost visitor sees the page a visitor sees, not the test environment's
+      // debug report: the friendly not-found page (e2e/not_found_page.spec.js;
+      // config/environments/test.rb). bin/e2e-parallel exports it beside the rails.
+      ENABLE_ERROR_PAGES: "1"
     },
   },
 }));

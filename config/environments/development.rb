@@ -11,8 +11,10 @@ Rails.application.configure do
   # Do not eager load code on boot.
   config.eager_load = false
 
-  # Show full error reports.
-  config.consider_all_requests_local = true
+  # Show full error reports. ENABLE_ERROR_PAGES=1 shows what a visitor sees
+  # instead (the friendly not-found page, public/500.html), to preview them on a
+  # desk (task turf-adopts-not-found-page).
+  config.consider_all_requests_local = ENV["ENABLE_ERROR_PAGES"].blank?
 
   # Enable server timing.
   config.server_timing = true
