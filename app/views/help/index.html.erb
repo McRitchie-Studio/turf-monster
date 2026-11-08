@@ -1,7 +1,7 @@
 <% content_for :title, "Help Center — Turf Monster" %>
 
 <div class="max-w-3xl mx-auto py-8">
-  <h1 class="text-3xl font-extrabold text-heading mb-2">Help Center</h1>
+  <%= render "studio/page_header", title: "Help Center", crumbs: studio_crumbs(:help), row_class: "-mx-4 px-4 mb-2" %>
   <p class="text-secondary mb-8">Everything you need to get started with Turf Monster.</p>
 
   <div class="grid gap-4 sm:grid-cols-3">

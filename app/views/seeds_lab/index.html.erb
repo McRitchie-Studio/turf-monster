@@ -25,14 +25,12 @@
      data-studio-controller="seeds-lab">
 
   <%# ── Header ── %>
-  <div>
-    <h1 class="text-heading text-2xl font-bold mb-1">Seeds Loader Lab</h1>
-    <p class="text-muted text-sm">
-      Compare loader designs for the new 5-section seeds bar.
-      Each section = 20 seeds. Fill all 5 → level up + free entry token.
-      Diminishing returns within a single contest: <span class="font-mono">+25 → +19 → +14</span>.
-    </p>
-  </div>
+  <%= render "studio/page_header", title: "Seeds Loader Lab" %>
+  <p class="text-muted text-sm">
+    Compare loader designs for the new 5-section seeds bar.
+    Each section = 20 seeds. Fill all 5 → level up + free entry token.
+    Diminishing returns within a single contest: <span class="font-mono">+25 → +19 → +14</span>.
+  </p>
 
   <%# ── Simulator ── %>
   <div class="card p-5">
