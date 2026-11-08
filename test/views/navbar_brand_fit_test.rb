@@ -10,7 +10,7 @@ require "test_helper"
 #   · below 768px the title is a ROW again, over the engine's column: no stack
 #   · a tight header hides the words for the eye only (out of flow, a 1px
 #     clipped box), never with visibility (which keeps their room) and never
-#     with display: none (which drops the page's h1)
+#     with display: none (which drops the brand title, often the page's h1)
 #   · the measure state puts them back in flow, and nothing in the row shrinks
 #   · the script that decides is pinned and imported, and the mascot keeps
 #     the name "Turf Monster"
@@ -77,7 +77,7 @@ class NavbarBrandFitTest < ActionDispatch::IntegrationTest
     assert_match(/overflow:\s*hidden/, body)
     assert_match(/clip-path:\s*inset\(50%\)/, body)
     refute_match(/visibility/, body, "visibility keeps the words' room: the mascot would sit beside a gap")
-    refute_match(/display:\s*none/, body, "display: none drops the page's h1 from the accessibility tree")
+    refute_match(/display:\s*none/, body, "display: none drops the brand title from the accessibility tree")
     refute_match(/text-overflow/, body)
   end
 
