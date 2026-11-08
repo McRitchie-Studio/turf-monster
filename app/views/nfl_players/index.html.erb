@@ -1,14 +1,6 @@
 <section class="space-y-6">
-  <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-    <div>
-      <h2 class="text-2xl font-bold text-heading">
-        <%= @team ? "#{@team.name} Roster" : (@position ? "#{@position}s — All Teams" : "NFL Players") %>
-      </h2>
-      <% if @team || @position %>
-        <%= link_to "← All teams", nfl_players_path, class: "text-sm text-secondary hover:text-primary" %>
-      <% end %>
-    </div>
-  </div>
+  <%= render "studio/page_header", title: (@team ? "#{@team.name} Roster" : (@position ? "#{@position}s — All Teams" : "NFL Players")),
+        crumbs: (@team || @position ? studio_crumbs(parent: :nfl_players) : []) %>
 
   <%# Position filter — a real link, not a client-side toggle, because the
       league-wide set is ~2,900 players and the filtering has to happen in SQL. %>

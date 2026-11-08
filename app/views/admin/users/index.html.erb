@@ -1,20 +1,18 @@
 <% content_for(:title, "Users — Admin") %>
 
 <div class="max-w-screen-2xl mx-auto py-8 px-4 space-y-6">
-  <div>
-    <h1 class="text-heading text-2xl font-bold mb-1">Users</h1>
-    <div class="flex flex-wrap items-center gap-2 mt-3">
-      <span class="text-xs text-muted uppercase tracking-wide mr-1">Sort</span>
-      <% Admin::UsersController::SORTS.each do |key, label| %>
-        <%= link_to label, admin_users_path(sort: key),
-              class: "px-3 py-1 rounded-full text-xs font-semibold transition #{@sort == key ? 'bg-primary text-white' : 'bg-surface-alt text-secondary hover:text-heading'}" %>
-      <% end %>
-    </div>
-    <p class="text-muted text-xs mt-2">
-      Seeds is a cache of the on-chain total (refreshed when the user is active);
-      <code class="text-xs bg-inset px-1 rounded">level = seeds / 100 + 1</code>.
-    </p>
+  <%= render "studio/page_header", title: "Users", crumbs: studio_crumbs(parent: :admin) %>
+  <div class="flex flex-wrap items-center gap-2 mt-3">
+    <span class="text-xs text-muted uppercase tracking-wide mr-1">Sort</span>
+    <% Admin::UsersController::SORTS.each do |key, label| %>
+      <%= link_to label, admin_users_path(sort: key),
+            class: "px-3 py-1 rounded-full text-xs font-semibold transition #{@sort == key ? 'bg-primary text-white' : 'bg-surface-alt text-secondary hover:text-heading'}" %>
+    <% end %>
   </div>
+  <p class="text-muted text-xs mt-2">
+    Seeds is a cache of the on-chain total (refreshed when the user is active);
+    <code class="text-xs bg-inset px-1 rounded">level = seeds / 100 + 1</code>.
+  </p>
 
   <div class="card overflow-x-auto">
     <table class="w-full text-sm">

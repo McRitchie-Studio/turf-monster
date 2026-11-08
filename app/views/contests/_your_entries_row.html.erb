@@ -7,7 +7,7 @@
   </div>
 <% end %>
 <%# 6 picks → 3×2 mini-grid. Tight padding so 3 entry cards fit side by side. %>
-<div class="grid gap-0.5" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
+<div class="grid-cols-3 grid gap-0.5">
   <% sorted_sels.each do |sel| %>
     <% t = sel.slate_matchup.team %>
     <% c1 = t.card_background || "#666" %>

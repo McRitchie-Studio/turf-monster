@@ -1,14 +1,12 @@
 <% content_for(:title, "Held Paid Entries — Admin") %>
 
 <div class="max-w-5xl mx-auto py-8 px-4 space-y-6">
-  <div>
-    <h1 class="text-heading text-2xl font-bold mb-1">Held Paid Entries</h1>
-    <p class="text-muted text-sm">
-      Each row paid on Solana and an app gate refused to activate it. The player is asked at login
-      until the hold ends (the first Sunday 9:00 AM ET after it landed). Replace activates the row from
-      its own ticket: nothing is paid again and nothing is refunded. A declined row is a person's call.
-    </p>
-  </div>
+  <%= render "studio/page_header", title: "Held Paid Entries", crumbs: studio_crumbs(parent: :admin) %>
+  <p class="text-muted text-sm">
+    Each row paid on Solana and an app gate refused to activate it. The player is asked at login
+    until the hold ends (the first Sunday 9:00 AM ET after it landed). Replace activates the row from
+    its own ticket: nothing is paid again and nothing is refunded. A declined row is a person's call.
+  </p>
 
   <% if @entries.empty? %>
     <div class="card p-6 text-muted text-sm" data-landed-entries-empty>No held paid entries.</div>

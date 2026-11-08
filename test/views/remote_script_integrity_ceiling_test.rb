@@ -6,17 +6,17 @@ require "yaml"
 # element whose .src is an https:// literal in a view or in app/javascript
 # (RemoteScriptCensus, test/support/remote_script_census.rb). Vendor the file
 # (vendor/javascript, or the engine's copy), or pin it with integrity and
-# crossorigin as the layout pins web3.js and tweetnacl.
+# crossorigin as solana-studio pins its deeplink tweetnacl tag.
 #
 # One exemption, and its condition is measured, not trusted: LogRocket's
 # recorder loader is an unversioned file its vendor updates in place, so no SRI
 # value can pin it. It is excused only while its tag sits inside the layout's
 # session_replay_active? guard (production, signed in, not a secret page).
 #
-# Not counted here: the gems' own views (studio-engine's cropper loads
-# cropper.js from cdnjs without integrity; that fix belongs to the engine), and
-# the PayPal SDK, whose URL is built at run time and which PayPal does not
-# publish an SRI value for.
+# Not counted here: the gems' own views (their pins belong to each gem: the
+# engine's cropper tag carries integrity, and from engine-vendors-cropper-assets
+# it loads from the app's own pipeline), and the PayPal SDK, whose URL is built
+# at run time and which PayPal does not publish an SRI value for.
 class RemoteScriptIntegrityCeilingTest < ActiveSupport::TestCase
   CEILINGS_FILE = Pathname(__dir__).join("remote_script_integrity_ceilings.yml")
   LAYOUT = "app/views/layouts/application.html.erb".freeze
@@ -41,7 +41,16 @@ class RemoteScriptIntegrityCeilingTest < ActiveSupport::TestCase
 
   test "the census sees the app's remote scripts, pinned and not" do
     loads = RemoteScriptCensus.loads(RemoteScriptCensus.app_files)
-    assert_operator loads.count(&:integrity), :>=, 3, "the layout's web3.js and tweetnacl and wallet_provider's tweetnacl"
+    # web3.js and tweetnacl are vendored (turf-e2e-retry-only-causes), so this app's
+    # own source holds no pinned remote script. The detector is checked on the gems'
+    # views instead: here it must see at least one pinned remote tag, or it can no
+    # longer tell a pinned tag from an unpinned one. solana-studio's deeplink
+    # tweetnacl tag is that one on every engine. studio-engine's cdnjs cropper tag
+    # is a second only until engine-vendors-cropper-assets, which serves the file
+    # from the app's own pipeline (no remote URL to census); the engine's own
+    # cropper SRI test owns that pin, so the floor here is 1, not 2.
+    gem_loads = RemoteScriptCensus.loads(RemoteScriptCensus.gem_files)
+    assert_operator gem_loads.count(&:integrity), :>=, 1, "solana-studio's tweetnacl (and studio-engine's cropper while it loads from cdnjs)"
     assert loads.any? { |load| self.class.exempt?(load) }, "the LogRocket exemption no longer matches anything; remove it"
   end
 

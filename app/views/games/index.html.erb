@@ -1,8 +1,6 @@
 <section class="mb-6">
-  <div class="flex items-center justify-between mb-6">
-    <h2 class="text-2xl font-bold text-heading">Games</h2>
-    <span class="text-sm text-muted"><%= @games.size %> games</span>
-  </div>
+  <%= render "studio/page_header", title: "Games", meta: "#{@games.size} games", row_class: "-mx-4 px-4 mb-6" %>
+  <p class="sm:hidden -mt-4 mb-6 text-sm text-muted" data-test="games-count-phone"><%= @games.size %> games</p>
 
   <% if @games.empty? %>
     <%= render "components/empty_state", message: "No games scheduled yet." %>

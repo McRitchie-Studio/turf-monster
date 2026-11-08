@@ -96,7 +96,7 @@ class NavbarPhoneWidthTest < ActiveSupport::TestCase
     # 88px at 320px and paint to x=156, 26px past a column ending at 130. The
     # other three measured identical with and without, so this file does not
     # claim they are load-bearing — it claims the chain is complete.
-    assert navbar.at_css("h1.nav-title.min-w-0"),
+    assert navbar.at_css(".nav-title.min-w-0"),
            "the wordmark's own box has to be allowed below its text — this is the " \
            "link in the chain whose removal is measurable"
   end
@@ -109,11 +109,11 @@ class NavbarPhoneWidthTest < ActiveSupport::TestCase
     # h1 clips the flex CONTAINER and leaves its items drawing outside it, which
     # is the bug rather than the fix. The engine draws Studio.navbar_brand's
     # words so, each its own span with the word's class plus truncate.
-    words = navbar.css("h1.nav-title > span")
+    words = navbar.css(".nav-title > span")
     assert_equal %w[Turf Monster], words.map(&:text), "the wordmark is the two declared words"
     assert_equal %w[truncate], words.first["class"].split, "the wordmark's first word must clip itself"
     assert_equal %w[tm-wordmark truncate], words.last["class"].split, "the wordmark's second word must clip itself"
-    refute_includes navbar.at_css("h1.nav-title")["class"].split, "truncate",
+    refute_includes navbar.at_css(".nav-title")["class"].split, "truncate",
                     "truncate belongs on the spans; on the flex container it clips the wrong box"
   end
 

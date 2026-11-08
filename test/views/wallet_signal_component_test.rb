@@ -200,6 +200,19 @@ class WalletSignalComponentTest < ActionView::TestCase
            "the chip renders on every page and must not make that claim for all of them"
   end
 
+  test "the navbar chip is visually hidden but stays mounted; the panel still paints" do
+    chip = render_signal.at_css("[data-wallet-signal]")
+    panel = render_signal(variant: :panel).at_css("[data-wallet-signal]")
+
+    # Alex McRitchie, 2026-11-08: the signed-in progress bar already prints the
+    # address, and a signed-out visitor read the chip beside "Sign in" as half
+    # signed in. The `hidden` attribute wins over x-show's inline display, so the
+    # chip never paints in any state, while the node keeps the store's answer.
+    assert chip, "the chip must stay mounted so data-wallet-signal-state still resolves"
+    assert chip.key?("hidden"), "the navbar chip must be visually hidden in every state"
+    refute panel.key?("hidden"), "the ceremony panel must keep painting the signing wallet"
+  end
+
   test "the panel hides on a quiet-listed STATE, not on the chip's quiet field" do
     panel = render_signal(variant: :panel).at_css("[data-wallet-signal]")
     chip = render_signal.at_css("[data-wallet-signal]")

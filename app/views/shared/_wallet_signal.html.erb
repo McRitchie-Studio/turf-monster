@@ -203,8 +203,16 @@
       nothing worth painting, so the chip hides — but the component is mounted,
       the store has resolved, and data-wallet-signal-state carries the answer.
       The context exists before anyone signs in, which is the whole reason it
-      was asked for; only the pixels are conditional. %>
-  <span x-data x-cloak
+      was asked for; only the pixels are conditional.
+
+      VISUALLY HIDDEN, EVERY STATE (/tasks/hide-navbar-wallet-chip). The signed-in
+      progress bar already prints the address, and a signed-out visitor saw a
+      wallet address beside "Sign in" and read it as half signed in. `hidden`
+      beats Alpine's x-show (x-show only toggles an inline display), so the chip
+      never paints; it stays mounted, so the store and data-wallet-signal-state
+      still resolve. Drop the class to bring it back. The switch card in
+      solana_stores.js still raises an undeclared wallet change. %>
+  <span x-data x-cloak hidden
         x-show="$store.walletSignal && !$store.walletSignal.quiet"
         data-wallet-signal data-wallet-signal-variant="chip"
         :data-wallet-signal-state="$store.walletSignal && $store.walletSignal.state"

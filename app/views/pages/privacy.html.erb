@@ -2,10 +2,8 @@
 <% content_for :meta_description, "How Turf Monster collects, uses, and protects your data. Plain-language privacy policy for the skill-based World Cup pick'em game." %>
 
 <div class="max-w-3xl mx-auto py-10 px-2 space-y-12">
-  <header>
-    <h1 class="text-4xl font-extrabold text-heading mb-2">Privacy Policy</h1>
-    <p class="text-secondary text-sm">Last updated <%= Date.today.strftime("%B %d, %Y") %>.</p>
-  </header>
+  <%= render "studio/page_header", title: "Privacy Policy", row_class: "-mx-2 px-2" %>
+  <p class="-mt-10 text-secondary text-sm">Last updated <%= Date.today.strftime("%B %d, %Y") %>.</p>
 
   <section class="space-y-4">
     <p class="text-body leading-relaxed">

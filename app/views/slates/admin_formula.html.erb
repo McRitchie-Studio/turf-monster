@@ -1,14 +1,8 @@
 <% content_for :title, "Default Formula Variables" %>
 
 <div class="max-w-3xl mx-auto py-8 px-2">
-  <div class="flex items-center justify-between mb-6">
-    <div>
-      <h1 class="text-2xl font-bold text-heading">Default Formula Variables</h1>
-      <p class="text-sm text-secondary mt-1">These values are inherited by all slates unless overridden per-slate.</p>
-    </div>
-    <%= link_to "Back to Slates", slates_path,
-      class: "text-primary hover:text-primary-300 text-sm font-medium underline underline-offset-2" %>
-  </div>
+  <%= render "studio/page_header", title: "Default Formula Variables", crumbs: studio_crumbs(parent: :slates), row_class: "-mx-2 px-2 mb-1" %>
+  <p class="text-sm text-secondary mb-6">These values are inherited by all slates unless overridden per-slate.</p>
 
   <% resolved = @default_slate.resolved_formula %>
 

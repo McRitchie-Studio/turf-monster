@@ -61,7 +61,7 @@
 </script>
 
 <div class="max-w-2xl mx-auto">
-  <h1 class="text-2xl font-extrabold text-heading mb-8">Account Settings</h1>
+  <%= render "studio/page_header", title: "Account Settings", row_class: "-mx-4 px-4 mb-8" %>
 
   <%# -- Profile (avatar + username) -- %>
   <div class="card shadow p-6 mb-6">
@@ -83,8 +83,7 @@
           "Tailwind Compilation Constraints"). Squeezing on flex-col + items-center left the
           avatar as a pill instead of a circle. %>
       <div @click="$refs.filePicker.click()"
-           style="width: 96px; height: 96px;"
-           class="relative rounded-full cursor-pointer group overflow-hidden mb-3 flex-shrink-0">
+           class="size-24 relative rounded-full cursor-pointer group overflow-hidden mb-3 flex-shrink-0">
         <% if @user.avatar.attached? %>
           <%= image_tag @user.avatar, class: "rounded-full object-cover", style: "width: 96px; height: 96px;", alt: @user.display_name %>
         <% else %>

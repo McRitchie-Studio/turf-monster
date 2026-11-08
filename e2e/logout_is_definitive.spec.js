@@ -47,6 +47,32 @@ test("logout empties the browser except the device preferences", async ({ page }
   expect(after.session).toEqual({});
 });
 
+// THE RACE THAT UNDID A LOGOUT (turf-e2e-retry-only-causes). The first test went red in
+// CI once (run 41939883668): the click ended on /account, still signed in. The layout
+// answered session_wipe's logout-wipe message with a GET /account/session_state, sent
+// alongside the logout. The server builds that answer from the live session and its
+// answer re-sends the session cookie, so when it lands after the logout's reset the
+// browser holds the old session again (measured: a pre-logout cookie set back after the
+// logout signs the user in), and /signin bounces a signed-in user to /account. Which
+// answer lands last is timing, so the spec pins the cause instead: the logout click
+// sends no session fetch at all, and the session is gone after it.
+test("a logout sends no session fetch that can hand the old session back", async ({ page }) => {
+  await setupPhantomMock(page, { walletStandard: false });
+  await loginViaPhantom(page);
+  await page.goto("/account");
+
+  const fetched = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/account/session_state") fetched.push(request.url());
+  });
+  await page.locator(`a[href="/logout"]:visible`).first().click();
+  await page.waitForURL(/\/signin/);
+  expect(fetched, "the logout click fetched the session it was ending").toEqual([]);
+
+  await page.goto("/account");
+  await expect(page).toHaveURL(/\/signin/);
+});
+
 test("a second user inherits nothing from the first", async ({ page }) => {
   await setupPhantomMock(page, { walletStandard: false });
   await loginViaPhantom(page);

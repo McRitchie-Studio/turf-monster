@@ -1,9 +1,5 @@
 <div class="max-w-2xl mx-auto">
-  <div class="flex items-center gap-3 mb-6">
-    <%= link_to "&larr; Transactions".html_safe, admin_transactions_path, class: "text-sm text-secondary hover:text-primary transition" %>
-  </div>
-
-  <h1 class="text-2xl font-extrabold text-heading mb-6">Transaction Detail</h1>
+  <%= render "studio/page_header", title: "Transaction Detail", crumbs: studio_crumbs(parent: :admin_transactions), row_class: "-mx-4 px-4 mb-6" %>
 
   <div class="card p-6 mb-6">
     <div class="flex items-center justify-between mb-6">

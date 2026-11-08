@@ -1,6 +1,6 @@
 <div class="max-w-4xl mx-auto px-4">
-  <%= link_to "← Back to error logs", admin_error_logs_path, class: "text-sm text-secondary hover:text-primary" %>
-  <h1 class="text-2xl font-extrabold text-red-400 mt-2 mb-1 break-words"><%= @error_log.message.presence || "(no message)" %></h1>
+  <%= render "studio/page_header", title: @error_log.message.presence || "(no message)", crumbs: studio_crumbs(parent: :admin_error_logs),
+        crumb_label: @error_log.slug, row_class: "-mx-4 px-4 mb-1" %>
   <p class="text-secondary text-sm mb-6">
     <span class="font-mono"><%= @error_class %></span>
     · <%= @error_log.created_at.strftime("%Y-%m-%d %H:%M:%S UTC") %>

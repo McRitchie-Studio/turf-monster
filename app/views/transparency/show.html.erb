@@ -2,15 +2,13 @@
 <% content_for :meta_description, "Everything that makes Turf Monster verifiable in one place: our open-source on-chain program, proof of reserves, and policies." %>
 
 <div class="max-w-5xl mx-auto py-8 px-2 space-y-10">
-  <header class="space-y-2">
-    <h1 class="text-4xl font-extrabold text-heading">Transparency</h1>
-    <p class="text-secondary text-base leading-relaxed max-w-3xl">
-      Everything that makes Turf Monster verifiable in one place: our open-source
-      on-chain program, proof of reserves, and policies. Entry fees and prize pools
-      settle on the <strong>Solana</strong> blockchain in USDC, so anyone can audit the
-      numbers directly rather than trusting a custodial balance.
-    </p>
-  </header>
+  <%= render "studio/page_header", title: "Transparency", row_class: "-mx-2 px-2" %>
+  <p class="-mt-8 text-secondary text-base leading-relaxed max-w-3xl">
+    Everything that makes Turf Monster verifiable in one place: our open-source
+    on-chain program, proof of reserves, and policies. Entry fees and prize pools
+    settle on the <strong>Solana</strong> blockchain in USDC, so anyone can audit the
+    numbers directly rather than trusting a custodial balance.
+  </p>
 
   <%# Featured: On-Chain. Tiles carry status: :reviewed for the green accent. %>
   <%= render "admin/hub_section", title: "On-Chain" do %>

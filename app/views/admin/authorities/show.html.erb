@@ -14,10 +14,9 @@
 %>
 
 <div class="max-w-4xl mx-auto px-4 py-8">
-  <div class="flex items-center justify-between mb-2">
-    <h1 class="text-2xl font-bold text-heading">Authorities</h1>
-    <span class="font-mono text-xs text-muted"><%= @network %></span>
-  </div>
+  <%= render "studio/page_header", title: "Authorities", crumbs: studio_crumbs(:admin_authorities),
+        meta: @network, row_class: "-mx-4 px-4 mb-2" %>
+  <p class="sm:hidden font-mono text-xs text-muted mb-2" data-test="network-phone"><%= @network %></p>
   <p class="text-secondary text-sm mb-6">
     Who can do what to this platform, decoded from the chain rather than from
     config. The signer console leads because it is what this page changes; the

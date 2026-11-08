@@ -17,7 +17,6 @@ class AppScriptSrcTest < ActionDispatch::IntegrationTest
   # a change to this test too.
   REMOTE = %w[
     https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js
-    https://unpkg.com/@solana/web3.js@1.98.4/lib/index.iife.min.js
     https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js
     https://cdn.logr-in.com
   ].freeze
@@ -104,8 +103,16 @@ class AppScriptSrcTest < ActionDispatch::IntegrationTest
   test "every remote script the app or its gems' views can load is named in script-src" do
     loads = RemoteScriptCensus.loads(RemoteScriptCensus.app_files + RemoteScriptCensus.gem_files)
     urls = loads.map(&:url).uniq
-    # The census sees each of the four (and the sanity check that it sees anything).
-    assert_operator urls.size, :>=, 4, urls.inspect
+    # The floor is the sanity check that the census sees anything: a census gone
+    # blind finds nothing to cover and passes the assertion below vacuously.
+    # web3.js and tweetnacl load from 'self' (turf-e2e-retry-only-causes); the
+    # tweetnacl URL it still sees is solana-studio's unrendered deeplink partial.
+    # Two remote scripts stay whichever engine is installed: LogRocket (the
+    # layout) and that tweetnacl tag. studio-engine's cropper is a third only
+    # while the engine loads it from cdnjs; from engine-vendors-cropper-assets it
+    # is served from 'self' and leaves the census. So the floor is 2, the count
+    # that holds on both engines, and it still fails if the census loses either.
+    assert_operator urls.size, :>=, 2, urls.inspect
     uncovered = urls.reject { |url| self.class.covered?(RemoteScriptSources.for(paypal: false), url) }
     assert_empty uncovered, "remote scripts the app policy would block; add each to RemoteScriptSources"
   end

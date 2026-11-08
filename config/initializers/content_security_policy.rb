@@ -31,15 +31,15 @@
 # Named by FILE where the host mirrors every npm package (cdn.jsdelivr.net,
 # unpkg.com, cdnjs.cloudflare.com), as signing_script_src below does; a bare
 # host there would admit any package. By host where the vendor serves only its
-# own code. Chart.js and SortableJS are vendored and load from 'self'.
+# own code. Chart.js, SortableJS and the layout's web3.js and tweetnacl are vendored and load from 'self'.
 module RemoteScriptSources
   ALWAYS = [
-    # layouts/application (SRI-pinned), app/javascript/wallet_provider.js's
-    # lazy load, solana-studio's solana_studio/_deeplink_assets (not rendered
-    # here, same file).
+    # solana-studio's solana_studio/_deeplink_assets names this file. This app
+    # renders that partial nowhere (phantom_deeplink_adoption_test bans it) and
+    # loads its own vendored copy, but the census covers every gem view.
     "https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js",
-    # layouts/application (SRI-pinned).
-    "https://unpkg.com/@solana/web3.js@1.98.4/lib/index.iife.min.js",
+    # web3.js left this list in turf-e2e-retry-only-causes: the layout loads this
+    # app's copy (vendor/javascript), so no remote web3.js is named here.
     # studio-engine's studio/_cropper_assets: accounts/show, contests/new and
     # edit, admin/landing_pages/_form.
     "https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js",
@@ -112,7 +112,7 @@ Rails.application.configure do
   # and cdnjs.cloudflare.com mirror every npm package, so a bare host would let
   # an injected <script src> load any of them; a path source matches only the
   # one file (each also pinned by SRI where it is loaded). Alpine, confetti,
-  # sortable and leaflet are vendored in studio-engine and load from 'self'.
+  # sortable and leaflet are vendored in studio-engine, web3.js and tweetnacl here; all from 'self'.
   #
   # 'unsafe-eval' stays while Alpine runs on these pages (engine-retires-alpine
   # removes it): Alpine evaluates every x-data, x-on and :binding with new
@@ -128,8 +128,8 @@ Rails.application.configure do
     :self,
     :unsafe_eval,
     :report_sample,               # a report quotes the first 40 characters it blocked
-    "https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js",       # layout, wallet_provider, solana-studio deeplink_assets
-    "https://unpkg.com/@solana/web3.js@1.98.4/lib/index.iife.min.js",       # layout
+    "https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js",       # solana-studio deeplink_assets (not rendered here)
+    # web3.js and the layout's tweetnacl are this app's own copies (vendor/javascript), from 'self'.
     "https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js", # studio/cropper_assets (avatar, contest banner)
     "https://cdn.logr-in.com"     # LogRocket
   ]

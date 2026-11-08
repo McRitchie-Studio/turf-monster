@@ -1,7 +1,7 @@
 <%= render "tokens/pack_button_styles" %>
 
 <div class="max-w-2xl mx-auto">
-  <h1 class="text-2xl font-extrabold text-heading mb-2">Entry Tokens</h1>
+  <%= render "studio/page_header", title: "Entry Tokens", row_class: "-mx-4 px-4 mb-2" %>
   <p class="text-secondary mb-8">1 token = 1 contest entry (any tier).</p>
 
   <%# Coinflow rail (additive, flag-gated on AppFlags.coinflow?). Stacks

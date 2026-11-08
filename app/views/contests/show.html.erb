@@ -63,11 +63,11 @@
 <% if @contest.retired_format? %>
   <%# No board: its standings below are the whole page. %>
 <% elsif edit_mode %>
-  <div id="board" class="mb-8" style="scroll-margin-top: var(--nav-h, 64px)">
+  <div id="board" class="scroll-mt-[var(--nav-h,64px)] mb-8">
     <%= render "contests/turf_totals_board", edit_entry: @edit_entry %>
   </div>
 <% elsif @contest.open? && !@contest.cancelled? && (!@has_entry || show_board_for_existing_entry) %>
-  <div id="board" class="mb-8" style="scroll-margin-top: var(--nav-h, 64px)">
+  <div id="board" class="scroll-mt-[var(--nav-h,64px)] mb-8">
     <%= render "contests/turf_totals_board" %>
   </div>
 <% end %>

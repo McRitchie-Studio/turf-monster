@@ -1,5 +1,5 @@
 <div class="max-w-7xl mx-auto px-4">
-  <h1 class="text-2xl font-extrabold text-heading mb-2">Error Logs</h1>
+  <%= render "studio/page_header", title: "Error Logs", crumbs: studio_crumbs(:admin_error_logs), row_class: "-mx-4 px-4 mb-2" %>
   <p class="text-secondary text-sm mb-6">First-stop incident triage over <span class="font-mono">ErrorLog.capture!</span> rows. Newest first, <%= Admin::ErrorLogsController::LIMIT %> max.</p>
 
   <%# -- Summary -- %>

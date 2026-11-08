@@ -295,7 +295,7 @@ legitimately walk through by calling `expectSwitchesTo` on the wallet store
 `Alpine.store('wallet')`. That keeps the blocking card from opening
 over a half-collected treasury transaction. Three sites declare a suppression:
 `app/javascript/cosign.js:280`,
-`app/views/admin/vault_state/show.html.erb:329`, and the signer console's
+`app/views/admin/vault_state/show.html.erb:328`, and the signer console's
 Stimulus controller (`app/javascript/controllers/signer_console_controller.js`,
 through `window.tmWalletSwitches`, the non-Alpine door `solana_stores.js` opens on
 the same store). `cosignTransaction` is a global, so any page may wire a button to
@@ -305,7 +305,7 @@ it: `/admin/pending_transactions` reaches it through a button of its own, and
 not the call sites**, when this list next needs checking — a fourth surface costs
 one button and no new call site. **None of the three renders the account card**, the
 `accounts/solana_wallet_section` partial, which is mounted only by
-`app/views/accounts/show.html.erb:121` and by `/profile` through the engine
+`app/views/accounts/show.html.erb:120` and by `/profile` through the engine
 section registry (`config/initializers/studio.rb:284`). An Alpine store is
 per-document, so `expectedSwitchAddresses`
 (`app/javascript/solana_stores.js:72`) is always empty on the account page and a
@@ -323,8 +323,9 @@ ceremony surfaces carry no page-level wallet signal at all", tracked as
 `shared/_wallet_signal`, which reads that same `expectedSwitchAddresses` list and
 so cannot disagree with the card about which switch was asked for: a declared
 wallet is named as the signer the page asked for, and any other wallet is named
-as one nobody did, in different words. The navbar carries the compact half of the
-same component on every page, signed in or not. `app/javascript/wallet_signal.js`
+as one nobody did, in different words. The navbar mounts the compact half of the
+same component on every page, signed in or not, but keeps it visually hidden;
+the progress bar shows the address. `app/javascript/wallet_signal.js`
 holds the states and the words; **Wallet Signal (app-wide)** in
 `docs/UI_PATTERNS.md` holds the rest, including why
 `StudioSession.expectChange` is deliberately never called here — the engine's

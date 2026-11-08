@@ -192,8 +192,8 @@
             labels + values line up across emoji icons and the 24px SVGs/PNG. %>
         <%# USDC %>
         <div class="bg-inset rounded-lg p-3 flex flex-col items-center text-center">
-          <div class="flex items-center justify-center mb-1" style="height: 28px;">
-            <img src="/usdc-mark.svg" alt="USDC" style="width: 24px; height: 24px;">
+          <div class="h-7 flex items-center justify-center mb-1">
+            <img src="/usdc-mark.svg" alt="USDC" class="size-6">
           </div>
           <span class="text-xs uppercase tracking-wide text-muted">USDC</span>
           <span class="font-mono font-bold text-primary text-xs sm:text-sm mt-0.5" data-wallet-tile="usdc">—</span>
@@ -201,7 +201,7 @@
 
         <%# USDT %>
         <div class="bg-inset rounded-lg p-3 flex flex-col items-center text-center">
-          <div class="flex items-center justify-center mb-1" style="height: 28px;">
+          <div class="h-7 flex items-center justify-center mb-1">
             <%= image_tag "tokens/usdt.png", alt: "USDT", style: "width: 24px; height: 24px;" %>
           </div>
           <span class="text-xs uppercase tracking-wide text-muted">USDT</span>
@@ -210,7 +210,7 @@
 
         <%# Entry Tokens %>
         <div class="bg-inset rounded-lg p-3 flex flex-col items-center text-center">
-          <div class="flex items-center justify-center mb-1" style="height: 28px;">
+          <div class="h-7 flex items-center justify-center mb-1">
             <span style="font-size: 22px; line-height: 1;">🎟️</span>
           </div>
           <span class="text-xs uppercase tracking-wide text-muted">Entry Tokens</span>
@@ -219,8 +219,8 @@
 
         <%# SOL %>
         <div class="bg-inset rounded-lg p-3 flex flex-col items-center text-center">
-          <div class="flex items-center justify-center mb-1" style="height: 28px;">
-            <img src="/solana-mark.svg" alt="SOL" style="width: 24px; height: 24px;">
+          <div class="h-7 flex items-center justify-center mb-1">
+            <img src="/solana-mark.svg" alt="SOL" class="size-6">
           </div>
           <span class="text-xs uppercase tracking-wide text-muted">SOL</span>
           <span class="font-mono font-bold text-heading text-xs sm:text-sm mt-0.5" data-wallet-tile="sol">—</span>
@@ -231,7 +231,7 @@
             server read is cold (the "—" below shows pre-Alpine only). %>
         <div x-data="seedsTile({ initial: <%= seeds.to_i %> })"
              class="bg-inset rounded-lg p-3 flex flex-col items-center text-center">
-          <div class="flex items-center justify-center mb-1" style="height: 28px;">
+          <div class="h-7 flex items-center justify-center mb-1">
             <span style="font-size: 22px; line-height: 1;">🌱</span>
           </div>
           <span class="text-xs uppercase tracking-wide text-muted">Seeds</span>

@@ -57,7 +57,7 @@ function expectOneLineOrHidden(b, label) {
   expect(b.hidden, `${label}: fit, but the words are hidden`).toBe(false);
   expect(b.clipped, `${label}: a word is clipped (an ellipsis)`).toEqual([]);
   // Both words share one line box: their tops agree within a pixel, and the
-  // h1 is no taller than one line of its type.
+  // wordmark is no taller than one line of its type.
   expect(Math.abs(b.wordTops[0] - b.wordTops[1]), `${label}: the words sit on two lines`).toBeLessThanOrEqual(1);
   expect(b.titleHeight, `${label}: the title is taller than one line`).toBeLessThan(b.fontSize * 1.6);
 }
@@ -80,9 +80,14 @@ for (const theme of ["light", "dark"]) {
       expect(b.docOverflow, `${width}px: the page scrolls sideways`).toBeLessThanOrEqual(0);
       seen[width] = b.state;
       // The home link keeps its name whether the words show or not: the
-      // mascot's alt, and the h1 still in the accessibility tree.
+      // mascot's alt, and the wordmark still in the accessibility tree. The
+      // brand is found by its class, not its tag: studio-engine draws it as an
+      // h1 only when the page has no h1 of its own, and /contests carries the
+      // engine page header, whose title is the page's one h1.
       await expect(page.locator(HEADER).getByRole("link", { name: /Turf Monster/ }).first()).toBeVisible();
-      expect(await page.locator(`${HEADER} h1.nav-title`).evaluate((h) => h.textContent.trim()), `${width}px: the page's h1`).toBe("TurfMonster");
+      expect(await page.locator(`${HEADER} .nav-title`).evaluate((h) => h.textContent.trim()), `${width}px: the navbar wordmark`).toBe("TurfMonster");
+      // The page's own h1 is the header's title, on either engine.
+      await expect(page.locator("main .page-header h1.page-header-title"), `${width}px: the page's h1`).toHaveText("Contests");
     }
     // The ends of the range are not in doubt: a 360px phone has no room for
     // the words beside the account column; a laptop has plenty.
@@ -110,14 +115,15 @@ test("signed in: the wordmark is one line or the mascot alone, and it follows a 
   }
 });
 
-test("a wallet chip that hydrates wider at 768 takes the words, never ellipses them", async ({ page }) => {
+test("a nav item that hydrates wider at 768 takes the words, never ellipses them", async ({ page }) => {
   await page.setViewportSize({ width: 768, height: 800 });
   await page.goto("/contests");
   await settle(page);
   // The widest chip label the store can write (wallet_signal.js).
   await page.evaluate((sel) => {
-    // Inside the last item the nav draws (the wallet chip when it shows), as
-    // a hydrate grows an existing item rather than adding one.
+    // Inside the last item the nav draws, as a hydrate grows an existing item
+    // rather than adding one. (This was the wallet chip; the chip is now
+    // visually hidden, so it is whichever item is last and visible.)
     const items = [...document.querySelector(`${sel} .nav-row nav`).children].filter((el) => el.offsetWidth > 0);
     const chip = items[items.length - 1];
     const label = document.createElement("span");

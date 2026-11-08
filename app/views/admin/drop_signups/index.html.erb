@@ -4,18 +4,12 @@
     (?slate=<key>, defaulting to NextSlateDrop::SLATE_KEY); the pills switch
     between every drop the table has rows for. %>
 <div class="max-w-7xl mx-auto py-8 px-4 space-y-6" data-test="admin-drop-signups">
-  <div class="flex flex-wrap items-end justify-between gap-3">
-    <div>
-      <h1 class="text-heading text-2xl font-bold mb-1">Drop Signups</h1>
-      <p class="text-secondary text-sm">
-        Visitors who asked to hear when a slate drops. Each gets one confirmation on signup and one announcement when an admin sends it. Newest first<% if @total > Admin::DropSignupsController::PAGE_LIMIT %>, the latest <%= Admin::DropSignupsController::PAGE_LIMIT %> shown<% end %>.
-      </p>
-    </div>
-    <div class="flex flex-wrap gap-2">
-      <%= link_to "Send drop announcement", admin_drop_signups_announcement_path, class: "btn btn-primary btn-sm", data: { test: "drop-signups-announce" } %>
-      <%= link_to "Export CSV", admin_drop_signups_path(slate: @slate_key, format: :csv), class: "btn btn-outline btn-sm" %>
-    </div>
-  </div>
+  <%= render "studio/page_header", title: "Drop Signups", crumbs: studio_crumbs(:admin_drop_signups),
+        menu: [{ label: "Export CSV", href: admin_drop_signups_path(slate: @slate_key, format: :csv) }],
+        action: { label: "Send drop announcement", href: admin_drop_signups_announcement_path, data: { test: "drop-signups-announce" } } %>
+  <p class="text-secondary text-sm">
+    Visitors who asked to hear when a slate drops. Each gets one confirmation on signup and one announcement when an admin sends it. Newest first<% if @total > Admin::DropSignupsController::PAGE_LIMIT %>, the latest <%= Admin::DropSignupsController::PAGE_LIMIT %> shown<% end %>.
+  </p>
 
   <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
     <div class="card p-4">

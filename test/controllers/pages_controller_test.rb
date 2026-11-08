@@ -82,7 +82,10 @@ class PagesControllerTest < ActionDispatch::IntegrationTest
     get turf_monster_v1_path
 
     assert_response :success
-    assert_select "h1", /Turf\s*Monster/
+    # main's h1, the page's own title: the navbar brand is an h1 too unless the
+    # page carries its own (the engine's brand_heading rule), so a bare "h1"
+    # could pass on the brand alone.
+    assert_select "main h1", /Turf\s*Monster/
     assert_match "NFL 2026", response.body
   end
 
