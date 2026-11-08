@@ -20,7 +20,9 @@ module RemoteScriptCensus
     ".js" => [ %r{^\s*(?://|/\*|\*).*$} ]
   }.freeze
 
-  STATIC_TAG = %r{<script\b((?:<%.*?%>|[^>])*?\bsrc\s*=\s*["'](https://[^"']+)["'](?:<%.*?%>|[^>])*)>}mi
+  # An ERB span ends at its first %>: a lazy .*? could stretch one span to a
+  # later %> and read two tags as one (a tag whose src is <%= asset_path %>).
+  STATIC_TAG = %r{<script\b((?:<%(?:(?!%>).)*%>|[^>])*?\bsrc\s*=\s*["'](https://[^"']+)["'](?:<%(?:(?!%>).)*%>|[^>])*)>}mi
   INCLUDE_TAG = %r{javascript_include_tag\s*\(?\s*["'](https://[^"']+)["']([^%]*)%>}
   DYNAMIC_SRC = %r{\.src\s*=\s*["'](https://[^"']+)["']}
   # A dynamic insertion's integrity is the next statements on the same element.
