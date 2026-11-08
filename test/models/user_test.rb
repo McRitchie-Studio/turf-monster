@@ -453,5 +453,8 @@ class UserTest < ActiveSupport::TestCase
     end
     assert_match "users_role_known", error.message
     assert_equal "viewer", user.reload.role
+
+    user.update_column(:role, "admin")
+    assert_equal "admin", user.reload.role
   end
 end
