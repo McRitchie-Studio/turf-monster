@@ -31,6 +31,10 @@
 #                                read or cleared), so the next real page records it.
 #   capture_reference            The same reasoning: a dead address seeds no
 #                                attribution cookie.
+#   detect_geo_state             These two throttle through the session, and the
+#   track_user_session (after)   page runs outside the session middleware, so
+#                                its session writes are never saved: each 404
+#                                would pay an IP lookup or add a UserSession row.
 #
 # KEPT on the page, on purpose:
 #
@@ -62,5 +66,7 @@ Rails.application.config.to_prepare do
   Studio::NotFoundController.skip_before_action :require_profile_completion,
                                                 :preload_navbar_solana_data,
                                                 :track_referral_visit,
-                                                :capture_reference
+                                                :capture_reference,
+                                                :detect_geo_state
+  Studio::NotFoundController.skip_after_action :track_user_session
 end

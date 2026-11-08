@@ -87,13 +87,17 @@ class NotFoundPageTest < ActionDispatch::IntegrationTest
     skip "engine without Studio::NotFoundController" unless ENGINE_PAGE
 
     on_page = Studio::NotFoundController._process_action_callbacks.select { |c| c.kind == :before }.map(&:filter)
-    skipped = %i[require_profile_completion preload_navbar_solana_data track_referral_visit capture_reference]
+    skipped = %i[require_profile_completion preload_navbar_solana_data track_referral_visit capture_reference
+                 detect_geo_state]
     kept = %i[verify_session_token set_current_context touch_last_seen refuse_parked_fiat_rail refuse_frozen_account_writes]
 
     assert_empty skipped & on_page, "the not-found page must not run these"
     assert_empty kept - on_page, "the not-found page keeps these"
     on_app = ApplicationController._process_action_callbacks.select { |c| c.kind == :before }.map(&:filter)
     assert_empty (skipped + kept) - on_app, "every other page still runs all of them"
+    after = ->(klass) { klass._process_action_callbacks.select { |c| c.kind == :after }.map(&:filter) }
+    assert_not_includes after.(Studio::NotFoundController), :track_user_session
+    assert_includes after.(ApplicationController), :track_user_session
   end
 
   test "a signed-in player with an incomplete profile gets the 404, not the profile redirect, and return_to is untouched" do
