@@ -15,21 +15,21 @@
 # stubs on PATH. The run starts from a minimal environment (unsetenv_others) with
 # fake credentials planted, so the operator's real ones never enter the test.
 #
-# THE WAIT IS A HANDSHAKE, NOT A CLOCK. `bin/rails server` is the one launch the
-# lane backgrounds, and the lane kills it on teardown. So the curl stub stands in
-# for /up and the two meet at a named pipe: the server stub moves its dump into
-# place and then opens the pipe to write, and the curl stub reads it. Opening a
-# pipe blocks until both ends are open, so curl answers only after the dump is
-# whole and in place, and the server cannot exit before curl has asked. No step
-# waits on a duration.
+# THE WAIT IS ON THE STATE, NOT ON A CLOCK. `bin/rails server` is the one launch the
+# lane backgrounds, and the lane kills it on teardown. So the curl stub stands in for
+# /up: it answers once the server's dump is in place, and only then, however long
+# that takes. The dump is written to a temp name and moved, so a dump that exists is
+# whole. It waits inside the stub because the lane's own retry stops once the stub
+# server has exited.
 #
-# WHY (turf-deterministic-ci). The curl stub used to poll for the dump with a fixed
-# bound (1,200 polls of 0.05s) and answer at the bound either way. A starved
-# runner that took longer than the bound got an "up" with no dump, and the test
-# went red with "never ran `bin/rails server`" (six reds in CI, 2026-10-26 to
-# 10-28, each green on re-run; refactor-review-2026-11-06 lane-health 2f). The one
-# clock left is the harness's HANG_DEADLINE, which only stops a lane that never
-# starts the server from hanging the suite; a green run never reaches it.
+# WHY (turf-deterministic-ci). The curl stub used to give up at a fixed bound (1,200
+# polls of 0.05s) and answer "up" either way. A starved runner that took longer got
+# an "up" with no dump, and the test went red with "never ran `bin/rails server`"
+# (six reds in CI, 2026-10-26 to 10-28, each green on re-run; refactor-review-
+# 2026-11-06 lane-health 2f). The poll interval is only how often it looks; no
+# outcome depends on a duration. The one clock left is the harness's HANG_DEADLINE,
+# which turns a lane that never starts the server into a red instead of a hung
+# suite; a green run never reaches it.
 #
 # THE CONTROL. The same run with tm_scrub_env a no-op must hand every stub the
 # planted credentials, on the serialized path and on E2E_PARALLEL_SEED=1.
@@ -66,7 +66,7 @@ class E2eParallelEnvTest < Minitest::Test
   end
 
   # Runs the lane in its own process group, killed whole at HANG_DEADLINE, so a
-  # stub left blocked on the pipe cannot outlive the test.
+  # curl stub still waiting on a server that never ran cannot outlive the test.
   def capture_bounded(env, script, dir)
     Open3.popen2e(env, "bash", script, "1", unsetenv_others: true, chdir: dir, pgroup: true) do |stdin, out, wait|
       stdin.close
@@ -97,13 +97,9 @@ class E2eParallelEnvTest < Minitest::Test
       File.write(File.join(bin, "lib/desk_env.sh"), "\ntm_scrub_env(){ :; }\n", mode: "a") if control
       slow_start = server_delay ? %([ "$1" = server ] && sleep #{server_delay}\n) : ""
       slow_write = write_delay ? %([ "$1" = server ] && { echo DUMP_STARTED=1; sleep #{write_delay}; }; ) : ""
-      up = File.join(dir, "up.fifo")
-      File.mkfifo(up)
-      # After the move, the server stub opens the pipe and blocks there until curl reads.
-      signal_up = %([ "$1" = server ] && : > "#{up}"; )
-      stub(File.join(bin, "rails"), %(#{slow_start}{ #{slow_write}env; } > "#{dir}/env-$1.tmp" && mv "#{dir}/env-$1.tmp" "#{dir}/env-$1.out" && { #{signal_up}:; }))
+      stub(File.join(bin, "rails"), %(#{slow_start}{ #{slow_write}env; } > "#{dir}/env-$1.tmp" && mv "#{dir}/env-$1.tmp" "#{dir}/env-$1.out"))
       stub(File.join(stubs, "lsof"), "exit 0")
-      stub(File.join(stubs, "curl"), %(cat "#{up}" >/dev/null))
+      stub(File.join(stubs, "curl"), %(while [ ! -e "#{dir}/env-server.out" ]; do sleep 0.05; done))
       stub(File.join(stubs, "dropdb"), "exit 0")
       stub(File.join(stubs, "npx"), "echo '1 passed'")
 
