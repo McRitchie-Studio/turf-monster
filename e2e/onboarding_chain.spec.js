@@ -264,11 +264,12 @@ test("the first name is the FIRST validation of the hold @smoke", async ({ page 
   await signUpFresh(page, { contest: "world-cup-2026" });
   await expect(page.getByRole("heading", { name: /What should we call you/i })).toBeVisible();
   await page.getByRole("button", { name: "Skip for now" }).click();
+  // The skip awaits its POST, and the chain opens the birthday card 250ms later
+  // (HANDOFF_MS, application.html.erb). An Escape before that card closed nothing it
+  // meant to, and the card then opened and stayed (red in CI, turf-deterministic-ci).
+  await expect(page.getByRole("heading", { name: /Your birthday/i })).toBeVisible();
   await page.keyboard.press("Escape"); // abandon the rest of the chain
   await expect(page.getByRole("heading", { name: /What should we call you/i })).toBeHidden();
-  // Wait for the close to finish, not just for the heading to hide: close() splices
-  // the card only after its exit animation (studio/modal_host.js), and an open() that
-  // lands mid-close never showed its card (red in CI, turf-e2e-retry-only-causes).
   await expect.poll(() => page.evaluate(() => Alpine.store("modals").stack.length)).toBe(0);
 
   const blocker = await page.evaluate(() =>
