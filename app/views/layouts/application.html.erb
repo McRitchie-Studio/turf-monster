@@ -1494,7 +1494,14 @@
         if (_sessionChannel) {
           _sessionChannel.addEventListener('message', function(e) {
             var msg = e.data;
-            if (!msg || msg.tabId === _sessionTabId) return;
+            // Only an identity broadcast (it carries a tabId) asks for a refetch.
+            // session_wipe.js posts its logout-wipe on this channel too, AS the
+            // Log out link is followed, and a refetch then raced the logout: a
+            // session_state answer read with the old cookie and landing after the
+            // logout's reset put the old session cookie back, so the user was
+            // still signed in (turf-e2e-retry-only-causes). A peer learns of the
+            // logout from the identity broadcast of the page the logout lands on.
+            if (!msg || !msg.tabId || msg.tabId === _sessionTabId) return;
             var store = window.Alpine && Alpine.store && Alpine.store('session');
             if (!store) return;
             var changed = (msg.userId || null) !== (store.userId || null) ||
