@@ -202,15 +202,10 @@ var KeypairProvider = {
       return Promise.resolve(self._keypair);
     }
 
-    // Lazy-load tweetnacl if not present: the same file the layout's tag loads
-    // (#tweetnacl-script, this app's vendored copy at its digested asset path),
-    // under the same pin, so the file runs only if its bytes match.
+    // Lazy-load tweetnacl if not present: the layout tag's file (#tweetnacl-script, this app's vendored copy), same pin.
     return new Promise(function(resolve, reject) {
       var tag = document.getElementById('tweetnacl-script');
-      if (!tag || !tag.src) {
-        reject(new Error('tweetnacl: the layout tag #tweetnacl-script is missing'));
-        return;
-      }
+      if (!tag || !tag.src) return reject(new Error('tweetnacl: the layout tag #tweetnacl-script is missing'));
       var s = document.createElement('script');
       s.src = tag.src;
       s.integrity = 'sha384-05+sicyRJQ56XpL4U9HJ8YbtSzFDvAg7apPKOGV6A0JsAJKFM68jp5oLnUjG5mEp';

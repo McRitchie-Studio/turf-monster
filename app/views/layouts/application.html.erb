@@ -10,20 +10,9 @@
         from this one (Apple's LinkPresentation drops any page over 1 MiB). %>
     <%= render "layouts/page_identity" %>
 
-    <%# SRI-pinned (audit H2): exact versions + integrity so a changed file
-        can't swap the signing-path crypto. Both files are SERVED FROM THIS APP:
-        vendor/javascript holds web3.js 1.98.4 (unpkg
-        @solana/web3.js/lib/index.iife.min.js, whose integrity was
-        sha384-I45YF+S0YGWIolUyTksLk9TNtTqaDgZg8e6T1OoBoJvvFmphqYNIPZw3Kl0TkZNN)
-        with its last line, a sourceMappingURL comment, cut: Propshaft rewrites
-        or drops that comment, which would change the bytes under the pin. And
-        tweetnacl 1.0.3 (jsDelivr nacl-fast.min.js), byte-exact, same pin. They
-        came off the public CDNs in turf-e2e-retry-only-causes: both are blocking
-        head tags, and a CDN connection that never answered held every page for
-        30 seconds (net::ERR_TIMED_OUT on jsDelivr in CI runs 42439571758 and
-        others). A bump replaces the file and recomputes the sha384
-        (openssl dgst -sha384 -binary FILE | openssl base64 -A).
-        wallet_provider.js reads the tweetnacl tag by its id for its lazy load.
+    <%# SRI-pinned (audit H2), and served from this app (vendor/javascript) since turf-e2e-retry-only-causes: a hung CDN held pages 30 s.
+        web3.js 1.98.4 is unpkg's index.iife.min.js less its sourceMappingURL line (Propshaft rewrites it); tweetnacl 1.0.3 is byte-exact.
+        A bump replaces the file and recomputes the sha384; test/views/vendored_wallet_scripts_test.rb checks both pins.
 
         THE TWEETNACL TAG IS LOAD-BEARING, and BLOCKING is the load-bearing part.
         Both halves of the Phantom mobile round trip need window.nacl, and they
@@ -1505,14 +1494,7 @@
         if (_sessionChannel) {
           _sessionChannel.addEventListener('message', function(e) {
             var msg = e.data;
-            // Only an identity broadcast (it carries a tabId) asks for a refetch.
-            // session_wipe.js posts its logout-wipe on this channel too, AS the
-            // Log out link is followed, and a refetch then raced the logout: a
-            // session_state answer read with the old cookie and landing after the
-            // logout's reset put the old session cookie back, so the user was
-            // still signed in (turf-e2e-retry-only-causes). A peer learns of the
-            // logout from the identity broadcast of the page the logout lands on.
-            if (!msg || !msg.tabId || msg.tabId === _sessionTabId) return;
+            if (!msg || !msg.tabId || msg.tabId === _sessionTabId) return; // identity broadcasts only: refetching on session_wipe's logout-wipe raced the logout and its late answer restored the session (turf-e2e-retry-only-causes)
             var store = window.Alpine && Alpine.store && Alpine.store('session');
             if (!store) return;
             var changed = (msg.userId || null) !== (store.userId || null) ||
