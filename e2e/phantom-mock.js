@@ -124,7 +124,10 @@ async function setupPhantomMock(page, {
       }
       return new Promise((resolve, reject) => {
         const s = document.createElement("script");
-        s.src = "https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js";
+        // The layout's own tag names the app's vendored copy; no public CDN.
+        const tag = document.getElementById("tweetnacl-script");
+        if (!tag) return reject(new Error("phantom-mock: the layout tag #tweetnacl-script is missing"));
+        s.src = tag.src;
         s.onload = () => {
           _naclLoaded = true;
           resolve();

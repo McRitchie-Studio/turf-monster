@@ -17,7 +17,6 @@ class AppScriptSrcTest < ActionDispatch::IntegrationTest
   # a change to this test too.
   REMOTE = %w[
     https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js
-    https://unpkg.com/@solana/web3.js@1.98.4/lib/index.iife.min.js
     https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js
     https://cdn.logr-in.com
   ].freeze
@@ -104,8 +103,10 @@ class AppScriptSrcTest < ActionDispatch::IntegrationTest
   test "every remote script the app or its gems' views can load is named in script-src" do
     loads = RemoteScriptCensus.loads(RemoteScriptCensus.app_files + RemoteScriptCensus.gem_files)
     urls = loads.map(&:url).uniq
-    # The census sees each of the four (and the sanity check that it sees anything).
-    assert_operator urls.size, :>=, 4, urls.inspect
+    # The census sees each of the three (and the sanity check that it sees anything).
+    # web3.js and tweetnacl load from 'self' (turf-e2e-retry-only-causes); the
+    # tweetnacl URL it still sees is solana-studio's unrendered deeplink partial.
+    assert_operator urls.size, :>=, 3, urls.inspect
     uncovered = urls.reject { |url| self.class.covered?(RemoteScriptSources.for(paypal: false), url) }
     assert_empty uncovered, "remote scripts the app policy would block; add each to RemoteScriptSources"
   end

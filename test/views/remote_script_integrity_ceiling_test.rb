@@ -6,7 +6,7 @@ require "yaml"
 # element whose .src is an https:// literal in a view or in app/javascript
 # (RemoteScriptCensus, test/support/remote_script_census.rb). Vendor the file
 # (vendor/javascript, or the engine's copy), or pin it with integrity and
-# crossorigin as the layout pins web3.js and tweetnacl.
+# crossorigin as studio-engine pins its cropper tag.
 #
 # One exemption, and its condition is measured, not trusted: LogRocket's
 # recorder loader is an unversioned file its vendor updates in place, so no SRI
@@ -41,7 +41,11 @@ class RemoteScriptIntegrityCeilingTest < ActiveSupport::TestCase
 
   test "the census sees the app's remote scripts, pinned and not" do
     loads = RemoteScriptCensus.loads(RemoteScriptCensus.app_files)
-    assert_operator loads.count(&:integrity), :>=, 3, "the layout's web3.js and tweetnacl and wallet_provider's tweetnacl"
+    # web3.js and tweetnacl are vendored (turf-e2e-retry-only-causes), so this app's
+    # own source holds no pinned remote script. The detector is checked on the gems'
+    # views instead, whose cropper and deeplink tweetnacl tags are both pinned.
+    gem_loads = RemoteScriptCensus.loads(RemoteScriptCensus.gem_files)
+    assert_operator gem_loads.count(&:integrity), :>=, 2, "studio-engine's cropper and solana-studio's tweetnacl"
     assert loads.any? { |load| self.class.exempt?(load) }, "the LogRocket exemption no longer matches anything; remove it"
   end
 
