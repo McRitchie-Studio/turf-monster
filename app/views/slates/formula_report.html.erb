@@ -447,8 +447,8 @@
           </table>
         </div>
 
-        <div class="bg-surface border border-subtle rounded-lg p-4 mt-4" style="height: 240px;">
-          <canvas id="chart-<%= f[:key] %>" style="width: 100%; height: 100%;"></canvas>
+        <div class="h-[240px] bg-surface border border-subtle rounded-lg p-4 mt-4">
+          <canvas id="chart-<%= f[:key] %>" class="size-full"></canvas>
         </div>
 
         <% if f[:key] == :v1 %>
@@ -502,7 +502,7 @@
           <span class="font-mono text-sm text-violet-ink" x-text="A.toFixed(2)"></span>
         </div>
         <input type="range" min="0.1" max="5.0" step="0.01" x-model.number="A" @input="refresh()"
-               class="w-full" style="accent-color: #8E82FE;">
+               class="accent-violet w-full">
       </div>
 
       <!-- lineExp slider -->
@@ -512,7 +512,7 @@
           <span class="font-mono text-sm text-violet-ink" x-text="lineExp.toFixed(2)"></span>
         </div>
         <input type="range" min="0.0" max="3.0" step="0.01" x-model.number="lineExp" @input="refresh()"
-               class="w-full" style="accent-color: #8E82FE;">
+               class="accent-violet w-full">
       </div>
 
       <!-- probExp slider -->
@@ -522,13 +522,13 @@
           <span class="font-mono text-sm text-violet-ink" x-text="probExp.toFixed(2)"></span>
         </div>
         <input type="range" min="0.0" max="3.0" step="0.01" x-model.number="probExp" @input="refresh()"
-               class="w-full" style="accent-color: #8E82FE;">
+               class="accent-violet w-full">
       </div>
     </div>
 
     <!-- Chart -->
-    <div class="bg-surface border border-subtle rounded-lg p-4 mb-6" style="height: 360px;">
-      <canvas id="playgroundChart" style="width: 100%; height: 100%;"></canvas>
+    <div class="h-[360px] bg-surface border border-subtle rounded-lg p-4 mb-6">
+      <canvas id="playgroundChart" class="size-full"></canvas>
     </div>
 
     <!-- Live results table -->

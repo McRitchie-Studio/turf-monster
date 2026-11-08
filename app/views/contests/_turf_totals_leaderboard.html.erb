@@ -259,8 +259,8 @@
                     in /admin/pending_transactions). Winners' UserAccount.balance
                     is credited on settle; they withdraw via /wallet themselves. %>
                 <div data-role="entry-score"
-                     class="font-mono font-bold text-lg text-right flex-shrink-0 <%= rank_prize.to_i > 0 ? '' : 'ml-auto' %> <%= dimmed ? 'text-muted' : 'text-violet-ink' %>"
-                     style="min-width:3.5rem"><%= sprintf('%.1f', entry.score) %></div>
+                     class="min-w-14 font-mono font-bold text-lg text-right flex-shrink-0 <%= rank_prize.to_i > 0 ? '' : 'ml-auto' %> <%= dimmed ? 'text-muted' : 'text-violet-ink' %>"
+                    ><%= sprintf('%.1f', entry.score) %></div>
               </div>
             <%# Selections — stacked on mobile (tap to expand 3×2), inline on desktop.
                 While the contest is `open`, only the entry owner (and admins on
@@ -379,7 +379,7 @@
         <% seat_rank = entries.size + j + 1 %>
         <% prize_cents = contest_payouts[seat_rank] %>
         <div <% if collapse && lb_row >= 8 %>hidden data-leaderboard-target="tail" <% end %>class="relative">
-          <div class="card overflow-hidden" style="opacity: 0.5">
+          <div class="opacity-50 card overflow-hidden">
             <div class="flex items-center gap-3 px-4 py-3">
               <%# Mirrors the taken seats: an avatar-sized disc wearing the place
                   badge, so an empty seat lines up with the rows above it instead

@@ -77,7 +77,7 @@
           <div class="card p-2">
             <p class="label-upper px-2 py-1"><%= caption %></p>
             <iframe src="<%= admin_drop_signups_announcement_preview_path(email: kind, variant: variant) %>"
-                    title="<%= title %>: <%= caption %>" class="w-full rounded bg-white" style="height: 560px; border: 0;"
+                    title="<%= title %>: <%= caption %>" class="h-[560px] border-0 w-full rounded bg-white"
                     data-test="announcement-preview-<%= kind %>-<%= variant %>"></iframe>
           </div>
         <% end %>

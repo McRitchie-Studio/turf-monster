@@ -223,7 +223,7 @@ window.gameCard = function(data) {
       <div class="card p-4" x-data="gameCard(JSON.parse($el.dataset.game))" data-game="<%= game_card_data(game) %>">
         <!-- Score Header -->
         <div class="flex items-center justify-between mb-3">
-          <table class="text-sm" style="min-width: 16rem;">
+          <table class="min-w-64 text-sm">
             <thead>
               <tr class="text-xs text-muted uppercase tracking-wide">
                 <th class="text-left font-semibold pr-4 pb-1">Team</th>
@@ -313,7 +313,7 @@ window.gameCard = function(data) {
               </div>
 
               <!-- Player Dropdown -->
-              <select x-model="selectedPlayer" class="input-field text-sm py-1.5 flex-1" style="min-width: 10rem;">
+              <select x-model="selectedPlayer" class="min-w-40 input-field text-sm py-1.5 flex-1">
                 <option value="">Player (optional)</option>
                 <template x-for="p in filteredPlayers" :key="p.slug">
                   <option :value="p.slug" x-text="p.name"></option>
@@ -322,7 +322,7 @@ window.gameCard = function(data) {
 
               <!-- Minute -->
               <input type="number" x-model.number="goalMinute" placeholder="Min" min="1" max="120"
-                     class="input-field text-sm py-1.5" style="width: 4.5rem;">
+                     class="w-18 input-field text-sm py-1.5">
 
               <!-- Submit -->
               <button @click="addGoal()" class="btn btn-primary btn-sm" :disabled="!selectedTeam || submitting">

@@ -24,7 +24,7 @@
         </h2>
         <span class="font-mono text-xs text-secondary"><%= experiment.page_path %></span>
         <% if experiment.active? %>
-          <span class="text-xs font-bold px-2 py-0.5 rounded-full" style="background: rgb(var(--color-primary-500-rgb) / 0.15); color: var(--color-primary-badge-ink); border: 1px solid rgb(var(--color-primary-500-rgb) / 0.4);">RUNNING</span>
+          <span class="bg-primary-500/15 text-[color:var(--color-primary-badge-ink)] border border-primary-500/40 text-xs font-bold px-2 py-0.5 rounded-full">RUNNING</span>
         <% else %>
           <span class="text-xs font-bold px-2 py-0.5 rounded-full bg-inset text-muted border border-subtle">PAUSED</span>
         <% end %>

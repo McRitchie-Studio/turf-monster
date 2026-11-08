@@ -254,13 +254,12 @@
 
   <% if compact %>
     <%# ── Navbar variant: 14px bar with text overlay (the navbar's second row, components/_nav_seeds_row) ── %>
-    <div class="dm-orange relative overflow-hidden rounded" style="height: 14px;">
+    <div class="h-3.5 dm-orange relative overflow-hidden rounded">
       <%# 5-segment bar (continuous fill via --bar-progress). Rendered by the server, not x-for, so
           the first frame of a full load has its segments and its fill, ahead of Alpine. %>
       <div class="absolute inset-0 seeds-bar-continuous flex gap-1" style="--bar-progress: <%= toward_next %>;" :style="{ '--bar-progress': displaySeeds }">
         <% 5.times do |i| %>
-          <div class="flex-1 relative overflow-hidden rounded-md"
-               style="background: rgb(var(--color-primary-500-rgb) / 0.06);">
+          <div class="bg-primary-500/6 flex-1 relative overflow-hidden rounded-md">
             <%# Bar-wide gradient: bg image is 500% of segment (= bar width), bg-position shows this segment's 1/5 slice. Clip-path animates via --bar-progress to reveal only the fill area. %>
             <div class="absolute inset-0 pointer-events-none"
                  style="background-image: linear-gradient(90deg, color-mix(in srgb, var(--color-cta) 30%, transparent), color-mix(in srgb, var(--color-cta) 60%, transparent)); background-size: 500% 100%; background-repeat: no-repeat; background-position: <%= i * 25 %>% 0; clip-path: inset(0 calc(100% - clamp(0%, calc((var(--bar-progress) - <%= i * 20 %>) * 5%), 100%)) 0 0);"></div>
@@ -291,7 +290,7 @@
            :style="{ 'clip-path': 'inset(0 ' + (100 - displaySeeds) + '% 0 0)' }">
         <span><%= label %></span>
         <span class="flex items-center gap-1">
-          <span x-show="$store.devMode" x-cloak class="text-3xs font-bold" style="visibility: hidden;">Replay</span>
+          <span x-show="$store.devMode" x-cloak class="invisible text-3xs font-bold">Replay</span>
           <span data-seeds-level :class="levelingUp && 'nav-level-pop'" x-text="'Level ' + displayLevel">Level <%= lvl %></span>
         </span>
       </div>
@@ -305,7 +304,7 @@
       <% else %>
         <span></span>
       <% end %>
-      <div class="relative flex items-center gap-2" x-ref="confettiZone" style="overflow: visible;">
+      <div class="overflow-visible relative flex items-center gap-2" x-ref="confettiZone">
         <a href="#" @click.prevent="replay()" x-show="$store.devMode" x-cloak
            class="text-xs font-bold text-yellow-400 hover:text-yellow-300 transition">Replay</a>
         <%# Per-level styled pill (level-badge-N from app/assets/tailwind/application.css)
@@ -324,12 +323,10 @@
       </div>
     </div>
 
-    <div class="seeds-bar-continuous flex gap-1.5"
-         style="height: 22px;"
+    <div class="h-[22px] seeds-bar-continuous flex gap-1.5"
          :style="{ '--bar-progress': displaySeeds }">
       <template x-for="i in 5" :key="i">
-        <div class="flex-1 relative overflow-hidden rounded-lg"
-             style="background: rgb(var(--color-primary-500-rgb) / 0.06);">
+        <div class="bg-primary-500/6 flex-1 relative overflow-hidden rounded-lg">
           <%# Bar-wide gradient: bg image is 500% of segment (= bar width), bg-position shows this segment's 1/5 slice. Clip-path animates via --bar-progress to reveal only the fill area. %>
           <div class="absolute inset-0 pointer-events-none"
                :style="{
@@ -348,7 +345,7 @@
 
     <%# Rotating-integer counter %>
     <div class="flex items-center justify-end mt-2 font-mono text-xs text-secondary">
-      <span class="inline-flex items-baseline gap-1 font-mono font-bold text-sm" style="color: var(--color-primary-ink);">
+      <span class="text-primary-ink inline-flex items-baseline gap-1 font-mono font-bold text-sm">
         <%= render "components/digit_reel",
               value: "displaySeeds", max: 100, width: "3.1ch", cell_em: 1.25,
               transition: "'transform 1.2s cubic-bezier(0.16, 1, 0.3, 1)'" %>

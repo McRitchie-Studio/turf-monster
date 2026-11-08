@@ -83,8 +83,7 @@
           "Tailwind Compilation Constraints"). Squeezing on flex-col + items-center left the
           avatar as a pill instead of a circle. %>
       <div @click="$refs.filePicker.click()"
-           style="width: 96px; height: 96px;"
-           class="relative rounded-full cursor-pointer group overflow-hidden mb-3 flex-shrink-0">
+           class="size-24 relative rounded-full cursor-pointer group overflow-hidden mb-3 flex-shrink-0">
         <% if @user.avatar.attached? %>
           <%= image_tag @user.avatar, class: "rounded-full object-cover", style: "width: 96px; height: 96px;", alt: @user.display_name %>
         <% else %>

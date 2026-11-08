@@ -42,7 +42,7 @@
         </div>
         <div>
           <div class="text-muted text-xs uppercase tracking-wide">Level</div>
-          <div class="font-mono font-bold text-xl" style="color: var(--color-primary-ink);" data-seeds-lab-target="label" data-label="level">1</div>
+          <div class="text-primary-ink font-mono font-bold text-xl" data-seeds-lab-target="label" data-label="level">1</div>
         </div>
         <div>
           <div class="text-muted text-xs uppercase tracking-wide">Toward next</div>
@@ -86,8 +86,7 @@
       <div>
         <label class="text-muted text-xs uppercase tracking-wide block mb-1">Mode</label>
         <select data-seeds-lab-target="mode" data-studio-action="change->seeds-lab#shineChanged"
-                class="w-full text-sm rounded-md border border-subtle px-2 py-1.5"
-                style="background: var(--color-surface-alt); color: var(--color-text);">
+                class="bg-surface-alt text-heading w-full text-sm rounded-md border border-subtle px-2 py-1.5">
           <option value="continuous">Continuous (every 2.5s)</option>
           <option value="pulse">Pulse (shine + pause)</option>
           <option value="once">Once (on mount / trigger)</option>
@@ -111,8 +110,7 @@
       </div>
       <div>
         <label class="text-muted text-xs uppercase tracking-wide block mb-1">Active CSS</label>
-        <code class="block text-xs font-mono text-secondary px-2 py-1 rounded border border-subtle truncate"
-              style="background: var(--color-inset);"
+        <code class="bg-inset block text-xs font-mono text-secondary px-2 py-1 rounded border border-subtle truncate"
               data-seeds-lab-target="label" data-label="shineDebug"></code>
       </div>
     </div>
@@ -126,20 +124,17 @@
       <div>
         <div class="flex items-baseline justify-between">
           <h2 class="text-heading font-semibold text-base">1 · Segmented</h2>
-          <span class="text-xs font-bold px-2 py-0.5 rounded-full"
-                style="background: rgb(var(--color-primary-500-rgb) / 0.15); color: var(--color-primary-badge-ink); border: 1px solid rgb(var(--color-primary-500-rgb) / 0.3);"
+          <span class="bg-primary-500/15 text-[color:var(--color-primary-badge-ink)] border border-primary-500/30 text-xs font-bold px-2 py-0.5 rounded-full"
                 data-seeds-lab-target="pop label" data-label="levelBadge">Level 1</span>
         </div>
         <p class="text-muted text-xs mt-1">Five hard-divided rectangles (20 seeds each). Shine clipped to each section — gaps stay clean.</p>
       </div>
 
       <div class="bg-inset border border-subtle rounded-lg px-3 py-3">
-        <div class="seeds-bar-continuous flex gap-1.5"
-             style="height: 22px;"
+        <div class="h-[22px] seeds-bar-continuous flex gap-1.5"
              data-seeds-lab-target="styled" data-style="progress">
           <% (1..5).each do |i| %>
-            <div class="flex-1 relative overflow-hidden rounded-md"
-                 style="background: rgb(var(--color-primary-500-rgb) / 0.22); border: 2px solid rgb(var(--color-primary-500-rgb) / 0.7); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);">
+            <div class="bg-primary-500/22 border-2 border-primary-500/70 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] flex-1 relative overflow-hidden rounded-md">
               <%# Green fill — width derives from inherited --bar-progress; one transition drives all 5 sections in lockstep %>
               <div class="absolute inset-y-0 left-0"
                    style="background: var(--color-cta); width: clamp(0%, calc((var(--bar-progress) - <%= (i - 1) * 20 %>) * 5%), 100%);"></div>
@@ -152,13 +147,13 @@
         </div>
         <div class="flex items-center justify-end mt-2 font-mono text-xs text-secondary">
           <%# Rotating-integer counter — one tall column of 0..100, transform slides up by displaySeeds × line-height. Same easing as the bar so they stay locked together. %>
-          <span class="inline-flex items-baseline gap-1 font-mono font-bold text-sm" style="color: var(--color-primary-ink);">
-            <span class="relative overflow-hidden inline-block text-right" style="height: 1.25em; width: 3.1ch; line-height: 1.25em;">
+          <span class="text-primary-ink inline-flex items-baseline gap-1 font-mono font-bold text-sm">
+            <span class="h-[1.25em] w-[3.1ch] leading-[1.25em] relative overflow-hidden inline-block text-right">
               <span class="block"
                     style="transform: translateY(-0em); transition: transform 1.2s cubic-bezier(0.16, 1, 0.3, 1);"
                     data-seeds-lab-target="styled" data-style="roller">
                 <% (0..100).each do |n| %>
-                  <span class="block" style="height: 1.25em; line-height: 1.25em;"><%= n %></span>
+                  <span class="h-[1.25em] leading-[1.25em] block"><%= n %></span>
                 <% end %>
               </span>
             </span>
@@ -173,15 +168,14 @@
       <div>
         <div class="flex items-baseline justify-between">
           <h2 class="text-heading font-semibold text-base">1b · Segmented + Gap Glow</h2>
-          <span class="text-xs font-bold px-2 py-0.5 rounded-full"
-                style="background: rgb(var(--color-primary-500-rgb) / 0.15); color: var(--color-primary-badge-ink); border: 1px solid rgb(var(--color-primary-500-rgb) / 0.3);"
+          <span class="bg-primary-500/15 text-[color:var(--color-primary-badge-ink)] border border-primary-500/30 text-xs font-bold px-2 py-0.5 rounded-full"
                 data-seeds-lab-target="pop label" data-label="levelBadge">Level 1</span>
         </div>
         <p class="text-muted text-xs mt-1">Same as 1 but the gaps catch a faint wash — wave reads as more continuous, sections still pop brightest.</p>
       </div>
 
       <div class="bg-inset border border-subtle rounded-lg px-3 py-3">
-        <div class="relative" style="height: 22px;">
+        <div class="h-[22px] relative">
           <%# Faint bar-wide shimmer behind everything — visible in gaps, dimmed in sections %>
           <div class="absolute inset-0 pointer-events-none overflow-hidden">
             <div class="absolute inset-0"
@@ -192,8 +186,7 @@
           <div class="seeds-bar-continuous flex gap-1.5 h-full relative"
                data-seeds-lab-target="styled" data-style="progress">
             <% (1..5).each do |i| %>
-              <div class="flex-1 relative overflow-hidden rounded-md"
-                   style="background: rgb(var(--color-primary-500-rgb) / 0.22); border: 2px solid rgb(var(--color-primary-500-rgb) / 0.7); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);">
+              <div class="bg-primary-500/22 border-2 border-primary-500/70 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] flex-1 relative overflow-hidden rounded-md">
                 <div class="absolute inset-y-0 left-0"
                      style="background: var(--color-cta); width: clamp(0%, calc((var(--bar-progress) - <%= (i - 1) * 20 %>) * 5%), 100%);"></div>
                 <div class="absolute top-0 bottom-0 pointer-events-none"
@@ -215,16 +208,14 @@
       <div>
         <div class="flex items-baseline justify-between">
           <h2 class="text-heading font-semibold text-base">2 · Continuous + Ticks</h2>
-          <span class="text-xs font-bold px-2 py-0.5 rounded-full"
-                style="background: rgb(var(--color-primary-500-rgb) / 0.15); color: var(--color-primary-badge-ink); border: 1px solid rgb(var(--color-primary-500-rgb) / 0.3);"
+          <span class="bg-primary-500/15 text-[color:var(--color-primary-badge-ink)] border border-primary-500/30 text-xs font-bold px-2 py-0.5 rounded-full"
                 data-seeds-lab-target="pop label" data-label="levelBadge">Level 1</span>
         </div>
         <p class="text-muted text-xs mt-1">Single smooth bar (matches today). Tick marks at 20/40/60/80 hint at the five sections.</p>
       </div>
 
       <div class="bg-inset border border-subtle rounded-lg px-3 py-3">
-        <div class="relative overflow-hidden rounded-md"
-             style="height: 22px; background: rgb(var(--color-primary-500-rgb) / 0.06); border: 1px solid rgb(var(--color-primary-500-rgb) / 0.25);">
+        <div class="h-[22px] bg-primary-500/6 border border-primary-500/25 relative overflow-hidden rounded-md">
           <%# Fill %>
           <div class="absolute inset-y-0 left-0"
                style="background: var(--color-cta); transition: width 1.2s cubic-bezier(0.16, 1, 0.3, 1); width: 0%;"
@@ -237,13 +228,12 @@
                  data-seeds-lab-target="styled" data-style="fillShimmer"></div>
           </div>
           <%# Tick marks at 20/40/60/80 %>
-          <div class="absolute inset-y-0 pointer-events-none" style="left: 20%; width: 2px; background: rgba(255,255,255,0.45);"></div>
-          <div class="absolute inset-y-0 pointer-events-none" style="left: 40%; width: 2px; background: rgba(255,255,255,0.55);"></div>
-          <div class="absolute inset-y-0 pointer-events-none" style="left: 60%; width: 2px; background: rgba(255,255,255,0.55);"></div>
-          <div class="absolute inset-y-0 pointer-events-none" style="left: 80%; width: 2px; background: rgba(255,255,255,0.45);"></div>
+          <div class="left-1/5 w-0.5 bg-white/45 absolute inset-y-0 pointer-events-none"></div>
+          <div class="left-2/5 w-0.5 bg-white/55 absolute inset-y-0 pointer-events-none"></div>
+          <div class="left-3/5 w-0.5 bg-white/55 absolute inset-y-0 pointer-events-none"></div>
+          <div class="left-4/5 w-0.5 bg-white/45 absolute inset-y-0 pointer-events-none"></div>
           <%# Centered counter %>
-          <span class="absolute inset-0 flex items-center justify-center text-xs font-mono font-bold"
-                style="color: var(--color-primary-ink);"
+          <span class="text-primary-ink absolute inset-0 flex items-center justify-center text-xs font-mono font-bold"
                 data-seeds-lab-target="label" data-label="counter">0 / 100</span>
           <span class="absolute inset-0 flex items-center justify-center text-xs font-mono font-bold"
                 style="color: white; clip-path: inset(0 100% 0 0);"
@@ -261,8 +251,7 @@
       <div>
         <div class="flex items-baseline justify-between">
           <h2 class="text-heading font-semibold text-base">3 · Stepped Sprouts</h2>
-          <span class="text-xs font-bold px-2 py-0.5 rounded-full"
-                style="background: rgb(var(--color-primary-500-rgb) / 0.15); color: var(--color-primary-badge-ink); border: 1px solid rgb(var(--color-primary-500-rgb) / 0.3);"
+          <span class="bg-primary-500/15 text-[color:var(--color-primary-badge-ink)] border border-primary-500/30 text-xs font-bold px-2 py-0.5 rounded-full"
                 data-seeds-lab-target="pop label" data-label="levelBadge">Level 1</span>
         </div>
         <p class="text-muted text-xs mt-1">Five sprouts grow into trees. Most gamified — reads as Duolingo-style streak progress.</p>
@@ -275,7 +264,7 @@
               <div class="text-3xl leading-none select-none"
                    style="transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.5s ease; transform: scale(0.85); filter: grayscale(0.7) opacity(0.45);"
                    data-seeds-lab-target="sprout" data-index="<%= i %>">🌱</div>
-              <div class="h-1.5 w-full rounded-full overflow-hidden" style="background: rgb(var(--color-primary-500-rgb) / 0.06);">
+              <div class="bg-primary-500/6 h-1.5 w-full rounded-full overflow-hidden">
                 <div class="h-full rounded-full"
                      style="background: var(--color-cta); transition: width 1.2s cubic-bezier(0.16, 1, 0.3, 1); width: 0%;"
                      data-seeds-lab-target="sectionFill" data-index="<%= i %>"></div>
@@ -295,8 +284,7 @@
       <div>
         <div class="flex items-baseline justify-between">
           <h2 class="text-heading font-semibold text-base">4 · Battery Cells</h2>
-          <span class="text-xs font-bold px-2 py-0.5 rounded-full"
-                style="background: rgb(var(--color-primary-500-rgb) / 0.15); color: var(--color-primary-badge-ink); border: 1px solid rgb(var(--color-primary-500-rgb) / 0.3);"
+          <span class="bg-primary-500/15 text-[color:var(--color-primary-badge-ink)] border border-primary-500/30 text-xs font-bold px-2 py-0.5 rounded-full"
                 data-seeds-lab-target="pop label" data-label="levelBadge">Level 1</span>
         </div>
         <p class="text-muted text-xs mt-1">Five cells inside a battery casing. Reads as "energy filling up" — feels rewarding without explanation.</p>
@@ -304,19 +292,17 @@
 
       <div class="bg-inset border border-subtle rounded-lg px-3 py-4">
         <div class="flex items-center justify-center gap-0">
-          <div class="flex gap-1 p-1.5 rounded-md"
-               style="border: 2px solid var(--color-cta);"
+          <div class="border-2 border-[color:var(--color-cta)] flex gap-1 p-1.5 rounded-md"
                data-seeds-lab-target="pop">
             <% (1..5).each do |i| %>
-              <div class="relative overflow-hidden rounded-sm"
-                   style="width: 32px; height: 22px; background: rgb(var(--color-primary-500-rgb) / 0.06);">
+              <div class="w-8 h-[22px] bg-primary-500/6 relative overflow-hidden rounded-sm">
                 <div class="absolute inset-y-0 left-0"
                      style="background: var(--color-cta); transition: width 1.2s cubic-bezier(0.16, 1, 0.3, 1); width: 0%;"
                      data-seeds-lab-target="sectionFill" data-index="<%= i %>"></div>
               </div>
             <% end %>
           </div>
-          <div style="width: 5px; height: 12px; background: var(--color-cta); border-radius: 0 2px 2px 0; margin-left: -1px;"></div>
+          <div class="w-[5px] h-3 bg-[color:var(--color-cta)] rounded-r-[2px] -ml-px"></div>
         </div>
         <div class="flex items-center justify-between mt-3 font-mono text-xs text-secondary">
           <span data-seeds-lab-target="label" data-label="cells">0 / 5 cells</span>

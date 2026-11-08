@@ -2361,7 +2361,7 @@ window.selectionBoard = function() {
       </div>
       <div class="relative">
         <input type="text" x-model="filterText" placeholder="Filter teams..."
-               class="input-field text-sm py-1.5 pl-3 pr-8 rounded-full" style="width:140px">
+               class="w-[140px] input-field text-sm py-1.5 pl-3 pr-8 rounded-full">
         <button x-show="filterText" @click="filterText = ''"
                 class="absolute right-2 top-1/2 -translate-y-1/2 text-secondary hover:text-heading transition text-lg leading-none">&times;</button>
       </div>
@@ -2602,7 +2602,7 @@ window.selectionBoard = function() {
       <template x-for="i in <%= @contest.picks_required %>" :key="i">
         <div>
           <template x-if="selectionSlots[i-1]">
-            <div class="rounded-md px-1.5 py-1 border text-center relative overflow-hidden" style="min-height:2.25rem"
+            <div class="min-h-9 rounded-md px-1.5 py-1 border text-center relative overflow-hidden"
                  :style="{ background: selectionSlots[i-1].gradient, color: selectionSlots[i-1].fg, borderColor: selectionSlots[i-1].fgFaint }">
               <%# Name and multiplier share the top line, the multiplier pinned
                   right and shrink-proof. On a 393px phone the old second line
@@ -2619,9 +2619,8 @@ window.selectionBoard = function() {
             </div>
           </template>
           <template x-if="!selectionSlots[i-1]">
-            <div class="border border-dashed border-strong rounded-md px-1.5 py-1 text-center flex items-center justify-center"
-                 :class="i === selectionCount + 1 ? (i === <%= @contest.picks_required %> ? (pickUrgent ? 'pick-pulse-urgent' : 'pick-pulse-shimmer') : (i === 2 ? 'pick-pulse-shimmer' : 'pick-pulse')) : ''"
-                 style="min-height:2.25rem">
+            <div class="min-h-9 border border-dashed border-strong rounded-md px-1.5 py-1 text-center flex items-center justify-center"
+                 :class="i === selectionCount + 1 ? (i === <%= @contest.picks_required %> ? (pickUrgent ? 'pick-pulse-urgent' : 'pick-pulse-shimmer') : (i === 2 ? 'pick-pulse-shimmer' : 'pick-pulse')) : ''">
               <p class="text-xs" :class="i === selectionCount + 1 ? 'text-secondary' : 'text-muted'">Pick <span x-text="i"></span></p>
             </div>
           </template>

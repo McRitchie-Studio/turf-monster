@@ -84,13 +84,12 @@
           <%# Palette on a translucent-black strip so swatches read on any field.
               A 2-column grid — Dark | Alt over Light | Grey, each cell 50% wide —
               of tight swatches; click any to copy its hex. %>
-          <div class="px-3 py-2.5 grid grid-cols-2 gap-x-3 gap-y-2"
-               style="background-color: rgba(0, 0, 0, 0.45)"
+          <div class="bg-black/45 px-3 py-2.5 grid grid-cols-2 gap-x-3 gap-y-2"
                data-studio-controller="swatch-copy" data-studio-action="turbo:before-cache@document->swatch-copy#reset">
             <% color_sections.each do |label, hexes| %>
               <% swatches = hexes.select(&:present?).map(&:upcase).uniq %>
               <div class="flex items-center gap-2">
-                <span class="text-3xs uppercase tracking-wider text-white/40 flex-shrink-0" style="min-width: 2.25rem"><%= label %></span>
+                <span class="min-w-9 text-3xs uppercase tracking-wider text-white/40 flex-shrink-0"><%= label %></span>
                 <div class="flex items-center gap-1.5 min-h-[1rem]">
                   <% swatches.each do |hex| %>
                     <button type="button" data-hex="<%= hex %>"
@@ -99,8 +98,8 @@
                             style="background-color: <%= hex %>"
                             aria-label="Copy <%= hex %>">
                       <span data-swatch-copy-target="tip" hidden
-                            class="absolute bottom-full right-full mb-0.5 mr-0.5 px-1.5 py-0.5 rounded-md text-white text-3xs font-mono leading-none whitespace-nowrap pointer-events-none z-20 shadow-lg"
-                            style="background-color: rgba(55, 58, 64, 0.97)"><%= hex %></span>
+                            class="bg-[rgba(55,58,64,0.97)] absolute bottom-full right-full mb-0.5 mr-0.5 px-1.5 py-0.5 rounded-md text-white text-3xs font-mono leading-none whitespace-nowrap pointer-events-none z-20 shadow-lg"
+                           ><%= hex %></span>
                     </button>
                   <% end %>
                 </div>

@@ -159,7 +159,7 @@
             <label class="block text-xs text-muted mb-1">Date</label>
             <button type="button" @click="calOpen = !calOpen" class="input-field w-full text-left flex items-center justify-between">
               <span :class="displayDate ? 'text-heading' : 'text-muted'" x-text="displayDate || 'Select date'"></span>
-              <svg class="text-muted" style="width:1rem;height:1rem" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <svg class="size-4 text-muted" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
               </svg>
             </button>
@@ -169,16 +169,15 @@
                  x-transition:enter="transition ease-out duration-150"
                  x-transition:enter-start="opacity-0 scale-95"
                  x-transition:enter-end="opacity-100 scale-100"
-                 class="absolute z-10 mt-1 bg-surface border border-subtle rounded-lg shadow-lg p-3"
-                 style="width: 280px; left: 50%; transform: translateX(-50%);">
+                 class="w-[280px] left-1/2 -translate-x-1/2 absolute z-10 mt-1 bg-surface border border-subtle rounded-lg shadow-lg p-3">
               <!-- Month nav -->
               <div class="flex items-center justify-between mb-2">
                 <button type="button" @click="prevMonth()" class="p-1 rounded hover:bg-surface-alt text-secondary">
-                  <svg style="width:1rem;height:1rem" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5"/></svg>
+                  <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5"/></svg>
                 </button>
                 <span class="text-sm font-semibold text-heading" x-text="months[viewMonth] + ' ' + viewYear"></span>
                 <button type="button" @click="nextMonth()" class="p-1 rounded hover:bg-surface-alt text-secondary">
-                  <svg style="width:1rem;height:1rem" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
+                  <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
                 </button>
               </div>
               <!-- Day headers -->
@@ -240,7 +239,7 @@
              @drop.prevent="dropFile($event)"
              :class="dragging ? 'border-primary bg-primary/10' : 'border-subtle hover:border-strong'"
              class="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition">
-          <svg class="mx-auto mb-2 text-muted" style="width:2rem;height:2rem" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <svg class="size-8 mx-auto mb-2 text-muted" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
           </svg>
           <p class="text-sm text-secondary">Drop an image here or <span class="text-primary font-medium">browse</span></p>
@@ -251,8 +250,8 @@
         <div x-show="previewUrl" class="relative rounded-lg overflow-hidden border border-subtle">
           <img :src="previewUrl" class="w-full h-32 object-cover">
           <div class="absolute inset-0 bg-black/40 opacity-0 hover:opacity-100 transition flex items-center justify-center gap-2">
-            <button type="button" @click="open()" class="btn btn-sm text-white" style="background:rgba(0,0,0,0.6)">Replace</button>
-            <button type="button" @click="clear()" class="btn btn-sm text-white" style="background:rgba(0,0,0,0.6)">Remove</button>
+            <button type="button" @click="open()" class="bg-black/60 btn btn-sm text-white">Replace</button>
+            <button type="button" @click="clear()" class="bg-black/60 btn btn-sm text-white">Remove</button>
           </div>
           <div class="px-3 py-2 bg-surface-alt text-xs text-secondary truncate" x-text="fileName"></div>
         </div>

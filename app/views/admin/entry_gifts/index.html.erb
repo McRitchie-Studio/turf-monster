@@ -19,8 +19,8 @@
       stranger's behalf, so a gift link to a brand-new address bounces to /signin
       and the link is spent. Existing accounts are unaffected. %>
   <% if AppFlags.age_attestation? %>
-    <div class="card p-4" style="border-color: var(--color-danger);">
-      <p class="text-sm" style="color: var(--color-danger);">
+    <div class="border-[color:var(--color-danger)] card p-4">
+      <p class="text-[color:var(--color-danger)] text-sm">
         <strong>Legal-age attestation is ON</strong> (<code class="font-mono">ENABLE_AGE_ATTESTATION</code>).
         A gift link cannot create a NEW account while it is — the recipient is sent to /signin to
         request their own link with the box checked, and this gift's link is spent. Gifts to people
