@@ -1,13 +1,11 @@
 <% content_for(:title, "Seasons — Admin") %>
 
 <div class="max-w-5xl mx-auto py-8 px-4 space-y-6">
-  <div>
-    <h1 class="text-heading text-2xl font-bold mb-1">Seasons</h1>
-    <p class="text-muted text-sm">
-      On-chain <code class="font-mono">Season</code> PDAs hold the seed schedule used by every entry instruction.
-      Schedule slots map to <span class="font-mono">entry_num.min(4)</span> — slot 4 applies to any entry beyond the 5th.
-    </p>
-  </div>
+  <%= render "studio/page_header", title: "Seasons", crumbs: studio_crumbs(parent: :admin) %>
+  <p class="text-muted text-sm">
+    On-chain <code class="font-mono">Season</code> PDAs hold the seed schedule used by every entry instruction.
+    Schedule slots map to <span class="font-mono">entry_num.min(4)</span> — slot 4 applies to any entry beyond the 5th.
+  </p>
 
   <%# Existing seasons table %>
   <div class="card overflow-x-auto">

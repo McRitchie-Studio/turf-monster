@@ -198,11 +198,10 @@ window.gameCard = function(data) {
 </script>
 
 <div class="max-w-4xl mx-auto px-4 py-6" x-data="{ simAllRunning: false, simAllCurrent: 0, simAllTotal: 0 }">
+  <%= render "studio/page_header", title: "Slate Manager", crumbs: studio_crumbs(parent: :slate, slate: @slate),
+        row_class: "-mx-4 px-4 mb-2" %>
   <div class="flex items-center justify-between mb-6">
-    <div>
-      <h1 class="text-2xl font-extrabold text-heading">Slate Manager</h1>
-      <p class="text-sm text-muted mt-1"><%= @slate.name %></p>
-    </div>
+    <p class="text-sm text-muted"><%= @slate.name %></p>
     <div class="flex items-center gap-2">
       <template x-if="simAllRunning">
         <span class="text-sm font-semibold text-yellow-400">Game <span x-text="simAllCurrent"></span>/<span x-text="simAllTotal"></span></span>
@@ -216,7 +215,6 @@ window.gameCard = function(data) {
         <span x-show="!simAllRunning">Simulate All (10s each)</span>
         <span x-show="simAllRunning">Simulating...</span>
       </button>
-      <%= link_to "Back to Slate", slate_path(@slate), class: "btn btn-outline btn-sm" %>
     </div>
   </div>
 

@@ -1,16 +1,12 @@
 <% content_for(:title, "Landing Pages — Admin") %>
 
 <div class="max-w-5xl mx-auto py-8 px-4 space-y-6">
-  <div class="flex items-start justify-between gap-4 flex-wrap">
-    <div>
-      <h1 class="text-heading text-2xl font-bold mb-1">Landing Pages</h1>
-      <p class="text-muted text-sm">
-        Public funnel pages at <span class="font-mono">/lp/&lt;slug&gt;</span>. Each one points its
-        CTA at a contest and tags signups with its slug for attribution.
-      </p>
-    </div>
-    <%= link_to "New Landing Page", new_admin_landing_page_path, class: "btn btn-success" %>
-  </div>
+  <%= render "studio/page_header", title: "Landing Pages", crumbs: studio_crumbs(:admin_landing_pages),
+        action: { label: "New Landing Page", href: new_admin_landing_page_path } %>
+  <p class="text-muted text-sm">
+    Public funnel pages at <span class="font-mono">/lp/&lt;slug&gt;</span>. Each one points its
+    CTA at a contest and tags signups with its slug for attribution.
+  </p>
 
   <div class="card overflow-x-auto">
     <table class="w-full text-sm">

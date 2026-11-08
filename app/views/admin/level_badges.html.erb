@@ -24,12 +24,10 @@
 %>
 
 <div class="max-w-5xl mx-auto py-8 px-4 space-y-10">
-  <header>
-    <h1 class="text-heading text-3xl font-extrabold mb-1">Level Badges</h1>
-    <p class="text-secondary text-sm">
-      Progressive visual treatments for Level 1 → 10. Compare the bare badge against an in-context mock of the seeds card header. Higher tiers animate — give them a few seconds.
-    </p>
-  </header>
+  <%= render "studio/page_header", title: "Level Badges", crumbs: studio_crumbs(parent: :admin) %>
+  <p class="text-secondary text-sm">
+    Progressive visual treatments for Level 1 → 10. Compare the bare badge against an in-context mock of the seeds card header. Higher tiers animate — give them a few seconds.
+  </p>
 
 
 

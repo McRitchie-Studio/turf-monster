@@ -1,5 +1,5 @@
 <div class="max-w-7xl mx-auto px-4">
-  <h1 class="text-2xl font-extrabold text-heading mb-2">Outbound Requests</h1>
+  <%= render "studio/page_header", title: "Outbound Requests", crumbs: studio_crumbs(:admin_outbound_requests), row_class: "-mx-4 px-4 mb-2" %>
   <p class="text-secondary text-sm mb-6">Audit log of every Stripe / Solana RPC call. Newest first, 200 rows max.</p>
 
   <%# -- Summary -- %>

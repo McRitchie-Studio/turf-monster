@@ -9,10 +9,7 @@
 
 <section data-studio-controller="scoring-filter"
          data-studio-action="turbo:before-cache@document->scoring-filter#reset game-scorer:changed->scoring-filter#update">
-  <div class="flex items-center justify-between gap-3 mb-2">
-    <h2 class="text-2xl font-bold text-heading">Goal Console</h2>
-    <%= link_to "Admin hub →", admin_hub_path, class: "text-sm text-muted hover:text-heading" %>
-  </div>
+  <%= render "studio/page_header", title: "Goal Console", crumbs: studio_crumbs(parent: :admin), row_class: "-mx-4 px-4 mb-2" %>
   <p class="text-sm text-muted mb-5">
     Record goals live as they happen — pick the minute, tap the team that scored.
     Every goal re-scores all open contests on the slate and pushes the live leaderboard.

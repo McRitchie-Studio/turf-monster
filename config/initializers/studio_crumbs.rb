@@ -29,6 +29,7 @@ Rails.application.config.to_prepare do
     page :admin_authorities,         "Authorities",       :admin_authorities_path,         parent: :admin
     page :admin_transactions,        "Transactions",      :admin_transactions_path,        parent: :admin
     page :slates,                    "Slates",            :slates_path,                    parent: :admin
+    page :slate, ->(slate:) { truncate(slate.name, length: 40) }, ->(slate:) { slate_path(slate) }, parent: :slates
 
     page :contests, "Contests", :contests_path
     page :contest, ->(contest:) { truncate(contest.name, length: 40) }, ->(contest:) { contest_path(contest) },

@@ -1,6 +1,6 @@
 <div class="max-w-4xl mx-auto px-4">
-  <%= link_to "← Back to outbound requests", admin_outbound_requests_path, class: "text-sm text-secondary hover:text-primary" %>
-  <h1 class="text-2xl font-extrabold text-heading mt-2 mb-1">Outbound Request #<%= @outbound_request.id %></h1>
+  <%= render "studio/page_header", title: "Outbound Request ##{@outbound_request.id}", crumbs: studio_crumbs(parent: :admin_outbound_requests),
+        row_class: "-mx-4 px-4 mb-1" %>
   <p class="text-secondary text-sm mb-6">
     <span class="font-mono"><%= @outbound_request.method %> <%= @outbound_request.endpoint %></span>
     · <%= @outbound_request.created_at.strftime("%Y-%m-%d %H:%M:%S UTC") %>
