@@ -86,6 +86,14 @@ async function neverRan(page, probes = 1) {
     .toBeGreaterThanOrEqual(probes);
   expect(await injected(page)).toBeUndefined();
 }
+// A frame's or a stream's probe is stopped before the browser ever sees a script
+// element (measured: no securitypolicyviolation fires for either), so there is
+// no refusal event to wait on. This one keeps the window the controls prove is
+// long enough for Turbo to run such a script, and reads silence after it.
+async function neverRanInWindow(page) {
+  await page.waitForTimeout(RUN_WINDOW);
+  expect(await injected(page)).toBeUndefined();
+}
 
 // Adds the probe script to every HTML document the browser fetches for path.
 async function injectInto(page, path) {
@@ -181,11 +189,10 @@ test.describe("enforced", () => {
 
   test("a script injected through a frame or a stream does not run on a signing page", async ({ page, request }) => {
     await enforce(request, true);
-    await watchViolations(page);
     await page.goto(CONTEST);
     await injectThroughFrame(page);
     await injectThroughStream(page);
-    await neverRan(page, 2);
+    await neverRanInWindow(page);
   });
 
   // THE CONTROLS. The same probes, where nothing refuses them.
