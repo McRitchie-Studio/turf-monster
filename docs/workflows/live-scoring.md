@@ -116,9 +116,9 @@ holds the board overnight (rung 3) and Monday night football takes it at 8:15
 Monday morning, twelve hours before its kickoff (rung 2).
 
 **The order is a tiebreak, never an override.** The `focus_rank` column on `games`
-(`db/schema.rb:452`) is a position in ONE list covering the whole week — unique per
+(added by `AddFocusRankToGames`, `db/migrate/20260830040000_add_focus_rank_to_games.rb:18`) is a position in ONE list covering the whole week — unique per
 season slot (year + season type + week) through the partial index
-`index_games_on_focus_rank_per_slot` (`db/schema.rb:472`), and validated as a positive
+`index_games_on_focus_rank_per_slot` (also `AddFocusRankToGames`, `db/migrate/20260830040000_add_focus_rank_to_games.rb:18`), and validated as a positive
 integer on `Game` (`app/models/game.rb:67`). `Live::FocusGame.best_ranked` reads it
 (`app/services/live/focus_game.rb:112`) only WITHIN the set a rung has already made
 eligible, which is what stops the marquee game of the week from sitting on the board
@@ -179,7 +179,8 @@ and a bad minute must not end a watch.
 
 **It is idempotent.** Every scoring event is keyed on ESPN's own play id
 (`external_id`) under the unique partial index
-`index_goals_on_external_id_when_present` (`db/schema.rb:493`), and
+`index_goals_on_external_id_when_present` (added by `AddScoringDetailToGoals`,
+`db/migrate/20260826050000_add_scoring_detail_to_goals.rb:32`), and
 `Nfl::LiveScores::PollCycle#sync_scoring_plays` indexes what it already holds by that
 id before writing (`app/services/nfl/live_scores/poll_cycle.rb:483-484`) — so a second
 identical cycle writes nothing and an interrupted one resumes by being run again.
@@ -389,7 +390,7 @@ These are guards with reproductions behind them, not defensive padding.
   otherwise re-open a settled game and re-fire the FINAL broadcast.
 - **It will not store an id-less play.** `play["id"].to_s` yields `""`, which the
   unique index `index_goals_on_external_id_when_present` covers with its
-  `WHERE external_id IS NOT NULL` predicate (`db/schema.rb:493`) — so a second id-less
+  `WHERE external_id IS NOT NULL` predicate (`AddScoringDetailToGoals`, `db/migrate/20260826050000_add_scoring_detail_to_goals.rb:32`) — so a second id-less
   play anywhere in the league would collide across games.
 
 ## The studio recap push
