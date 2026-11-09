@@ -6,7 +6,7 @@
 > `test/docs/workflow_citation_docs_test.rb` enforces both rules and checks every
 > number against the symbol its prose names — the symbol is the claim, the number
 > is bookkeeping. That check comes in three strengths, and it is worth knowing
-> which one you are reading. **125 of the 159 citations** below sit inside a
+> which one you are reading. **126 of the 160 citations** below sit inside a
 > definition, and there the prose must name that definition or the citation
 > reddens. The other **34** sit in code with no enclosing definition, and they
 > split. **3 of those 34** cite `config/routes.rb`, and each must OPEN on the line
@@ -94,14 +94,16 @@ Phantom must be installed in the browser or available via mobile deep link.
      cap replaces the oldest pick rather than refusing (`:856-866`).
    - A guest's tap only mutates local Alpine state — the method returns before
      the network call (`:873`).
-   - When logged in it POSTs `/contests/:id/toggle_selection` (`:875-882`) →
+   - When logged in it POSTs `/contests/:id/toggle_selection` (`:883-887`) →
      `ContestsController#toggle_selection`
      (`app/controllers/contests_controller.rb:1518-1545`), which finds or
      creates the user's `:cart` entry (`:1530`) and toggles a `Selection`
      through `Entry#toggle_selection!` (`app/models/entry.rb:42-67`).
    - The server's selection set is authoritative; the client adopts it rather
      than trusting its own optimistic mutation
-     (`_turf_totals_board.html.erb:911`).
+     (`_turf_totals_board.html.erb:906`). The POSTs go one at a time, in click
+     order, and only the last toggle's answer is adopted: an earlier answer is
+     the cart before the later picks (`:889`).
    - At `picks_required` selections the board blurs behind the cart —
      `blurDismissed` gates the overlay (`:2309-2315`) — and the shared
      `render 'studio/hold_button'` appears (`:2488`).
