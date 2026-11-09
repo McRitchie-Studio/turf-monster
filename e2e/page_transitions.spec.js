@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { login, loginAdmin, reseed, setupPhantomMock } = require("./helpers");
+const { login, loginAdmin, reseed, setupPhantomMock, nextFrames } = require("./helpers");
 
 // [e2e] Turf's page transition with motion ON (config.page_transition_direction = :right,
 // the gem's docs/PAGE_TRANSITIONS.md, /tasks/turf-adopts-page-transitions).
@@ -149,14 +149,15 @@ test.describe("what plays", () => {
   test("a live board broadcast starts no transition", async ({ page }) => {
     await open(page, "/live", 0.99);
     await page.locator("#nfl_live_scoreboard").waitFor({ state: "attached" });
-    const marker = await page.evaluate(async () => {
+    await page.evaluate(() => {
       window.Turbo.renderStreamMessage(
         '<turbo-stream action="append" target="nfl_live_scoreboard"><template><i id="pt-score"></i></template></turbo-stream>'
       );
-      await new Promise((done) => setTimeout(done, 400));
-      return !!document.getElementById("pt-score");
     });
-    expect(marker).toBe(true);
+    // The stream rendered (Turbo applies it on the next frame), and the frames
+    // after it are where a transition the render started would have shown.
+    await expect(page.locator("#pt-score")).toBeAttached();
+    await nextFrames(page);
     expect(await seen(page)).toEqual([]);
     expect(await page.evaluate(() => window.__styles)).toEqual([]);
   });

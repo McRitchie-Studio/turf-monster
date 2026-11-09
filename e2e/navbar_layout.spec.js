@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { login, allowMotion, OVERFLOWING_NAME_EMAIL, FITTING_NAME_EMAIL, sessionReadLanded } = require("./helpers");
+const { login, allowMotion, OVERFLOWING_NAME_EMAIL, FITTING_NAME_EMAIL, sessionReadLanded, motionSettled } = require("./helpers");
 
 const VIEWPORTS = [
   { width: 1366, height: 800 },
@@ -546,7 +546,8 @@ async function swapToFreeEntryFace(page) {
     }
     window.applyBalanceSlotRule(1);
   });
-  await page.waitForTimeout(400);
+  // The face swap is a class change; measure once anything it set moving stops.
+  await motionSettled(page, "header");
 }
 
 test("a long username ends in an ellipsis inside its box, and a fitting one stays whole", async ({ page }) => {

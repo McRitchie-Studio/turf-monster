@@ -401,14 +401,17 @@ async function nextFrames(page, n = 2) {
  * Every finite CSS transition and animation under `selector` has ended.
  * getAnimations() flushes pending style first, so a transition a hover or a
  * class change has just started is already in the list. Infinite animations (a
- * forever pan) never end, so they are left out; reduced motion stops most.
+ * forever pan, a spinner) never end, and scroll-driven ones (the navbar's scroll
+ * timeline) run on scroll position rather than time, so both are left out.
  */
 async function motionSettled(page, selector = "body") {
   await page.waitForFunction((sel) => {
     const root = document.querySelector(sel);
     if (!root) return false;
     return root.getAnimations({ subtree: true }).every((a) =>
-      a.playState !== "running" || a.effect?.getComputedTiming().endTime === Infinity);
+      a.playState !== "running" ||
+      !(a.timeline instanceof DocumentTimeline) ||
+      a.effect?.getComputedTiming().endTime === Infinity);
   }, selector);
 }
 
@@ -428,11 +431,13 @@ async function motionSettled(page, selector = "body") {
  */
 async function sessionReadLanded(page) {
   await page.waitForFunction(() => typeof window.refreshSession === "function");
-  await page.waitForFunction(
-    () => window.refreshSession().then((data) => data !== null),
-    null,
-    { polling: 250, timeout: 15_000 }
-  );
+  // page.evaluate awaits the promise; waitForFunction would not (a Promise is
+  // truthy), which is why this polls from the test side.
+  for (const deadline = Date.now() + 15_000; ;) {
+    if (await page.evaluate(() => window.refreshSession().then((data) => data !== null))) return;
+    if (Date.now() > deadline) throw new Error("sessionReadLanded: a session read never got the lock in 15s");
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => resolve())));
+  }
 }
 
 module.exports = {

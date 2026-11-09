@@ -1,5 +1,5 @@
 const { test, expect, devices } = require("@playwright/test");
-const { loginAdmin, reseed } = require("./helpers");
+const { loginAdmin, reseed, motionSettled } = require("./helpers");
 
 // [e2e] Turf on the engine's glass surfaces (/tasks/turf-adopts-glass-style).
 //
@@ -133,7 +133,7 @@ for (const [label, viewport] of [["desktop", { width: 1280, height: 900 }], ["ph
       const heading = page.getByText("Connect Wallet", { exact: true }).locator("visible=true").first();
       await expect(heading).toBeVisible();
       await expect(page.getByText("Phantom", { exact: true }).locator("visible=true").first()).toBeVisible();
-      await page.waitForTimeout(500); // the mount spring settles
+      await motionSettled(page); // the mount spring has run out
 
       const modal = heading.locator("xpath=ancestor::*[contains(@class, 'rounded')][1]");
       const fill = await modal.evaluate((el) => {
@@ -160,7 +160,7 @@ for (const [label, viewport] of [["desktop", { width: 1280, height: 900 }], ["ph
       }
       // The hold button only exists with a full cart. It is looked at, never held.
       await expect(page.locator(".hold-btn:visible").first()).toBeVisible();
-      await page.waitForTimeout(500);
+      await motionSettled(page); // the slip's entrance has finished moving it
       await expectGlassMovesNothing(page, "body");
     });
   });

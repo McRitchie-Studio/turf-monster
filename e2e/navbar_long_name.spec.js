@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { loginAdmin, reseed } = require("./helpers");
+const { loginAdmin, reseed, motionSettled } = require("./helpers");
 
 // [e2e] A LONG NAME NEVER COVERS THE ICONS (/tasks/turf-readopts-engine-navbar).
 //
@@ -158,7 +158,8 @@ for (const width of [768, 1280]) {
         gear: cs(h.querySelector("[data-nav-menu-trigger] [aria-controls]")).color,
       };
     }, HEADER);
-    const settle = () => page.waitForTimeout(350);
+    // The hover lights by CSS transition; read once the header has stopped moving.
+    const settle = () => motionSettled(page, HEADER);
     await page.mouse.move(5, 700); await settle();
     const rest = await lit();
     await page.locator(`${HEADER} [data-nav-account]`).hover(); await settle();

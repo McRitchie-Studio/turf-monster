@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { login, reseed } = require("./helpers");
+const { login, reseed, nextFrames } = require("./helpers");
 
 // [e2e] THE BRAND FITS OR IT IS THE MASCOT (/tasks/turf-navbar-logo-when-tight).
 //
@@ -105,7 +105,10 @@ test("signed in: the wordmark is one line or the mascot alone, and it follows a 
   for (const width of WIDTHS) {
     // A live resize, no reload: the script answers from the ResizeObserver.
     await page.setViewportSize({ width, height: 800 });
-    await page.waitForTimeout(150);
+    // The resize has reached the page, and the ResizeObserver has had a
+    // rendering step to answer in (it delivers inside the frame).
+    await page.waitForFunction((w) => window.innerWidth === w, width);
+    await nextFrames(page);
     await settle(page);
     const b = await brand(page);
     expectOneLineOrHidden(b, `${width}px signed in`);

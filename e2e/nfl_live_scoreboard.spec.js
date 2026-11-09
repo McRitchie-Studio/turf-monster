@@ -128,7 +128,11 @@ test.describe("Live NFL scoreboard", () => {
     // Hot means bold and in the team's ink — not the board's default grey. It
     // must OUTLIVE the banner, which is the whole reason the state is held in JS
     // and re-applied rather than left on a node the next broadcast replaces.
-    await page.waitForTimeout(5000);
+    // So wait for the banner's own end: its hide timer puts .hidden back on the
+    // overlay (live/index.html.erb), and only then is "outlived" a fact.
+    const overlay = page.locator("#nfl-score-overlay");
+    await expect(overlay, "the score raised the banner").not.toHaveClass(/(^|\s)hidden(\s|$)/);
+    await expect(overlay, "the banner's own timer took it down").toHaveClass(/(^|\s)hidden(\s|$)/, { timeout: 15000 });
     const hot = await score.evaluate((el) => ({
       weight: getComputedStyle(el).fontWeight,
       color: getComputedStyle(el).color,
@@ -1022,7 +1026,9 @@ test.describe("Contest live page", () => {
     // The gesture: pointer over the strip, wheel DOWN. deltaX is 0.
     await viewport.hover();
     await page.mouse.wheel(0, 400);
-    await page.waitForTimeout(700);
+    // The wheel is applied once the page has scrolled; wait for that, not a beat.
+    await expect.poll(() => page.evaluate(() => Math.round(window.scrollY)), { message: "the page should have scrolled" })
+      .toBeGreaterThan(100);
 
     // The page moved and the strip did not — which is exactly why the strip must
     // not treat this as the reader taking it over.
@@ -1158,20 +1164,24 @@ test.describe("Contest live page", () => {
     const gameSlug = await chip.getAttribute("data-game-slug");
     const teamSlug = await chip.locator("[data-team-slug]").first().getAttribute("data-team-slug");
 
+    // Mark the strip that is about to be destroyed, so the reads below can only
+    // ever see its replacement.
+    await viewport.evaluate((el) => { el.dataset.preScore = "1"; });
     const swapped = viewport.evaluate((el) => new Promise((res) => {
       const box = el.closest('[id$="_games"]');
       new MutationObserver(() => res(true)).observe(box, { childList: true, subtree: true });
     }));
     await recordTouchdown(page, gameSlug, teamSlug);
     await swapped;
-    await page.waitForTimeout(1500);
 
-    const afterScore = await page.locator('[x-ref="viewport"]').first()
+    // The rebuilt carousel restores the reader's offset when it initialises, so
+    // wait for that effect itself. A rebuild that lost the place sits at 0 and
+    // never gets there.
+    const offsetNow = () => page.locator('[x-ref="viewport"]:not([data-pre-score])').first()
       .evaluate((el) => Math.round(el.scrollLeft));
-    expect(
-      Math.abs(afterScore - 700),
-      `the score reset the strip to ${afterScore} — the reader lost their place`
-    ).toBeLessThan(20);
+    await expect.poll(async () => Math.abs((await offsetNow()) - 700), {
+      message: "the score reset the strip — the reader lost their place"
+    }).toBeLessThan(20);
 
     // Still stood down afterwards: the rebuilt component inherited the handover,
     // so the rotation does not start up again under someone who is reading.
