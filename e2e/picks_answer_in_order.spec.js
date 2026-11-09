@@ -16,10 +16,20 @@ const { loginAdmin, reseed } = require("./helpers");
 // in the slip and on the server.
 const CONTEST = "/contests/world-cup-2026";
 const TOGGLE = "/toggle_selection";
+const CLEAR = "/clear_picks";
+const CARDS = '[x-data*="selectionBoard"] button[role="checkbox"]:not([disabled])';
+
+// The slip's own count: the "Clear n / 6" chip. Its text, not the page's, so no other "n / 6" can answer.
+const slipCount = (page) => page.getByRole("button", { name: "Clear all picks" }).locator("visible=true").first();
+
+// The server's cart as this page was rendered with it: #board-config's cartSelections.
+const serverCart = (page) =>
+  page.evaluate(() => Object.keys(JSON.parse(document.getElementById("board-config").textContent).cartSelections).length);
 
 test.beforeEach(async ({ request }) => await reseed(request));
 
-test("an earlier pick's late answer does not drop the picks after it", async ({ page }) => {
+// Signed in on the contest, with an empty cart, and every pick save (and Clear) counted as it goes out and as it is answered.
+async function emptyBoard(page) {
   await loginAdmin(page);
   await page.goto(CONTEST);
   await page.waitForLoadState("networkidle");
@@ -30,10 +40,16 @@ test("an earlier pick's late answer does not drop the picks after it", async ({ 
   await page.reload();
   await page.waitForLoadState("networkidle");
 
+  const saves = (req) => req.url().endsWith(TOGGLE) || req.url().endsWith(CLEAR);
   const sent = [];
   const answered = [];
-  page.on("request", (req) => req.url().endsWith(TOGGLE) && sent.push(req));
-  page.on("requestfinished", (req) => req.url().endsWith(TOGGLE) && answered.push(req));
+  page.on("request", (req) => saves(req) && sent.push(req));
+  page.on("requestfinished", (req) => saves(req) && answered.push(req));
+  return { sent, answered };
+}
+
+test("an earlier pick's late answer does not drop the picks after it", async ({ page }) => {
+  const { sent, answered } = await emptyBoard(page);
 
   let release;
   const released = new Promise((resolve) => (release = resolve));
@@ -46,11 +62,10 @@ test("an earlier pick's late answer does not drop the picks after it", async ({ 
     await route.fulfill({ response });
   });
 
-  const slip = page.locator("body");
-  const cards = page.locator('[x-data*="selectionBoard"] button[role="checkbox"]:not([disabled])');
+  const cards = page.locator(CARDS);
   for (let i = 0; i < 5; i += 1) {
     await cards.nth(i).click();
-    await expect(slip).toContainText(`${i + 1} / 6`);
+    await expect(slipCount(page)).toHaveText(new RegExp(`Clear\\s*${i + 1}\\s*/\\s*6`));
   }
 
   // Only the held answer is outstanding: every other toggle sent so far is answered.
@@ -58,8 +73,48 @@ test("an earlier pick's late answer does not drop the picks after it", async ({ 
   release();
   await expect.poll(() => answered.length).toBe(5);
 
-  await expect(slip).toContainText("5 / 6");
+  await expect(slipCount(page)).toHaveText(/Clear\s*5\s*\/\s*6/);
   await page.unroute(`**${TOGGLE}`);
   await page.reload();
-  await expect(page.locator("body")).toContainText("5 / 6");
+  expect(await serverCart(page)).toBe(5);
+  await expect(slipCount(page)).toHaveText(/Clear\s*5\s*\/\s*6/);
+});
+
+// Clear rides the same queue. Pick saves still waiting when Clear is tapped land
+// FIRST, then the clear: the cart ends empty on the server, and no pick's answer
+// puts a pick back in the slip.
+test("Clear after fast picks leaves the cart empty, on the page and on the server", async ({ page }) => {
+  const { sent, answered } = await emptyBoard(page);
+
+  // The first pick's answer waits (the server has already applied it), so the
+  // picks after it queue behind it, as they do on a slow connection.
+  let release;
+  const released = new Promise((resolve) => (release = resolve));
+  let seen = 0;
+  await page.route(`**${TOGGLE}`, async (route) => {
+    seen += 1;
+    if (seen !== 1) return route.continue();
+    const response = await route.fetch();
+    await released;
+    await route.fulfill({ response });
+  });
+
+  const cards = page.locator(CARDS);
+  for (let i = 0; i < 4; i += 1) {
+    await cards.nth(i).click();
+    await expect(slipCount(page)).toHaveText(new RegExp(`Clear\\s*${i + 1}\\s*/\\s*6`));
+  }
+  await slipCount(page).click();
+  await expect(slipCount(page)).toBeHidden();
+
+  release();
+  // Four pick saves and the clear, every one answered.
+  await expect.poll(() => answered.length).toBe(5);
+  expect(sent.length).toBe(5);
+  // Every answer is in, so the slip's count is the board's last word: read it, not a hidden chip.
+  expect(await page.evaluate(() => window.Alpine.$data(document.querySelector('[x-data*="selectionBoard"]')).selectionCount)).toBe(0);
+
+  await page.unroute(`**${TOGGLE}`);
+  await page.reload();
+  expect(await serverCart(page), "a pick saved before Clear reached the server after it").toBe(0);
 });
