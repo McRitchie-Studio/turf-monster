@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { login, sessionReadLanded, motionSettled, nextFrames, maxPixelDelta } = require("./helpers");
+const { login, sessionReadLanded, motionSettled, nextFrames, maxPixelDelta, toastBlurClear } = require("./helpers");
 
 // The navbar ✨ entry-token badge, in a browser.
 //
@@ -27,6 +27,8 @@ const { login, sessionReadLanded, motionSettled, nextFrames, maxPixelDelta } = r
 const BADGE = "[data-free-entry-badge]";
 // The largest colour drift CI has shown on these probe strips with nothing
 // changing (1 and 3 units on two runs), with margin. A paint claim must beat it.
+// The drift was the toast page-blur fade (toastBlurClear); the band stays as a
+// floor for any drift nobody has named yet.
 const SHADOW_DRIFT_BAND = 12;
 const CHIP = "[data-free-entry-chip]";
 
@@ -98,18 +100,14 @@ test("the badge casts a dark contact shadow onto the avatar", async ({ page }) =
   const sample = async () => (await page.screenshot({ clip })).toString("base64");
 
   // PROBE STABILITY. If the strip moves on its own, "differs" means nothing.
-  // Wait for the strip to BE still: two reads 600ms apart that agree. CI showed
-  // a 1-unit drift at the disc's edge settling after the waits above, from
-  // nothing they can name, so the condition is the stillness itself. A strip
-  // that never stops moving stays red at the deadline.
-  let before = await sample();
-  for (const deadline = Date.now() + 15_000; ;) {
-    await page.waitForTimeout(600);
-    const again = await sample();
-    if (again === before) break;
-    expect(Date.now(), "the probe strip must be still before it is used to judge a change").toBeLessThan(deadline);
-    before = again;
-  }
+  // CI showed a 1 to 4 unit drift here after the waits above. Its cause is the
+  // engine's toast page-blur fading out over the navbar once Alpine binds it
+  // (toastBlurClear in helpers.js names it from the CI trace), so wait for that
+  // fade to end, then check the strip is still across two rendered frames.
+  await toastBlurClear(page);
+  const before = await sample();
+  await nextFrames(page);
+  expect(await sample(), "the probe strip must be still before it is used to judge a change").toBe(before);
 
   // Neutralise ONLY the knob — the treatment keeps its rim, bloom and gradient,
   // so anything that changes here is the contact shadow and nothing else.
