@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { login, sessionReadLanded } = require("./helpers");
+const { login, sessionReadLanded, motionSettled, nextFrames } = require("./helpers");
 
 // The navbar ✨ entry-token badge, in a browser.
 //
@@ -59,6 +59,19 @@ test("the badge casts a dark contact shadow onto the avatar", async ({ page }) =
   // And wait until the disc really is still: none of its own animations runs.
   await page.waitForFunction((sel) =>
     document.querySelector(sel).getAnimations().every((a) => a.playState !== "running"), BADGE);
+  // The strip below also covers the avatar and the balance slot, and surfacing
+  // the badge restyled that row (applyBalanceSlotRule). Let every transition it
+  // started in the header finish before the strip is sampled.
+  await motionSettled(page, "header");
+  // The strip lies over the AVATAR, an Active Storage image that loads and
+  // decodes on its own schedule (CI caught it painting between the two samples
+  // below). Wait for every header image to be decoded and the fonts to be in,
+  // then a rendered frame, so the pixels under the strip are final.
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    await Promise.all([...document.querySelectorAll("header img")].map((img) => img.decode().catch(() => null)));
+  });
+  await nextFrames(page);
 
   // Declared: the dark shadow must LEAD the stack. Behind the white bloom it is
   // washed out, so order is part of the claim, not formatting.
