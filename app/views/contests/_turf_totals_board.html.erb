@@ -175,7 +175,7 @@ window.selectionBoard = function() {
   var cfg = JSON.parse(configEl.textContent);
 
   var matchupData = cfg.matchupData; var guestCartKey = 'turf:cart:' + cfg.contestSlug + ':' + (cfg.userEmail || 'guest'); try { var navType = ((window.performance && performance.getEntriesByType && performance.getEntriesByType('navigation')[0]) || {}).type; var savedCart = (cfg.mode !== 'edit' && (cfg.userEmail ? navType === 'back_forward' : !Object.keys(cfg.cartSelections).length)) ? JSON.parse(sessionStorage.getItem(guestCartKey) || 'null') : null; var keptOrder = (savedCart && savedCart.selections && Array.isArray(savedCart.selectionOrder)) ? savedCart.selectionOrder.filter(function (id) { return savedCart.selections[id] && matchupData[id] && !matchupData[id].locked; }) : []; if (savedCart) { cfg.cartSelections = {}; keptOrder.forEach(function (id) { cfg.cartSelections[id] = savedCart.selections[id]; }); cfg.cartSelectionOrder = keptOrder; } } catch (_) {} // SigningCsp: Back to this page is a full load, never a Turbo restore, and outside the back/forward cache the browser serves the HTML it first rendered. So the cart rides sessionStorage (written on each pick, by the selectionOrder watch below): a guest's always, since it never reaches the server; a player's on a back/forward load only, where it is newer than the cached HTML. On one line so docs/workflows' line citations hold.
-
+  var toggleChain = Promise.resolve(); var toggleSeq = 0; // toggleSelection(): one toggle_selection POST at a time, and only the last one's answer is adopted. Closure state: a reactive proxy breaks a Promise.
   return {
     selections: cfg.cartSelections,
     selectionOrder: cfg.cartSelectionOrder,
@@ -871,42 +871,42 @@ window.selectionBoard = function() {
       if (this.isEditMode) return;
 
       if (!this.loggedIn) return;
-
-      var self = this;
-      window.authedFetch('/contests/' + this.contestId + '/toggle_selection', {
-        method: 'POST',
-        headers: {
-          'X-CSRF-Token': this.csrfToken,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-        body: JSON.stringify({ matchup_id: matchupId })
-      })
-      .then(function(resp) {
-        if (!resp) { self.selections = oldSelections; self.selectionOrder = oldOrder; return null; }
+      // ONE TOGGLE AT A TIME, AND ONLY THE LAST ANSWER COUNTS (task ci-cause-turf-monster-e2e-glass-surfaces-spec-js).
+      // Each answer is the cart as it stood when THAT request ran. Sent together, an earlier pick's answer could
+      // land after a later pick's, and adopting it last dropped the later picks (the slip fell from 5 / 6 to
+      // 3 / 6 and stayed). So each POST waits for the one before it (the server applies picks in click order),
+      // and an answer is adopted, or rolled back, only when no later toggle is queued: the later answer holds
+      // the truth. A refusal still says so. Guard: e2e/picks_answer_in_order.spec.js.
+      var self = this; var seq = ++toggleSeq;
+      var latest = function() { return seq === toggleSeq; };
+      var post = function() {
+        return window.authedFetch('/contests/' + self.contestId + '/toggle_selection', {
+          method: 'POST',
+          headers: { 'X-CSRF-Token': self.csrfToken, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({ matchup_id: matchupId })
+        });
+      };
+      var sent = toggleChain.then(post); toggleChain = sent.then(function() {}, function() {});
+      sent.then(function(resp) {
+        if (!resp) { if (latest()) { self.selections = oldSelections; self.selectionOrder = oldOrder; } return null; }
         return resp.json().then(function(data) { return { ok: resp.ok, data: data }; });
       })
       .then(function(result) {
         if (!result) return;
         if (!result.ok) {
-          self.selections = oldSelections;
-          self.selectionOrder = oldOrder;
+          if (latest()) { self.selections = oldSelections; self.selectionOrder = oldOrder; }
           // 409: these picks have a payment unresolved. Poll it; do not toast.
           if (/^entry_(pending|held|confirmed)$/.test(result.data.code || '') && self._handleBlockerResponse(result.data)) return;
           self.showError(result.data.error || 'Failed to save selection', result.data.code);
           return;
         }
-        // Server is the source of truth. Adopt its authoritative selection set
-        // so an optimistic mutation the server normalised/dropped can't leave
-        // the client showing N/6 while the DB holds N-1 — which would otherwise
-        // sail past the Hold-to-Confirm guard and 422 at #enter (incident
-        // 2026-06-08, Bug 2). selectionCount is a getter over this.selections,
-        // so it self-corrects once we reconcile.
-        self.reconcileSelections(result.data.selections);
+        // Server is the source of truth: adopt its selection set so a pick the server normalised or dropped
+        // cannot leave the client showing N/6 while the DB holds N-1, which would sail past the Hold-to-Confirm
+        // guard and 422 at #enter (incident 2026-06-08, Bug 2). selectionCount is a getter over this.selections.
+        if (latest()) self.reconcileSelections(result.data.selections);
       })
       .catch(function() {
-        self.selections = oldSelections;
-        self.selectionOrder = oldOrder;
+        if (latest()) { self.selections = oldSelections; self.selectionOrder = oldOrder; }
         self.showError('Network error. Selection not saved.');
       });
     },
@@ -1825,7 +1825,7 @@ window.selectionBoard = function() {
 
       this.setHoldLoading();
       this.submitting = true; this._confirmInFlight = false; // `submitting` is the guard from here
-
+      await toggleChain; // every queued pick save lands first: /enter and prepare_entry read the SERVER cart (task ci-cause-turf-monster-e2e-glass-surfaces-spec-js)
       var seedsPerLevel = cfg.seedsPerLevel;
 
       // Seeds fanout (localStorage + navbar event + structured log) is now
@@ -2213,20 +2213,20 @@ window.selectionBoard = function() {
       if (this.isEditMode) return;
 
       try {
-        // authedFetch so a general-tier 429 surfaces the wait modal instead of
-        // being silently swallowed (clear_picks is in the general/ip allowlist).
-        // It returns null on 429/401 after showing the modal; nothing else to do
-        // here — this is a background cart sync.
-        var resp = await window.authedFetch('/contests/' + this.contestId + '/clear_picks', {
-          method: 'POST',
-          headers: {
-            'X-CSRF-Token': this.csrfToken,
-            'Accept': 'application/json'
-          }
+        // authedFetch so a general-tier 429 surfaces the wait modal instead of being silently swallowed
+        // (clear_picks is in the general/ip allowlist); it returns null on 429/401 after showing the modal.
+        // CLEAR JOINS toggleSelection's QUEUE (task ci-cause-turf-monster-e2e-glass-surfaces-spec-js): every pick
+        // save queued before it lands first, then the clear, so the server cart ends empty; the bumped
+        // toggleSeq keeps their answers from refilling the slip, and a kept cart comes back only if no pick followed.
+        var self = this, seq = ++toggleSeq;
+        var sent = toggleChain.then(function() {
+          return window.authedFetch('/contests/' + self.contestId + '/clear_picks', { method: 'POST', headers: { 'X-CSRF-Token': self.csrfToken, 'Accept': 'application/json' } });
         });
+        toggleChain = sent.then(function() {}, function() {});
+        var resp = await sent;
         // 409 entry_pending: this cart's payment is still confirming, so the
         // server kept it. Resolve it the way prepare_entry's 409 does.
-        if (resp && (resp.status === 409 || resp.status === 503)) {
+        if (resp && (resp.status === 409 || resp.status === 503) && seq === toggleSeq) {
           this.selections = keptSelections;
           this.selectionOrder = keptOrder;
         }
