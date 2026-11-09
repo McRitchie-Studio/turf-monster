@@ -14,7 +14,7 @@ what it refuses to do.
 > stricter check: each must OPEN on the line that carries its route, not merely
 > quote a word found somewhere in its span. That catches most one-line drift, not
 > all of it — [the workflows README](README.md) has the measurement. The rest —
-> `db/schema.rb` columns and indexes, the `config/schedule.yml` header, the
+> migration class lines for columns and indexes, the `config/schedule.yml` header, the
 > class-body callback declarations on `Goal`, class-body validations and
 > constants, and ERB markup — ride the weaker LITERAL fallback: it proves the
 > words the prose quotes are present in the cited lines, not that the code is.
