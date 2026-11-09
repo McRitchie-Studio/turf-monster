@@ -58,4 +58,4 @@ e2e/tiktok_funnel_free_entry.spec.js:
 e2e/wallet_setup.spec.js:
   sleep: 2
 e2e/web3_step_up.spec.js:
-  sleep: 2
+  sleep: 1
