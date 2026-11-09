@@ -334,6 +334,61 @@ class UserTest < ActiveSupport::TestCase
     end
   end
 
+  # The race rescue: a concurrent sign-in commits its row between the lookups
+  # and create!, so create! raises RecordNotUnique. The stub plays the winner,
+  # then raises; from_omniauth must hand back the winner's row
+  # (Studio::Account.race_winner), never a stranger.
+  def lose_the_race(&winner)
+    create_once = lambda do |*_args, **_kwargs|
+      winner&.call
+      raise ActiveRecord::RecordNotUnique, "PG::UniqueViolation: duplicate key"
+    end
+    create_once
+  end
+
+  test "[unit] from_omniauth race: the winner found by provider and uid is returned" do
+    auth = google_auth(email: "race-uid@example.com", uid: "race-uid-1")
+    winner = nil
+    stub = lose_the_race do
+      # save!, not create!: create! is the stub itself.
+      winner = User.new(email: "race-uid@example.com", provider: "google_oauth2", uid: "race-uid-1",
+                        email_verified_at: Time.current).tap(&:save!)
+    end
+    result = User.stub(:create!, stub) { User.from_omniauth(auth, email_verified: true) }
+    assert_equal winner, result
+  end
+
+  test "[unit] from_omniauth race: the winner found by Google-verified email is returned" do
+    auth = google_auth(email: "Race-Email@Example.com", uid: "race-email-1")
+    winner = nil
+    stub = lose_the_race do
+      winner = User.new(email: "race-email@example.com", email_verified_at: Time.current).tap(&:save!)
+    end
+    result = User.stub(:create!, stub) { User.from_omniauth(auth, email_verified: true) }
+    assert_equal winner, result
+  end
+
+  test "[unit] from_omniauth race: a blank email never matches an account without one" do
+    stranger = User.create!(name: "Race Stranger", web3_solana_address: "So1anaRaceStranger11111111111111111111111111",
+                            email_verified_at: Time.current)
+    stranger.update_column(:email, nil)
+    auth = OmniAuth::AuthHash.new(provider: "google_oauth2", uid: "race-blank-1", info: { name: "No Email" })
+    result = User.stub(:create!, lose_the_race) { User.from_omniauth(auth, email_verified: true) }
+    assert_nil result
+    assert_nil stranger.reload.uid
+  end
+
+  test "[unit] from_omniauth race: nobody found returns nil and logs the collision" do
+    auth = google_auth(email: "race-nobody@example.com", uid: "race-nobody-1")
+    captured = []
+    result = ErrorLog.stub(:capture!, ->(error) { captured << error }) do
+      User.stub(:create!, lose_the_race) { User.from_omniauth(auth, email_verified: true) }
+    end
+    assert_nil result
+    assert_equal 1, captured.size
+    assert_kind_of ActiveRecord::RecordNotUnique, captured.first
+  end
+
   test "slug is set on save" do
     user = users(:alex)
     user.save!
