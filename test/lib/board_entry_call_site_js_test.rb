@@ -142,6 +142,7 @@ class BoardEntryCallSiteJsTest < ActiveSupport::TestCase
       window.reportWalletFailure = function (flow, wallet, raw, msg) { calls.push(['reportWalletFailure', flow, msg]); };
       window.tmOutstandingEntryPrepare = null;
       var cfg = { seedsPerLevel: 100 };
+      var toggleChain = Promise.resolve(); // the factory closure confirmEntry awaits: no pick save queued
 
       #{runner_source}
 
