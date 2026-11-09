@@ -1825,7 +1825,7 @@ window.selectionBoard = function() {
 
       this.setHoldLoading();
       this.submitting = true; this._confirmInFlight = false; // `submitting` is the guard from here
-
+      await toggleChain; // every queued pick save lands first: /enter and prepare_entry read the SERVER cart (task ci-cause-turf-monster-e2e-glass-surfaces-spec-js)
       var seedsPerLevel = cfg.seedsPerLevel;
 
       // Seeds fanout (localStorage + navbar event + structured log) is now
@@ -2213,20 +2213,20 @@ window.selectionBoard = function() {
       if (this.isEditMode) return;
 
       try {
-        // authedFetch so a general-tier 429 surfaces the wait modal instead of
-        // being silently swallowed (clear_picks is in the general/ip allowlist).
-        // It returns null on 429/401 after showing the modal; nothing else to do
-        // here — this is a background cart sync.
-        var resp = await window.authedFetch('/contests/' + this.contestId + '/clear_picks', {
-          method: 'POST',
-          headers: {
-            'X-CSRF-Token': this.csrfToken,
-            'Accept': 'application/json'
-          }
+        // authedFetch so a general-tier 429 surfaces the wait modal instead of being silently swallowed
+        // (clear_picks is in the general/ip allowlist); it returns null on 429/401 after showing the modal.
+        // CLEAR JOINS toggleSelection's QUEUE (task ci-cause-turf-monster-e2e-glass-surfaces-spec-js): every pick
+        // save queued before it lands first, then the clear, so the server cart ends empty; the bumped
+        // toggleSeq keeps their answers from refilling the slip, and a kept cart comes back only if no pick followed.
+        var self = this, seq = ++toggleSeq;
+        var sent = toggleChain.then(function() {
+          return window.authedFetch('/contests/' + self.contestId + '/clear_picks', { method: 'POST', headers: { 'X-CSRF-Token': self.csrfToken, 'Accept': 'application/json' } });
         });
+        toggleChain = sent.then(function() {}, function() {});
+        var resp = await sent;
         // 409 entry_pending: this cart's payment is still confirming, so the
         // server kept it. Resolve it the way prepare_entry's 409 does.
-        if (resp && (resp.status === 409 || resp.status === 503)) {
+        if (resp && (resp.status === 409 || resp.status === 503) && seq === toggleSeq) {
           this.selections = keptSelections;
           this.selectionOrder = keptOrder;
         }
