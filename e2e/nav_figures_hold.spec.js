@@ -37,10 +37,12 @@ async function recordFrames(page) {
       line({ reveal: location.pathname, amount: pill ? pill.textContent.trim() : null });
     });
     let last = "";
+    // A lag makes the recorder log a changed state only once it has stood for that many frames,
+    // as a browser that skips frames does. Only the regression spec below sets it; 0 logs at once.
+    let pending = "";
+    let seen = 0;
     const read = () => {
-      // A held recorder skips its sample, as a frame the browser never runs would. The
-      // regression spec below holds it to force the race on purpose.
-      const pill = window.__recorderHeld ? null : document.querySelector("header [data-balance-display]");
+      const pill = document.querySelector("header [data-balance-display]");
       if (pill) {
         const bar = document.querySelector("[data-nav-seeds-row] .seeds-bar-continuous");
         const level = document.querySelector("[data-nav-seeds-row] [data-seeds-level]");
@@ -57,7 +59,11 @@ async function recordFrames(page) {
           user: document.body.dataset.userId,
         };
         const key = JSON.stringify(frame);
-        if (key !== last) { last = key; line({ path: location.pathname, ...frame }); }
+        if (key !== last) {
+          if (key !== pending) { pending = key; seen = 0; }
+          seen += 1;
+          if (seen > (window.__recorderLag || 0)) { last = key; line({ path: location.pathname, ...frame }); }
+        }
       }
       requestAnimationFrame(read);
     };
@@ -303,7 +309,7 @@ test.describe("with motion on", () => {
 
   // [regression] ci-cause-turf-monster-e2e-nav-figures-hold-spec-js. CI run 42515495351 went red
   // at "a changed value updates" with an EMPTY log: the pill said $2048, and the recorder had not
-  // yet run the frame that logs it. The hold makes that frame late on purpose.
+  // yet run the frame that logs it. The lag makes that frame late on purpose.
   test("a reading waits for the recorder to log the figure the pill shows", async ({ page }) => {
     await recordFrames(page);
     await signIn(page, "mason@mcritchie.studio");
@@ -312,13 +318,11 @@ test.describe("with motion on", () => {
     await firstFigure(page, "$1024");
     await clearFrames(page);
 
-    await page.evaluate(() => { window.__recorderHeld = true; });
+    // 120 frames is about two seconds: longer than toHaveText can take to see the new text.
+    await page.evaluate(() => { window.__recorderLag = 120; });
     usdc = "2048.00";
     await clickLink(page, HELP);
-    await expect(pill(page)).toHaveText("$2048");
-    const reading = recorded(page, "$2048");
-    await page.evaluate(() => { window.__recorderHeld = false; });
-    const lines = await reading;
+    const lines = await recorded(page, "$2048");
     expect(lines.length, "the reading came back before the recorder logged the figure").toBeGreaterThan(0);
     expect(lines[lines.length - 1].amount).toBe("$2048");
   });
