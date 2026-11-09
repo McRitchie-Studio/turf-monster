@@ -26,8 +26,12 @@ async function setTokens(page, count) {
   await page.evaluate((n) => {
     Alpine.store("session").tokensAvailable = n;
   }, count);
-  await page.waitForTimeout(200);
 }
+
+// Alpine re-renders the x-text binding on its own tick, so the painted copy is
+// polled until every hold button agrees on it.
+const expectLabels = (page, copy) =>
+  expect.poll(async () => [...new Set(await idleLabels(page))]).toEqual([copy]);
 
 test("the CTA names the funding, and both buttons agree", async ({ page }) => {
   await page.goto(CONTEST_PATH);
@@ -35,18 +39,17 @@ test("the CTA names the funding, and both buttons agree", async ({ page }) => {
 
   // No token — the entry costs money, and the button says the neutral thing.
   await setTokens(page, 0);
-  const broke = await idleLabels(page);
-  expect(broke.length).toBeGreaterThanOrEqual(2);
-  expect(new Set(broke)).toEqual(new Set(["Hold to Confirm"]));
+  await expectLabels(page, "Hold to Confirm");
+  expect((await idleLabels(page)).length).toBeGreaterThanOrEqual(2);
 
   // A token in the wallet — the entry spends it, and the button says so.
   await setTokens(page, 1);
-  expect(new Set(await idleLabels(page))).toEqual(new Set(["Hold for Free Entry"]));
+  await expectLabels(page, "Hold for Free Entry");
 
   // Spent — the promise is withdrawn the moment it stops being true. This is the
   // case a server-rendered label gets wrong on a second entry in one page view.
   await setTokens(page, 0);
-  expect(new Set(await idleLabels(page))).toEqual(new Set(["Hold to Confirm"]));
+  await expectLabels(page, "Hold to Confirm");
 });
 
 test("a Phantom wallet holding a token is not blocked for having no balance", async ({ page }) => {

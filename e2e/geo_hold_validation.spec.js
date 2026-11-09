@@ -51,9 +51,11 @@ async function enableGeoBlockingAndOverride(page) {
     if (waInput && !waInput.checked) waInput.checked = true;
   });
 
-  // Save settings
+  // Save settings, and wait for the save itself to answer.
+  const saved = page.waitForResponse((r) =>
+    r.request().method() !== "GET" && new URL(r.url()).pathname.startsWith("/admin/geo"));
   await page.locator('input[value="Save Settings"]').click();
-  await page.waitForTimeout(2000);
+  await saved;
 
   // Toggle WA override
   await page.goto("/admin/geo");
@@ -62,7 +64,8 @@ async function enableGeoBlockingAndOverride(page) {
   const simBtn = page.getByRole("button", { name: /Simulate WA/i });
   if (await simBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
     await simBtn.click();
-    await page.waitForTimeout(2000);
+    // The override is on once the page offers to clear it.
+    await expect(page.getByRole("button", { name: /Clear simulation/i })).toBeVisible();
   }
   // If "Clear simulation" is visible instead, the simulation is already active
 }

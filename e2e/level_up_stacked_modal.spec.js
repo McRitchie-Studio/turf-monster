@@ -57,8 +57,12 @@ async function nameTheUser(page) {
 // assigning it — the same discipline free_entry_spend_mirror.spec.js documents.
 // A web3 wallet with no USDC and no token is stopped by eligibilityBlocker
 // before confirmEntry ever opens a modal.
-async function hydrateTokens(page, tokens) {
-  await page.waitForTimeout(1500);
+//
+// answerTokens() goes in BEFORE the contest loads, so the layout's load-time
+// hydrate gets the answer too. Installed after the load, a hydrate already in
+// flight answers from the server and stamps the store back to 0 after the poll
+// is satisfied (the race free_entry_spend_mirror.spec.js documents).
+async function answerTokens(page, tokens) {
   await page.route("**/account/session_refresh", (route) =>
     route.fulfill({
       status: 200,
@@ -66,6 +70,9 @@ async function hydrateTokens(page, tokens) {
       body: JSON.stringify({ usdc: "0.0", usdt: "0.0", tokens: String(tokens) }),
     })
   );
+}
+
+async function hydrateTokens(page, tokens) {
   await expect
     .poll(
       async () => {
@@ -75,9 +82,6 @@ async function hydrateTokens(page, tokens) {
       { timeout: 20000, intervals: [1000, 1000, 1000, 1500, 1500, 2000, 2000, 2000] }
     )
     .toBe(tokens);
-  await page.waitForTimeout(1500);
-  await page.evaluate(() => window.refreshSession().catch(() => null));
-  await expect.poll(() => page.evaluate(() => Alpine.store("session").tokensAvailable)).toBe(tokens);
 }
 
 // The board's Alpine component — confirmEntry() lives here.
@@ -158,6 +162,7 @@ async function arriveReadyToEnter(page) {
   await setupPhantomMock(page);
   await loginViaPhantom(page);
   await nameTheUser(page);
+  await answerTokens(page, 1);
   await page.goto(CONTEST_PATH);
   await page.waitForFunction(() => typeof window.refreshSession === "function");
   await hydrateTokens(page, 1);

@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { loginAdmin, reseed } = require("./helpers");
+const { loginAdmin, reseed, watchTurboFetches } = require("./helpers");
 
 // [e2e] The agent API keys card on /account: create a key, copy it from the
 // one render that shows it, use it as a bearer credential, add another, revoke.
@@ -194,15 +194,18 @@ test.describe("Agent API keys", () => {
     page.on("request", (req) => {
       if (req.method() === "DELETE") deletes.push(req.url());
     });
+    const revokeFetches = await watchTurboFetches(page, /\/account\/api_keys\/[^/?]+/);
     let asked = false;
     page.on("dialog", async (dialog) => {
       asked = true;
       await dialog.dismiss();
     });
     await row.getByRole("button", { name: "Revoke" }).click();
-    await page.waitForTimeout(750);
 
-    expect(asked, "Revoke must raise a confirm dialog").toBe(true);
+    await expect.poll(() => asked, { message: "Revoke must raise a confirm dialog" }).toBe(true);
+    // Turbo decides right after confirm() returns, so this page read is ordered
+    // after the decision: a revoke that went ahead has already been counted.
+    expect(await revokeFetches(), "dismissing the confirm must cancel the request").toBe(0);
     expect(deletes, "dismissing the confirm must cancel the request").toHaveLength(0);
     await expect(row).toHaveCount(1);
     await expect(row.locator(".cta-spinner")).toBeHidden();

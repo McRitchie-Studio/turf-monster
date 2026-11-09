@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { login } = require("./helpers");
+const { login, sessionReadLanded } = require("./helpers");
 
 // The navbar ✨ entry-token badge, in a browser.
 //
@@ -32,9 +32,10 @@ async function signInWithBadge(page) {
   await login(page, "alex@mcritchie.studio", "password");
   await page.goto("/contests");
   await expect(page.locator(BADGE).first()).toBeAttached();
-  // QUIESCE. refreshBalance/refreshSession land on their own schedule and
-  // rewrite the balance slot right beside the badge; settle before measuring.
-  await page.waitForTimeout(4000);
+  // QUIESCE. The load-time refreshSession() rewrites the balance slot right
+  // beside the badge and re-applies the server's zero-token count to it, so
+  // let that read land before measuring or driving the badge.
+  await sessionReadLanded(page);
   await page.evaluate(() => window.updateNavTokens(1));
   await expect(page.locator(BADGE).first()).toBeVisible();
 }
@@ -55,7 +56,9 @@ test("the badge casts a dark contact shadow onto the avatar", async ({ page }) =
   // the disc being still, and a precondition that load-bearing is worth stating
   // where it is relied on rather than inherited from a config three files away.
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.waitForTimeout(500);
+  // And wait until the disc really is still: none of its own animations runs.
+  await page.waitForFunction((sel) =>
+    document.querySelector(sel).getAnimations().every((a) => a.playState !== "running"), BADGE);
 
   // Declared: the dark shadow must LEAD the stack. Behind the white bloom it is
   // washed out, so order is part of the claim, not formatting.
@@ -89,8 +92,7 @@ test("the badge casts a dark contact shadow onto the avatar", async ({ page }) =
   await page.evaluate((sel) => {
     document.querySelector(sel).style.setProperty("--lb-contact", "0 0 0 0 rgba(0, 0, 0, 0)");
   }, BADGE);
-  await page.waitForTimeout(200);
-  expect(await sample(), "with the knob neutralised those pixels must change — otherwise the shadow was never painting")
+  await expect.poll(sample, { message: "with the knob neutralised those pixels must change — otherwise the shadow was never painting" })
     .not.toBe(before);
 });
 
@@ -140,24 +142,21 @@ test("the sidebar chip tracks the live count in both panels", async ({ page }) =
 
   expect((await chips()).length, "the sidebar body renders into both panels").toBe(2);
 
+  // Each count is polled on BOTH mounts: the chip follows through a window
+  // event, so the read waits for that update to land, not for a fixed beat.
   await page.evaluate(() => window.updateNavTokens(5));
-  await page.waitForTimeout(250);
-  for (const chip of await chips()) {
-    expect(chip.text).toBe("✨ 5 Free Entries");
-    expect(chip.display).not.toBe("none");
-  }
+  await expect.poll(async () => (await chips()).map((c) => ({ text: c.text, shown: c.display !== "none" })))
+    .toEqual([{ text: "✨ 5 Free Entries", shown: true }, { text: "✨ 5 Free Entries", shown: true }]);
 
   // Singular. "5 Free Entrys" is what a bare plural suffix produces, and the
   // markup carries both spellings, so only a real count of 1 tells them apart.
   await page.evaluate(() => window.updateNavTokens(1));
-  await page.waitForTimeout(250);
-  for (const chip of await chips()) expect(chip.text).toBe("✨ 1 Free Entry");
+  await expect.poll(async () => (await chips()).map((c) => c.text)).toEqual(["✨ 1 Free Entry", "✨ 1 Free Entry"]);
 
   // Spent the last one: the chip must not keep promising an entry the user no
   // longer holds — the same failure the ✨ badge itself shipped with.
   await page.evaluate(() => window.updateNavTokens(0));
-  await page.waitForTimeout(250);
-  for (const chip of await chips()) expect(chip.display).toBe("none");
+  await expect.poll(async () => (await chips()).map((c) => c.display)).toEqual(["none", "none"]);
 });
 
 test("a level-up refreshes until the newly minted token appears", async ({ page }) => {

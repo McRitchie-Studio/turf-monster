@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { login, allowMotion, OVERFLOWING_NAME_EMAIL, FITTING_NAME_EMAIL } = require("./helpers");
+const { login, allowMotion, OVERFLOWING_NAME_EMAIL, FITTING_NAME_EMAIL, sessionReadLanded } = require("./helpers");
 
 const VIEWPORTS = [
   { width: 1366, height: 800 },
@@ -276,11 +276,11 @@ test("a level-up glow replayed inside the window still plays its full length", a
   // a user who should never have seen it, and the assertion held only while
   // the bug did.
   await expect(page.locator("[data-free-entry-badge]").first()).toBeAttached();
-  // QUIESCE. refreshBalance/refreshSession land on their own schedule and
-  // rewrite the balance slot, which reflows the username right beside the badge
-  // — inside the probe strip. Settle first or the strip moves for reasons that
-  // have nothing to do with the glow.
-  await page.waitForTimeout(4000);
+  // QUIESCE. The load-time refreshSession() rewrites the balance slot, which
+  // reflows the username right beside the badge — inside the probe strip. Let
+  // that read land first or the strip moves for reasons that have nothing to do
+  // with the glow.
+  await sessionReadLanded(page);
 
   // Surface it the way the app does, then confirm it really is on screen: the
   // glow is a box-shadow on this disc, and a disc that is not painted cannot
@@ -397,9 +397,9 @@ test("a zero-token user's ✨ badge paints nothing at all", async ({ page }) => 
   await page.goto("/contests");
   await expect(page.locator("[data-nav-account]").first()).toBeVisible();
 
-  // QUIESCE — refreshBalance/refreshSession land on their own schedule and
-  // reflow the row the badge sits in. Settle before sampling anything.
-  await page.waitForTimeout(4000);
+  // QUIESCE — the load-time refreshSession() reflows the row the badge sits
+  // in. Let it land before sampling anything.
+  await sessionReadLanded(page);
 
   const badge = page.locator("[data-free-entry-badge]").first();
   await expect(badge, "the badge must stay in the DOM at zero tokens so a mint " +
@@ -476,9 +476,9 @@ test("a zero-token ✨ badge holds no box and reports display:none", async ({ pa
   // badge to two and it re-applies `.hidden` underneath the assertions, which
   // go red for a reason that has nothing to do with the cascade. The lane's old
   // retries:2 would most likely have buried that on a retry, the bad kind of green;
-  // with no retries (turf-deterministic-ci) it is a plain red. The sleep below is a
-  // ratcheted debt (config/e2e_race_patterns.yml): wait on the session read instead.
-  await page.waitForTimeout(4000);
+  // with no retries (turf-deterministic-ci) it is a plain red. So wait on that
+  // session read itself (task turf-e2e-real-condition-waits).
+  await sessionReadLanded(page);
 
   const measure = () => page.evaluate(() => {
     const b = document.querySelector("[data-free-entry-badge]");

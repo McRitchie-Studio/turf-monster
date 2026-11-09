@@ -362,6 +362,79 @@ async function lazyController(page, name) {
   await page.locator(`html[data-lazy-controllers~="${name}"]`).waitFor({ state: "attached" });
 }
 
+/**
+ * Count the Turbo fetches the page starts whose URL matches `pattern`, counted
+ * IN the page at turbo:before-fetch-request. Returns a reader.
+ *
+ * Why in the page: a data-turbo-confirm decides in the microtasks right after
+ * confirm() returns, and an accepted one dispatches this event before its fetch
+ * leaves. So once the dialog is answered, the next page read is ordered after
+ * that decision, and a count of 0 is a fact about the app, not a guess about
+ * how long the network takes.
+ */
+async function watchTurboFetches(page, pattern) {
+  await page.evaluate((source) => {
+    const re = new RegExp(source);
+    window.__turboFetches = [];
+    document.addEventListener("turbo:before-fetch-request", (event) => {
+      const url = String(event.detail.url);
+      if (re.test(url)) window.__turboFetches.push(url);
+    });
+  }, pattern.source);
+  return () => page.evaluate(() => window.__turboFetches.length);
+}
+
+/**
+ * Rendering frames, as a condition: resolves after `n` requestAnimationFrame
+ * callbacks. A ResizeObserver delivery, a style recalc and a Turbo Stream render
+ * all land inside a frame, so two frames after a change mean the browser has
+ * run its rendering step on it at least once. A frame count, never a duration.
+ */
+async function nextFrames(page, n = 2) {
+  await page.evaluate((count) => new Promise((resolve) => {
+    const step = (left) => (left <= 0 ? resolve() : requestAnimationFrame(() => step(left - 1)));
+    step(count);
+  }), n);
+}
+
+/**
+ * Every finite CSS transition and animation under `selector` has ended.
+ * getAnimations() flushes pending style first, so a transition a hover or a
+ * class change has just started is already in the list. Infinite animations (a
+ * forever pan) never end, so they are left out; reduced motion stops most.
+ */
+async function motionSettled(page, selector = "body") {
+  await page.waitForFunction((sel) => {
+    const root = document.querySelector(sel);
+    if (!root) return false;
+    return root.getAnimations({ subtree: true }).every((a) =>
+      a.playState !== "running" || a.effect?.getComputedTiming().endTime === Infinity);
+  }, selector);
+}
+
+/**
+ * The navbar's own session read has landed. Wait on THAT, not on a sleep.
+ *
+ * Every load runs one refreshSession() (the layout's hydrateNavbar), and it
+ * repaints the balance slot, the free-entry badge and $store.session when it
+ * answers. A spec that measures or drives those first has to let it land.
+ *
+ * The condition is read from the app's own lock. lockedFetch('session') answers
+ * a contender with null while a read is in flight, and refreshSession() resolves
+ * to the parsed payload only after it has painted. So a read of our own that
+ * comes back non-null means no other session read held the lock and ours has
+ * painted the server's figures. Ours is the last writer, and it writes the same
+ * truth the load-time read would have.
+ */
+async function sessionReadLanded(page) {
+  await page.waitForFunction(() => typeof window.refreshSession === "function");
+  await page.waitForFunction(
+    () => window.refreshSession().then((data) => data !== null),
+    null,
+    { polling: 250, timeout: 15_000 }
+  );
+}
+
 module.exports = {
   login,
   lazyController,
@@ -385,4 +458,8 @@ module.exports = {
   allowMotion,
   routeHeadshots,
   recordShown,
+  sessionReadLanded,
+  nextFrames,
+  motionSettled,
+  watchTurboFetches,
 };
