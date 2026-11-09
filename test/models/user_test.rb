@@ -346,6 +346,28 @@ class UserTest < ActiveSupport::TestCase
     create_once
   end
 
+  # The unverified-email half of the rule cannot reach this rescue through
+  # from_omniauth (the :email_not_verified return runs first); the engine's own
+  # studio_account_test.rb pins that race_winner skips an unverified address.
+  test "[unit] from_omniauth race: the rescue hands race_winner the identity, the verification and the error" do
+    auth = google_auth(email: "race-args@example.com", uid: "race-args-1")
+    calls = []
+    spy = lambda do |model, **kwargs|
+      calls << [model, kwargs]
+      nil
+    end
+    Studio::Account.stub(:race_winner, spy) do
+      User.stub(:create!, lose_the_race) { User.from_omniauth(auth, email_verified: true) }
+    end
+
+    assert_equal 1, calls.size
+    model, kwargs = calls.first
+    assert_equal User, model
+    assert_equal({ provider: "google_oauth2", uid: "race-args-1", email: "race-args@example.com", email_verified: true },
+                 kwargs.except(:error))
+    assert_kind_of ActiveRecord::RecordNotUnique, kwargs[:error]
+  end
+
   test "[unit] from_omniauth race: the winner found by provider and uid is returned" do
     auth = google_auth(email: "race-uid@example.com", uid: "race-uid-1")
     winner = nil
