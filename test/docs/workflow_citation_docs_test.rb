@@ -268,8 +268,8 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
     # Swept 2026-09-09. AN EMPTY `fallback_only_files` IS AN OPT-OUT OF THAT ONE
     # CLAIM, NOT OF THE GUARD. The per-file roster is a claim about the files it
     # NAMES, and in this document the fallback is spread thin — three ERB
-    # partials, six class-body declarations, one constant, one route, one schema
-    # column — with no file whose whole citation set rides it and whose name
+    # partials, six class-body declarations, one constant, one route, one migration
+    # class line — with no file whose whole citation set rides it and whose name
     # would tell a reader anything. The split counts in the preamble are asserted
     # EXACTLY either way, and they are what carries the honest part of the claim,
     # so an invented roster here would be a second number to maintain and no

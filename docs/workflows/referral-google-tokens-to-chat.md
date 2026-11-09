@@ -12,7 +12,7 @@
 > stricter check: it must OPEN on the line that carries its route, not merely
 > quote a word found somewhere in its span. That catches most one-line drift, not
 > all of it — [the workflows README](README.md) has the measurement. The rest —
-> ERB markup, a `db/schema.rb` column, the class-body callback and
+> ERB markup, a migration class line, the class-body callback and
 > `skip_before_action` declarations in `app/models/user.rb`, `app/models/message.rb`,
 > `app/controllers/messages_controller.rb`, `app/controllers/contests_controller.rb`
 > and `app/controllers/webhooks/stripe_controller.rb`, the `PACKS` constant in
@@ -30,7 +30,7 @@
 `/l/:slug` links still land, as the trigger note in [[web3-landing-to-entry]] explains.
 **Actors:** Visitor → Google OAuth → Rails (`LandingPagesController` / `OmniauthCallbacksController` / `TokensController` / `ContestsController` / `MessagesController`) → Stripe → Sidekiq (`TokenPurchaseJob`) → Solana RPC (managed-wallet `mint_entry_token` + `enter_contest_with_token`) → ActionCable.
 **Outcome:** `users` row with `reference = "<landing-slug>"`, a `stripe_purchases` row in status `minted` with 3 on-chain `EntryTokenAccount` PDAs (one consumed), an `entries` row in status `complete` with `onchain_tx_signature`, a `messages` row broadcast on `[contest, :messages]`.
-**Preconditions:** Contest is `open`, `onchain`, and carries `chat_enabled` — a column defaulting to true (`db/schema.rb:247`). The contest's season must be live on-chain: `ContestsController#ensure_onchain_season_ready!` (`app/controllers/contests_controller.rb:2393-2397`) raises the message built by `#onchain_season_error` (`:2399-2409`) when `SeasonConfig.current_season_id` names a season the vault cannot read. Stripe enabled. Visitor not in a blocked geo state.
+**Preconditions:** Contest is `open`, `onchain`, and carries `chat_enabled` — a column defaulting to true, created by `CreateContests` (`db/migrate/20260524000009_create_contests.rb:1`). The contest's season must be live on-chain: `ContestsController#ensure_onchain_season_ready!` (`app/controllers/contests_controller.rb:2393-2397`) raises the message built by `#onchain_season_error` (`:2399-2409`) when `SeasonConfig.current_season_id` names a season the vault cannot read. Stripe enabled. Visitor not in a blocked geo state.
 
 ## Sequence
 
