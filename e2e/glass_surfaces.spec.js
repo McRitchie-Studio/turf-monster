@@ -160,7 +160,18 @@ for (const [label, viewport] of [["desktop", { width: 1280, height: 900 }], ["ph
       }
       // The hold button only exists with a full cart. It is looked at, never held.
       await expect(page.locator(".hold-btn:visible").first()).toBeVisible();
-      await motionSettled(page); // the slip's entrance has finished moving it
+      // THE BUTTON WIGGLES ON ITS OWN CLOCK. studio-engine's hold_button.js
+      // NudgeCycle adds .nudge 3s into rest (then .nudge-soft every 10s) and
+      // scales the button for 500ms, so a box read inside that window is the
+      // wiggle, not the layout. Wait for the first nudge to come and go: the
+      // next one is 10s away, which is the quiet window the reads below use.
+      const hold = page.locator(".hold-btn:visible").first();
+      await expect(hold, "the idle nudge started").toHaveClass(/(^|\s)nudge(-soft)?(\s|$)/);
+      await expect(hold, "the idle nudge ended").not.toHaveClass(/(^|\s)nudge(-soft)?(\s|$)/);
+      // Pointer off every control (a real move updates hover at once), then let
+      // anything that started moving finish.
+      await page.mouse.move(1, 1);
+      await motionSettled(page);
       await expectGlassMovesNothing(page, "body");
     });
   });
