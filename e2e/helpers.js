@@ -385,6 +385,67 @@ async function watchTurboFetches(page, pattern) {
 }
 
 /**
+ * The largest single-channel difference between two PNG screenshots of the same
+ * clip (Buffers or base64 strings). Decoded here with node's zlib: 8-bit RGB or
+ * RGBA, non-interlaced, which is what page.screenshot writes. A paint assertion
+ * that compares against a measured drift band uses this rather than "differs at
+ * all", which a one-unit colour drift satisfies.
+ */
+function pngPixels(png) {
+  const zlib = require("zlib");
+  const buf = Buffer.isBuffer(png) ? png : Buffer.from(png, "base64");
+  let i = 8, width = 0, height = 0, colorType = 0;
+  const idat = [];
+  while (i < buf.length) {
+    const len = buf.readUInt32BE(i);
+    const type = buf.toString("ascii", i + 4, i + 8);
+    const body = buf.subarray(i + 8, i + 8 + len);
+    if (type === "IHDR") {
+      width = body.readUInt32BE(0); height = body.readUInt32BE(4);
+      if (body[8] !== 8 || body[12] !== 0) throw new Error("pngPixels: 8-bit, non-interlaced only");
+      colorType = body[9];
+    }
+    if (type === "IDAT") idat.push(body);
+    i += 12 + len;
+  }
+  const bpp = colorType === 6 ? 4 : colorType === 2 ? 3 : 0;
+  if (!bpp) throw new Error(`pngPixels: colour type ${colorType} not supported`);
+  const raw = zlib.inflateSync(Buffer.concat(idat));
+  const stride = width * bpp;
+  const out = Buffer.alloc(stride * height);
+  for (let y = 0; y < height; y++) {
+    const filter = raw[y * (stride + 1)];
+    for (let x = 0; x < stride; x++) {
+      const cur = raw[y * (stride + 1) + 1 + x];
+      const a = x >= bpp ? out[y * stride + x - bpp] : 0;
+      const b = y > 0 ? out[(y - 1) * stride + x] : 0;
+      const c = x >= bpp && y > 0 ? out[(y - 1) * stride + x - bpp] : 0;
+      let v = cur;
+      if (filter === 1) v = cur + a;
+      else if (filter === 2) v = cur + b;
+      else if (filter === 3) v = cur + ((a + b) >> 1);
+      else if (filter === 4) {
+        const p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c);
+        v = cur + (pa <= pb && pa <= pc ? a : pb <= pc ? b : c);
+      }
+      out[y * stride + x] = v & 255;
+    }
+  }
+  return { width, height, bpp, data: out };
+}
+
+function maxPixelDelta(pngA, pngB) {
+  const a = pngPixels(pngA), b = pngPixels(pngB);
+  if (a.width !== b.width || a.height !== b.height || a.bpp !== b.bpp) throw new Error("maxPixelDelta: shapes differ");
+  let max = 0;
+  for (let i = 0; i < a.data.length; i++) {
+    if (a.bpp === 4 && i % 4 === 3) continue; // alpha
+    max = Math.max(max, Math.abs(a.data[i] - b.data[i]));
+  }
+  return max;
+}
+
+/**
  * Rendering frames, as a condition: resolves after `n` requestAnimationFrame
  * callbacks. A ResizeObserver delivery, a style recalc and a Turbo Stream render
  * all land inside a frame, so two frames after a change mean the browser has
@@ -467,4 +528,5 @@ module.exports = {
   nextFrames,
   motionSettled,
   watchTurboFetches,
+  maxPixelDelta,
 };

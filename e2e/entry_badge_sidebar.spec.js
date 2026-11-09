@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { login, sessionReadLanded, motionSettled, nextFrames } = require("./helpers");
+const { login, sessionReadLanded, motionSettled, nextFrames, maxPixelDelta } = require("./helpers");
 
 // The navbar ✨ entry-token badge, in a browser.
 //
@@ -25,6 +25,9 @@ const { login, sessionReadLanded, motionSettled, nextFrames } = require("./helpe
 // updateNavTokens(), the same call the mint and consume paths make.
 
 const BADGE = "[data-free-entry-badge]";
+// The largest colour drift CI has shown on these probe strips with nothing
+// changing (1 and 3 units on two runs), with margin. A paint claim must beat it.
+const SHADOW_DRIFT_BAND = 12;
 const CHIP = "[data-free-entry-chip]";
 
 async function signInWithBadge(page) {
@@ -113,8 +116,15 @@ test("the badge casts a dark contact shadow onto the avatar", async ({ page }) =
   await page.evaluate((sel) => {
     document.querySelector(sel).style.setProperty("--lb-contact", "0 0 0 0 rgba(0, 0, 0, 0)");
   }, BADGE);
-  await expect.poll(sample, { message: "with the knob neutralised those pixels must change — otherwise the shadow was never painting" })
-    .not.toBe(before);
+  // One look, a rendered frame after the change: the loop above proved the strip
+  // still, so what differs now is the knob. And it must differ by MORE than the
+  // drift CI showed on this strip after load (1 to 3 colour units, measured on
+  // two red runs), so a strip that drifts while the shadow never paints cannot
+  // pass. The painted shadow moves these pixels by tens of units.
+  await nextFrames(page);
+  const delta = maxPixelDelta(before, await sample());
+  expect(delta, `with the knob neutralised those pixels must change by more than the drift band (moved ${delta}) — otherwise the shadow was never painting`)
+    .toBeGreaterThan(SHADOW_DRIFT_BAND);
 });
 
 test("clicking the badge opens the settings sidebar and it stays open", async ({ page }) => {
