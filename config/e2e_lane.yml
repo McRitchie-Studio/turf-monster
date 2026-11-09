@@ -1387,7 +1387,11 @@
 # 630 -> 631 (ci-cause-turf-monster-e2e-glass-surfaces-spec-js, review): a second spec in
 # e2e/picks_answer_in_order.spec.js: Clear after fast picks leaves the cart empty. Chromium, no
 # skip. Derived with bin/e2e-lane-derive --write.
-total_specs: 631
+# 631 -> 633 (turf-e2e-remaining-race-fixes): two controls. e2e/nav_figures_hold.spec.js:
+# settled() waits for a slow read to land; e2e/navbar_layout.spec.js: the glow strip sees the
+# toast page-blur fade and toastBlurClear waits it out. Chromium, no skip. Derived with
+# bin/e2e-lane-derive --write.
+total_specs: 633
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need funded devnet wallets: the secrets
 # SOLANA_BOT_KEY and MACK_DEVNET_KEY (never literals; test/lib/committed_secret_key_guard_test.rb).
@@ -1827,7 +1831,9 @@ allowed_skips: 4
 # spec beside total_specs above; chromium, no skip.
 # 609 -> 610 (ci-cause-turf-monster-e2e-glass-surfaces-spec-js, review): the Clear spec beside
 # total_specs above; chromium, no skip.
-executed: 610
+# 610 -> 612 (turf-e2e-remaining-race-fixes): the two control specs beside total_specs above;
+# chromium, no skip.
+executed: 612
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

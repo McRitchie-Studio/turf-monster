@@ -13,7 +13,6 @@ e2e/board_hold_enters_once.spec.js:
 e2e/cart_survives_turbo_restore.spec.js:
   branch: 1
 e2e/devnet-smoke.spec.js:
-  sleep: 2
   branch: 1
 e2e/entry_badge_sidebar.spec.js:
   sleep: 1

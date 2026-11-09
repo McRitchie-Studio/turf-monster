@@ -297,20 +297,22 @@ async function selectMatchups(page, indices) {
 // Helper: claim $50 USDC from faucet (user must be logged in)
 // ---------------------------------------------------------------------------
 
+// No wait for the token account first. This helper used to sleep 5s "for
+// EnsureAtaJob to create the token account", but that job left signup in
+// OPSEC-044 and nothing creates the account in the background now. The claim
+// creates it itself, confirmed, before it mints (FaucetController#create,
+// Vault#ensure_ata), and test/controllers/faucet_controller_test.rb holds that
+// order. `label` names the step in a red.
 async function claimFaucet(page, label, amount = 50) {
-  // Wait for EnsureAtaJob to create the token account (runs in Sidekiq after registration)
-  await page.waitForTimeout(5000);
+  await page.goto("/faucet");
+  await page.waitForLoadState("networkidle");
 
-  await withDevnetRetry(page, `${label} faucet`, async (pg) => {
-    await pg.goto("/faucet");
-    await pg.waitForLoadState("networkidle");
+  await page.getByRole("button", { name: `$${amount}`, exact: true }).click();
+  await page.getByRole("button", { name: `Claim $${amount} Test USDC` }).click();
 
-    await pg.getByRole("button", { name: `$${amount}`, exact: true }).click();
-    await pg.getByRole("button", { name: `Claim $${amount} Test USDC` }).click();
-
-    // Wait for the Solana modal to show success (devnet can be slow)
-    await expect(pg.locator("body")).toContainText("Minted", { timeout: 90000 });
-  });
+  // Wait for the Solana modal to show success (devnet can be slow)
+  await expect(page.locator("body"), `${label}: the faucet claim never reported Minted`)
+    .toContainText("Minted", { timeout: 90000 });
 
   // Close the modal
   await page.locator('button:has-text("Done")').click();
@@ -320,23 +322,23 @@ async function claimFaucet(page, label, amount = 50) {
 // Helper: confirm entry via direct onchain path (Phantom wallet)
 // ---------------------------------------------------------------------------
 
+// One attempt. A second confirmEntry() after a failure could submit a second
+// entry on chain; a red here is read from its trace, not retried.
 async function confirmEntryOnchain(page) {
-  await withDevnetRetry(page, "confirmEntry (onchain)", async (pg) => {
-    await pg.evaluate(async () => {
-      const els = document.querySelectorAll("[x-data]");
-      for (const el of els) {
-        const data = Alpine.$data(el);
-        if (typeof data.confirmEntry === "function") {
-          await data.confirmEntry();
-          return;
-        }
+  await page.evaluate(async () => {
+    const els = document.querySelectorAll("[x-data]");
+    for (const el of els) {
+      const data = Alpine.$data(el);
+      if (typeof data.confirmEntry === "function") {
+        await data.confirmEntry();
+        return;
       }
-      throw new Error("confirmEntry() not found on any Alpine component");
-    });
+    }
+    throw new Error("confirmEntry() not found on any Alpine component");
+  });
 
-    await expect(pg.locator("body")).toContainText("Entry submitted onchain", {
-      timeout: 60000,
-    });
+  await expect(page.locator("body")).toContainText("Entry submitted onchain", {
+    timeout: 60000,
   });
 }
 
@@ -373,32 +375,11 @@ async function confirmEntryStandard(page) {
 }
 
 // ---------------------------------------------------------------------------
-// Helper: retry a devnet action once on failure
+// No retry helper. withDevnetRetry ran a failed devnet action a second time
+// after a fixed 5s backoff that waited on no named condition. Alex McRitchie's
+// ruling (2026-11-06, turf-deterministic-ci): no retries; a red is a defect with
+// a cause. A retried contest create or entry could also act twice on chain.
 // ---------------------------------------------------------------------------
-
-/**
- * Tries an async action up to 2 times. If the first attempt throws or the
- * `detectFailure` callback returns true, waits `delayMs` then retries.
- *
- * @param {object} page - Playwright page
- * @param {string} label - Human-readable label for console output
- * @param {function} action - async (page, attempt) => void — the action to try
- * @param {object} opts
- * @param {number} opts.delayMs - ms to wait before retry (default 5000)
- */
-async function withDevnetRetry(page, label, action, { delayMs = 5000 } = {}) {
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    try {
-      await action(page, attempt);
-      return; // success
-    } catch (e) {
-      if (attempt === 2) throw e;
-      console.warn(`${label} — attempt ${attempt} failed: ${e.message.slice(0, 120)}`);
-      console.log(`${label} — retrying in ${delayMs}ms...`);
-      await page.waitForTimeout(delayMs);
-    }
-  }
-}
 
 // ===========================================================================
 // PART 1: Onboarding (register + seed wallets via faucet)
@@ -561,15 +542,13 @@ test("@devnet 7 — small contest: create 3-entry onchain contest", async ({
 
   const contestName = `Small ${Date.now().toString(36)}`;
 
-  await withDevnetRetry(page, "Test 7 contest create", async (pg) => {
-    await pg.goto("/contests/new");
-    await pg.fill("#contest_name", contestName);
-    await selectE2eSlate(pg);
-    // Small format is selected by default — no need to change
-    await pg.getByRole("button", { name: "Create Contest" }).click();
-    await pg.waitForURL(/\/contests\/(?!new)/, { timeout: 90000 });
-    await expect(pg.locator("body")).toContainText(contestName);
-  });
+  await page.goto("/contests/new");
+  await page.fill("#contest_name", contestName);
+  await selectE2eSlate(page);
+  // Small format is selected by default — no need to change
+  await page.getByRole("button", { name: "Create Contest" }).click();
+  await page.waitForURL(/\/contests\/(?!new)/, { timeout: 90000 });
+  await expect(page.locator("body")).toContainText(contestName);
 
   const contestUrl = page.url();
   sharedSmallContestUrl = contestUrl;

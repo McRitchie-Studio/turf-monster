@@ -6,7 +6,7 @@ End-to-end tests that exercise Turf Monster against real Solana devnet. These te
 
 - Node.js 22 + `npx playwright` installed (`npm ci` in project root), then `bin/rails studio:node:link` (playwright.config.js requires studio-engine's shared base from `node_modules/.studio-engine`)
 - Dev server running on port 3100 (`bin/dev` or `bin/rails server -p 3100`)
-- Sidekiq running (`bundle exec sidekiq`) — required for `EnsureAtaJob` after user registration
+- Sidekiq running (`bundle exec sidekiq`) for the app's background jobs. Registration no longer queues `EnsureAtaJob` (OPSEC-044): the faucet creates the token account itself, before it mints
 - `SOLANA_BOT_KEY` env var set to the base58 private key for the devnet e2e bot
   wallet `F6f8h5yy…` — the LEGACY pre-rotation wallet, which is what the balance
   commands below check. **Not necessarily the same as `SOLANA_ADMIN_KEY`**, which
@@ -151,9 +151,7 @@ The `chromium` project excludes `@devnet` tests via `grepInvert`.
 ### IllegalOwner on Faucet/Entry
 Error: `Transaction failed: {"InstructionError"=>[0, "IllegalOwner"]}`
 
-Race condition between Sidekiq's `EnsureAtaJob` and the faucet's `ensure_ata`. The faucet tests include a 5-second wait to allow Sidekiq to create the token account. If this still fails:
-- Verify Sidekiq is running: `ps aux | grep sidekiq`
-- Restart Sidekiq: `bundle exec sidekiq`
+This was a race between Sidekiq's `EnsureAtaJob` and the faucet's `ensure_ata`, and the faucet tests slept 5 seconds for it. That job left registration (OPSEC-044), so nothing creates the token account in the background now: the faucet creates it, confirmed, before it mints, and `Vault#ensure_ata` treats an `IllegalOwner` on an account that now exists as created. The sleep is gone (turf-e2e-remaining-race-fixes). If this error comes back, it has a new cause: read the failing transaction's logs and find what else wrote that account.
 
 ### Insufficient SOL Balance
 Error: `Attempt to debit an account but found no record of a prior credit`

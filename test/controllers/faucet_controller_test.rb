@@ -44,6 +44,34 @@ class FaucetControllerTest < ActionDispatch::IntegrationTest
     assert_equal false, json["success"]
   end
 
+  # [unit] The claim creates the wallet's token account itself, for the same
+  # wallet, BEFORE it mints. e2e/devnet-smoke.spec.js used to sleep 5s before a
+  # claim "for EnsureAtaJob to create the token account"; that job left signup
+  # (OPSEC-044) and nothing creates the account in the background now. This
+  # ordering is the guarantee the spec relies on in its place.
+  test "claim creates the token account for the same wallet before it mints" do
+    log_in_as(@user)
+
+    calls = []
+    vault = Object.new
+    vault.define_singleton_method(:ensure_ata) do |wallet, mint:|
+      calls << [:ensure_ata, wallet, mint]
+      { ata: "fake_ata", created: true, signature: "ata_sig" }
+    end
+    vault.define_singleton_method(:mint_spl) do |amount, mint:, to:|
+      calls << [:mint_spl, to, mint]
+      { signature: "fake_tx_after_ata" }
+    end
+
+    Solana::Vault.stub :new, vault do
+      post faucet_path, params: { amount: 50 }, as: :json
+    end
+
+    assert_response :success
+    wallet = @user.solana_address
+    assert_equal [[:ensure_ata, wallet, Solana::Config::USDC_MINT], [:mint_spl, wallet, Solana::Config::USDC_MINT]], calls
+  end
+
   # 2.01 is a value Float parsing and the float base-unit formula both cut
   # short ($2.00, then 2_009_999): the mint and the log carry it exactly.
   test "claim of $2.01 mints exactly 2_010_000 base units and logs 201 cents" do
