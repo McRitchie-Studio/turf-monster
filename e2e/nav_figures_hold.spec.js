@@ -38,7 +38,7 @@ async function recordFrames(page) {
     });
     let last = "";
     // A lag makes the recorder log a changed state only once it has stood for that many frames,
-    // as a browser that skips frames does. Only the regression spec below sets it; 0 logs at once.
+    // as a browser that skips frames does. Only the [regression] step below sets it; 0 logs at once.
     let pending = "";
     let seen = 0;
     const read = () => {
@@ -304,30 +304,23 @@ test.describe("with motion on", () => {
     expect(lines.every((f) => ["$1024", "$2048"].includes(f.amount)), JSON.stringify(lines)).toBe(true);
     expect(lines[lines.length - 1].amount).toBe("$2048");
 
+    // [regression] ci-cause-turf-monster-e2e-nav-figures-hold-spec-js. CI run 42515495351 went red
+    // at the read above with an EMPTY log: the pill said $2048, and the recorder had not yet run
+    // the frame that logs it. A lag makes that frame late on purpose (120 frames is about two
+    // seconds, longer than toHaveText can take to see the text), and the read must still wait.
+    await clearFrames(page);
+    await page.evaluate(() => { window.__recorderLag = 120; });
+    usdc = "4096.00";
+    await clickLink(page, LOBBY);
+    const late = await recorded(page, "$4096");
+    expect(late.length, "the reading came back before the recorder logged the figure").toBeGreaterThan(0);
+    expect(late[late.length - 1].amount).toBe("$4096");
+    await page.evaluate(() => { window.__recorderLag = 0; });
+
     await clearFrames(page);
     await clickLink(page, CONTEST);
     await settled(page, { fullLoad: true });
-    expect((await frames(page)).every((f) => f.amount === "$2048" && f.shown)).toBe(true);
-  });
-
-  // [regression] ci-cause-turf-monster-e2e-nav-figures-hold-spec-js. CI run 42515495351 went red
-  // at "a changed value updates" with an EMPTY log: the pill said $2048, and the recorder had not
-  // yet run the frame that logs it. The lag makes that frame late on purpose.
-  test("a reading waits for the recorder to log the figure the pill shows", async ({ page }) => {
-    await recordFrames(page);
-    await signIn(page, "mason@mcritchie.studio");
-    let usdc = "1024.00";
-    await answerRefresh(page, (route) => route.fulfill(figures(usdc)));
-    await firstFigure(page, "$1024");
-    await clearFrames(page);
-
-    // 120 frames is about two seconds: longer than toHaveText can take to see the new text.
-    await page.evaluate(() => { window.__recorderLag = 120; });
-    usdc = "2048.00";
-    await clickLink(page, HELP);
-    const lines = await recorded(page, "$2048");
-    expect(lines.length, "the reading came back before the recorder logged the figure").toBeGreaterThan(0);
-    expect(lines[lines.length - 1].amount).toBe("$2048");
+    expect((await frames(page)).every((f) => f.amount === "$4096" && f.shown)).toBe(true);
   });
 
   test("a failed fresh read keeps the last figure, and it stays while reads keep failing", async ({ page }) => {
