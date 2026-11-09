@@ -25,8 +25,6 @@ e2e/geo_hold_validation.spec.js:
   branch: 2
 e2e/glass_surfaces.spec.js:
   branch: 2
-e2e/nav_figures_hold.spec.js:
-  sleep: 3
 e2e/navbar_engine_slots.spec.js:
   sleep: 1
 e2e/navbar_layout.spec.js:
