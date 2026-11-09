@@ -38,7 +38,9 @@ async function recordFrames(page) {
     });
     let last = "";
     const read = () => {
-      const pill = document.querySelector("header [data-balance-display]");
+      // A held recorder skips its sample, as a frame the browser never runs would. The
+      // regression spec below holds it to force the race on purpose.
+      const pill = window.__recorderHeld ? null : document.querySelector("header [data-balance-display]");
       if (pill) {
         const bar = document.querySelector("[data-nav-seeds-row] .seeds-bar-continuous");
         const level = document.querySelector("[data-nav-seeds-row] [data-seeds-level]");
@@ -83,6 +85,13 @@ async function signIn(page, email) {
 }
 
 const pill = (page) => page.locator("header [data-balance-display]");
+
+// The pill shows a figure, and the recorder logs it on its next animation frame. The page
+// can change the text before that frame runs, so a read here can find the log a frame behind.
+async function recorded(page, text) {
+  await expect(pill(page)).toHaveText(text);
+  return frames(page);
+}
 
 // The first page of a session: its normal loading state, then the figure.
 async function firstFigure(page, text) {
@@ -290,6 +299,28 @@ test.describe("with motion on", () => {
     await clickLink(page, CONTEST);
     await settled(page, { fullLoad: true });
     expect((await frames(page)).every((f) => f.amount === "$2048" && f.shown)).toBe(true);
+  });
+
+  // [regression] ci-cause-turf-monster-e2e-nav-figures-hold-spec-js. CI run 42515495351 went red
+  // at "a changed value updates" with an EMPTY log: the pill said $2048, and the recorder had not
+  // yet run the frame that logs it. The hold makes that frame late on purpose.
+  test("a reading waits for the recorder to log the figure the pill shows", async ({ page }) => {
+    await recordFrames(page);
+    await signIn(page, "mason@mcritchie.studio");
+    let usdc = "1024.00";
+    await answerRefresh(page, (route) => route.fulfill(figures(usdc)));
+    await firstFigure(page, "$1024");
+    await clearFrames(page);
+
+    await page.evaluate(() => { window.__recorderHeld = true; });
+    usdc = "2048.00";
+    await clickLink(page, HELP);
+    await expect(pill(page)).toHaveText("$2048");
+    const reading = recorded(page, "$2048");
+    await page.evaluate(() => { window.__recorderHeld = false; });
+    const lines = await reading;
+    expect(lines.length, "the reading came back before the recorder logged the figure").toBeGreaterThan(0);
+    expect(lines[lines.length - 1].amount).toBe("$2048");
   });
 
   test("a failed fresh read keeps the last figure, and it stays while reads keep failing", async ({ page }) => {
