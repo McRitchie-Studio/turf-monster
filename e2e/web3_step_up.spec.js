@@ -170,7 +170,10 @@ test("the card is a one-shot — it does not nag on the next page", async ({ pag
   // Navigate away rather than closing whatever the chain handed us. The
   // navigation clears the stack anyway, and both prompts are consumed on the
   // render that armed them — which is precisely the property under test.
-  await page.waitForTimeout(500);
+  // The Not now has been taken once the step-up is no longer the open card.
+  await expect
+    .poll(async () => (await currentModal(page))?.id, { message: "Not now closed the step-up" })
+    .not.toBe("web3-step-up");
   await page.goto("/contests");
   await page.waitForLoadState("domcontentloaded");
   // Give the driver the same window it gets on any other load before concluding

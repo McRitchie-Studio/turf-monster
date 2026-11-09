@@ -362,6 +362,145 @@ async function lazyController(page, name) {
   await page.locator(`html[data-lazy-controllers~="${name}"]`).waitFor({ state: "attached" });
 }
 
+/**
+ * Count the Turbo fetches the page starts whose URL matches `pattern`, counted
+ * IN the page at turbo:before-fetch-request. Returns a reader.
+ *
+ * Why in the page: a data-turbo-confirm decides in the microtasks right after
+ * confirm() returns, and an accepted one dispatches this event before its fetch
+ * leaves. So once the dialog is answered, the next page read is ordered after
+ * that decision, and a count of 0 is a fact about the app, not a guess about
+ * how long the network takes.
+ */
+async function watchTurboFetches(page, pattern) {
+  await page.evaluate((source) => {
+    const re = new RegExp(source);
+    window.__turboFetches = [];
+    document.addEventListener("turbo:before-fetch-request", (event) => {
+      const url = String(event.detail.url);
+      if (re.test(url)) window.__turboFetches.push(url);
+    });
+  }, pattern.source);
+  return () => page.evaluate(() => window.__turboFetches.length);
+}
+
+/**
+ * The largest single-channel difference between two PNG screenshots of the same
+ * clip (Buffers or base64 strings). Decoded here with node's zlib: 8-bit RGB or
+ * RGBA, non-interlaced, which is what page.screenshot writes. A paint assertion
+ * that compares against a measured drift band uses this rather than "differs at
+ * all", which a one-unit colour drift satisfies.
+ */
+function pngPixels(png) {
+  const zlib = require("zlib");
+  const buf = Buffer.isBuffer(png) ? png : Buffer.from(png, "base64");
+  let i = 8, width = 0, height = 0, colorType = 0;
+  const idat = [];
+  while (i < buf.length) {
+    const len = buf.readUInt32BE(i);
+    const type = buf.toString("ascii", i + 4, i + 8);
+    const body = buf.subarray(i + 8, i + 8 + len);
+    if (type === "IHDR") {
+      width = body.readUInt32BE(0); height = body.readUInt32BE(4);
+      if (body[8] !== 8 || body[12] !== 0) throw new Error("pngPixels: 8-bit, non-interlaced only");
+      colorType = body[9];
+    }
+    if (type === "IDAT") idat.push(body);
+    i += 12 + len;
+  }
+  const bpp = colorType === 6 ? 4 : colorType === 2 ? 3 : 0;
+  if (!bpp) throw new Error(`pngPixels: colour type ${colorType} not supported`);
+  const raw = zlib.inflateSync(Buffer.concat(idat));
+  const stride = width * bpp;
+  const out = Buffer.alloc(stride * height);
+  for (let y = 0; y < height; y++) {
+    const filter = raw[y * (stride + 1)];
+    for (let x = 0; x < stride; x++) {
+      const cur = raw[y * (stride + 1) + 1 + x];
+      const a = x >= bpp ? out[y * stride + x - bpp] : 0;
+      const b = y > 0 ? out[(y - 1) * stride + x] : 0;
+      const c = x >= bpp && y > 0 ? out[(y - 1) * stride + x - bpp] : 0;
+      let v = cur;
+      if (filter === 1) v = cur + a;
+      else if (filter === 2) v = cur + b;
+      else if (filter === 3) v = cur + ((a + b) >> 1);
+      else if (filter === 4) {
+        const p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c);
+        v = cur + (pa <= pb && pa <= pc ? a : pb <= pc ? b : c);
+      }
+      out[y * stride + x] = v & 255;
+    }
+  }
+  return { width, height, bpp, data: out };
+}
+
+function maxPixelDelta(pngA, pngB) {
+  const a = pngPixels(pngA), b = pngPixels(pngB);
+  if (a.width !== b.width || a.height !== b.height || a.bpp !== b.bpp) throw new Error("maxPixelDelta: shapes differ");
+  let max = 0;
+  for (let i = 0; i < a.data.length; i++) {
+    if (a.bpp === 4 && i % 4 === 3) continue; // alpha
+    max = Math.max(max, Math.abs(a.data[i] - b.data[i]));
+  }
+  return max;
+}
+
+/**
+ * Rendering frames, as a condition: resolves after `n` requestAnimationFrame
+ * callbacks. A ResizeObserver delivery, a style recalc and a Turbo Stream render
+ * all land inside a frame, so two frames after a change mean the browser has
+ * run its rendering step on it at least once. A frame count, never a duration.
+ */
+async function nextFrames(page, n = 2) {
+  await page.evaluate((count) => new Promise((resolve) => {
+    const step = (left) => (left <= 0 ? resolve() : requestAnimationFrame(() => step(left - 1)));
+    step(count);
+  }), n);
+}
+
+/**
+ * Every finite CSS transition and animation under `selector` has ended.
+ * getAnimations() flushes pending style first, so a transition a hover or a
+ * class change has just started is already in the list. Infinite animations (a
+ * forever pan, a spinner) never end, and scroll-driven ones (the navbar's scroll
+ * timeline) run on scroll position rather than time, so both are left out.
+ */
+async function motionSettled(page, selector = "body") {
+  await page.waitForFunction((sel) => {
+    const root = document.querySelector(sel);
+    if (!root) return false;
+    return root.getAnimations({ subtree: true }).every((a) =>
+      a.playState !== "running" ||
+      !(a.timeline instanceof DocumentTimeline) ||
+      a.effect?.getComputedTiming().endTime === Infinity);
+  }, selector);
+}
+
+/**
+ * The navbar's own session read has landed. Wait on THAT, not on a sleep.
+ *
+ * Every load runs one refreshSession() (the layout's hydrateNavbar), and it
+ * repaints the balance slot, the free-entry badge and $store.session when it
+ * answers. A spec that measures or drives those first has to let it land.
+ *
+ * The condition is read from the app's own lock. lockedFetch('session') answers
+ * a contender with null while a read is in flight, and refreshSession() resolves
+ * to the parsed payload only after it has painted. So a read of our own that
+ * comes back non-null means no other session read held the lock and ours has
+ * painted the server's figures. Ours is the last writer, and it writes the same
+ * truth the load-time read would have.
+ */
+async function sessionReadLanded(page) {
+  await page.waitForFunction(() => typeof window.refreshSession === "function");
+  // page.evaluate awaits the promise; waitForFunction would not (a Promise is
+  // truthy), which is why this polls from the test side.
+  for (const deadline = Date.now() + 15_000; ;) {
+    if (await page.evaluate(() => window.refreshSession().then((data) => data !== null))) return;
+    if (Date.now() > deadline) throw new Error("sessionReadLanded: a session read never got the lock in 15s");
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => resolve())));
+  }
+}
+
 module.exports = {
   login,
   lazyController,
@@ -385,4 +524,9 @@ module.exports = {
   allowMotion,
   routeHeadshots,
   recordShown,
+  sessionReadLanded,
+  nextFrames,
+  motionSettled,
+  watchTurboFetches,
+  maxPixelDelta,
 };

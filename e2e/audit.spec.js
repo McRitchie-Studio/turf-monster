@@ -86,11 +86,12 @@ test.describe("Audit consolidation (2026-05-23)", () => {
       }
     });
 
-    await page.goto("/contests");
-    // Handler runs on turbo:load; give it a moment to fire its fetch.
+    // The handler runs on turbo:load; wait for the request it sends.
     // The server may 404 if no user with slug 'alex' exists in this DB —
     // we only care that the CLIENT sent the request.
-    await page.waitForTimeout(2000);
+    const sent = page.waitForRequest((req) => req.url().includes("/account/set_inviter"));
+    await page.goto("/contests");
+    await sent;
 
     expect(setInviterRequests.length).toBeGreaterThanOrEqual(1);
     expect(setInviterRequests[0].method).toBe("PATCH");

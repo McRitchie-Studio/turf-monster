@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { login } = require("./helpers");
+const { login, sessionReadLanded, motionSettled, nextFrames, maxPixelDelta } = require("./helpers");
 
 // The navbar ✨ entry-token badge, in a browser.
 //
@@ -25,6 +25,9 @@ const { login } = require("./helpers");
 // updateNavTokens(), the same call the mint and consume paths make.
 
 const BADGE = "[data-free-entry-badge]";
+// The largest colour drift CI has shown on these probe strips with nothing
+// changing (1 and 3 units on two runs), with margin. A paint claim must beat it.
+const SHADOW_DRIFT_BAND = 12;
 const CHIP = "[data-free-entry-chip]";
 
 async function signInWithBadge(page) {
@@ -32,9 +35,10 @@ async function signInWithBadge(page) {
   await login(page, "alex@mcritchie.studio", "password");
   await page.goto("/contests");
   await expect(page.locator(BADGE).first()).toBeAttached();
-  // QUIESCE. refreshBalance/refreshSession land on their own schedule and
-  // rewrite the balance slot right beside the badge; settle before measuring.
-  await page.waitForTimeout(4000);
+  // QUIESCE. The load-time refreshSession() rewrites the balance slot right
+  // beside the badge and re-applies the server's zero-token count to it, so
+  // let that read land before measuring or driving the badge.
+  await sessionReadLanded(page);
   await page.evaluate(() => window.updateNavTokens(1));
   await expect(page.locator(BADGE).first()).toBeVisible();
 }
@@ -55,7 +59,22 @@ test("the badge casts a dark contact shadow onto the avatar", async ({ page }) =
   // the disc being still, and a precondition that load-bearing is worth stating
   // where it is relied on rather than inherited from a config three files away.
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.waitForTimeout(500);
+  // And wait until the disc really is still: none of its own animations runs.
+  await page.waitForFunction((sel) =>
+    document.querySelector(sel).getAnimations().every((a) => a.playState !== "running"), BADGE);
+  // The strip below also covers the avatar and the balance slot, and surfacing
+  // the badge restyled that row (applyBalanceSlotRule). Let every transition it
+  // started in the header finish before the strip is sampled.
+  await motionSettled(page, "header");
+  // The strip lies over the AVATAR, an Active Storage image that loads and
+  // decodes on its own schedule (CI caught it painting between the two samples
+  // below). Wait for every header image to be decoded and the fonts to be in,
+  // then a rendered frame, so the pixels under the strip are final.
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    await Promise.all([...document.querySelectorAll("header img")].map((img) => img.decode().catch(() => null)));
+  });
+  await nextFrames(page);
 
   // Declared: the dark shadow must LEAD the stack. Behind the white bloom it is
   // washed out, so order is part of the claim, not formatting.
@@ -79,19 +98,33 @@ test("the badge casts a dark contact shadow onto the avatar", async ({ page }) =
   const sample = async () => (await page.screenshot({ clip })).toString("base64");
 
   // PROBE STABILITY. If the strip moves on its own, "differs" means nothing.
-  const before = await sample();
-  await page.waitForTimeout(600);
-  expect(await sample(), "the probe strip must be still before it is used to judge a change")
-    .toBe(before);
+  // Wait for the strip to BE still: two reads 600ms apart that agree. CI showed
+  // a 1-unit drift at the disc's edge settling after the waits above, from
+  // nothing they can name, so the condition is the stillness itself. A strip
+  // that never stops moving stays red at the deadline.
+  let before = await sample();
+  for (const deadline = Date.now() + 15_000; ;) {
+    await page.waitForTimeout(600);
+    const again = await sample();
+    if (again === before) break;
+    expect(Date.now(), "the probe strip must be still before it is used to judge a change").toBeLessThan(deadline);
+    before = again;
+  }
 
   // Neutralise ONLY the knob — the treatment keeps its rim, bloom and gradient,
   // so anything that changes here is the contact shadow and nothing else.
   await page.evaluate((sel) => {
     document.querySelector(sel).style.setProperty("--lb-contact", "0 0 0 0 rgba(0, 0, 0, 0)");
   }, BADGE);
-  await page.waitForTimeout(200);
-  expect(await sample(), "with the knob neutralised those pixels must change — otherwise the shadow was never painting")
-    .not.toBe(before);
+  // One look, a rendered frame after the change: the loop above proved the strip
+  // still, so what differs now is the knob. And it must differ by MORE than the
+  // drift CI showed on this strip after load (1 to 3 colour units, measured on
+  // two red runs), so a strip that drifts while the shadow never paints cannot
+  // pass. The painted shadow moves these pixels by tens of units.
+  await nextFrames(page);
+  const delta = maxPixelDelta(before, await sample());
+  expect(delta, `with the knob neutralised those pixels must change by more than the drift band (moved ${delta}) — otherwise the shadow was never painting`)
+    .toBeGreaterThan(SHADOW_DRIFT_BAND);
 });
 
 test("clicking the badge opens the settings sidebar and it stays open", async ({ page }) => {
@@ -140,24 +173,21 @@ test("the sidebar chip tracks the live count in both panels", async ({ page }) =
 
   expect((await chips()).length, "the sidebar body renders into both panels").toBe(2);
 
+  // Each count is polled on BOTH mounts: the chip follows through a window
+  // event, so the read waits for that update to land, not for a fixed beat.
   await page.evaluate(() => window.updateNavTokens(5));
-  await page.waitForTimeout(250);
-  for (const chip of await chips()) {
-    expect(chip.text).toBe("✨ 5 Free Entries");
-    expect(chip.display).not.toBe("none");
-  }
+  await expect.poll(async () => (await chips()).map((c) => ({ text: c.text, shown: c.display !== "none" })))
+    .toEqual([{ text: "✨ 5 Free Entries", shown: true }, { text: "✨ 5 Free Entries", shown: true }]);
 
   // Singular. "5 Free Entrys" is what a bare plural suffix produces, and the
   // markup carries both spellings, so only a real count of 1 tells them apart.
   await page.evaluate(() => window.updateNavTokens(1));
-  await page.waitForTimeout(250);
-  for (const chip of await chips()) expect(chip.text).toBe("✨ 1 Free Entry");
+  await expect.poll(async () => (await chips()).map((c) => c.text)).toEqual(["✨ 1 Free Entry", "✨ 1 Free Entry"]);
 
   // Spent the last one: the chip must not keep promising an entry the user no
   // longer holds — the same failure the ✨ badge itself shipped with.
   await page.evaluate(() => window.updateNavTokens(0));
-  await page.waitForTimeout(250);
-  for (const chip of await chips()) expect(chip.display).toBe("none");
+  await expect.poll(async () => (await chips()).map((c) => c.display)).toEqual(["none", "none"]);
 });
 
 test("a level-up refreshes until the newly minted token appears", async ({ page }) => {

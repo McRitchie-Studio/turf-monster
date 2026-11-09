@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { login, reseed } = require("./helpers");
+const { login, reseed, motionSettled } = require("./helpers");
 
 // [e2e] THE SIGNED-IN NAVBAR WITH A LONG REAL NAME (/tasks/turf-navbar-polish).
 //
@@ -227,7 +227,8 @@ test("the hovers stay as they were: name, avatar and gear light as one group, ea
   await page.mouse.move(5, 400);
   await expect.poll(look).toEqual(rest);
   await page.locator(`${HEADER} [data-nav-tools] .nav-toggle-icon > button`).hover();
-  // Give a wrong rule time to apply, then hold the line.
-  await page.waitForTimeout(300);
+  // A wrong rule would apply on the hover's style recalc and transition in;
+  // motionSettled flushes that recalc and waits out any transition it started.
+  await motionSettled(page, HEADER);
   expect(await look(), "the theme toggle is not part of the account group").toEqual(rest);
 });

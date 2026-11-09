@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { loginViaPhantom } = require("./helpers");
+const { loginViaPhantom, sessionReadLanded } = require("./helpers");
 const { setupPhantomMock } = require("./phantom-mock");
 
 // THE SETTLE WINDOW, IN A REAL BROWSER (task: onchain-success-reloads-state).
@@ -39,6 +39,18 @@ async function stubSessionRefresh(page, counter) {
   });
 }
 
+// THE LAYOUT RAN AND DEFERRED. settleOnLoadIfPending() consumes the marker on
+// the way in and hands the pill to a settle, so "the marker is gone and a settle
+// is pending" is the app's own word that this load decided not to read. Waiting
+// on it replaces a fixed beat: a layout that never deferred leaves the marker in
+// place, and this wait goes red instead of sampling at a lucky instant.
+const deferredOnLoad = (page) =>
+  page.waitForFunction(
+    (key) => window.sessionStorage.getItem(key) === null &&
+      typeof window.settlePending === "function" && window.settlePending() === true,
+    SETTLE_KEY
+  );
+
 test.describe("on-chain settle window", () => {
   test.beforeEach(async ({ page }) => {
     await setupPhantomMock(page);
@@ -64,7 +76,7 @@ test.describe("on-chain settle window", () => {
     // DURING THE WINDOW — the assertion that matters. The page has loaded and
     // the layout ran, and it must NOT have read the chain, and must NOT be
     // showing a dollar figure. A String assertion cannot see either of these.
-    await page.waitForTimeout(1200);
+    await deferredOnLoad(page);
     const pill = page.locator(PILL).first();
     await expect(pill).toHaveClass(/hidden/);
     expect((await pill.textContent()).trim()).toBe("");
@@ -95,11 +107,12 @@ test.describe("on-chain settle window", () => {
       [SETTLE_KEY, Date.now() + 6000]
     );
     await page.reload();
-    await page.waitForTimeout(1000);
+    await deferredOnLoad(page);
 
     // Drive the competing read the poller would make, through the real module.
+    // page.evaluate awaits the returned promise, so this returns only after
+    // refreshSession() has answered and made its paint decision.
     await page.evaluate(() => window.refreshSession && window.refreshSession());
-    await page.waitForTimeout(600);
 
     const pill = page.locator(PILL).first();
     await expect(pill).toHaveClass(/hidden/);
@@ -149,7 +162,7 @@ test.describe("on-chain settle window", () => {
     const reads = { count: 0 };
     await stubSessionRefresh(page, reads);
     await page.evaluate((key) => window.sessionStorage.removeItem(key), SETTLE_KEY);
-    await page.waitForTimeout(1200);          // let the ordinary load-time hydrate finish
+    await sessionReadLanded(page);            // the ordinary load-time hydrate has landed
     const before = reads.count;
 
     await page.evaluate(() => { window.onchainSettled({ mayNavigate: true, delayMs: 4000 }); });
@@ -171,20 +184,21 @@ test.describe("on-chain settle window", () => {
       await page.evaluate((key) => window.sessionStorage.getItem(key), SETTLE_KEY)
     ).not.toBeNull();
 
-    await page.waitForTimeout(1500);
-    expect(reads.count).toBe(before);          // and no read inside the window
+    expect(reads.count).toBe(before);          // no read on the spend itself
 
     // AFTER — it settles IN PLACE, with no navigation anywhere in this test.
+    // The window's own end is the wait: the settle's read paints the pill, and
+    // a count of exactly one more proves no other read happened inside it.
     await expect(pill).not.toHaveClass(/hidden/, { timeout: 15000 });
     await expect(pill).toHaveText(/^\$1164$/, { timeout: 15000 });
-    expect(reads.count).toBe(before + 1);
+    expect(reads.count, "one read for the whole window, and it was the settle's").toBe(before + 1);
   });
 
   test("a mayNavigate settle survives a close-triggered navigation", async ({ page }) => {
     const reads = { count: 0 };
     await stubSessionRefresh(page, reads);
     await page.evaluate((key) => window.sessionStorage.removeItem(key), SETTLE_KEY);
-    await page.waitForTimeout(1200);
+    await sessionReadLanded(page);
 
     await page.evaluate(() => { window.onchainSettled({ mayNavigate: true, delayMs: 9000 }); });
 
@@ -198,7 +212,7 @@ test.describe("on-chain settle window", () => {
 
     // The destination INHERITS the remaining window: still loading, still no read.
     const pill = page.locator(PILL).first();
-    await page.waitForTimeout(1500);
+    await deferredOnLoad(page);
     await expect(pill).toHaveClass(/hidden/);
     expect((await pill.textContent()).trim()).toBe("");
     expect(reads.count).toBe(beforeNav);
@@ -225,7 +239,7 @@ test.describe("on-chain settle window", () => {
     const reads = { count: 0 };
     await stubSessionRefresh(page, reads);
     await page.evaluate((key) => window.sessionStorage.removeItem(key), SETTLE_KEY);
-    await page.waitForTimeout(1200);
+    await sessionReadLanded(page);
     const before = reads.count;
 
     // Spend #1, inherited. Its marker is consumed here, so this settle owns none.
@@ -257,7 +271,7 @@ test.describe("on-chain settle window", () => {
     const beforeNav = reads.count;
     await page.reload();
     const pill = page.locator(PILL).first();
-    await page.waitForTimeout(1500);
+    await deferredOnLoad(page);
     await expect(pill).toHaveClass(/hidden/);
     expect(reads.count).toBe(beforeNav);
   });

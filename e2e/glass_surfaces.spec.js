@@ -1,5 +1,5 @@
 const { test, expect, devices } = require("@playwright/test");
-const { loginAdmin, reseed } = require("./helpers");
+const { loginAdmin, reseed, motionSettled } = require("./helpers");
 
 // [e2e] Turf on the engine's glass surfaces (/tasks/turf-adopts-glass-style).
 //
@@ -133,7 +133,7 @@ for (const [label, viewport] of [["desktop", { width: 1280, height: 900 }], ["ph
       const heading = page.getByText("Connect Wallet", { exact: true }).locator("visible=true").first();
       await expect(heading).toBeVisible();
       await expect(page.getByText("Phantom", { exact: true }).locator("visible=true").first()).toBeVisible();
-      await page.waitForTimeout(500); // the mount spring settles
+      await motionSettled(page); // the mount spring has run out
 
       const modal = heading.locator("xpath=ancestor::*[contains(@class, 'rounded')][1]");
       const fill = await modal.evaluate((el) => {
@@ -160,7 +160,19 @@ for (const [label, viewport] of [["desktop", { width: 1280, height: 900 }], ["ph
       }
       // The hold button only exists with a full cart. It is looked at, never held.
       await expect(page.locator(".hold-btn:visible").first()).toBeVisible();
-      await page.waitForTimeout(500);
+      // THE BUTTON WIGGLES ON ITS OWN CLOCK. studio-engine's hold_button.js
+      // NudgeCycle starts at page load (the button sits inside x-show, so its
+      // controller connects while hidden), adds .nudge 3s in and .nudge-soft every
+      // 10s after, and each one scales the button for 500ms. Its first nudge can
+      // fire while the button is hidden and leave the class behind, so no class
+      // or timing read can say where the next one falls. The wiggle is not glass
+      // and not layout, so it is pinned still for the reads: with the button's
+      // animations off, a nudge at any moment moves no box.
+      await page.addStyleTag({ content: ".hold-btn, .hold-btn * { animation: none !important; }" });
+      // Pointer off every control (a real move updates hover at once), then let
+      // anything that started moving finish.
+      await page.mouse.move(1, 1);
+      await motionSettled(page);
       await expectGlassMovesNothing(page, "body");
     });
   });

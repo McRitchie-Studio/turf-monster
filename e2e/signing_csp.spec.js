@@ -68,10 +68,29 @@ async function enforce(request, enforced) {
 const navigationUrl = (page) => page.evaluate(() => new URL(performance.getEntriesByType("navigation")[0].name).pathname);
 const injected = (page) => page.evaluate(() => window.__injected);
 // Turbo runs a frame's or stream's scripts just after it renders, so a probe
-// gets this long to run: the controls poll for it, the refusals wait it out.
+// gets this long to run: the controls poll for it.
 const RUN_WINDOW = 1500;
 const ranWithin = (page, value) => expect.poll(() => injected(page), { timeout: RUN_WINDOW }).toBe(value);
-async function neverRan(page) {
+// A REFUSAL HAS ITS OWN EVENT. When the policy blocks a probe, the browser fires
+// securitypolicyviolation for it (watchViolations records them; the policy sends
+// 'report-sample', so the sample names the probe). So the refusals wait for the
+// browser to say it refused each probe, then confirm none of them ran, instead
+// of waiting out a window and reading silence as a refusal.
+async function neverRan(page, probes = 1) {
+  await expect
+    .poll(
+      () => page.evaluate(() => (window.__cspViolations || [])
+        .filter((v) => v.disposition === "enforce" && /__injected/.test(v.sample || "")).length),
+      { message: `the policy refused ${probes} probe(s)` }
+    )
+    .toBeGreaterThanOrEqual(probes);
+  expect(await injected(page)).toBeUndefined();
+}
+// A frame's or a stream's probe is stopped before the browser ever sees a script
+// element (measured: no securitypolicyviolation fires for either), so there is
+// no refusal event to wait on. This one keeps the window the controls prove is
+// long enough for Turbo to run such a script, and reads silence after it.
+async function neverRanInWindow(page) {
   await page.waitForTimeout(RUN_WINDOW);
   expect(await injected(page)).toBeUndefined();
 }
@@ -158,6 +177,7 @@ test.describe("report-only", () => {
 test.describe("enforced", () => {
   test("a script injected through a Drive visit does not run on a signing page", async ({ page, request }) => {
     await enforce(request, true);
+    await watchViolations(page);
     await injectInto(page, CONTEST);
     await page.goto(LAX);
     await page.locator(`a[href="${CONTEST}"]`).first().click();
@@ -172,7 +192,7 @@ test.describe("enforced", () => {
     await page.goto(CONTEST);
     await injectThroughFrame(page);
     await injectThroughStream(page);
-    await neverRan(page);
+    await neverRanInWindow(page);
   });
 
   // THE CONTROLS. The same probes, where nothing refuses them.
@@ -196,6 +216,7 @@ test.describe("enforced", () => {
 test.describe("live board", () => {
   test("enforced: a script injected into the live board does not run, and its own scripts do", async ({ page, request }) => {
     await enforce(request, true);
+    await watchViolations(page);
     await injectInto(page, LIVE);
     await page.goto(LIVE);
     await page.waitForLoadState("load");

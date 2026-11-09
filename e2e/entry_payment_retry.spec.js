@@ -34,12 +34,20 @@ async function board(page) {
 // what it believes survives from earlier specs in the lane. So the session is
 // told, the way e2e/free_entry_spend_mirror.spec.js tells it, that one free
 // entry is held; without this the hold opens the funding panel instead.
-async function holdOneToken(page) {
-  await page.waitForFunction(() => typeof window.refreshSession === "function");
-  await page.waitForTimeout(1500);
+//
+// TWO HALVES, AND THE ORDER IS THE POINT. The answer is installed BEFORE the
+// board loads (answerOneToken), so every session read the board ever makes,
+// its load-time hydrate included, gets it. Installed after the load, a hydrate
+// already in flight answers from the server and stamps the count back to 0
+// after the poll below is satisfied; a sleep only made that rarer.
+async function answerOneToken(page) {
   await page.route("**/account/session_refresh", (route) =>
     route.fulfill(json(200, { usdc: "0.0", usdt: "0.0", tokens: "1" }))
   );
+}
+
+async function holdOneToken(page) {
+  await page.waitForFunction(() => typeof window.refreshSession === "function");
   await expect
     .poll(
       async () => {
@@ -49,9 +57,6 @@ async function holdOneToken(page) {
       { timeout: 20000, intervals: [1000, 1000, 1000, 1500, 1500, 2000, 2000, 2000] }
     )
     .toBe(1);
-  await page.waitForTimeout(1500);
-  await page.evaluate(() => window.refreshSession().catch(() => null));
-  await expect.poll(() => page.evaluate(() => Alpine.store("session").tokensAvailable)).toBe(1);
 }
 
 // The on-chain card's live state, read from the modal host.
@@ -70,6 +75,7 @@ test("hold, pending, not charged, hold again: one entry, and every step says wha
     const res = await page.request.post(path, { form });
     if (!res.ok()) throw new Error(`${path} failed: ${res.status()}`);
   }
+  await answerOneToken(page);
   await page.goto(CONTEST_PATH);
   await holdOneToken(page);
 
@@ -107,7 +113,10 @@ test("hold, pending, not charged, hold again: one entry, and every step says wha
   expect(await b.evaluate((c) => c.submitting)).toBe(false);
 
   // 3. The poll has stopped: a card that ended asks the server nothing more.
-  await page.waitForTimeout(3500);
+  // Read from the board itself: pollEntryPayment() clears _paymentPoll in its
+  // finally, only once its loop has returned, so null means no next tick is
+  // scheduled — not merely that none has come yet.
+  await expect.poll(() => b.evaluate((c) => c._paymentPoll), { message: "the poll loop has returned" }).toBeNull();
   expect(polls).toBe(2);
 
   // 4. Hold again: confirmed, from exactly one more request.
@@ -231,6 +240,7 @@ test("a /enter answer that is not JSON (the router's cut) says still confirming,
     const res = await page.request.post(path, { form });
     if (!res.ok()) throw new Error(`${path} failed: ${res.status()}`);
   }
+  await answerOneToken(page);
   await page.goto(CONTEST_PATH);
   await holdOneToken(page);
   await page.route("**/contests/*/check_funding", (route) => route.fulfill(json(200, { fundable: true, reason: null, method: "token" })));

@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { loginAdmin, reseed } = require("./helpers");
+const { loginAdmin, reseed, watchTurboFetches } = require("./helpers");
 
 // [e2e] The confirm dialog in front of an irreversible burn.
 //
@@ -65,6 +65,7 @@ test.describe("Admin free-entry burn confirmation", () => {
   test("declining the confirm sends no burn @smoke", async ({ page, request }) => {
     await openWarmedBoard(page, request);
     const posts = await interceptBurns(page);
+    const burnFetches = await watchTurboFetches(page, /\/burn/);
 
     let asked = null;
     page.on("dialog", async (d) => {
@@ -73,12 +74,14 @@ test.describe("Admin free-entry burn confirmation", () => {
     });
 
     await page.getByRole("button", { name: "Burn 1" }).first().click();
-    await page.waitForTimeout(1000);
 
     // The dialog must have actually appeared. A `turbo_confirm` that never
     // wires up produces no dialog AND no failure — the click just burns.
-    expect(asked, "clicking Burn must raise a confirm dialog").not.toBeNull();
+    await expect.poll(() => asked, { message: "clicking Burn must raise a confirm dialog" }).not.toBeNull();
     expect(asked).toMatch(/cannot be undone/i);
+    // Turbo decides right after confirm() returns, so this page read is ordered
+    // after the decision: a submit that went ahead has already been counted.
+    expect(await burnFetches(), "dismissing the confirm must cancel the request").toBe(0);
     expect(posts, "dismissing the confirm must cancel the request").toHaveLength(0);
   });
 
@@ -86,13 +89,21 @@ test.describe("Admin free-entry burn confirmation", () => {
     await openWarmedBoard(page, request);
     const posts = await interceptBurns(page);
 
+    const burnFetches = await watchTurboFetches(page, /\/burn/);
+
     page.on("dialog", async (d) => await d.accept());
 
+    // The burn is answered with a redirect back to the board, and Turbo follows
+    // it. That GET is the end of this click: a second submit from the same click
+    // would have left before it.
+    const backOnBoard = page.waitForResponse((r) =>
+      r.request().method() === "GET" && new URL(r.url()).pathname === "/admin/free_entries");
     await page.getByRole("button", { name: "Burn 1" }).first().click();
-    await page.waitForTimeout(1000);
+    await backOnBoard;
 
     // The control is wired: one click, one burn, and the count it carries is the
     // one the operator agreed to.
+    expect(await burnFetches(), "one click, one submit").toBe(1);
     expect(posts).toHaveLength(1);
     expect(posts[0]).toMatch(/count=1/);
   });
@@ -100,6 +111,7 @@ test.describe("Admin free-entry burn confirmation", () => {
   test("Burn all names the number it will destroy", async ({ page, request }) => {
     await openWarmedBoard(page, request, { minted: 3, unconsumed: 3 });
     const posts = await interceptBurns(page);
+    const burnFetches = await watchTurboFetches(page, /\/burn/);
 
     let asked = null;
     page.on("dialog", async (d) => {
@@ -108,13 +120,13 @@ test.describe("Admin free-entry burn confirmation", () => {
     });
 
     await page.getByRole("button", { name: /Burn all 3/ }).first().click();
-    await page.waitForTimeout(1000);
 
     // An operator's only chance to catch a wrong row is the number in this
     // sentence. "Burn all unspent entries?" would read identically whether it
     // was about to destroy one token or forty.
-    expect(asked, "Burn all must raise a confirm dialog").not.toBeNull();
+    await expect.poll(() => asked, { message: "Burn all must raise a confirm dialog" }).not.toBeNull();
     expect(asked).toMatch(/ALL 3/);
+    expect(await burnFetches(), "dismissing the confirm must cancel the request").toBe(0);
     expect(posts).toHaveLength(0);
   });
 

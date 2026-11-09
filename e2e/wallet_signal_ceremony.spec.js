@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { loginAdmin, reseed } = require("./helpers");
+const { loginAdmin, reseed, nextFrames } = require("./helpers");
 
 // [e2e] THE WALLET SIGNAL ON A COSIGN CEREMONY PAGE, in a real browser.
 //
@@ -86,9 +86,10 @@ test.describe("Wallet signal on a cosign ceremony page", () => {
       el.textContent = JSON.stringify(payload);
     }, SESSION_WALLET);
 
+    // Each move is followed by an auto-waiting assertion on the panel, and every
+    // step below moves the state, so that assertion is the wait.
     const settle = async (address) => {
       await page.evaluate((a) => window.__setWallet(a), address);
-      await page.waitForTimeout(150);
     };
 
     // 1. The browser is holding the wallet this session signed in with.
@@ -131,7 +132,9 @@ test.describe("Wallet signal on a cosign ceremony page", () => {
     await settle(DECLARED_WALLET);
     await expect(panel).toHaveAttribute("data-wallet-signal-state", "expected");
     await page.evaluate(() => window.Alpine.store("wallet").clearExpectedSwitches());
-    await page.waitForTimeout(150);
+    // The store change repaints through Alpine's effect queue, a microtask, so
+    // two rendered frames later a false alarm would already be on the panel.
+    await nextFrames(page);
     await expect(panel).toHaveAttribute("data-wallet-signal-state", "expected");
     await expect(page.locator("[data-wallet-signal-ended-note]")).toBeVisible();
     await expect(page.locator("[data-wallet-signal-changed-note]")).toBeHidden();

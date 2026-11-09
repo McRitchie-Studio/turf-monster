@@ -32,12 +32,14 @@ const { setupPhantomMock, MOCK_PUBKEY_B58 } = require("./phantom-mock");
 const CONTEST_PATH = "/contests/world-cup-2026";
 
 // Drive the count UP through the app's own hydrate path. Never an assignment.
-async function hydrateTokens(page, tokens) {
-  // Let the layout's own hydrateNavbar hydrate finish first. refreshSession()
-  // is lock-deduped (lockedFetch('session')) and aborts/serialises against an
-  // in-flight twin, so calling into a live one hands back a rejected fetch.
-  await page.waitForTimeout(1500);
-
+//
+// TWO HALVES, AND THE ORDER IS THE POINT. answerTokens() installs the answer
+// BEFORE the contest loads, so every session read the page makes, the layout's
+// load-time hydrate included, gets it. Installed after the load, a hydrate
+// already in flight answers from the server and stamps the store back to 0
+// after the poll below is satisfied; the sleeps that used to sit on either side
+// of the poll only made that rarer.
+async function answerTokens(page, tokens) {
   await page.route("**/account/session_refresh", (route) =>
     route.fulfill({
       status: 200,
@@ -45,7 +47,12 @@ async function hydrateTokens(page, tokens) {
       body: JSON.stringify({ usdc: "0.0", usdt: "0.0", tokens: String(tokens) }),
     })
   );
+}
 
+// refreshSession() is lock-deduped (lockedFetch('session')): a call made while
+// another read is in flight answers null, so the poll drives it until the store
+// holds the answer.
+async function hydrateTokens(page, tokens) {
   await expect
     .poll(
       async () => {
@@ -55,13 +62,6 @@ async function hydrateTokens(page, tokens) {
       { timeout: 20000, intervals: [1000, 1000, 1000, 1500, 1500, 2000, 2000, 2000] }
     )
     .toBe(tokens);
-
-  // A hydrate that was already in flight when the route was installed resolves
-  // from the REAL (unstubbed) response and lands AFTER the poll is satisfied,
-  // stamping the store back to 0. Settle, then re-drive, so the arrange holds.
-  await page.waitForTimeout(1500);
-  await page.evaluate(() => window.refreshSession().catch(() => null));
-  await expect.poll(() => page.evaluate(() => Alpine.store("session").tokensAvailable)).toBe(tokens);
 }
 
 async function idleLabels(page) {
@@ -127,6 +127,7 @@ test("the /enter success branch spends the token, and the CTA stops promising a 
   await setupPhantomMock(page);
   await loginViaPhantom(page);
   await nameTheUser(page);
+  await answerTokens(page, 1);
   await page.goto(CONTEST_PATH);
   await page.waitForFunction(() => typeof window.refreshSession === "function");
 
@@ -176,6 +177,7 @@ test("a rejected Phantom token signature retries in place, then spends the token
   await setupPhantomMock(page);
   await loginViaPhantom(page);
   await nameTheUser(page);
+  await answerTokens(page, 1);
   await page.goto(CONTEST_PATH);
   await page.waitForFunction(() => typeof window.refreshSession === "function");
   await page.evaluate((pk) => { window.__E2E_PHANTOM_PUBKEY__ = pk; }, MOCK_PUBKEY_B58);

@@ -72,7 +72,7 @@ async function declareSession(page, { brand, address }) {
     },
     { b: brand, a: address }
   );
-  await page.waitForTimeout(200);
+  // No sleep: the caller waits on what the rescan must produce.
 }
 
 const boundProvider = (page) =>
@@ -157,6 +157,10 @@ test("the signal binds the wallet the session named, not whatever is injected @s
   // Now the session names the brand, exactly as a Solflare sign-in does.
   await declareSession(page, { brand: "solflare", address: SOLFLARE_WALLET });
 
+  // The rescan the event asks for re-resolves the provider and reads it.
+  // Polled as a whole, so a fall-through (null address) still reads red.
+  await expect.poll(() => boundProvider(page), { message: "the rescan bound and read the named brand" })
+    .toEqual({ providerName: "Solflare", status: "connected", address: SOLFLARE_WALLET });
   const bound = await boundProvider(page);
   expect(bound.providerName).toBe("Solflare");
   expect(bound.status).toBe("connected");
@@ -168,7 +172,6 @@ test("the signal binds the wallet the session named, not whatever is injected @s
   // AND THE BINDING CARRIES A LIVE CHANNEL. A switch the SOLFLARE wallet announces
   // — not the injected one, which does not exist here — moves the panel.
   await page.evaluate((next) => window.__moveSolflare(next), STRANGER_WALLET);
-  await page.waitForTimeout(200);
   await expect(panel).toHaveAttribute("data-wallet-signal-state", "changed");
   await expect(page.locator("[data-wallet-signal-changed-note]")).toBeVisible();
   expect((await boundProvider(page)).address).toBe(STRANGER_WALLET);
@@ -256,7 +259,6 @@ test("a provider that cannot report a switch is refused, so no wallet moves unde
 
   // THE MEASUREMENT. The wallet the browser actually holds moves to a stranger.
   await page.evaluate((address) => window.__setWallet(address), STRANGER_WALLET);
-  await page.waitForTimeout(200);
 
   // The precondition, asserted rather than assumed: the deaf provider would have
   // gone on reporting the session wallet, so a page bound to it paints calm.
