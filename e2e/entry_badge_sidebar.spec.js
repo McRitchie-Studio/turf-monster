@@ -95,10 +95,18 @@ test("the badge casts a dark contact shadow onto the avatar", async ({ page }) =
   const sample = async () => (await page.screenshot({ clip })).toString("base64");
 
   // PROBE STABILITY. If the strip moves on its own, "differs" means nothing.
-  const before = await sample();
-  await page.waitForTimeout(600);
-  expect(await sample(), "the probe strip must be still before it is used to judge a change")
-    .toBe(before);
+  // Wait for the strip to BE still: two reads 600ms apart that agree. CI showed
+  // a 1-unit drift at the disc's edge settling after the waits above, from
+  // nothing they can name, so the condition is the stillness itself. A strip
+  // that never stops moving stays red at the deadline.
+  let before = await sample();
+  for (const deadline = Date.now() + 15_000; ;) {
+    await page.waitForTimeout(600);
+    const again = await sample();
+    if (again === before) break;
+    expect(Date.now(), "the probe strip must be still before it is used to judge a change").toBeLessThan(deadline);
+    before = again;
+  }
 
   // Neutralise ONLY the knob — the treatment keeps its rim, bloom and gradient,
   // so anything that changes here is the contact shadow and nothing else.
