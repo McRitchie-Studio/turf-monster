@@ -67,6 +67,10 @@ const logged = (page) => page.evaluate(() => JSON.parse(sessionStorage.getItem("
 const frames = async (page) => (await logged(page)).filter((line) => !line.reveal);
 const reveals = async (page) => (await logged(page)).filter((line) => line.reveal);
 const clearFrames = (page) => page.evaluate(() => sessionStorage.removeItem("nav-frames"));
+// The recorder logs on its next animation frame, so the pill can show a figure a
+// frame before the log holds it. Wait for the recorder's own line, then read.
+const recorderLogged = (page, amount) =>
+  expect.poll(async () => (await frames(page)).at(-1)?.amount, { message: `the recorder logged ${amount}` }).toBe(amount);
 
 function answerRefresh(page, read) {
   return page.route("**/account/session_refresh", (route) => read(route));
@@ -192,6 +196,7 @@ test.describe("with motion on", () => {
     await clearFrames(page);
     await page.goBack();
     await expect(pill(page)).toHaveText("$333");
+    await recorderLogged(page, "$333");
     const amounts = (await frames(page)).map((f) => f.amount);
     expect(amounts, JSON.stringify(amounts)).not.toContain("$111");
     expect(amounts).not.toContain("");
@@ -280,6 +285,7 @@ test.describe("with motion on", () => {
     usdc = "2048.00";
     await clickLink(page, HELP);
     await expect(pill(page)).toHaveText("$2048");
+    await recorderLogged(page, "$2048"); // CI caught a read one frame ahead of the log
     const lines = await frames(page);
     expect(lines.every((f) => f.shown && f.amount !== ""), JSON.stringify(lines)).toBe(true);
     // The recorder logs a change, so a frame that still says the old figure logs nothing here.
@@ -319,6 +325,7 @@ test.describe("with motion on", () => {
     await signIn(page, `nav-figures-${Date.now()}@example.test`);
     await page.goto(LOBBY);
     await expect(pill(page)).toHaveText("$7");
+    await recorderLogged(page, "$7");
     const lines = await frames(page);
     expect(lines.map((f) => f.amount), JSON.stringify(lines)).not.toContain("$1024");
   });
@@ -346,6 +353,7 @@ test.describe("with motion on", () => {
     await login(page, "mason@mcritchie.studio");
     await page.goto(LOBBY);
     await expect(pill(page)).toHaveText("$7");
+    await recorderLogged(page, "$7");
     const lines = (await frames(page)).filter((f) => f.user === mason);
     expect(lines.length).toBeGreaterThan(0);
     expect(lines.map((f) => f.amount), JSON.stringify(lines)).not.toContain("$1024");
@@ -383,6 +391,7 @@ test.describe("with motion on", () => {
     await out.click();
     await page.waitForFunction((id) => document.body && document.body.dataset.userId === id, admin);
     await expect(pill(page)).toHaveText("$1024");
+    await recorderLogged(page, "$1024");
     const back = (await frames(page)).filter((f) => f.user === admin);
     expect(back.map((f) => f.amount), JSON.stringify(back)).not.toContain("$7");
   });

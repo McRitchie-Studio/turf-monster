@@ -311,7 +311,7 @@ test("a level-up glow replayed inside the window still plays its full length", a
     }),
   });
 
-  const resting = await sample();
+  let resting = await sample();
   expect(resting.glow, "the badge must start with no glow running").toBe(null);
 
   // PROBE STABILITY. If the strip changes on its own while nothing is glowing,
@@ -320,10 +320,20 @@ test("a level-up glow replayed inside the window still plays its full length", a
   // earlier cut of this spec sampled before the page had settled, the username
   // reflowed inside the strip, and the paint witness went blind while still
   // reporting success. Fail HERE, loudly, rather than there, silently.
-  await page.waitForTimeout(1000);
-  const restingAgain = await sample();
-  expect(restingAgain.shot,
-    "the probe strip must be STABLE at rest, or it cannot witness the glow").toBe(resting.shot);
+  //
+  // The condition is the stillness itself: two reads 1s apart that agree. CI
+  // showed the whole strip drift by one colour unit for a while after load (the
+  // glass behind it settling), which no named event marks, so the spec waits
+  // for the strip to stop rather than looking once. A strip that never stops
+  // stays red at the deadline.
+  for (const deadline = Date.now() + 15_000; ;) {
+    await page.waitForTimeout(1000);
+    const restingAgain = await sample();
+    if (restingAgain.shot === resting.shot) break;
+    expect(Date.now(), "the probe strip must be STABLE at rest, or it cannot witness the glow").toBeLessThan(deadline);
+    resting = restingAgain;
+  }
+  expect(resting.glow, "the badge must still have no glow running").toBe(null);
 
   const t0 = Date.now();
   await page.evaluate(() => window.glowFreeEntryBadge());
@@ -438,12 +448,19 @@ test("a zero-token user's ✨ badge paints nothing at all", async ({ page }) => 
 
   // THE ZERO-TOKEN STATE, driven by the call that exists to produce it.
   await page.evaluate(() => window.updateNavTokens(0));
-  const hidden = await shoot();
-  await page.waitForTimeout(700);
-  const hiddenAgain = await shoot();
-  expect(hiddenAgain,
-    "the badge's slot must be AT REST once hidden — a clip that keeps changing " +
-    "is a disc still panning its gradient, i.e. still being painted").toBe(hidden);
+  // AT REST is a condition, not a single look: two shots 700ms apart that
+  // agree. A disc still panning its gradient never agrees and stays red at the
+  // deadline; the glass behind the slot settling after load (seen on CI) does.
+  let hidden = await shoot();
+  for (const deadline = Date.now() + 15_000; ;) {
+    await page.waitForTimeout(700);
+    const hiddenAgain = await shoot();
+    if (hiddenAgain === hidden) break;
+    expect(Date.now(),
+      "the badge's slot must be AT REST once hidden — a clip that keeps changing " +
+      "is a disc still panning its gradient, i.e. still being painted").toBeLessThan(deadline);
+    hidden = hiddenAgain;
+  }
 
   // THE REFERENCE: the same slot with no badge in the document at all.
   await page.evaluate(() => document.querySelector("[data-free-entry-badge]").remove());
