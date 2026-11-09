@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { login, allowMotion, OVERFLOWING_NAME_EMAIL, FITTING_NAME_EMAIL, sessionReadLanded, motionSettled } = require("./helpers");
+const { login, allowMotion, OVERFLOWING_NAME_EMAIL, FITTING_NAME_EMAIL, sessionReadLanded, motionSettled, nextFrames, toastBlurClear, maxPixelDelta } = require("./helpers");
 
 const VIEWPORTS = [
   { width: 1366, height: 800 },
@@ -311,7 +311,12 @@ test("a level-up glow replayed inside the window still plays its full length", a
     }),
   });
 
-  let resting = await sample();
+  // CI showed the whole strip drift by 1 to 4 colour units for about 500ms
+  // after load. That was the engine's toast page-blur fading out over the
+  // navbar once Alpine bound it (toastBlurClear in helpers.js names it from the
+  // CI trace). Wait for the fade to end before the strip is sampled.
+  await toastBlurClear(page);
+  const resting = await sample();
   expect(resting.glow, "the badge must start with no glow running").toBe(null);
 
   // PROBE STABILITY. If the strip changes on its own while nothing is glowing,
@@ -321,18 +326,10 @@ test("a level-up glow replayed inside the window still plays its full length", a
   // reflowed inside the strip, and the paint witness went blind while still
   // reporting success. Fail HERE, loudly, rather than there, silently.
   //
-  // The condition is the stillness itself: two reads 1s apart that agree. CI
-  // showed the whole strip drift by one colour unit for a while after load (the
-  // glass behind it settling), which no named event marks, so the spec waits
-  // for the strip to stop rather than looking once. A strip that never stops
-  // stays red at the deadline.
-  for (const deadline = Date.now() + 15_000; ;) {
-    await page.waitForTimeout(1000);
-    const restingAgain = await sample();
-    if (restingAgain.shot === resting.shot) break;
-    expect(Date.now(), "the probe strip must be STABLE at rest, or it cannot witness the glow").toBeLessThan(deadline);
-    resting = restingAgain;
-  }
+  // With that fade over, the strip must hold across two rendered frames. The
+  // [control] after this spec proves this strip can see that fade.
+  await nextFrames(page);
+  expect((await sample()).shot, "the probe strip must be STABLE at rest, or it cannot witness the glow").toBe(resting.shot);
   expect(resting.glow, "the badge must still have no glow running").toBe(null);
 
   const t0 = Date.now();
@@ -370,6 +367,56 @@ test("a level-up glow replayed inside the window still plays its full length", a
   const settled = await sample();
   expect(settled.glow, `the glow must have ended by t+${Date.now() - t0}ms`).toBe(null);
   expect(settled.shot, `the badge must be back at rest by t+${Date.now() - t0}ms`).toBe(resting.shot);
+});
+
+// [control] THE STRIP DRIFT HAS A NAME: THE TOAST PAGE-BLUR FADE.
+//
+// The two strip specs above and in entry_badge_sidebar.spec.js once looped
+// "sample, sleep, sample" until the strip stopped moving, because CI showed it
+// drift by 1 to 4 colour units after load and nothing named the cause. The CI
+// trace did: the engine's .toast-page-blur, which paints at opacity 1 until
+// Alpine binds it and then fades out over 0.5s, across the navbar. Those specs
+// now wait on toastBlurClear instead. This control replays the fade on a quiet
+// page and proves both halves: the strip SEES it (so it was a real cause, not a
+// guess), and toastBlurClear waits it out (so the specs above sample a still
+// strip). With toastBlurClear a no-op, the second expect goes red.
+test("[control] the glow strip sees the toast page-blur fade, and toastBlurClear waits it out", async ({ page }) => {
+  await page.setViewportSize({ width: 1366, height: 800 });
+  await login(page, "alex@mcritchie.studio", "password");
+  await page.goto("/contests");
+  await sessionReadLanded(page);
+  await page.evaluate(() => window.updateNavTokens(1));
+  await expect(page.locator("[data-free-entry-badge]").first()).toBeVisible();
+  await motionSettled(page, "header");
+  await toastBlurClear(page);
+
+  const box = await page.evaluate(() => {
+    const r = document.querySelector("[data-free-entry-badge]").getBoundingClientRect();
+    return { x: r.x, y: r.y, w: r.width, h: r.height };
+  });
+  // The glow spec's strip, to the pixel.
+  const clip = { x: Math.max(0, Math.round(box.x - 17)), y: Math.max(0, Math.round(box.y - 6)), width: 14, height: Math.round(box.h + 12) };
+  const shot = async () => (await page.screenshot({ clip })).toString("base64");
+  const rest = await shot();
+
+  // Replay what a slow runner does on load: the overlay painted at 1, then
+  // Alpine's bind sets 0 and the 0.5s fade starts.
+  // The 1 goes in with no transition, as the server HTML's first paint does.
+  await page.evaluate(() => {
+    const blur = document.querySelector(".toast-page-blur");
+    blur.style.transition = "none";
+    blur.style.opacity = "1";
+    getComputedStyle(blur).opacity;
+    blur.style.transition = "";
+    getComputedStyle(blur).opacity;
+    blur.style.opacity = "0";
+  });
+  const fading = await shot();
+  expect(maxPixelDelta(rest, fading), "the strip must SEE the page-blur fade, or the fade was never the drift")
+    .toBeGreaterThan(0);
+
+  await toastBlurClear(page);
+  expect(await shot(), "after toastBlurClear the strip must be back at rest").toBe(rest);
 });
 
 // A ZERO-TOKEN USER MUST NOT SEE THE ✨ BADGE — MEASURED AS PAINT.
@@ -444,23 +491,21 @@ test("a zero-token user's ✨ badge paints nothing at all", async ({ page }) => 
   };
   const shoot = async () => (await page.screenshot({ clip })).toString("base64");
 
+  // The slot is sampled three times below; the toast page-blur fade must be
+  // over for all of them (toastBlurClear in helpers.js).
+  await toastBlurClear(page);
   const painted = await shoot();
 
   // THE ZERO-TOKEN STATE, driven by the call that exists to produce it.
   await page.evaluate(() => window.updateNavTokens(0));
-  // AT REST is a condition, not a single look: two shots 700ms apart that
-  // agree. A disc still panning its gradient never agrees and stays red at the
-  // deadline; the glass behind the slot settling after load (seen on CI) does.
-  let hidden = await shoot();
-  for (const deadline = Date.now() + 15_000; ;) {
-    await page.waitForTimeout(700);
-    const hiddenAgain = await shoot();
-    if (hiddenAgain === hidden) break;
-    expect(Date.now(),
-      "the badge's slot must be AT REST once hidden — a clip that keeps changing " +
-      "is a disc still panning its gradient, i.e. still being painted").toBeLessThan(deadline);
-    hidden = hiddenAgain;
-  }
+  // AT REST. The slot drifted on CI after load: the toast page-blur fade,
+  // waited out above. Now the slot must hold across two rendered frames. A disc
+  // still panning its gradient changes every frame and stays red here.
+  const hidden = await shoot();
+  await nextFrames(page);
+  expect(await shoot(),
+    "the badge's slot must be AT REST once hidden — a clip that keeps changing " +
+    "is a disc still panning its gradient, i.e. still being painted").toBe(hidden);
 
   // THE REFERENCE: the same slot with no badge in the document at all.
   await page.evaluate(() => document.querySelector("[data-free-entry-badge]").remove());

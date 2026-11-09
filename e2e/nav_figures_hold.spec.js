@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { login, grantManagedWallet, reseed, loginAdmin } = require("./helpers");
+const { login, grantManagedWallet, reseed, loginAdmin, nextFrames } = require("./helpers");
 
 // [e2e] The navbar's figures hold across a page change (/tasks/turf-adopts-page-transitions).
 // Alex McRitchie: "the balance hides and flashes back. I'm cool with a fresh load but no need to
@@ -68,6 +68,24 @@ async function recordFrames(page) {
       requestAnimationFrame(read);
     };
     requestAnimationFrame(read);
+
+    // THE READ COUNT. Every session read this tab finishes, painted or failed, counted in
+    // sessionStorage so a full load keeps it. refreshSession() paints in the promise chain
+    // after r.json(), so the count rises in a task queued once that json settles: by then
+    // every microtask of the chain, the paint included, has run.
+    const realFetch = window.fetch;
+    window.fetch = function (input, init) {
+      const call = realFetch.call(this, input, init);
+      if (!String(input && input.url ? input.url : input).includes("/account/session_refresh")) return call;
+      const count = () => setTimeout(() => {
+        sessionStorage.setItem("nav-reads", String(Number(sessionStorage.getItem("nav-reads") || 0) + 1));
+      }, 0);
+      call.then((response) => {
+        const json = response.json.bind(response);
+        response.json = () => { const body = json(); body.then(count, count); return body; };
+      }, count);
+      return call;
+    };
   });
 }
 
@@ -118,7 +136,13 @@ async function firstFigure(page, text) {
   await page.waitForFunction(() => !document.getAnimations().some((a) => (a.effect?.pseudoElement || "").startsWith("::view-transition")));
 }
 
+// The session reads this tab has finished (the recorder counts them). Read it BEFORE a move:
+// the number is what settled() waits to see exceeded.
+const readsDone = (page) => page.evaluate(() => Number(sessionStorage.getItem("nav-reads") || 0));
+
+// Returns the read count from before the click, for settled().
 async function clickLink(page, href) {
+  const reads = await readsDone(page);
   await page.evaluate(() => { window.__documentMark = true; });
   await page.evaluate((target) => {
     const link = document.createElement("a");
@@ -130,16 +154,26 @@ async function clickLink(page, href) {
   }, href);
   await page.locator('[data-test="nav-go"]').click();
   await page.waitForURL((u) => u.pathname === href);
+  return reads;
 }
 
-// Past the move and past the fresh read.
-async function settled(page, { fullLoad = false } = {}) {
+// Past the move and past the fresh read. `before` is the read count taken before the move
+// (clickLink returns it). Every load fires one read (the layout's hydrateNavbar), so the move
+// is settled when a read past `before` has finished and painted, or failed.
+//
+// [regression] The wait used to be armed AFTER the click: a page.waitForResponse set up once
+// the URL had changed, raced against a 3s timer. A read that answered before it was armed (a
+// stubbed route answers at once) was missed, and an aborted read has no response at all, so
+// either case sat out the full 3s and then measured on a guess. A 250ms tail followed for the
+// recorder. The count is armed before the click and the tail is two rendered frames.
+async function settled(page, before, { fullLoad = false } = {}) {
   if (fullLoad) await page.waitForFunction(() => !window.__documentMark);
-  const refreshed = page.waitForResponse("**/account/session_refresh").catch(() => null);
-  await Promise.race([refreshed, page.waitForTimeout(3000)]);
+  await page.waitForFunction((n) => Number(sessionStorage.getItem("nav-reads") || 0) > n, before);
   await page.waitForFunction(() => document.documentElement.dataset.pageTransition === undefined
     && !document.getAnimations().some((a) => (a.effect?.pseudoElement || "").startsWith("::view-transition")));
-  await page.waitForTimeout(250);
+  // The recorder logs on its own animation frame, registered before ours: two frames on, it
+  // has read the settled navbar.
+  await nextFrames(page);
 }
 
 function expectHeld(lines, amount) {
@@ -159,12 +193,9 @@ function expectHeld(lines, amount) {
 
 async function walk(page) {
   await clearFrames(page);
-  await clickLink(page, HELP);
-  await settled(page);
-  await clickLink(page, CONTEST);
-  await settled(page, { fullLoad: true });
-  await clickLink(page, LOBBY);
-  await settled(page, { fullLoad: true });
+  await settled(page, await clickLink(page, HELP));
+  await settled(page, await clickLink(page, CONTEST), { fullLoad: true });
+  await settled(page, await clickLink(page, LOBBY), { fullLoad: true });
   return logged(page);
 }
 
@@ -204,9 +235,9 @@ test.describe("with motion on", () => {
     await firstFigure(page, "$111");
 
     usdc = "222.00";
-    await clickLink(page, HELP);
+    const toHelp = await clickLink(page, HELP);
     await expect(pill(page)).toHaveText("$222");
-    await settled(page);
+    await settled(page, toHelp);
 
     usdc = "333.00";
     await clearFrames(page);
@@ -232,14 +263,13 @@ test.describe("with motion on", () => {
 
     // The cache still says $500 for up to 60 seconds. The read this tab just made says $600.
     usdc = "600.00";
+    const beforeReload = await readsDone(page);
     await page.reload();
     await expect(pill(page)).toHaveText("$600");
-    await settled(page);
+    await settled(page, beforeReload);
     await clearFrames(page);
-    await clickLink(page, HELP);
-    await settled(page);
-    await clickLink(page, CONTEST);
-    await settled(page, { fullLoad: true });
+    await settled(page, await clickLink(page, HELP));
+    await settled(page, await clickLink(page, CONTEST), { fullLoad: true });
     const amounts = (await frames(page)).map((f) => f.amount);
     expect(amounts.length).toBeGreaterThan(0);
     expect([...new Set(amounts)], JSON.stringify(amounts)).toEqual(["$600"]);
@@ -269,16 +299,20 @@ test.describe("with motion on", () => {
     let usdc = "1024.00";
     await answerRefresh(page, (route) => route.fulfill(figures(usdc)));
     await firstFigure(page, "$1024");
-    await clickLink(page, HELP);
-    await settled(page);
+    await settled(page, await clickLink(page, HELP));
 
     // The pre-spend read still answers during the window, as the RPC does.
     await clearFrames(page);
     await page.evaluate(() => { window.onchainSettled({ delayMs: 2500 }); });
     await expect(pill(page)).toBeHidden();
+    const beforeBack = await readsDone(page);
     await page.goBack();
     await page.waitForURL((u) => u.pathname === LOBBY);
-    await page.waitForTimeout(800);
+    // The restore fires its own read (hydrateNavbar), and it answers $1024 inside the window:
+    // that read is the one that could bring the old figure back. Wait for it to finish, then
+    // for the recorder to log what it left. A fixed 800ms stood here.
+    await page.waitForFunction((n) => Number(sessionStorage.getItem("nav-reads") || 0) > n, beforeBack);
+    await nextFrames(page);
     const during = await frames(page);
     expect(during.filter((f) => f.path === LOBBY).map((f) => f.amount), JSON.stringify(during)).not.toContain("$1024");
     await expect(pill(page)).toBeHidden();
@@ -318,9 +352,31 @@ test.describe("with motion on", () => {
     await page.evaluate(() => { window.__recorderLag = 0; });
 
     await clearFrames(page);
-    await clickLink(page, CONTEST);
-    await settled(page, { fullLoad: true });
+    await settled(page, await clickLink(page, CONTEST), { fullLoad: true });
     expect((await frames(page)).every((f) => f.amount === "$4096" && f.shown)).toBe(true);
+  });
+
+  // CONTROL for settled(). It must wait for the read itself, not for a guess at how long a read
+  // takes. This read answers in 4s, past the 3s timer the old settled() raced it against: that
+  // version measured before the figure changed and went red here.
+  test("settled() waits for a slow read to land before the walk is measured", async ({ page }) => {
+    await recordFrames(page);
+    await signIn(page, "mason@mcritchie.studio");
+    let usdc = "1024.00";
+    let answerAfterMs = 0;
+    await answerRefresh(page, async (route) => {
+      const answer = figures(usdc);
+      if (answerAfterMs) await new Promise((resolve) => setTimeout(resolve, answerAfterMs));
+      await route.fulfill(answer);
+    });
+    await firstFigure(page, "$1024");
+
+    usdc = "2048.00";
+    answerAfterMs = 4000;
+    await clearFrames(page);
+    await settled(page, await clickLink(page, HELP));
+    const amounts = (await frames(page)).map((f) => f.amount);
+    expect(amounts.at(-1), JSON.stringify(amounts)).toBe("$2048");
   });
 
   test("a failed fresh read keeps the last figure, and it stays while reads keep failing", async ({ page }) => {

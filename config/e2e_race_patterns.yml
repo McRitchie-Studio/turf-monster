@@ -13,10 +13,9 @@ e2e/board_hold_enters_once.spec.js:
 e2e/cart_survives_turbo_restore.spec.js:
   branch: 1
 e2e/devnet-smoke.spec.js:
-  sleep: 2
   branch: 1
 e2e/entry_badge_sidebar.spec.js:
-  sleep: 2
+  sleep: 1
 e2e/entry_gift.spec.js:
   sleep: 2
 e2e/entry_payment_retry.spec.js:
@@ -25,12 +24,10 @@ e2e/geo_hold_validation.spec.js:
   branch: 2
 e2e/glass_surfaces.spec.js:
   branch: 2
-e2e/nav_figures_hold.spec.js:
-  sleep: 3
 e2e/navbar_engine_slots.spec.js:
   sleep: 1
 e2e/navbar_layout.spec.js:
-  sleep: 5
+  sleep: 3
 e2e/nfl_live_scoreboard.spec.js:
   sleep: 7
 e2e/onboarding_chain.spec.js:

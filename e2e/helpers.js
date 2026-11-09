@@ -501,6 +501,33 @@ async function sessionReadLanded(page) {
   }
 }
 
+/**
+ * The engine's toast page-blur is clear: opacity 0 and no fade running on it.
+ *
+ * `.toast-page-blur` (studio-engine app/views/layouts/studio/_flash.html.erb) is a
+ * fixed overlay over the top half of the viewport, ABOVE the navbar (z 499): a
+ * 12px backdrop blur and a white wash under a radial mask centred top-middle. It
+ * shows while a toast is up. Its server HTML carries no opacity, so it paints at
+ * 1 until Alpine binds its `:style`, and that bind starts its 0.5s opacity fade.
+ * Where the first paint beats Alpine (a slow CI runner), every full load fades
+ * this overlay out across the navbar AFTER the load event.
+ *
+ * That fade was the navbar probe-strip drift. The CI trace of run 42567427308
+ * (navbar_layout glow strip) shows the whole strip darkening by 1 to 4 colour
+ * units over about 500ms, and the screencast frames of that window change in the
+ * overlay's shape: strongest at top-middle, fading out to the sides and down.
+ *
+ * getComputedStyle reads the transitioned value, so "0" here means the fade has
+ * ended, and "1" means Alpine has not bound yet. A toast that is really up keeps
+ * the overlay at 1, and this waits for it to go too, as a person would.
+ */
+async function toastBlurClear(page) {
+  await page.waitForFunction(() => {
+    const blur = document.querySelector(".toast-page-blur");
+    return !blur || (getComputedStyle(blur).opacity === "0" && blur.getAnimations().length === 0);
+  });
+}
+
 module.exports = {
   login,
   lazyController,
@@ -529,4 +556,5 @@ module.exports = {
   motionSettled,
   watchTurboFetches,
   maxPixelDelta,
+  toastBlurClear,
 };
