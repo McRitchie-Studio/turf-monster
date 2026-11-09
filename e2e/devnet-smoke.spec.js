@@ -300,9 +300,12 @@ async function selectMatchups(page, indices) {
 // No wait for the token account first. This helper used to sleep 5s "for
 // EnsureAtaJob to create the token account", but that job left signup in
 // OPSEC-044 and nothing creates the account in the background now. The claim
-// creates it itself, confirmed, before it mints (FaucetController#create,
+// creates it itself, confirmed, before it mints (FaucetController#claim,
 // Vault#ensure_ata), and test/controllers/faucet_controller_test.rb holds that
-// order. `label` names the step in a red.
+// order. The mint must also see that new account: ensure_ata reads at
+// "confirmed" and mint_spl skips the "finalized" preflight, where the account
+// does not exist yet for ~13s (test/services/solana/vault_faucet_commitment_test.rb).
+// The old sleep and retry hid that gap. `label` names the step in a red.
 async function claimFaucet(page, label, amount = 50) {
   await page.goto("/faucet");
   await page.waitForLoadState("networkidle");

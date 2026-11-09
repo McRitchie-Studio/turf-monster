@@ -151,7 +151,7 @@ The `chromium` project excludes `@devnet` tests via `grepInvert`.
 ### IllegalOwner on Faucet/Entry
 Error: `Transaction failed: {"InstructionError"=>[0, "IllegalOwner"]}`
 
-This was a race between Sidekiq's `EnsureAtaJob` and the faucet's `ensure_ata`, and the faucet tests slept 5 seconds for it. That job left registration (OPSEC-044), so nothing creates the token account in the background now: the faucet creates it, confirmed, before it mints, and `Vault#ensure_ata` treats an `IllegalOwner` on an account that now exists as created. The sleep is gone (turf-e2e-remaining-race-fixes). If this error comes back, it has a new cause: read the failing transaction's logs and find what else wrote that account.
+The faucet tests used to sleep 5 seconds and retry here, first for Sidekiq's `EnsureAtaJob` (gone since OPSEC-044) and then by habit. The real cause was commitment. `Vault#ensure_ata` returns once its create is confirmed, but its reads and the mint's preflight ran at the RPC default, `finalized`, about 13 seconds behind. A finalized read said "no account" for one that existed, so a retry sent a second create (IllegalOwner), and the mint's finalized preflight could not see the new account. Since turf-e2e-remaining-race-fixes, `ensure_ata` reads at `confirmed` and `mint_spl` builds on a confirmed blockhash and skips the finalized preflight; the sleep and the retry are gone. If this error comes back, it has a new cause: read the failing transaction's logs and find what else wrote that account.
 
 ### Insufficient SOL Balance
 Error: `Attempt to debit an account but found no record of a prior credit`

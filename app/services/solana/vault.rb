@@ -554,11 +554,20 @@ module Solana
 
     # Ensure an ATA exists for wallet + mint. Creates it if missing.
     # Returns { ata: base58, created: bool, signature: string|nil }
+    #
+    # BOTH READS ARE AT "confirmed". The client's default is the RPC's,
+    # "finalized", about 32 slots (~13s) behind. send_and_confirm returns once
+    # the create is CONFIRMED, so a finalized read can still say "no account"
+    # for an ATA that exists: a second call then sends a second create, and the
+    # rescue below re-read at finalized and raised the IllegalOwner it caught
+    # (the devnet runbook's error). Pinned by test/services/solana/vault_faucet_commitment_test.rb.
+    ATA_READ_COMMITMENT = "confirmed"
+
     def ensure_ata(wallet_address, mint:)
       ata_bytes, _ = Solana::SplToken.find_associated_token_address(wallet_address, mint)
       ata_base58 = Keypair.encode_base58(ata_bytes)
 
-      info = client.get_account_info(ata_base58)
+      info = client.get_account_info(ata_base58, commitment: ATA_READ_COMMITMENT)
       if info&.dig("value")
         return { ata: ata_base58, created: false, signature: nil }
       end
@@ -577,12 +586,26 @@ module Solana
       { ata: ata_base58, created: true, signature: signature }
     rescue Solana::Client::RpcError => e
       raise unless e.message.include?("IllegalOwner")
-      info = client.get_account_info(ata_base58)
+      info = client.get_account_info(ata_base58, commitment: ATA_READ_COMMITMENT)
       raise unless info&.dig("value")
       { ata: ata_base58, created: false, signature: nil }
     end
 
     # Mint SPL tokens (admin must be mint authority — devnet test mints).
+    #
+    # NO FINALIZED PREFLIGHT. The usual caller has just created the destination
+    # ATA with ensure_ata, which returns at "confirmed". A default send runs its
+    # preflight simulation against "finalized" state, ~13s behind, where that
+    # ATA does not exist yet, and the RPC refuses the mint. So the transaction
+    # is built on a "confirmed" blockhash and sent with skip_preflight: the
+    # leader runs it against current state, and send_and_confirm still raises
+    # on an on-chain error. Only test mints reach this (the admin holds no
+    # mainnet mint authority). The full fix is a `preflight_commitment:` on
+    # solana-studio's Client#send_and_confirm (#send_transaction has one);
+    # until then this is the turf-side override.
+    # Pinned by test/services/solana/vault_faucet_commitment_test.rb.
+    MINT_BLOCKHASH_COMMITMENT = "confirmed"
+
     def mint_spl(amount_lamports, mint:, to: nil)
       admin = Keypair.admin
 
@@ -599,9 +622,9 @@ module Solana
         amount: amount_lamports
       )
 
-      tx = build_tx(admin)
+      tx = build_tx(admin, blockhash_commitment: MINT_BLOCKHASH_COMMITMENT)
       tx.add_instruction(**mint_ix)
-      signature = client.send_and_confirm(tx.serialize_base64)
+      signature = client.send_and_confirm(tx.serialize_base64, skip_preflight: true)
 
       { signature: signature, amount: amount_lamports, destination: Keypair.encode_base58(dest_bytes) }
     end
@@ -4245,7 +4268,9 @@ module Solana
     # tx then NEVER expires until it lands — immune to slow signing (the mainnet
     # BlockhashNotFound incident). The authority signs the advance; it's the admin
     # managed wallet, which is already `signer` here, so no extra signature.
-    def build_tx(signer, durable_nonce: nil)
+    # `blockhash_commitment:` defaults to the client's own default ("finalized"),
+    # so every existing caller is unchanged; mint_spl asks for "confirmed".
+    def build_tx(signer, durable_nonce: nil, blockhash_commitment: nil)
       tx = Transaction.new
       if durable_nonce
         tx.set_recent_blockhash(fetch_nonce_value(durable_nonce.fetch(:pubkey)))
@@ -4255,7 +4280,8 @@ module Solana
         )
         tx.add_instruction(program_id: adv[:program_id], accounts: adv[:accounts], data: adv[:data])
       else
-        tx.set_recent_blockhash(client.get_latest_blockhash)
+        blockhash = blockhash_commitment ? client.get_latest_blockhash(commitment: blockhash_commitment) : client.get_latest_blockhash
+        tx.set_recent_blockhash(blockhash)
         tx.add_signer(signer)
       end
       tx

@@ -44,11 +44,14 @@ class FaucetControllerTest < ActionDispatch::IntegrationTest
     assert_equal false, json["success"]
   end
 
-  # [unit] The claim creates the wallet's token account itself, for the same
-  # wallet, BEFORE it mints. e2e/devnet-smoke.spec.js used to sleep 5s before a
-  # claim "for EnsureAtaJob to create the token account"; that job left signup
-  # (OPSEC-044) and nothing creates the account in the background now. This
-  # ordering is the guarantee the spec relies on in its place.
+  # [integration] FaucetController#claim creates the wallet's token account
+  # itself, for the same wallet, BEFORE it mints. e2e/devnet-smoke.spec.js used
+  # to sleep 5s before a claim "for EnsureAtaJob to create the token account";
+  # that job left signup (OPSEC-044) and nothing creates the account in the
+  # background now. This ordering is half the guarantee the spec relies on in
+  # its place. The vault is stubbed here, so the other half, that the mint can
+  # see the new account at all, is the RPC commitment pinned in
+  # test/services/solana/vault_faucet_commitment_test.rb.
   test "claim creates the token account for the same wallet before it mints" do
     log_in_as(@user)
 
