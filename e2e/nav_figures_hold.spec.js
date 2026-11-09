@@ -93,9 +93,14 @@ async function signIn(page, email) {
 const pill = (page) => page.locator("header [data-balance-display]");
 
 // The pill shows a figure, and the recorder logs it on its next animation frame. The page
-// can change the text before that frame runs, so a read here can find the log a frame behind.
+// can change the text before that frame runs (a view transition holds rendering, and no frame
+// runs while it does), so a read straight after toHaveText can find the log a frame behind:
+// empty, in CI run 42515495351. Wait for the log itself to reach the figure, then read it.
 async function recorded(page, text) {
   await expect(pill(page)).toHaveText(text);
+  await expect
+    .poll(async () => (await frames(page)).at(-1)?.amount, { message: `the recorder never logged ${text}` })
+    .toBe(text);
   return frames(page);
 }
 
@@ -206,8 +211,7 @@ test.describe("with motion on", () => {
     usdc = "333.00";
     await clearFrames(page);
     await page.goBack();
-    await expect(pill(page)).toHaveText("$333");
-    const amounts = (await frames(page)).map((f) => f.amount);
+    const amounts = (await recorded(page, "$333")).map((f) => f.amount);
     expect(amounts, JSON.stringify(amounts)).not.toContain("$111");
     expect(amounts).not.toContain("");
   });
@@ -294,8 +298,7 @@ test.describe("with motion on", () => {
 
     usdc = "2048.00";
     await clickLink(page, HELP);
-    await expect(pill(page)).toHaveText("$2048");
-    const lines = await frames(page);
+    const lines = await recorded(page, "$2048");
     expect(lines.every((f) => f.shown && f.amount !== ""), JSON.stringify(lines)).toBe(true);
     // The recorder logs a change, so a frame that still says the old figure logs nothing here.
     expect(lines.every((f) => ["$1024", "$2048"].includes(f.amount)), JSON.stringify(lines)).toBe(true);
@@ -353,8 +356,7 @@ test.describe("with motion on", () => {
     usdc = "7.00";
     await signIn(page, `nav-figures-${Date.now()}@example.test`);
     await page.goto(LOBBY);
-    await expect(pill(page)).toHaveText("$7");
-    const lines = await frames(page);
+    const lines = await recorded(page, "$7");
     expect(lines.map((f) => f.amount), JSON.stringify(lines)).not.toContain("$1024");
   });
 
@@ -380,8 +382,7 @@ test.describe("with motion on", () => {
     usdc = "7.00";
     await login(page, "mason@mcritchie.studio");
     await page.goto(LOBBY);
-    await expect(pill(page)).toHaveText("$7");
-    const lines = (await frames(page)).filter((f) => f.user === mason);
+    const lines = (await recorded(page, "$7")).filter((f) => f.user === mason);
     expect(lines.length).toBeGreaterThan(0);
     expect(lines.map((f) => f.amount), JSON.stringify(lines)).not.toContain("$1024");
   });
@@ -407,9 +408,8 @@ test.describe("with motion on", () => {
     await page.locator("tr", { hasText: "mason" }).first().getByRole("button", { name: "Act as" }).click();
     const out = page.getByRole("button", { name: /Return to/ });
     await expect(out).toBeVisible({ timeout: 20000 });
-    await expect(pill(page)).toHaveText("$7");
+    const acting = (await recorded(page, "$7")).filter((f) => f.user === mason);
     expect(await userOf(page)).toBe(mason);
-    const acting = (await frames(page)).filter((f) => f.user === mason);
     expect(acting.length).toBeGreaterThan(0);
     expect(acting.map((f) => f.amount), JSON.stringify(acting)).not.toContain("$1024");
 
@@ -417,8 +417,7 @@ test.describe("with motion on", () => {
     usdc = "1024.00";
     await out.click();
     await page.waitForFunction((id) => document.body && document.body.dataset.userId === id, admin);
-    await expect(pill(page)).toHaveText("$1024");
-    const back = (await frames(page)).filter((f) => f.user === admin);
+    const back = (await recorded(page, "$1024")).filter((f) => f.user === admin);
     expect(back.map((f) => f.amount), JSON.stringify(back)).not.toContain("$7");
   });
 });
