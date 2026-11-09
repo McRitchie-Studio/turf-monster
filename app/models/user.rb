@@ -237,9 +237,9 @@ class User < ApplicationRecord
       uid: auth.uid,
       email_verified_at: Time.current
     )
-  rescue ActiveRecord::RecordNotUnique
-    # Race condition: another request created the user between our find_by and create
-    find_by(provider: auth.provider, uid: auth.uid) || account_for_google_email(auth)
+  rescue ActiveRecord::RecordNotUnique => e # a concurrent sign-in made the row first: find it, by uid, else verified email
+    Studio::Account.race_winner(self, provider: auth.provider, uid: auth.uid,
+                                      email: auth.info&.email, email_verified: email_verified, error: e)
   end
 
   def self.from_solana_wallet(address)
