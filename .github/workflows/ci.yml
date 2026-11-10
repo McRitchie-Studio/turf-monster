@@ -432,7 +432,7 @@ jobs:
       # The apt libraries headless Chromium needs to launch are in the lane image, so a
       # restored browser starts without an install step.
       - name: Cache the Playwright browser
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
