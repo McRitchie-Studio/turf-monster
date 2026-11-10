@@ -190,6 +190,11 @@ jobs:
       # This preloads a shim that, in Ruby processes only, prints the C backtrace and
       # Ruby's full [BUG] report before the process dies. It changes nothing before an
       # abort. .github/scripts/native-abort-report.c; guard: test/lib/ci_native_abort_report_test.rb.
+      # EXPECTED NOISE: every later step logs one line, `ERROR: ld.so: object
+      # '/__w/_temp/native-abort-report.so' from LD_PRELOAD cannot be preloaded ...:
+      # ignored.` The runner's HOST-side process that launches the step into the
+      # container reads LD_PRELOAD too, and the container path does not exist on the
+      # host. The step itself, inside the container, loads the shim. It is not a fault.
       - name: Preload the native-abort reporter
         run: .github/scripts/native-abort-report.sh
 

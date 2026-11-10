@@ -13,14 +13,21 @@
 // one abort carries its stack. This shim supplies that stack.
 //
 // WHAT IT DOES. Loaded with LD_PRELOAD, it installs a SIGABRT handler in Ruby
-// processes only (it checks /proc/self/exe; node, Chromium and sh are untouched).
+// processes only (it checks /proc/self/exe). Node, Chromium and sh get no handler;
+// in them the abort() defined below only forwards to glibc's.
 // On abort it writes glibc's own C backtrace (backtrace_symbols_fd: no malloc), then
 // calls Ruby's rb_bug(), which prints the full [BUG] report (control frames, the Ruby
 // backtrace, the C backtrace, the loaded libraries) and dies by abort() again. The
 // handler resets SIGABRT to the default first, so the second abort ends the process
-// with the same exit code as before (134). A 30-second SIGALRM is armed first: glibc
-// can abort with the arena lock held, and if the report then deadlocks in malloc, the
-// process still dies (exit 142) instead of hanging the job.
+// with the same exit code as before (134).
+//
+// TWO LIMITS, both measured in the lane image (task turf-seed-native-crash-cause):
+//   - glibc can abort with the malloc arena lock held (malloc_consolidate does). The
+//     report then prints the C backtrace and Ruby's backtrace, and deadlocks later, in
+//     its own C-level section. A SIGALRM armed first (30 s) ends the process (exit
+//     142) with a line saying why, instead of hanging the job.
+//   - Ruby's own rb_bug() ends in abort() after its report. The shim lets that abort
+//     through with one line and no second [BUG] (see abort() below).
 //
 // It changes no allocation and no behaviour before an abort. It is a reporter, not
 // a fix. Built and exported by .github/scripts/native-abort-report.sh.
@@ -29,6 +36,7 @@
 #include <dlfcn.h>
 #include <execinfo.h>
 #include <signal.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -49,11 +57,54 @@ static int running_ruby(void) {
   return strncmp(base, "ruby", 4) == 0;
 }
 
+// Ruby's own crash path (rb_bug, rb_assert_failure) ends in die() -> abort() AFTER it
+// has printed its [BUG] report. That abort must pass through untouched: a second
+// report would blame a heap corruption that never happened. Ruby calls abort() through
+// the dynamic linker, so this definition sees that call and records it when the caller
+// is Ruby's own object (the one that defines rb_bug). glibc's heap checks call abort
+// from inside libc and never reach here, so they are still reported. Symbol names
+// cannot tell the two apart: GCC moves rb_bug's abort call into an unnamed .cold part.
+// Everything is resolved once, in the constructor, while the heap is sound: a failed
+// dlsym allocates its error text, and abort() may run with the arena lock held.
+typedef void (*abort_fn)(void);
+static abort_fn real_abort;
+static rb_bug_fn ruby_bug;
+static void *ruby_core_base;
+static volatile sig_atomic_t ruby_reported_already;
+static unsigned report_alarm = 30;
+
+void abort(void) {
+  Dl_info caller;
+  if (ruby_core_base && dladdr(__builtin_return_address(0), &caller) &&
+      caller.dli_fbase == ruby_core_base)
+    ruby_reported_already = 1;
+  if (real_abort) real_abort();
+  signal(SIGABRT, SIG_DFL);
+  raise(SIGABRT);
+  _exit(134);
+}
+
+static void on_stalled_report(int sig) {
+  (void)sig;
+  say("\n-- native-abort-report: the report stalled past its alarm (the abort likely "
+      "holds the malloc arena lock); ending the process --\n");
+  signal(SIGALRM, SIG_DFL);
+  raise(SIGALRM);
+}
+
 static void on_abort(int sig) {
   (void)sig;
   signal(SIGABRT, SIG_DFL);
-  signal(SIGALRM, SIG_DFL);
-  alarm(30);
+
+  if (ruby_reported_already) {
+    say("-- native-abort-report: Ruby's own crash report is above; not reporting "
+        "again --\n");
+    raise(SIGABRT);
+    return;
+  }
+
+  signal(SIGALRM, on_stalled_report);
+  alarm(report_alarm);
 
   say("\n-- native-abort-report: SIGABRT in a Ruby process (glibc or a native "
       "extension called abort()) --\n-- C backtrace at the abort --\n");
@@ -61,10 +112,9 @@ static void on_abort(int sig) {
   int n = backtrace(frames, 96);
   backtrace_symbols_fd(frames, n, 2);
 
-  rb_bug_fn rb_bug = (rb_bug_fn)dlsym(RTLD_DEFAULT, "rb_bug");
-  if (rb_bug) {
+  if (ruby_bug) {
     say("-- Ruby's crash report follows --\n");
-    rb_bug("native abort (SIGABRT): heap corruption or a native assertion; "
+    ruby_bug("native abort (SIGABRT): heap corruption or a native assertion; "
            "see the native-abort-report C backtrace above");
   }
   say("-- native-abort-report: rb_bug not found; re-raising SIGABRT --\n");
@@ -72,7 +122,14 @@ static void on_abort(int sig) {
 }
 
 __attribute__((constructor)) static void native_abort_report_install(void) {
+  real_abort = (abort_fn)dlsym(RTLD_NEXT, "abort");
   if (!running_ruby()) return;
+  ruby_bug = (rb_bug_fn)dlsym(RTLD_DEFAULT, "rb_bug");
+  Dl_info core;
+  if (ruby_bug && dladdr((void *)ruby_bug, &core)) ruby_core_base = core.dli_fbase;
+  // The guard test shortens the alarm; CI keeps the 30-second default.
+  const char *secs = getenv("NATIVE_ABORT_REPORT_ALARM");
+  if (secs && atoi(secs) > 0) report_alarm = (unsigned)atoi(secs);
   // Load libgcc_s's unwinder now, while the heap is sound, not inside the handler.
   void *warm[1];
   backtrace(warm, 1);
