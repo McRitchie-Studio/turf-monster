@@ -184,6 +184,15 @@ jobs:
           rubygems: 3.5.11
           bundler-cache: true
 
+      # NATIVE ABORTS NAME THEMSELVES. glibc's heap checks end in abort(), and Ruby has
+      # no crash reporter for SIGABRT, so heap corruption died mute (run 42745469708:
+      # `malloc_consolidate(): unaligned fastbin chunk detected`, exit 134, no stack).
+      # This preloads a shim that, in Ruby processes only, prints the C backtrace and
+      # Ruby's full [BUG] report before the process dies. It changes nothing before an
+      # abort. .github/scripts/native-abort-report.c; guard: test/lib/ci_native_abort_report_test.rb.
+      - name: Preload the native-abort reporter
+        run: .github/scripts/native-abort-report.sh
+
       # THE SUITE SPAWNS NODE: test/lib/javascript_unit_test.rb runs test/javascript
       # under `node --test`. Without this step it ran on whatever Node the runner
       # image happens to ship, not the pinned major.
@@ -406,6 +415,11 @@ jobs:
 
       - uses: ruby/setup-ruby@v1
         with: { ruby-version: .ruby-version, rubygems: 3.5.11, bundler-cache: true }
+      # NATIVE ABORTS NAME THEMSELVES: see the test job's step. Both native crashes on
+      # record struck the e2e seed runner (runs 41001965509 and 42745469708), so every
+      # later step here (Seed, the webServer boot, the repeat passes) runs under it.
+      - name: Preload the native-abort reporter
+        run: .github/scripts/native-abort-report.sh
       # Node's major is pinned once, in .tool-versions (studio-engine's Node tooling
       # pin, versions.json); mise reads the same file on a laptop.
       - uses: actions/setup-node@v4

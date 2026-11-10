@@ -29,6 +29,12 @@
 # rendering placeholder scores. Now the canonical scoring survives every
 # reseed and Playwright fixtures live alongside it.
 
+# UNBUFFERED, so a crash names its phase. Under Playwright's webServer and in CI
+# stdout is a pipe, so Ruby buffers it and prints the whole seed log at exit. When
+# the runner died of a native abort (run 42745469708, exit 134) the buffer died with
+# it, and nothing said which phase was running. stderr is already unbuffered.
+$stdout.sync = true
+
 puts "Seeding test database for Playwright (additive overlay)..."
 
 # ── Step 1: canonical state via db/seeds.rb ──────────────────────────
