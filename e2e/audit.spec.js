@@ -132,7 +132,9 @@ test.describe("Audit consolidation (2026-05-23)", () => {
     await expect(emptyState).toBeVisible();
     await expect(emptyState).toContainText("No treasury transactions yet.");
     await expect(emptyState).toContainText("Multisig transactions requiring cosigning will appear here.");
-    // Engine partial wraps the message in <p class="text-secondary text-lg">.
-    await expect(emptyState.locator("p.text-lg")).toHaveCount(1);
+    // The engine's EmptyState component (0.142.0) renders the message, then the
+    // detail, as its own paragraphs; assert the text, not a type-size class.
+    await expect(emptyState).toHaveAttribute("data-empty-state", "");
+    await expect(emptyState.locator(":scope > p").first()).toHaveText("No treasury transactions yet.");
   });
 });
