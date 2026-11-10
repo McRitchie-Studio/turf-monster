@@ -79,6 +79,7 @@ class PageHeadersTest < ActionDispatch::IntegrationTest
       "transparency" => [ transparency_path, "Transparency", [] ],
       "account" => [ account_path, "Account Settings", [] ],
       "wallet" => [ wallet_path, "Wallet", [] ],
+      "contests" => [ contests_path, "Contests", [] ],
       "my contests" => [ my_contests_path, "My Contests", [ "Contests" ] ],
       "teams" => [ teams_path, "Teams", [] ],
       "players" => [ players_path, "Players", [] ],

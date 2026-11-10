@@ -1391,7 +1391,10 @@
 # settled() waits for a slow read to land; e2e/navbar_layout.spec.js: the glow strip sees the
 # toast page-blur fade and toastBlurClear waits it out. Chromium, no skip. Derived with
 # bin/e2e-lane-derive --write.
-total_specs: 633
+# 633 -> 635 (turf-contests-header-stacking): two specs in e2e/contests_header_stacking.spec.js,
+# My Contests leaving under the pinned /contests page header at 1280px and 390px. Chromium, no
+# skip. Derived with bin/e2e-lane-derive --write.
+total_specs: 635
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need funded devnet wallets: the secrets
 # SOLANA_BOT_KEY and MACK_DEVNET_KEY (never literals; test/lib/committed_secret_key_guard_test.rb).
@@ -1833,7 +1836,9 @@ allowed_skips: 4
 # total_specs above; chromium, no skip.
 # 610 -> 612 (turf-e2e-remaining-race-fixes): the two control specs beside total_specs above;
 # chromium, no skip.
-executed: 612
+# 612 -> 614 (turf-contests-header-stacking): the two contests_header_stacking specs beside
+# total_specs above; chromium, no skip.
+executed: 614
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a
