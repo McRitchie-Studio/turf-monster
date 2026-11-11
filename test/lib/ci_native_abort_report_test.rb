@@ -22,6 +22,13 @@
 # from a fixed, minimal environment (CHILD_ENV, unsetenv_others) in a new session
 # with no controlling tty (NO_TTY), and every failure prints the child's signal,
 # exit code and output: the next red names its own cause.
+#
+# IT DID (task turf-fastbin-control-deterministic). Run 42960720634, with that fixed
+# env, failed the control with exit 0, no signal and empty output: the helper ran to
+# the end and glibc never aborted. The cause was the helper, not the env: a fill
+# chunk of the wrong size left victim in the tcache. The evidence is at FASTBIN_C.
+# Tested and ruled out as the cause of a miss: another thread's malloc while Fiddle
+# drops the GVL (each miss is explained by the chunk sizes alone) and the env.
 require "minitest/autorun"
 require "open3"
 require "pty"
