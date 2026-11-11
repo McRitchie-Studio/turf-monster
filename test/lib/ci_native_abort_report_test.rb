@@ -27,8 +27,9 @@
 # env, failed the control with exit 0, no signal and empty output: the helper ran to
 # the end and glibc never aborted. The cause was the helper, not the env: a fill
 # chunk of the wrong size left victim in the tcache. The evidence is at FASTBIN_C.
-# Tested and ruled out as the cause of a miss: another thread's malloc while Fiddle
-# drops the GVL (each miss is explained by the chunk sizes alone) and the env.
+# Ruled out: the env (the misses below ran with the fixed CHILD_ENV). Not needed to
+# explain any miss: another thread's malloc while Fiddle drops the GVL (every
+# labelled miss had a wrong-size fill, and every run with matching fills aborted).
 require "minitest/autorun"
 require "open3"
 require "pty"
@@ -146,13 +147,14 @@ class CiNativeAbortReportTest < Minitest::Test
   #
   # WHY THE FILLS ARE SIZE-MATCHED (task turf-fastbin-control-deterministic). Engine
   # Consumer CI run 42960720634 failed the bare control with exit 0, no signal and an
-  # empty stderr: no abort at all. In the lane image (Ruby 3.3.11, glibc 2.39, under
-  # emulation) the old helper missed in 131 of 200 runs. Labelling every chunk showed
+  # empty stderr: no abort at all. In the lane image (Ruby 3.3.11, glibc 2.39, amd64
+  # under emulation) the old helper missed in 131 of 200 runs with one helper path and
+  # 2 of 200 with another: the heap layout decides it. Labelling every chunk showed
   # why: in each miss, one of the seven malloc(40) fills came back with chunk header
   # 0x41 (a 64-byte chunk reused whole from a free chunk too small to split), not 0x31.
   # Its free went to the 64-byte tcache bin, so victim's 48-byte bin held six, victim
-  # filled it as the seventh, and no fastbin chunk was left to consolidate. Which free
-  # chunks Ruby leaves behind decides it, so the miss rate depends on heap layout. Now
+  # filled it as the seventh, and no fastbin chunk was left to consolidate. In a
+  # 500-run tally all 3 misses had such a fill and all 497 aborts had none. Now
   # the fills are chosen by malloc_usable_size to match victim, and the helper checks
   # victim missed the tcache (tcache_put writes a key into the chunk) or says so and
   # exits 3. The fixed helper aborted in 600 of 600 runs in that image.
