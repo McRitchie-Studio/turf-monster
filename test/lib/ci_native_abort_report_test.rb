@@ -22,6 +22,14 @@
 # from a fixed, minimal environment (CHILD_ENV, unsetenv_others) in a new session
 # with no controlling tty (NO_TTY), and every failure prints the child's signal,
 # exit code and output: the next red names its own cause.
+#
+# IT DID (task turf-fastbin-control-deterministic). Run 42960720634, with that fixed
+# env, failed the control with exit 0, no signal and empty output: the helper ran to
+# the end and glibc never aborted. The cause was the helper, not the env: a fill
+# chunk of the wrong size left victim in the tcache. The evidence is at FASTBIN_C.
+# Ruled out: the env (the misses below ran with the fixed CHILD_ENV). Not needed to
+# explain any miss: another thread's malloc while Fiddle drops the GVL (every
+# labelled miss had a wrong-size fill, and every run with matching fills aborted).
 require "minitest/autorun"
 require "open3"
 require "pty"
@@ -136,16 +144,44 @@ class CiNativeAbortReportTest < Minitest::Test
   # process has had a second thread, so glibc locks). This is run 42745469708's abort.
   # The report must name the Ruby method before anything in it can deadlock in malloc,
   # and the alarm must end the process if it does.
+  #
+  # WHY THE FILLS ARE SIZE-MATCHED (task turf-fastbin-control-deterministic). Engine
+  # Consumer CI run 42960720634 failed the bare control with exit 0, no signal and an
+  # empty stderr: no abort at all. In the lane image (Ruby 3.3.11, glibc 2.39, amd64
+  # under emulation) the old helper missed in 131 of 200 runs with one helper path and
+  # 2 of 200 with another: the heap layout decides it. Labelling every chunk showed
+  # why: in each miss, one of the seven malloc(40) fills came back with chunk header
+  # 0x41 (a 64-byte chunk reused whole from a free chunk too small to split), not 0x31.
+  # Its free went to the 64-byte tcache bin, so victim's 48-byte bin held six, victim
+  # filled it as the seventh, and no fastbin chunk was left to consolidate. In a
+  # 500-run tally all 3 misses had such a fill and all 497 aborts had none. Now
+  # the fills are chosen by malloc_usable_size to match victim, and the helper checks
+  # victim missed the tcache (tcache_put writes a key into the chunk) or says so and
+  # exits 3. The fixed helper aborted in 600 of 600 runs in that image.
   FASTBIN_C = <<~C
+    #include <malloc.h>
     #include <stdint.h>
     #include <stdlib.h>
+    #include <string.h>
+    #include <unistd.h>
     void corrupt_fastbin_and_consolidate(void) {
-      void *fill[7];
-      for (int i = 0; i < 7; i++) fill[i] = malloc(40);
       void *victim = malloc(40);
+      size_t size = malloc_usable_size(victim);   /* the bin victim is freed into */
       void *guard = malloc(40);
-      for (int i = 0; i < 7; i++) free(fill[i]);  /* fill the tcache bin */
+      void *fill[7];
+      int n = 0;
+      for (int tries = 0; n < 7 && tries < 1000; tries++) {
+        void *p = malloc(40);                      /* a reused chunk can be bigger */
+        if (malloc_usable_size(p) == size) fill[n++] = p;
+      }
+      for (int i = 0; i < n; i++) free(fill[i]);  /* fill victim's own tcache bin */
+      memset(victim, 0, 16);
       free(victim);                                /* so this one is a fastbin chunk */
+      if (((uintptr_t *)victim)[1] != 0) {         /* tcache_put wrote its key here */
+        static const char m[] = "fastbin helper: victim went to the tcache, not a fastbin\\n";
+        write(2, m, sizeof m - 1);
+        _exit(3);
+      }
       uintptr_t *fd = (uintptr_t *)victim;         /* forge its safe-linked fd: 0x8 */
       *fd = (((uintptr_t)fd) >> 12) ^ (uintptr_t)0x8;
       void *big = malloc(4096);                    /* large request: consolidate */
