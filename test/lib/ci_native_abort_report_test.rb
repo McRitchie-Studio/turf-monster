@@ -195,6 +195,25 @@ class CiNativeAbortReportTest < Minitest::Test
     end
   end
 
+  # [unit] THE BARE CONTROL IS SHIM-FREE IN BOTH LANES. Turf's own test job exports
+  # LD_PRELOAD (the real shim) to the whole suite; studio-engine's Consumer CI lane
+  # does not. The child must see exactly CHILD_ENV + HOME and nothing the worker
+  # carries, so a later "just inherit the env" refactor cannot turn the control into
+  # a shimmed run in one lane and a bare one in the other. Runs on every OS.
+  def test_a_child_inherits_nothing_from_the_suite_worker
+    planted = { "LD_PRELOAD" => "/nonexistent/native-abort-report.so", "GLIBC_TUNABLES" => "glibc.malloc.tcache_count=100" }
+    saved = planted.to_h { |k, _| [k, ENV.fetch(k, nil)] }
+    planted.each { |k, v| ENV[k] = v }
+    out, err, st = run_child({}, "print ENV.keys.sort.join(',')")
+    assert st.success?, child(st, out, err)
+    # macOS's loader adds __CF_USER_TEXT_ENCODING to every process; Linux adds nothing.
+    seen = out.split(",").reject { |k| k.start_with?("__CF_") }
+    assert_equal (CHILD_ENV.keys + ["HOME"]).sort, seen, "the child's whole environment"
+    planted.each_key { |k| refute_includes out.split(","), k, "#{k} leaked from the worker into the child" }
+  ensure
+    saved&.each { |k, v| v.nil? ? ENV.delete(k) : ENV[k] = v }
+  end
+
   private
 
   CONSOLIDATE_ABORT = "malloc_consolidate(): unaligned fastbin chunk detected"
