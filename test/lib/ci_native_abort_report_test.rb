@@ -148,16 +148,17 @@ class CiNativeAbortReportTest < Minitest::Test
   # WHY THE FILLS ARE SIZE-MATCHED (task turf-fastbin-control-deterministic). Engine
   # Consumer CI run 42960720634 failed the bare control with exit 0, no signal and an
   # empty stderr: no abort at all. In the lane image (Ruby 3.3.11, glibc 2.39, amd64
-  # under emulation) the old helper missed in 131 of 200 runs with one helper path and
-  # 2 of 200 with another: the heap layout decides it. Labelling every chunk showed
-  # why: in each miss, one of the seven malloc(40) fills came back with chunk header
-  # 0x41 (a 64-byte chunk reused whole from a free chunk too small to split), not 0x31.
-  # Its free went to the 64-byte tcache bin, so victim's 48-byte bin held six, victim
-  # filled it as the seventh, and no fastbin chunk was left to consolidate. In a
-  # 500-run tally all 3 misses had such a fill and all 497 aborts had none. Now
-  # the fills are chosen by malloc_usable_size to match victim, and the helper checks
-  # victim missed the tcache (tcache_put writes a key into the chunk) or says so and
-  # exits 3. The fixed helper aborted in 600 of 600 runs in that image.
+  # under emulation) the old helper missed in 2 of 200 looped runs, each with exit 0.
+  # Labelling every chunk showed why: in each miss, one of the seven malloc(40) fills
+  # came back with chunk header 0x41 (a 64-byte chunk reused whole from a free chunk
+  # too small to split), not 0x31. Its free went to the 64-byte tcache bin, so victim's
+  # 48-byte bin held six, victim filled it as the seventh, and no fastbin chunk was
+  # left to consolidate. In a 300-run labelled loop both misses had such a fill and
+  # all 298 aborts had none. Which free chunks Ruby leaves behind decides it, so the
+  # miss rate depends on heap layout. Now the fills are chosen by malloc_usable_size
+  # to match victim, and the helper checks victim missed the tcache (tcache_put writes
+  # a key into the chunk) or says so and exits 3. The fixed helper aborted in 600 of
+  # 600 runs in that image (two loops of 300).
   FASTBIN_C = <<~C
     #include <malloc.h>
     #include <stdint.h>
