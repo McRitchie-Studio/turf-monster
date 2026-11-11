@@ -13,15 +13,15 @@
 #
 # THE CHILD SEES ONLY WHAT THE TEST GIVES IT (task turf-native-abort-control-env).
 # studio-engine's Consumer CI run 42941340814 failed the arena-lock control with an
-# EMPTY stderr; run 42941415917 of the same lane passed on the same Turf commit
-# (c957d0c6), same lane image, same Ruby, minutes later. So the lane was not the
-# cause. Nor is a tty: Ubuntu 24.04's glibc 2.39 has no LIBC_FATAL_STDERR_ and
-# writes its fatal message to stderr unconditionally, and the tty test below proves
-# it with a controlling terminal open. What differed was the PARENT: a suite worker
-# that had already run other tests. The child used to inherit that worker's whole
-# environment and its process group. Now each child starts from a fixed, minimal
-# environment (CHILD_ENV, unsetenv_others) in a new session with no controlling
-# tty (NO_TTY), and every failure prints the child's signal, exit code and output.
+# EMPTY stderr and no termsig in the log; run 42941415917 of the same lane passed on
+# the same Turf commit (c957d0c6), same image, same Ruby, minutes later. The cause
+# is UNPROVEN. Not a tty: glibc 2.39 writes its fatal message to stderr even with a
+# controlling terminal open (the tty test below). A polluted parent env reproduces
+# the red (GLIBC_TUNABLES=glibc.malloc.tcache_count=100), but no such variable was
+# found in that lane; a SIGKILL fits the empty stderr too. So each child now starts
+# from a fixed, minimal environment (CHILD_ENV, unsetenv_others) in a new session
+# with no controlling tty (NO_TTY), and every failure prints the child's signal,
+# exit code and output: the next red names its own cause.
 require "minitest/autorun"
 require "open3"
 require "pty"
