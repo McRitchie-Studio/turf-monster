@@ -10,8 +10,21 @@
 # shim on a real glibc abort: a double free, and a malloc_consolidate abort that holds
 # the arena lock. Task turf-seed-native-crash-cause added the re-entry guard: Ruby's
 # own rb_bug() ends in abort(), and the shim must not print a second [BUG] after it.
+#
+# THE CHILD SEES ONLY WHAT THE TEST GIVES IT (task turf-native-abort-control-env).
+# studio-engine's Consumer CI run 42941340814 failed the arena-lock control with an
+# EMPTY stderr and no termsig in the log; run 42941415917 of the same lane passed on
+# the same Turf commit (c957d0c6), same image, same Ruby, minutes later. The cause
+# is UNPROVEN. Not a tty: glibc 2.39 writes its fatal message to stderr even with a
+# controlling terminal open (the tty test below). A polluted parent env reproduces
+# the red (GLIBC_TUNABLES=glibc.malloc.tcache_count=100), but no such variable was
+# found in that lane; a SIGKILL fits the empty stderr too. So each child now starts
+# from a fixed, minimal environment (CHILD_ENV, unsetenv_others) in a new session
+# with no controlling tty (NO_TTY), and every failure prints the child's signal,
+# exit code and output: the next red names its own cause.
 require "minitest/autorun"
 require "open3"
+require "pty"
 require "rbconfig"
 require "tmpdir"
 require "yaml"
@@ -89,14 +102,12 @@ class CiNativeAbortReportTest < Minitest::Test
   def test_a_glibc_abort_in_ruby_prints_its_stack_under_the_shim
     with_shim do |so, _dir|
       crash = 'require "fiddle"; def seed_phase = (p = Fiddle.malloc(24); Fiddle.free(p); Fiddle.free(p)); seed_phase'
-      env = clean_env
-
-      _, mute, bare = Open3.capture3(env, RbConfig.ruby, "-e", crash)
-      assert_equal Signal.list.fetch("ABRT"), bare.termsig, "control: a double free aborts"
+      out, mute, bare = run_child({}, crash)
+      assert_equal Signal.list.fetch("ABRT"), bare.termsig, "control: a double free aborts. #{child(bare, out, mute)}"
       refute_includes mute, "seed_phase", "control: without the shim the abort names no Ruby frame"
 
-      _, report, shimmed = Open3.capture3(env.merge("LD_PRELOAD" => so), RbConfig.ruby, "-e", crash)
-      assert_equal Signal.list.fetch("ABRT"), shimmed.termsig, "the abort stays an abort (exit 134)"
+      out, report, shimmed = run_child({ "LD_PRELOAD" => so }, crash)
+      assert_equal Signal.list.fetch("ABRT"), shimmed.termsig, "the abort stays an abort (exit 134). #{child(shimmed, out, report)}"
       assert_includes report, "native-abort-report: SIGABRT in a Ruby process"
       assert_match(/libc\.so\.6\(__libc_free/, report, "the C backtrace names the failing libc call")
       assert_includes report, "[BUG] native abort (SIGABRT)"
@@ -111,8 +122,8 @@ class CiNativeAbortReportTest < Minitest::Test
     with_shim do |so, _dir|
       bug = 'require "fiddle"; Fiddle::Function.new(Fiddle::Handle::DEFAULT["rb_bug"], ' \
             '[Fiddle::TYPE_VOIDP], Fiddle::TYPE_VOID).call("own bug")'
-      _, report, st = Open3.capture3(clean_env.merge("LD_PRELOAD" => so), RbConfig.ruby, "-e", bug)
-      assert_equal Signal.list.fetch("ABRT"), st.termsig, "rb_bug still ends the process by abort"
+      out, report, st = run_child({ "LD_PRELOAD" => so }, bug)
+      assert_equal Signal.list.fetch("ABRT"), st.termsig, "rb_bug still ends the process by abort. #{child(st, out, report)}"
       assert_equal 1, report.scan("[BUG]").size, "one report, Ruby's own:\n#{report[-2000..]}"
       assert_includes report, "[BUG] own bug"
       assert_includes report, "Ruby's own crash report is above; not reporting again"
@@ -144,28 +155,19 @@ class CiNativeAbortReportTest < Minitest::Test
 
   def test_an_arena_lock_held_abort_prints_the_ruby_backtrace_and_ends_within_the_alarm
     with_shim do |so, dir|
-      src = File.join(dir, "fastbin.c")
-      helper = File.join(dir, "fastbin.so")
-      File.write(src, FASTBIN_C)
-      _, err, st = Open3.capture3("cc", "-shared", "-fPIC", "-O0", "-o", helper, src)
-      assert st.success?, "the fastbin helper must compile: #{err}"
+      crash = fastbin_crash(dir)
 
-      crash = 'require "fiddle"; Thread.new {}.join; ' \
-              "f = Fiddle::Function.new(Fiddle.dlopen(#{helper.dump})['corrupt_fastbin_and_consolidate'], [], Fiddle::TYPE_VOID); " \
-              "def seed_phase(f) = f.call; seed_phase(f)"
-
-      _, mute, bare = Open3.capture3(clean_env, RbConfig.ruby, "-e", crash)
-      assert_includes mute, "malloc_consolidate(): unaligned fastbin chunk detected", "control: the real abort"
-      assert_equal Signal.list.fetch("ABRT"), bare.termsig
+      out, mute, bare = run_child({}, crash)
+      assert_includes mute, CONSOLIDATE_ABORT, "control: the real abort. #{child(bare, out, mute)}"
+      assert_equal Signal.list.fetch("ABRT"), bare.termsig, "control: #{child(bare, out, mute)}"
 
       alarm = 3
       started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-      _, report, shimmed = Open3.capture3(clean_env.merge("LD_PRELOAD" => so, "NATIVE_ABORT_REPORT_ALARM" => alarm.to_s),
-                                          RbConfig.ruby, "-e", crash)
+      out, report, shimmed = run_child({ "LD_PRELOAD" => so, "NATIVE_ABORT_REPORT_ALARM" => alarm.to_s }, crash)
       elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
 
       assert_operator elapsed, :<, alarm + 10, "the process must end within the alarm, not hang the job"
-      assert_includes [Signal.list.fetch("ABRT"), Signal.list.fetch("ALRM")], shimmed.termsig
+      assert_includes [Signal.list.fetch("ABRT"), Signal.list.fetch("ALRM")], shimmed.termsig, child(shimmed, out, report)
       assert_match(/libc\.so\.6\(malloc\+/, report, "the C backtrace names the malloc call that aborted")
       assert_match(/-e:1:in .*seed_phase/, report, "the Ruby backtrace names the method that was running")
       if shimmed.termsig == Signal.list.fetch("ALRM")
@@ -174,9 +176,99 @@ class CiNativeAbortReportTest < Minitest::Test
     end
   end
 
+  # [integration] THE TTY QUESTION, ANSWERED. The engine lane's red was first blamed on
+  # glibc writing its fatal message to /dev/tty when one is open (the old
+  # LIBC_FATAL_STDERR_ rule). This runs the same abort with a controlling terminal
+  # OPEN (PTY.spawn makes the pty the child's controlling tty, and the launcher proves
+  # /dev/tty opens) and stderr sent to a file: the message must land on stderr. The
+  # control above is the no-tty half: a new session has no controlling terminal.
+  def test_glibcs_fatal_message_reaches_stderr_with_a_controlling_tty_open
+    with_shim do |_so, dir|
+      crash = fastbin_crash(dir)
+      err_path = File.join(dir, "tty-run.err")
+      status, tty_out = run_under_tty(err_path, crash)
+      err = File.read(err_path)
+
+      refute_includes tty_out, "no controlling tty", "the launcher must have a controlling terminal: #{tty_out}"
+      assert_equal Signal.list.fetch("ABRT"), status.termsig, child(status, tty_out, err)
+      assert_includes err, CONSOLIDATE_ABORT, "with a tty open, glibc still writes to stderr. #{child(status, tty_out, err)}"
+    end
+  end
+
+  # [unit] THE BARE CONTROL IS SHIM-FREE IN BOTH LANES. Turf's own test job exports
+  # LD_PRELOAD (the real shim) to the whole suite; studio-engine's Consumer CI lane
+  # does not. The child must see exactly CHILD_ENV + HOME and nothing the worker
+  # carries, so a later "just inherit the env" refactor cannot turn the control into
+  # a shimmed run in one lane and a bare one in the other. Runs on every OS.
+  def test_a_child_inherits_nothing_from_the_suite_worker
+    planted = { "LD_PRELOAD" => "/nonexistent/native-abort-report.so", "GLIBC_TUNABLES" => "glibc.malloc.tcache_count=100" }
+    saved = planted.to_h { |k, _| [k, ENV.fetch(k, nil)] }
+    planted.each { |k, v| ENV[k] = v }
+    out, err, st = run_child({}, "print ENV.keys.sort.join(',')")
+    assert st.success?, child(st, out, err)
+    # macOS's loader adds __CF_USER_TEXT_ENCODING to every process; Linux adds nothing.
+    seen = out.split(",").reject { |k| k.start_with?("__CF_") }
+    assert_equal (CHILD_ENV.keys + ["HOME"]).sort, seen, "the child's whole environment"
+    planted.each_key { |k| refute_includes out.split(","), k, "#{k} leaked from the worker into the child" }
+  ensure
+    saved&.each { |k, v| v.nil? ? ENV.delete(k) : ENV[k] = v }
+  end
+
   private
 
-  def clean_env = ({ "RUBYOPT" => nil, "BUNDLE_GEMFILE" => nil, "LD_PRELOAD" => nil })
+  CONSOLIDATE_ABORT = "malloc_consolidate(): unaligned fastbin chunk detected"
+
+  # The whole environment a child Ruby gets. Nothing is inherited from the suite
+  # worker (unsetenv_others): not RUBYOPT, not BUNDLE_*, not LD_PRELOAD, not any
+  # variable an earlier test left behind.
+  CHILD_ENV = { "PATH" => "/usr/local/bin:/usr/bin:/bin", "LANG" => "C.UTF-8" }.freeze
+
+  # A new session, so the child has no controlling terminal and shares no process
+  # group with the suite: a signal sent to the worker's group cannot reach it. The
+  # launcher then execs the child in place, so the status is the child's own.
+  NO_TTY = "Process.setsid; exec(*ARGV)"
+
+  # The launcher under a pty: /dev/tty must open (else it says so and exits), then
+  # stderr goes to the file named first, and the child execs in place.
+  WITH_TTY = 'begin; File.open("/dev/tty", "w").close; rescue SystemCallError; puts "no controlling tty"; exit 2; end; ' \
+             "$stderr.reopen(ARGV.shift, \"w\"); exec(*ARGV)"
+
+  def run_child(env, script)
+    Open3.capture3(CHILD_ENV.merge("HOME" => Dir.tmpdir).merge(env), RbConfig.ruby, "-e", NO_TTY, RbConfig.ruby, "-e", script,
+                   unsetenv_others: true)
+  end
+
+  def run_under_tty(err_path, script)
+    env = CHILD_ENV.merge("HOME" => Dir.tmpdir)
+    PTY.spawn(env, RbConfig.ruby, "-e", WITH_TTY, err_path, RbConfig.ruby, "-e", script, unsetenv_others: true) do |r, w, pid|
+      w.close
+      out = +""
+      begin
+        r.each_char { |c| out << c }
+      rescue Errno::EIO
+        nil # the pty closes when the child ends
+      end
+      return [Process.wait2(pid).last, out]
+    end
+  end
+
+  # How a child ended, so a red names its own cause instead of an empty string.
+  def child(status, out, err)
+    "child ended #{status.inspect} (termsig=#{status.termsig.inspect} exit=#{status.exitstatus.inspect}); " \
+      "stdout=#{out.to_s[-500..] || out.inspect} stderr=#{err.to_s[-1500..] || err.inspect}"
+  end
+
+  def fastbin_crash(dir)
+    src = File.join(dir, "fastbin.c")
+    helper = File.join(dir, "fastbin.so")
+    File.write(src, FASTBIN_C)
+    _, err, st = Open3.capture3("cc", "-shared", "-fPIC", "-O0", "-o", helper, src)
+    assert st.success?, "the fastbin helper must compile: #{err}"
+
+    'require "fiddle"; Thread.new {}.join; ' \
+      "f = Fiddle::Function.new(Fiddle.dlopen(#{helper.dump})['corrupt_fastbin_and_consolidate'], [], Fiddle::TYPE_VOID); " \
+      "def seed_phase(f) = f.call; seed_phase(f)"
+  end
 
   def with_shim
     skip "the shim is Linux/glibc only (the CI lane image)" unless RbConfig::CONFIG["host_os"].include?("linux")
